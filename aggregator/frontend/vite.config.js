@@ -3,6 +3,19 @@ import react from '@vitejs/plugin-react'
 import fs from 'fs'
 import path from 'path'
 
+// Helper to safely load certs or disable HTTPS
+const getHttpsConfig = () => {
+  const keyPath = path.resolve(__dirname, '../iochunt.key');
+  const certPath = path.resolve(__dirname, '../iochunt.crt');
+  if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+    return {
+      key: fs.readFileSync(keyPath),
+      cert: fs.readFileSync(certPath),
+    };
+  }
+  return false; // Disable HTTPS (e.g. inside Docker build)
+};
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   // Load backend .env manually using Vite's loadEnv
@@ -17,18 +30,15 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
-    host: true,
-    https: {
-      key: fs.readFileSync(path.resolve(__dirname, '../iochunt.key')),
-      cert: fs.readFileSync(path.resolve(__dirname, '../iochunt.crt')),
-    },
-    proxy: {
-      '/api': {
-        target: `https://127.0.0.1:${backendPort}`,
-        changeOrigin: true,
-        secure: false // Since we are using a self-signed cert
+      host: true,
+      https: getHttpsConfig(),
+      proxy: {
+        '/api': {
+          target: `https://127.0.0.1:${backendPort}`,
+          changeOrigin: true,
+          secure: false // Since we are using a self-signed cert
+        }
       }
     }
-  }
   }
 })
