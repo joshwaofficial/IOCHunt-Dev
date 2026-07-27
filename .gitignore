@@ -1,0 +1,50 @@
+# ═══════════════════════════════════════════
+# IOC Hunt — .gitignore
+# ═══════════════════════════════════════════
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Environment files (contain secrets)
+.env
+.env.*
+!.env.example
+
+# SSL Certificates
+*.crt
+*.key
+*.pem
+nginx/ssl/*.crt
+nginx/ssl/*.key
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+postgres/backups/*.gz
+postgres/backups/*.sql
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+
+# Misc
+cookies.txt

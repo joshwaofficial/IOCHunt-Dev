@@ -1,0 +1,188 @@
+# ════════════════════════════════════════════════════════════════
+# IOC Hunt — Docker Compose (Production)
+# ════════════════════════════════════════════════════════════════
+# Usage:
+#   docker compose up -d          # Start all services
+#   docker compose logs -f        # Follow all logs
+#   docker compose down           # Stop all services
+#   docker compose build --no-cache  # Rebuild all images
+# ════════════════════════════════════════════════════════════════
+
+services:
+
+  # ── PostgreSQL Database ──────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: iochunt-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iochunt_password}
+      POSTGRES_DB: ${POSTGRES_DB:-iochunt_central}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - db-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ── Central Backend ──────────────────────────────────────────
+  central-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: iochunt-central-backend
+    environment:
+      CENTRAL_PORT: 4001
+      CENTRAL_DATABASE_URL: postgres://${POSTGRES_USER:-iochunt}:${POSTGRES_PASSWORD:-iochunt_password}@db:5432/iochunt_central
+      CENTRAL_ENCRYPTION_KEY: ${CENTRAL_ENCRYPTION_KEY:-change_me_generate_with_openssl_rand_hex_32}
+      CENTRAL_API_KEY: ${CENTRAL_API_KEY:-change_me_generate_with_openssl_rand_hex_32}
+      CENTRAL_FRONTEND_URL: ${CENTRAL_FRONTEND_URL:-https://72.62.241.39:9443}
+      DISPLAY_TZ: ${DISPLAY_TZ:-Asia/Kolkata}
+      APP_VERSION: ${APP_VERSION:-1.0.0}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@iochunt.local}
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - "central"
+    restart: unless-stopped
+    networks:
+      - db-net
+      - backend-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ── Aggregator Backend ───────────────────────────────────────
+  aggregator-backend:
+    build:
+      context: ./aggregator/backend
+      dockerfile: Dockerfile
+    container_name: iochunt-aggregator-backend
+    environment:
+      AGGREGATOR_NAME: ${AGGREGATOR_NAME:-branch-1}
+      AGGREGATOR_PORT: 4011
+      AGGREGATOR_DATABASE_URL: postgres://${POSTGRES_USER:-iochunt}:${POSTGRES_PASSWORD:-iochunt_password}@db:5432/iochunt_aggregator
+      AGGREGATOR_ENCRYPTION_KEY: ${AGGREGATOR_ENCRYPTION_KEY:-change_me_generate_with_openssl_rand_hex_32}
+      AGGREGATOR_API_KEY: ${AGGREGATOR_API_KEY:-change_me_generate_with_openssl_rand_hex_32}
+      AGGREGATOR_FRONTEND_URL: ${CENTRAL_FRONTEND_URL:-https://72.62.241.39:9443}/aggregator
+      SYSLOG_PORT: ${AGGREGATOR_SYSLOG_PORT:-5520}
+      DISPLAY_TZ: ${DISPLAY_TZ:-Asia/Kolkata}
+      APP_VERSION: ${APP_VERSION:-1.0.0}
+    ports:
+      - "${AGGREGATOR_SYSLOG_PORT:-5520}:${AGGREGATOR_SYSLOG_PORT:-5520}/udp"
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - "aggregator"
+    restart: unless-stopped
+    networks:
+      - db-net
+      - backend-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ── Central Frontend (React Build) ──────────────────────────
+  central-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: iochunt-central-frontend
+    volumes:
+      - central-frontend-dist:/usr/share/nginx/html
+    profiles:
+      - "central"
+    restart: "no"
+    command: >
+      sh -c "cp -r /usr/share/nginx/html/* /dist/ 2>/dev/null || true && echo 'Central frontend files copied' && tail -f /dev/null"
+    networks: []
+
+  # ── Aggregator Frontend (React Build) ───────────────────────
+  aggregator-frontend:
+    build:
+      context: ./aggregator/frontend
+      dockerfile: Dockerfile
+    container_name: iochunt-aggregator-frontend
+    volumes:
+      - aggregator-frontend-dist:/usr/share/nginx/html
+    profiles:
+      - "aggregator"
+    restart: "no"
+    command: >
+      sh -c "cp -r /usr/share/nginx/html/* /dist/ 2>/dev/null || true && echo 'Aggregator frontend files copied' && tail -f /dev/null"
+    networks: []
+
+  # ── Nginx Reverse Proxy ─────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: iochunt-nginx
+    ports:
+      - "${NGINX_HTTP_PORT:-9090}:9090"
+      - "${NGINX_HTTPS_PORT:-9443}:9443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - central-frontend-dist:/usr/share/nginx/html/central:ro
+      - aggregator-frontend-dist:/usr/share/nginx/html/aggregator:ro
+    depends_on:
+      - central-backend
+      - aggregator-backend
+      - central-frontend
+      - aggregator-frontend
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - backend-net
+      - frontend-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+# ── Volumes ────────────────────────────────────────────────────
+volumes:
+  pgdata:
+    name: iochunt-pgdata
+  central-frontend-dist:
+    name: iochunt-central-frontend
+  aggregator-frontend-dist:
+    name: iochunt-aggregator-frontend
+
+# ── Networks ───────────────────────────────────────────────────
+networks:
+  frontend-net:
+    name: iochunt-frontend
+    driver: bridge
+  backend-net:
+    name: iochunt-backend
+    driver: bridge
+  db-net:
+    name: iochunt-db
+    driver: bridge

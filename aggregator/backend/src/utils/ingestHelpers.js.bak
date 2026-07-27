@@ -1,0 +1,2320 @@
+
+const SENSITIVE_TOOLS = new Set([
+  'mimikatz.exe', 'wce.exe', 'fgdump.exe', 'pwdump.exe', 'pwdump7.exe',
+  'procdump.exe', 'procdump64.exe', 'maldump.exe', 'ntdsutil.exe', 'esentutl.exe',
+  'diskshadow.exe', 'secretsdump.exe', 'lazagne.exe', 'crackmapexec.exe',
+  'bloodhound.exe', 'sharphound.exe', 'adrecon.exe', 'kerbrute.exe', 'rubeus.exe',
+  'seatbelt.exe', 'certify.exe', 'spoolsample.exe', 'printspoofer.exe',
+  'juicypotato.exe', 'rottenpotato.exe',
+]);
+
+// High-risk child processes (LOLbins / shells) → CRITICAL when spawned by risky parent
+const HIGH_RISK_CHILDREN = new Set([
+  'cmd.exe', 'powershell.exe', 'conhost.exe', 'wscript.exe', 'cscript.exe',
+  'mshta.exe', 'msiexec.exe', 'regsvr32.exe', 'rundll32.exe', 'schtasks.exe',
+  'sc.exe', 'net.exe', 'tasklist.exe', 'taskkill.exe', 'wmic.exe',
+]);
+
+// Enumeration tools → MEDIUM (elevated to HIGH if burst / from risky parent)
+const ENUM_TOOLS = new Set([
+  'nltest.exe', 'dsquery.exe', 'dsget.exe', 'dsmod.exe', 'dnscmd.exe',
+  'klist.exe', 'adfind.exe', 'ldifde.exe', 'csvde.exe', 'pktmon.exe',
+]);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NOISE DETECTION  (operational / system messages — not security events)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function detectNoise(tag, message, severity) {
+  const tu = (tag || '').toUpperCase();
+  const mu = (message || '').toUpperCase();
+
+  if (tu.includes('[CMD-EXEC]')) {
+    if (mu.includes('PARENT:IOCHUNT')) {
+      // Only suppress known-safe internal commands
+      // Do NOT suppress broadly — parent spoof attack vector
+      if (mu.includes('SCHTASKS.EXE') && mu.includes('/QUERY')) return 1;
+      if (mu.includes('AUDITPOL.EXE')) return 1;
+      if (mu.includes('POWERSHELL.EXE') && mu.includes('GET-AUTHENTICODE')) return 1;
+      if (mu.includes('NETSH.EXE') && mu.includes('ADVFIREWALL')) return 1;
+      if (mu.includes('WMIC.EXE') && mu.includes('WIN32_')) return 1;
+      if (mu.includes('NET.EXE') && mu.includes('USER') &&
+        !mu.includes('/ADD') && !mu.includes('/DELETE')) return 1;
+      if (mu.includes('NETSTAT.EXE') && mu.includes('-P TCP')) return 1;
+      if (mu.includes('TASKKILL.EXE')) return 1;
+      if (mu.includes('LOGOFF.EXE')) return 1;
+      if (mu.includes('SC.EXE') &&
+        (mu.includes('QUERY') || mu.includes('CONFIG'))) return 1;
+      // Anything else from IOC Hunt parent = flag it, could be spoofed
+      return 0;
+    }
+  }
+  // ─────────────────────────────────────────
+  // AD monitor / heartbeat suppression
+  // ─────────────────────────────────────────
+  if (
+    tu.includes('DCSYNC') ||
+    tu.includes('LDAP-ENUM') ||
+    tu.includes('RBCD') ||
+    tu.includes('ASREP') ||
+    tu.includes('KERBEROAST') ||
+    tu.includes('CERTIPY')
+  ) {
+    // ✅ Suppress ONLY monitor/heartbeat messages
+    if (
+      mu.includes('MONITOR ACTIVE') ||
+      mu.includes('MONITORING ACTIVE')
+    ) {
+      return 1;
+    }
+
+    // Keep real attack activity
+    return 0;
+  }
+
+  // Never suppress critical or high events
+  if (severity === 'critical' || severity === 'high') return 0;
+
+
+  if (tu.includes('DEFENDER')) {
+    if (mu.includes('SETTINGS-CHANGE') &&
+      !mu.includes('DISABLEREALTIMEMONITORING') &&
+      !mu.includes('DISABLEBEHAVIORMONITORING') &&
+      !mu.includes('DISABLEONACCESSPROTECTION') &&
+      !mu.includes('DISABLEIOAVPROTECTION') &&
+      !mu.includes('DISABLESCRIPTSCANNING') &&
+      !mu.includes('TAMPERPROTECTION') &&
+      !mu.includes('EXCLUSIONPATH') &&
+      !mu.includes('EXCLUSIONPROCESS') &&
+      !mu.includes('ANTIVIRUSENABLED') &&
+      !mu.includes('SPYNETREPORTING'))
+      return 1;
+
+    if (mu.includes('INTEGRATION ACTIVE') || mu.includes('WATCHER ACTIVE') ||
+      mu.includes('1116/1117/5007')) return 1;
+    if (mu.includes('OLDVALUE:') && mu.includes('NEWVALUE:') &&
+      !mu.includes('DISABLE') && !mu.includes('TAMPER') &&
+      !mu.includes('EXCLUSION')) return 1;
+    return 0;
+  }
+  // Startup noise — replace the existing startup noise check
+  if (tu.includes('[STARTUP]') || tu.includes('STARTUP')) {
+    // Suppress operational/heartbeat messages
+    if (mu.includes('SEEDED') ||
+      mu.includes('FSW ACTIVE ON') ||
+      mu.includes('POLLER ACTIVE') ||
+      mu.includes('CONTINUOUS POLL') ||
+      mu.includes('FSW SETUP FAILED')) return 1;
+    // Keep real detections
+    return 0;
+  }
+  // Never suppress critical or high events
+  if (severity === 'critical' || severity === 'high') return 0;
+
+  // Defender — never suppress real alerts, suppress noise
+  if (tu.includes('DEFENDER')) {
+    if (mu.includes('[SETTINGS-CHANGE]') || mu.includes('SETTINGS-CHANGE') ||
+      mu.includes('OLDVALUE:') || mu.includes('NEWVALUE:')) return 1;
+    if (mu.includes('INTEGRATION ACTIVE') || mu.includes('WATCHER ACTIVE') ||
+      mu.includes('1116/1117/5007')) return 1;
+    if (tu.includes('[DEFENDER-SHIP]') || mu.includes('SHIPPED [DEFENDER]') ||
+      mu.includes('CENTRAL SERVER')) return 1;
+    return 0;
+  }
+
+  // Email status / central-server heartbeat
+  if (tu.includes('[EMAIL') && !tu.includes('ALERT') && !tu.includes('FAILED')) return 1;
+  if (tu.includes('[CENTRAL') && !tu.includes('ERR') && !mu.includes('FAILED')) return 1;
+
+  // Baseline noise
+  if (tu.includes('[BASELINE-DIFF]')) {
+    if (mu.includes('UNSIGNED') && !mu.includes('C:\\WINDOWS') &&
+      !mu.includes('SYSTEM32')) return 0;
+    return 1;
+  }
+  if (tu.includes('[BASELINE') && !tu.includes('SUSPICIOUS') &&
+    !tu.includes('-ACTION') && !tu.includes('-WARN')) return 1;
+
+  // Learning-mode status
+  if (tu.includes('[LEARNING') && !tu.includes('BLOCKED') &&
+    !tu.includes('ACTIVATED')) return 1;
+
+  // Generic info tags
+  if (tu.includes('[INFO]')) return 1;
+  if (tu.includes('[SVC-SKIP')) return 1;
+  if (tu.includes('[LOGON-DEBUG') || tu.includes('[LOGON-POLL')) return 1;
+
+  // Config load/save confirmations
+  if (tu.includes('[CONFIG]') &&
+    (mu.includes('SAVED.') || mu.includes('LOADED.'))) return 1;
+
+  // Whitelist / blocklist load confirmations
+  if ((tu.includes('[WHITELIST]') || tu.includes('[BLOCKLIST]')) &&
+    (mu.includes(' LOADED') || mu.includes(' SAVED'))) return 1;
+
+  // alert
+  if (tu.includes('[AFTER-HOURS-ALERTED]')) return 1;
+
+  // Monitor heartbeats
+  if (tu.includes('[MONITOR]') && severity === 'info') return 1;
+
+  // Audit enabled confirmations
+  if (tu.includes('[AUDIT]') && mu.includes('ENABLED:')) return 1;
+
+  // Firewall status — not errors
+  if (tu.includes('[FIREWALL]') && severity === 'info' &&
+    !mu.includes(' OFF') && !mu.includes('WARN')) return 1;
+
+  // Domain / ADCS / CMD-monitor info lines
+  if ((tu.includes('[DOMAIN]') || tu.includes('[ADCS]') ||
+    tu.includes('[CMDMON]')) && severity === 'info') return 1;
+
+  // IOC Hunt spawning its own child processes
+  if (tu.includes('[CMD-EXEC]') &&
+    (mu.includes('PARENT:IOCHUNT') || mu.includes('PARENT:IOCHUNT.EXE'))) return 1;
+
+  if (tu.includes('[USB]') || tu.includes('[USB-REMOVED]')) {
+    if (mu.includes('SEEDED') || mu.includes('EXISTING REMOVABLE') ||
+      mu.includes('HISTORY')) return 1;
+    if (mu.includes('REMOVED') && !mu.includes('SUSPICIOUS')) return 1;
+    // Do NOT suppress real insertions — they belong in the USB tab
+    return 0;
+  }
+
+  // POLICY UPDATE
+  if ((tu.includes('[CENTRAL-ERR]') || tu.includes('[POLICY-POLL-ERR]')) &&
+    severity === 'info') return 1;
+
+  // POLICY UPDATE
+  if ((tu.includes('[POLICY]')) &&
+    severity === 'info') return 1;
+
+  // Webcam / mic known-safe
+  if ((tu.includes('[WEBCAM]') || tu.includes('[MIC]')) &&
+    severity === 'info') return 1;
+
+  // EVTX baseline info rows
+  if (tu.includes('[EVTX]') && severity === 'info') return 1;
+
+  return 0;
+}
+
+function classifySeverity(tag, message) {
+  const t = (tag || '').toUpperCase();
+  const m = (message || '').toUpperCase();
+
+  // ── User-confirmed allow / whitelist decisions are always INFO ────────────
+  if (t.includes('IOCHUNT-BLOCK') || m.includes('IOCHUNT-BLOCK') ||
+    t.includes('IOCHUNT-ALLOW') || m.includes('IOCHUNT-ALLOW'))
+    return 'info';
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // CRITICAL
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // 1. Windows Defender — malware detected, RTP disabled, tamper
+  // 1. Windows Defender — compound tag [DEFENDER][SUBTYPE] arrives with
+  //    tag=[DEFENDER] and subtype in the message body (ParseLogLine strips compound tags)
+  // 1. Windows Defender — compound tags arrive with tag=[DEFENDER],
+  //    subtype in message body (ParseLogLine strips compound tags)
+  if (t.includes('[DEFENDER]') || t.includes('DEFENDER')) {
+
+    // ── CRITICAL: genuine threats ──────────────────────────────────────────
+    // Real-time protection disabled
+    if (m.includes('[RTP-DISABLED]') || m.includes('RTP-DISABLED') ||
+      (m.includes('RTP') && m.includes('DISABLED')) ||
+      (m.includes('REAL-TIME') && m.includes('DISABLED')))
+      return 'critical';
+
+    // Tamper (someone turned off Defender)
+    if (m.includes('[TAMPER]'))
+      return 'critical';
+
+    // Scan disabled
+    if (m.includes('[SCAN-DISABLED]') || m.includes('SCAN-DISABLED'))
+      return 'critical';
+
+    // Malware DETECTED — subtype may land in tag OR message body
+    if ((m.includes('[DETECTED]') || t.includes('[DETECTED]') || t.includes('DETECTED')) &&
+      (m.includes("THREAT:'") || m.includes('THREAT:') || m.includes('VIRUS') || m.includes('MALWARE')))
+      return 'critical';
+
+    // Remediation failed — malware still active
+    if (m.includes('[REMEDIATION-FAILED]') || m.includes('REMEDIATION-FAILED'))
+      return 'critical';
+
+    // ── HIGH: action taken on threat ──────────────────────────────────────
+    // Quarantine / remove action (Defender dealt with it — high but not critical)
+    if (m.includes('[ACTION]') && !m.includes('FAILED'))
+      return 'high';
+
+    // ── MEDIUM: settings changed (registry value tweaks — common false positives) ─
+    if (m.includes('[SETTINGS-CHANGE]') || m.includes('SETTINGS-CHANGE') ||
+      m.includes('OLDVALUE:') || m.includes('NEWVALUE:'))
+      return 'medium';
+
+    // ── LOW: successful remediation ────────────────────────────────────────
+    if (m.includes('[CLEAN]') || m.includes('REMEDIATION SUCCEEDED') ||
+      m.includes('CLEAN'))
+      return 'low';
+
+    // Default: anything else from Defender is medium
+    return 'medium';
+  }
+
+  // 2. Credential / attack tools detected running
+  if (t.includes('SENSITIVE') || t.includes('BEHAVIORAL-IOC') ||
+    t.includes('SUSPICIOUS-TOOL') || t.includes('HIGH-RISK-PARENT') ||
+    t.includes('MALWARE') || t.includes('AUTO-BLOCKED'))
+    return 'critical';
+
+  // Sensitive tool names anywhere in tag or message
+  for (const tool of SENSITIVE_TOOLS) {
+    const toolUpper = tool.toUpperCase();
+    if (t.includes(toolUpper) || m.includes(toolUpper)) return 'critical';
+  }
+
+  // Mimikatz keywords in message
+  if (m.includes('MIMIKATZ') || m.includes('BLOODHOUND') ||
+    m.includes('SEKURLSA') || m.includes('LSADUMP'))
+    return 'critical';
+
+  // 3. High-risk LOLbin / shell child process spawned (CMD-EXEC critical tags)
+  if (t.includes('[CMD-EXEC][SENSITIVE]') ||
+    t.includes('[CMD-EXEC][HIGH-RISK-PARENT]'))
+    return 'critical';
+
+  // LOLbin / shell names in sensitive context (blocked or detected)
+  if (t.includes('BLOCKED') || t.includes('DETECTED') || t.includes('AUTO-BLOCKED')) {
+    for (const child of HIGH_RISK_CHILDREN) {
+      if (m.includes(child.toUpperCase())) return 'critical';
+    }
+  }
+
+  // 4. Log cleared — evidence destruction
+  if (t.includes('LOG-CLEARED') || m.includes('LOG-CLEARED') ||
+    m.includes('SECURITY EVENT LOG CLEARED'))
+    return 'critical';
+
+  // 5. Critical AD attacks — full domain compromise paths
+  if (t.includes('DCSYNC') || t.includes('DCSHADOW') ||
+    t.includes('GOLDEN-CERT') || t.includes('SHADOW-CRED') ||
+    t.includes('SKELETON-KEY') || t.includes('FORGED-PAC') ||
+    t.includes('KERB-POLICY'))
+    return 'critical';
+
+  // 6. AD CS escalation attacks
+  if (t.includes('ESC1') || t.includes('ESC2') ||
+    t.includes('ESC3') || t.includes('ESC6'))
+    return 'critical';
+
+  // 7. Kerberoasting confirmed burst (20+ TGS)
+  if (t.includes('KERBEROASTING') && !t.includes('RC4'))
+    return 'critical';
+
+  // 8. Connection killed / net blocked (active threat response)
+  if (t.includes('CONN-KILLED') || t.includes('NET-BLOCKED'))
+    return 'critical';
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // HIGH
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // 9. Unsigned process / service / task / registry entry
+  if (t.includes('UNSIGNED') || t.includes('UNSIGNED-UNSAFE-PATH'))
+    return 'high';
+
+  // Persistence mechanisms (startup file, new service, new task, new registry key)
+  if (t.includes('PERSISTENCE'))
+    return 'high';
+
+  // Startup / service / task / registry — new item (not necessarily unsigned)
+  // Only HIGH if not already critical from above
+  if (t.includes('SERVICE-DETECTED') || t.includes('TASK-DETECTED') ||
+    t.includes('STARTUP-DETECTED') || t.includes('REGISTRY-DETECTED'))
+    return 'high';
+
+  // 10. User account changes
+  if (t.includes('USER-CREATED') || t.includes('USER-DELETED') ||
+    t.includes('USER-ENABLED') || t.includes('USER-DISABLED') ||
+    t.includes('GROUP-MEMBER') || t.includes('GROUP-CHANGED') ||
+    t.includes('COMPUTER-ACCT') || t.includes('NEW-COMPUTER') ||
+    t.includes('PASSWORD-RESET') || t.includes('PASSWORD-CHANGE'))
+    return 'high';
+
+  // Config changes that indicate user / group / privilege modification
+  if (t.includes('CONFIG-CHANGE') && (
+    m.includes('USER') || m.includes('GROUP') || m.includes('PRIVILEGE') ||
+    m.includes('ADMIN') || m.includes('PASSWORD') || m.includes('CREATED') ||
+    m.includes('DELETED') || m.includes('ENABLED') || m.includes('DISABLED')))
+    return 'high';
+
+  // 11. Failed logon / brute force / spray / NTLM brute
+  if (t.includes('FAILED-LOGON') || t.includes('BRUTE') ||
+    t.includes('SPRAY') || t.includes('NTLM-BRUTE'))
+    return 'high';
+
+  // 12. AD credential-theft techniques (non-critical tier)
+  if (t.includes('EXPLICIT-CRED') || t.includes('PKINIT') ||
+    t.includes('OVERPASS-HASH') || t.includes('PASS-THE-HASH') ||
+    t.includes('ASREP-ROAST') || t.includes('RBCD') ||
+    t.includes('KERBEROAST-RC4') || t.includes('CERTIPY-ENUM') ||
+    t.includes('LDAP-ENUM') || t.includes('USER-ENUM'))
+    return 'high';
+
+  // 13. Admin share access (lateral movement indicator)
+  if (t.includes('NET-ADMIN-SHARE'))
+    return 'high';
+
+  // 14. After-hours login (interactive session outside office hours)
+  if (t.includes('AFTER-HOURS'))
+    return 'high';
+
+  // 15. USB threat found / autorun
+  if (t.includes('USB') && (m.includes('THREAT') || m.includes('AUTORUN') ||
+    m.includes('AUTORUN!') || m.includes('SUSPICIOUS') || m.includes('ATTACK')))
+    return 'high';
+
+  // 16. Defender — action failed (remediation unsuccessful)
+  if (t.includes('[DEFENDER][ACTION]') && m.includes('FAILED'))
+    return 'high';
+
+  // 17. Certificate requests that look suspicious (ESC-adjacent)
+  if (t.includes('CERT-') || t.includes('CERT-REQUEST') ||
+    t.includes('CERTIPY') || t.includes('GOLDEN-CERT'))
+    return 'high';
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // MEDIUM
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // 18. Inbound / outbound network connections (RDP, SMB, WinRM, SSH…)
+  if (t.includes('NETWORK') || t.includes('NET-') ||
+    t.includes('INBOUND') || t.includes('OUTBOUND') ||
+    t.includes('OUTBOUND-LATERAL') || t.includes('CONN') ||
+    t.includes('[DETECTED][NETWORK]'))
+    return 'medium';
+
+  // Share access (non-admin share)
+  if (t.includes('SHARE') && !t.includes('NET-ADMIN-SHARE'))
+    return 'medium';
+
+  // 19. Enumeration commands (nltest, dsquery, whoami /all, etc.)
+  // 19. Enumeration commands — escalate to HIGH if user/group modification
+  if (t.includes('ENUM') || t.includes('[CMD-EXEC]')) {
+    if (m.includes('USER CREATED') || m.includes('/ADD') ||
+      m.includes('USER /ADD') || m.includes('LOCALGROUP') ||
+      m.includes('NET USER') && m.includes('ADD'))
+      return 'high';
+    return 'medium';
+  }
+
+  for (const tool of ENUM_TOOLS) {
+    if (m.includes(tool.toUpperCase())) return 'medium';
+  }
+
+  // 20. AD / ADCS category events (generic — non-critical tier above)
+  if (t.includes('DOMAIN') || t.includes('ADCS') ||
+    t.includes('TGS-REQUEST') || t.includes('TGT-REQUEST') ||
+    t.includes('NTLM-AUTH') || t.includes('KERBEROS') ||
+    t.includes('REPLICATION') || t.includes('DS-OBJECT'))
+    return 'medium';
+
+  // 21. Config changes — audit policy, GPO, firewall setting
+  if (t.includes('CONFIG-CHANGE') || t.includes('AUDIT-POLICY') ||
+    t.includes('REGISTRY') || t.includes('SERVICE') ||
+    t.includes('TASK') || t.includes('STARTUP'))
+    return 'medium';
+
+  // 22. Webcam / mic — unknown / unsigned app
+  if ((t.includes('WEBCAM') || t.includes('MIC')) && !t.includes('INFO'))
+    return 'medium';
+
+  // 23. Suspicious PowerShell / command-line execution (medium tier)
+  // 23. CMD-EXEC compound tags — ParseLogLine ships only [CMD-EXEC] as the tag,
+  // the second bracket ([DETECTED], [SENSITIVE] etc.) ends up in the message body.
+  if (t.includes('[CMD-EXEC]') || t.includes('CMD-EXEC')) {
+    const mu = m.toUpperCase();
+    if (mu.includes('[SENSITIVE]') || mu.includes('SENSITIVE')) return 'critical';
+    if (mu.includes('[HIGH-RISK-PARENT]') || mu.includes('HIGH-RISK')) return 'critical';
+    if (mu.includes('[ENUM-BURST]') || mu.includes('ENUM-BURST')) return 'high';
+    if (mu.includes('[DETECTED]') || mu.includes('[POWERSHELL]')) return 'medium';
+    if (mu.includes('[ENUM]') || mu.includes('ENUM')) return 'medium';
+    return 'medium';  // any CMD-EXEC event is at least medium
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // LOW
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // 24. Explicit user allow / whitelist decisions
+  if (t.includes('ALLOWED') || t.includes('WHITELISTED') ||
+    t.includes('NET-ALLOWED') || t.includes('OUTBOUND-ALLOWED'))
+    return 'low';
+
+  // 25. USB inserted clean
+  if (t.includes('USB'))
+    return 'low';
+
+  // 26. Webcam / mic — known safe app (info severity for those, low here)
+  if (t.includes('WEBCAM') || t.includes('MIC'))
+    return 'low';
+
+  // 27. Monitoring status
+  if (t.includes('MONITOR'))
+    return 'low';
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // INFO  (default)
+  // ════════════════════════════════════════════════════════════════════════════
+  return 'info';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DYNAMIC FILE WATCHER ENGINE
+// Watches all fw_sources marked enabled=1
+// ─────────────────────────────────────────────────────────────────────────────
+const fsWatchers = {};   // id → fs.FSWatcher
+const fsIntervals = {};   // id → setInterval handle
+
+const batchIngestFw = db.transaction((rows) => {
+  for (const r of rows) insertFwEvent.run(r);
+});
+
+const updateSource = db.prepare(
+  'UPDATE fw_sources SET last_size=?, last_read=?, lines_ingested=lines_ingested+? WHERE id=?'
+);
+
+function readNewLinesFromSource(src) {
+  try {
+    if (!fs.existsSync(src.log_path)) return;
+    const stat = fs.statSync(src.log_path);
+    let lastSize = src.last_size || 0;
+
+    // File was rotated / truncated
+    if (stat.size < lastSize) lastSize = 0;
+    if (stat.size === lastSize) return;
+
+    const stream = fs.createReadStream(src.log_path, {
+      start: lastSize,
+      end: stat.size - 1,
+      encoding: 'utf8',
+    });
+
+    let buffer = '';
+    stream.on('data', chunk => { buffer += chunk; });
+    stream.on('end', () => {
+      // Update persisted size
+      const newSize = stat.size;
+      const lines = buffer.split(/\r?\n/).filter(l => l.trim());
+      const rows = [];
+
+      lines.forEach(line => {
+        try {
+          const parsed = parseFwLog(line, src.name, src.source_timezone || 'UTC');
+          if (parsed) {
+            parsed.devname = parsed.devname || src.name;
+            rows.push(parsed);
+          }
+        } catch (e) { }
+      });
+
+      // Always update size even if no rows (skip binary / non-fw lines)
+      updateSource.run(newSize, Math.floor(Date.now() / 1000), rows.length, src.id);
+      // Update in-memory copy so next poll uses new size
+      src.last_size = newSize;
+
+      if (rows.length) {
+        try {
+          batchIngestFw(rows);
+          // console.log(`[WATCHER:${src.name}] +${rows.length} events`);
+        } catch (e) {
+          console.error(`[WATCHER:${src.name}] insert error:`, e.message);
+        }
+      }
+    });
+    stream.on('error', e => console.error(`[WATCHER:${src.name}] read error:`, e.message));
+  } catch (e) {
+    console.error(`[WATCHER:${src.name}] stat error:`, e.message);
+  }
+}
+
+function startWatchingSource(src) {
+  if (!src.enabled) return;
+  stopWatchingSource(src.id); // clear any existing watcher for this id
+
+  console.log(`[WATCHER] Starting: ${src.name} → ${src.log_path}`);
+
+  // Poll every 2 seconds (reliable across all platforms + NFS)
+  fsIntervals[src.id] = setInterval(() => readNewLinesFromSource(src), 2000);
+
+  // Also use fs.watch for instant trigger
+  try {
+    fsWatchers[src.id] = fs.watch(src.log_path, (event) => {
+      if (event === 'change') readNewLinesFromSource(src);
+    });
+  } catch (e) {
+    console.log(`[WATCHER:${src.name}] fs.watch unavailable, polling only`);
+  }
+}
+
+function stopWatchingSource(id) {
+  if (fsWatchers[id]) { try { fsWatchers[id].close(); } catch (e) { } delete fsWatchers[id]; }
+  if (fsIntervals[id]) { clearInterval(fsIntervals[id]); delete fsIntervals[id]; }
+}
+
+// Start watching all enabled sources on boot
+; (function initSourceWatchers() {
+  const sources = db.prepare('SELECT * FROM fw_sources WHERE enabled=1').all();
+  sources.forEach(startWatchingSource);
+  console.log(`[WATCHER] Loaded ${sources.length} source(s) from DB`);
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CATEGORY PARSER
+// ─────────────────────────────────────────────────────────────────────────────
+
+function parseCategory(tag, message) {
+  const t = (tag || '').toUpperCase();
+  const m = (message || '').toUpperCase();
+
+  // CMD-EXEC subtypes — categorise by what happened
+  if (t.includes('[CMD-EXEC]') || t.includes('CMD-EXEC')) {
+    if (m.includes('[SENSITIVE]') || m.includes('SENSITIVE')) return 'SENSITIVE';
+    if (m.includes('[HIGH-RISK-PARENT]') || m.includes('HIGH-RISK')) return 'CHILD-PROCESS';
+    if (m.includes('[DETECTED]')) return 'CHILD-PROCESS';
+    if (m.includes('[ENUM]') || m.includes('ENUM')) return 'ENUM';
+    if (m.includes('[POWERSHELL]')) return 'PROCESSES';
+    return 'PROCESSES';
+  }
+
+  if (t.includes('CMD-EXEC') || t.includes('[CMD-EXEC]')) {
+    const mu = (tag || '').toUpperCase() + ' ' + '';
+    // We need the message too — pass it through parseCategory
+    return 'PROCESSES';  // handled below with message context
+  }
+  if (t.includes('PROCESS') || t.includes('BEHAVIORAL') ||
+    t.includes('HIGH-RISK-PARENT'))
+    return 'PROCESSES';
+
+  if (t.includes('REGISTRY')) return 'REGISTRY';
+  if (t.includes('STARTUP')) return 'STARTUP';
+  if (t.includes('SERVICE')) return 'SERVICES';
+  if (t.includes('TASK')) return 'TASKS';
+
+  if (t.includes('NET') || t.includes('SHARE') || t.includes('CONN') ||
+    t.includes('INBOUND') || t.includes('OUTBOUND') || t.includes('LATERAL'))
+    return 'NETWORK';
+
+  if (t.includes('CONFIG')) return 'CONFIG';
+  if (t.includes('SENSITIVE')) return 'SENSITIVE';
+  if (t.includes('ENUM')) return 'ENUM';
+
+  if (t.includes('LOGON') || t.includes('AFTER-HOURS') ||
+    t.includes('FAILED-LOGON') || t.includes('BRUTE'))
+    return 'LOGON';
+
+  if (t.includes('USB')) return 'USB';
+  if (t.includes('WEBCAM') || t.includes('MIC')) return 'WEBCAM';
+
+  if (t.includes('DEFENDER') || t.includes('[DEFENDER]')) return 'DEFENDER';
+
+  // AD domain attacks
+  if (t.includes('DCSYNC') || t.includes('DCSHADOW') ||
+    t.includes('KERBEROAST') || t.includes('RBCD') ||
+    t.includes('SPRAY') || t.includes('NTLM-BRUTE') ||
+    t.includes('COMPUTER-ACCT') || t.includes('EXPLICIT-CRED') ||
+    t.includes('DOMAIN') || t.includes('PASS-THE-HASH') ||
+    t.includes('OVERPASS-HASH') || t.includes('ASREP') ||
+    t.includes('SKELETON-KEY') || t.includes('FORGED-PAC') ||
+    t.includes('KERB-POLICY') || t.includes('GOLDEN-CERT') ||
+    t.includes('SHADOW-CRED'))
+    return 'DOMAIN';
+
+  // AD CS / certificate attacks
+  if (t.includes('ESC') || t.includes('SHADOW-CRED') ||
+    t.includes('PKINIT') || t.includes('CERTIPY') ||
+    t.includes('LDAP-ENUM') || t.includes('CA-CONFIG') ||
+    t.includes('CERT-') || t.includes('ADCS') ||
+    t.includes('GOLDEN-CERT'))
+    return 'ADCS';
+
+  return 'OTHER';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROTOCOL GUESSER  (for topology)
+// ─────────────────────────────────────────────────────────────────────────────
+function guessProto(port) {
+  const m = {
+    3389: 'RDP', 445: 'SMB', 5985: 'WinRM', 5986: 'WinRM-S', 22: 'SSH', 23: 'Telnet',
+    88: 'Kerberos', 389: 'LDAP', 636: 'LDAPS', 135: 'RPC', 139: 'SMB',
+    4444: 'Meterpreter', 80: 'HTTP', 443: 'HTTPS', 8080: 'HTTP-Alt',
+    21: 'FTP', 25: 'SMTP', 53: 'DNS',
+  };
+  return m[port] || ('TCP:' + port);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AD EVENT PARSER  (topology nodes)
+// ─────────────────────────────────────────────────────────────────────────────
+function parseAdEvent(machine, tag, msg, sev) {
+  const t = tag.toUpperCase();
+
+  function isDomainContext() {
+    const mu = msg.toUpperCase();
+    return (
+      /[A-Z0-9_-]{2,}\\[A-Z0-9_-]{2,}/.test(msg) ||
+      /@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(msg) ||
+      mu.includes('KERBEROS') || mu.includes('LDAP') ||
+      mu.includes('KRB') || mu.includes('KRBTGT') ||
+      mu.includes('TGT') || mu.includes('TGS') ||
+      mu.includes(' DOMAIN') || mu.includes('DOMAIN ') ||
+      mu.includes('DOMAIN') || mu.includes('REPLICATION') ||
+      mu.includes('NTDS') || mu.includes('LSASS') ||
+      (mu.includes('EXPLICIT') && mu.includes('->') &&
+        !mu.includes('LOCALHOST') && !mu.includes('127.0.0.1'))
+    );
+  }
+
+  function g(re) { const r = msg.match(re); return r ? r[1] : ''; }
+
+  const alwaysAd = (
+    t.includes('DCSYNC') || t.includes('DCSHADOW') ||
+    t.includes('KERBEROAST') || t.includes('SKELETON-KEY') ||
+    t.includes('GOLDEN-CERT') || t.includes('SHADOW-CRED') ||
+    t.includes('ASREP-ROAST') || t.includes('OVERPASS-HASH') ||
+    t.includes('PASS-THE-HASH') || t.includes('FORGED-PAC') ||
+    t.includes('KERB-POLICY') || t.includes('ESC') ||
+    t.includes('ADCS') || t.includes('CERTIPY') ||
+    t.includes('LDAP-ENUM') || t.includes('PKINIT') ||
+    t.includes('S4U') || t.includes('SPRAY') ||
+    t.includes('NTLM-BRUTE') || t.includes('RBCD')
+  );
+
+  const conditionalAd = (t.includes('EXPLICIT-CRED') || t.includes('COMPUTER-ACCT'));
+
+  if (!alwaysAd && !conditionalAd) return null;
+  if (conditionalAd && !alwaysAd && !isDomainContext()) return null;
+
+  if (t.includes('DCSYNC')) {
+    const actor = g(/by\s+'([^']+)'/i) || g(/by\s+(\S+)/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'DCSync', actor, target_machine: machine, protocol: 'DCSync/RPC', severity: sev, description: 'DCSync: replication rights abused — all hashes exposed' };
+  }
+  if (t.includes('DCSHADOW')) {
+    const actor = g(/'([^']+)'\s+modified/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'DCShadow', actor, target_machine: machine, protocol: 'DCShadow/RPC', severity: sev, description: 'DCShadow: rogue DC registered via nTDSDSA modification' };
+  }
+  if (t.includes('KERBEROAST')) {
+    const actor = g(/'([^']+)'\s+made/i) || g(/from\s+'([^']+)'/i) || 'unknown';
+    const cnt = g(/(\d+)\s+TGS/i) || '?';
+    return { direction: 'ad_attack', attack_type: 'Kerberoasting', actor, target_machine: machine, protocol: 'Kerberoast/KRB5', severity: sev, description: 'Kerberoasting: ' + cnt + ' TGS requests for offline cracking' };
+  }
+  if (t.includes('RBCD')) {
+    const actor = g(/'([^']+)'\s+requesting/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'RBCD', actor, target_machine: machine, protocol: 'RBCD/KRB5', severity: sev, description: 'RBCD: Resource-Based Constrained Delegation abuse' };
+  }
+  if (t.includes('SPRAY')) {
+    const actor = g(/from\s+'([^']+)'/i) || g(/from\s+([\d.]+)/i) || 'unknown';
+    const cnt2 = g(/(\d+)\s+Kerberos/i) || g(/(\d+)\s+failures/i) || '?';
+    const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(actor);
+    return { direction: 'ad_attack', attack_type: 'PasswordSpray', actor, remote_ip: isIp ? actor : '', target_machine: machine, protocol: 'Spray/KRB5', severity: sev, description: 'Password spray: ' + cnt2 + ' pre-auth failures from ' + actor };
+  }
+  if (t.includes('NTLM-BRUTE')) {
+    const actor = g(/workstation\s+'([^']+)'/i) || g(/'([^']+)'/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'NTLM-Brute', actor, target_machine: machine, protocol: 'NTLM-Brute/SMB', severity: sev, description: 'NTLM brute force from ' + actor };
+  }
+  if (t.includes('SHADOW-CRED')) {
+    const actor = g(/by\s+'([^']+)'/i) || g(/actor:\s*([^\s|]+)/i) || 'unknown';
+    let tgt = g(/on\s+'([^']+)'/i) || '?';
+    if (tgt.startsWith('CN=')) tgt = tgt.split(',')[0].replace('CN=', '');
+    return { direction: 'ad_attack', attack_type: 'ShadowCred', actor, target_machine: machine, protocol: 'ShadowCred/LDAP', severity: sev, description: 'Shadow Credentials: msDS-KeyCredentialLink written on ' + tgt };
+  }
+  if (t.includes('ESC1')) {
+    const actor = g(/requester='([^']+)'/i) || g(/issued to:\s*([^\s|]+)/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'ESC1', actor, target_machine: machine, protocol: 'ESC1/HTTPS', severity: sev, description: 'ESC1: certificate SAN injection by ' + actor };
+  }
+  if (t.includes('ESC2')) {
+    const actor = g(/requester:\s*([^\s|]+)/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'ESC2', actor, target_machine: machine, protocol: 'ESC2/HTTPS', severity: sev, description: 'ESC2: Any-Purpose template abused by ' + actor };
+  }
+  if (t.includes('ESC3')) {
+    const actor = g(/'([^']+)'\s+via/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'ESC3', actor, target_machine: machine, protocol: 'ESC3/HTTPS', severity: sev, description: 'ESC3: Enrollment Agent cert by ' + actor };
+  }
+  if (t.includes('ESC6')) {
+    const ca = g(/CA\s+'([^']+)'/i) || machine;
+    return { direction: 'ad_attack', attack_type: 'ESC6', actor: 'CA-MisConfig', target_machine: machine, protocol: 'ESC6/RPC', severity: sev, description: 'ESC6: CA ' + ca + ' has EDITF_ATTRIBUTESUBJECTALTNAME2' };
+  }
+  if (t.includes('CERTIPY') || t.includes('LDAP-ENUM')) {
+    const actor = g(/'([^']+)'/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'CertipyEnum', actor, target_machine: machine, protocol: 'Certipy/LDAP', severity: sev, description: 'Certipy enumeration — cert template/CA discovery' };
+  }
+  if (t.includes('GOLDEN-CERT')) {
+    const actor = g(/by\s+'([^']+)'/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'GoldenCert', actor, target_machine: machine, protocol: 'GoldenCert/RPC', severity: sev, description: 'Golden Certificate: CA private key backed up by ' + actor };
+  }
+  if (t.includes('PKINIT')) {
+    const actor = g(/'([^']+)'\s+from/i) || 'unknown';
+    const src = g(/from\s+([\d.]+)/i) || '';
+    return { direction: 'ad_attack', attack_type: 'PassCert', actor, remote_ip: src, target_machine: machine, protocol: 'PassCert/KRB5', severity: sev, description: 'Pass-the-Cert (PKINIT): ' + actor };
+  }
+  if (t.includes('EXPLICIT-CRED')) {
+    const actor = g(/'([^']+)'\s+used explicit/i) || 'unknown';
+    const tgt2 = g(/to\s+'([^']+)'/i) || machine;
+    return { direction: 'ad_attack', attack_type: 'ExplicitCred', actor, target_machine: tgt2, protocol: 'ExplicitCred/KRB5', severity: sev, description: 'Explicit cred use: ' + actor + ' -> ' + tgt2 };
+  }
+  if (t.includes('COMPUTER-ACCT')) {
+    const actor = g(/by\s+'([^']+)'/i) || 'unknown';
+    const acct = g(/'([^']+)'\s+created/i) || '?';
+    return { direction: 'ad_attack', attack_type: 'NewComputer', actor, target_machine: machine, protocol: 'NewComputer/LDAP', severity: sev, description: 'New computer account ' + acct + ' by ' + actor + ' (RBCD prep)' };
+  }
+  if (t.includes('ASREP-ROAST')) {
+    const actor = g(/'([^']+)'\s+from/i) || g(/account[:\s]+'([^']+)'/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'ASREPRoast', actor, target_machine: machine, protocol: 'ASREP/KRB5', severity: sev, description: 'AS-REP Roasting: pre-auth not required for ' + actor };
+  }
+  if (t.includes('OVERPASS-HASH')) {
+    const actor = g(/'([^']+)'\s+from/i) || 'unknown';
+    const src2 = g(/from\s+([\d.]+)/i) || '';
+    return { direction: 'ad_attack', attack_type: 'OverpassHash', actor, remote_ip: src2, target_machine: machine, protocol: 'OverpassHash/KRB5', severity: sev, description: 'Overpass-the-Hash: RC4 TGT from workstation IP ' + src2 };
+  }
+  if (t.includes('PASS-THE-HASH')) {
+    const actor = g(/'([^']+)@/i) || 'unknown';
+    const src3 = g(/from\s+([\d.]+)/i) || '';
+    return { direction: 'ad_attack', attack_type: 'PassTheHash', actor, remote_ip: src3, target_machine: machine, protocol: 'PTH/NTLM', severity: sev, description: 'Pass-the-Hash: NTLM logon with blank workstation from ' + src3 };
+  }
+  if (t.includes('FORGED-PAC')) {
+    const actor = g(/account[:\s]+'([^']+)'/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'ForgedPAC', actor, target_machine: machine, protocol: 'ForgedPAC/KRB5', severity: sev, description: 'Forged PAC / privilege escalation for ' + actor };
+  }
+  if (t.includes('KERB-POLICY')) {
+    const actor = g(/by\s+'([^']+)'/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'KerbPolicy', actor, target_machine: machine, protocol: 'KerbPolicy/AD', severity: sev, description: 'Kerberos policy modified by ' + actor + ' — golden ticket lifetime change' };
+  }
+  if (t.includes('SKELETON-KEY')) {
+    const src4 = g(/source[:\s]+([\d.]+)/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'SkeletonKey', actor: src4, target_machine: machine, protocol: 'SkeletonKey/KRB5', severity: sev, description: 'Skeleton Key backdoor indicator: repeated 0x18 pre-auth failures from ' + src4 };
+  }
+
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NETWORK EVENT PARSER  (topology)
+// ─────────────────────────────────────────────────────────────────────────────
+function parseNetworkEvent(machine, tag, msg, sev) {
+  const t = tag.toUpperCase();
+
+  // AD attack takes priority
+  const ad = parseAdEvent(machine, tag, msg, sev);
+  if (ad) return ad;
+
+  // Firewall block events
+  const blockM = (tag + ' ' + msg).match(
+    /IOCHunt-Block(?:-(Out|In))?-(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})-(\d{1,5})/i
+  );
+  if (blockM) {
+    const bDir = (blockM[1] || '').toUpperCase();
+    const bIp = blockM[2];
+    const bPort = parseInt(blockM[3]);
+    if (bIp === '127.0.0.1' || bIp === '::1') return null;
+    if (bDir === 'OUT' || t.includes('OUTBOUND'))
+      return { direction: 'outbound', remote_ip: bIp, port: bPort, protocol: guessProto(bPort), severity: sev, blocked: 1 };
+    else
+      return { direction: 'inbound', remote_ip: bIp, port: bPort, protocol: guessProto(bPort), severity: sev, blocked: 1 };
+  }
+
+  const isInbound =
+    t.includes('NET-ADMIN-SHARE') || t.includes('NET-BLOCKED') || t.includes('CONN-KILLED') ||
+    (t.includes('DETECTED') && (
+      msg.includes('RDP') || msg.includes('SMB') || msg.includes('WinRM') ||
+      msg.includes('[NETWORK]') || msg.toUpperCase().includes('NETWORK') ||
+      /from\s+\d{1,3}\.\d/.test(msg)
+    )) ||
+    (t.includes('FAILED-LOGON') && (msg.includes('From:') || msg.includes('from ')));
+
+  if (isInbound) {
+    const ipM = msg.match(/[Ff]rom[:\s]+([\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3})/i) ||
+      msg.match(/remoteip[=:\s]+([\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3})/i);
+    if (!ipM || ipM[1] === '127.0.0.1' || ipM[1] === '::1' || ipM[1] === '-') return null;
+    const portM = msg.match(/port\s+(\d+)/i) || msg.match(/:(\d{2,5})\b/);
+    const protoM = msg.match(/\b(RDP|SMB|WinRM(?:-HTTPS?)?|SSH|Telnet|PsExec|HTTP|HTTPS|FTP|SMTP)\b/i);
+    const port = portM ? parseInt(portM[1]) : 0;
+    return {
+      direction: 'inbound', remote_ip: ipM[1], port,
+      protocol: protoM ? protoM[1].toUpperCase() : guessProto(port),
+      severity: sev, blocked: (t.includes('BLOCKED') || t.includes('KILLED')) ? 1 : 0
+    };
+  }
+
+  const isOutbound = t.includes('OUTBOUND') || msg.toUpperCase().includes('OUTBOUND') ||
+    !!msg.match(/connect(?:ed|ion)?\s+to\s+\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+/i);
+
+  if (isOutbound) {
+    const m2 = msg.match(/→\s*([\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}):(\d+)/) ||
+      msg.match(/->\s*([\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}):(\d+)/) ||
+      msg.match(/Destination[^:]*?([\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}):(\d+)/i) ||
+      msg.match(/\bto\s+([\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}):(\d+)/i) ||
+      msg.match(/connect(?:ed|ion)?\s+to\s+([\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}):(\d+)/i);
+    if (!m2 || m2[1] === '127.0.0.1' || m2[1] === '::1') return null;
+    const port2 = parseInt(m2[2]) || 0;
+    const protoM2 = msg.match(/\b(RDP|SMB|WinRM(?:-HTTPS?)?|SSH|Meterpreter|Telnet|RPC|HTTP|HTTPS|FTP)\b/i);
+    return {
+      direction: 'outbound', remote_ip: m2[1], port: port2,
+      protocol: protoM2 ? protoM2[1].toUpperCase() : guessProto(port2),
+      severity: sev, blocked: t.includes('BLOCKED') ? 1 : 0
+    };
+  }
+
+  return null;
+}
+
+
+/**
+ * IOC Hunt — Central Log Server v4
+ * Based on working v3 — minimal AD additions only
+ *
+ * SEVERITY MATRIX (updated to match IOC Hunt agent categories):
+ * ─────────────────────────────────────────────────────────────────────
+ * CRITICAL  → Defender detections (malware found, RTP disabled, tamper)
+ *             Sensitive/credential tools (mimikatz, bloodhound, rubeus…)
+ *             High-risk child processes spawned (cmd, powershell, wmic…)
+ *             Log cleared, DCSync, DCShadow, Golden Cert, Shadow Creds
+ *             AD CS ESC attacks, Kerberoasting, RBCD, Skeleton Key
+ *
+ * HIGH      → Unsigned process / service / task / registry entry created
+ *             User created / deleted / enabled / disabled
+ *             Group membership changed (esp. admin groups)
+ *             Failed logon / brute force / spray / NTLM brute
+ *             Explicit credential use, PKINIT, Overpass-the-Hash, PTH
+ *             Certipy / LDAP enumeration, Computer account creation
+ *             After-hours login, Admin share access
+ *             Persistence (startup, service, task, registry)
+ *             USB threat found / autorun detected
+ *             Defender remediation failed
+ *
+ * MEDIUM    → Inbound/Outbound network connections (RDP, SMB, WinRM…)
+ *             Lateral movement connections
+ *             Enumeration commands (nltest, dsquery, whoami /all…)
+ *             AD-related events (domain, ADCS category — non-critical)
+ *             Config changes (audit policy, group policy)
+ *             After-hours access (non-login)
+ *             Scheduled task / service / registry changes (non-unsigned)
+ *
+ * LOW       → Whitelisted / allowed events
+ *             USB inserted (clean, no findings)
+ *             Webcam / mic accessed (known app)
+ *             Process allowed by user
+ *
+ * INFO      → System noise, baseline events, heartbeat, EVTX info events
+ * ─────────────────────────────────────────────────────────────────────
+ */
+
+const express = require('express');
+const Database = require('better-sqlite3');
+const compress = require('compression');
+const crypto = require('crypto');
+const path = require('path');
+const dgram = require('dgram');
+const https = require('https');
+const http = require('http');
+const QRCodeLib = require('qrcode');
+const SYSLOG_PORT = process.env.SYSLOG_PORT || 5514;
+const fs = require('fs');
+const nodemailer = require('nodemailer');
+const cron = require('node-cron');
+const { DateTime } = require('luxon');
+
+const PORT = process.env.PORT || 3000;
+const API_KEY = process.env.API_KEY || 'iochunt-change-me';
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'iochunt.db');
+let displayTimezone = process.env.DISPLAY_TZ || 'Asia/Kolkata';
+// AFTER (fixed)
+function nowUTC() {
+  const d = new Date();
+  return d.getUTCFullYear() + '-' +
+    String(d.getUTCMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getUTCDate()).padStart(2, '0') + ' ' +
+    String(d.getUTCHours()).padStart(2, '0') + ':' +
+    String(d.getUTCMinutes()).padStart(2, '0') + ':' +
+    String(d.getUTCSeconds()).padStart(2, '0');
+}
+function hoursAgoUTC(hours) {
+  const d = new Date(Date.now() - hours * 3600000);
+  return d.getUTCFullYear() + '-' +
+    String(d.getUTCMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getUTCDate()).padStart(2, '0') + ' ' +
+    String(d.getUTCHours()).padStart(2, '0') + ':' +
+    String(d.getUTCMinutes()).padStart(2, '0') + ':' +
+    String(d.getUTCSeconds()).padStart(2, '0');
+}
+// ── Shared theme system ───────────────────────────────────────────────────────
+const THEME_INIT = `<script>
+(function(){
+  var t=localStorage.getItem('iochunt-theme')||'dark';
+  document.documentElement.setAttribute('data-theme',t);
+})();
+</script>`;
+
+const THEME_CSS = `
+<style id="theme-vars">
+:root[data-theme="dark"]{
+  --bg:#060910;--bg2:#0b0f1a;--surface:#0f1520;--surface2:#141d2e;
+  --border:#1a2540;--border2:#243050;--text:#e2eaf5;--muted:#4a6080;
+  --muted2:#7090b0;--accent:#3b82f6;--accent2:#60a5fa;
+  --glow:rgba(59,130,246,0.15);--err-bg:rgba(239,68,68,.1);
+  --err-border:rgba(239,68,68,.3);--err-text:#f87171;
+  --input-bg:#07090f;--card-shadow:0 24px 80px rgba(0,0,0,0.4);
+}
+:root[data-theme="light"]{
+  --bg:#f0f4fc;--bg2:#e8eef8;--surface:#ffffff;--surface2:#f5f8ff;
+  --border:#d0daf0;--border2:#b8c8e8;--text:#1a2540;--muted:#7890b8;
+  --muted2:#4a6080;--accent:#2563eb;--accent2:#1d4ed8;
+  --glow:rgba(37,99,235,0.12);--err-bg:rgba(220,38,38,.08);
+  --err-border:rgba(220,38,38,.25);--err-text:#dc2626;
+  --input-bg:#f8faff;--card-shadow:0 24px 80px rgba(0,0,0,0.1);
+}
+*,*::before,*::after{transition:background-color .25s,border-color .25s,color .25s,box-shadow .25s}
+a,button,input,select,textarea{transition:all .2s}
+</style>`;
+
+const THEME_TOGGLE_BTN = `
+<button id="themeToggle" onclick="toggleTheme()"
+  title="Toggle theme (Alt+T)"
+  style="background:var(--surface2);border:1px solid var(--border);
+         color:var(--muted2);border-radius:8px;width:34px;height:34px;
+         cursor:pointer;font-size:16px;display:flex;align-items:center;
+         justify-content:center;flex-shrink:0">
+  <span id="themeIcon">🌙</span>
+</button>`;
+
+const THEME_SCRIPT = `<script>
+var _theme = localStorage.getItem('iochunt-theme') || 'dark';
+
+// Keep the .light class in sync with data-theme on load
+if (_theme === 'light') document.documentElement.classList.add('light');
+
+function _applyTheme(t){
+  _theme = t;
+  document.documentElement.setAttribute('data-theme', t);
+  if (t === 'light') {
+    document.documentElement.classList.add('light');
+  } else {
+    document.documentElement.classList.remove('light');
+  }
+  var ic = document.getElementById('themeIcon');
+  if(ic) ic.textContent = t==='dark' ? 'light_mode' : 'dark_mode';
+  localStorage.setItem('iochunt-theme', t);
+}
+function toggleNotifications() {
+  var p = document.getElementById('notifPopup');
+  if(p.style.display==='none' || p.style.display===''){
+    p.style.display='flex';
+    var dot = document.getElementById('notifCount');
+    if(dot) { dot.style.display='none'; dot.textContent='0'; }
+  } else {
+    p.style.display='none';
+  }
+}
+
+function addNotification(msg) {
+  var list = document.getElementById('notifList');
+  var noNotifs = document.getElementById('noNotifs');
+  if (noNotifs) noNotifs.style.display = 'none';
+  var item = document.createElement('div');
+  item.style.padding = '12px 16px';
+  item.style.borderBottom = '1px solid var(--border)';
+  item.style.fontSize = '12px';
+  item.style.color = 'var(--text)';
+  item.style.fontFamily = 'var(--sans)';
+  var time = new Date().toLocaleTimeString();
+  item.innerHTML = '<div style="font-size:10px;color:var(--muted);margin-bottom:4px">' + time + '</div>' + msg;
+  list.insertBefore(item, list.firstChild);
+  var dot = document.getElementById('notifCount');
+  if(dot) {
+    dot.style.display = 'flex';
+    dot.textContent = parseInt(dot.textContent || '0') + 1;
+  }
+}
+function toggleTheme(){
+  _applyTheme(_theme==='dark'?'light':'dark');
+  // Refresh charts so they pick up new colors
+  if(typeof chartTimeline  !== 'undefined' && chartTimeline)  { chartTimeline.destroy();  chartTimeline=null;  }
+  if(typeof chartCategory  !== 'undefined' && chartCategory)  { chartCategory.destroy();  chartCategory=null;  }
+  if(typeof chartSeverity  !== 'undefined' && chartSeverity)  { chartSeverity.destroy();  chartSeverity=null;  }
+  if(typeof statsData !== 'undefined' && statsData) {
+    renderTimeline(); renderCategoryChart(); renderSeverityChart();
+  }
+}
+</script>`;
+
+const db = new Database(DB_PATH);
+db.exec(`
+  PRAGMA journal_mode = WAL;
+  PRAGMA synchronous  = NORMAL;
+  CREATE TABLE IF NOT EXISTS events (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    machine   TEXT    NOT NULL,
+    ts        TEXT    NOT NULL,
+    tag       TEXT    NOT NULL,
+    severity  TEXT    NOT NULL DEFAULT 'info',
+    category  TEXT    NOT NULL DEFAULT '',
+    message   TEXT    NOT NULL,
+    received  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_events_ts       ON events(ts);
+  CREATE INDEX IF NOT EXISTS idx_events_machine  ON events(machine);
+  CREATE INDEX IF NOT EXISTS idx_events_severity ON events(severity);
+  CREATE INDEX IF NOT EXISTS idx_events_tag      ON events(tag);
+  CREATE TABLE IF NOT EXISTS machines (
+    id          TEXT PRIMARY KEY,
+    label       TEXT,
+    last_seen   INTEGER,
+    event_count INTEGER DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS fw_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          TEXT    NOT NULL,
+    received    INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    devname     TEXT    DEFAULT '',
+    src_ip      TEXT    DEFAULT '',
+    src_port    INTEGER DEFAULT 0,
+    dst_ip      TEXT    DEFAULT '',
+    dst_port    INTEGER DEFAULT 0,
+    action      TEXT    DEFAULT '',
+    service     TEXT    DEFAULT '',
+    policy      TEXT    DEFAULT '',
+    proto       TEXT    DEFAULT '',
+    src_country TEXT    DEFAULT '',
+    dst_country TEXT    DEFAULT '',
+    sent_bytes  INTEGER DEFAULT 0,
+    rcv_bytes   INTEGER DEFAULT 0,
+    duration    INTEGER DEFAULT 0,
+    session_id  TEXT    DEFAULT '',
+    severity    TEXT    DEFAULT 'info',
+    raw         TEXT    DEFAULT ''
+  );
+  CREATE INDEX IF NOT EXISTS idx_fw_ts     ON fw_events(ts);
+  CREATE INDEX IF NOT EXISTS idx_fw_src    ON fw_events(src_ip);
+  CREATE INDEX IF NOT EXISTS idx_fw_dst    ON fw_events(dst_ip);
+  CREATE INDEX IF NOT EXISTS idx_fw_action ON fw_events(action);
+  CREATE INDEX IF NOT EXISTS idx_fw_recv   ON fw_events(received);
+  CREATE TABLE IF NOT EXISTS fw_sources (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    name      TEXT NOT NULL,
+    log_path  TEXT NOT NULL UNIQUE,
+    enabled   INTEGER DEFAULT 1,
+    created   INTEGER DEFAULT (strftime('%s','now')),
+    last_read INTEGER DEFAULT 0,
+    last_size INTEGER DEFAULT 0,
+    lines_ingested INTEGER DEFAULT 0
+  );
+`);
+try { db.exec(`ALTER TABLE machines ADD COLUMN ip TEXT DEFAULT ''`); } catch (e) { }
+try { db.exec(`ALTER TABLE events ADD COLUMN is_noise INTEGER NOT NULL DEFAULT 0`); } catch (e) { }
+try { db.exec(`ALTER TABLE users ADD COLUMN email TEXT DEFAULT ''`); } catch (e) { }
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_events_noise    ON events(is_noise)`); } catch (e) { }
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_events_category ON events(category)`); } catch (e) { }
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS policies (
+      machine     TEXT PRIMARY KEY,
+      policy_json TEXT NOT NULL DEFAULT '{}',
+      updated_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      applied_at  INTEGER DEFAULT NULL
+    );
+  `);
+} catch (e) { }
+try { db.exec(`ALTER TABLE policies ADD COLUMN current_json TEXT DEFAULT '{}'`); } catch (e) { }
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pol_groups (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL UNIQUE,
+      policy_json TEXT NOT NULL DEFAULT '{}',
+      updated_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
+    CREATE TABLE IF NOT EXISTS machine_groups (
+      machine   TEXT NOT NULL,
+      group_id  TEXT NOT NULL,
+      PRIMARY KEY (machine, group_id),
+      FOREIGN KEY (group_id) REFERENCES pol_groups(id) ON DELETE CASCADE
+    );
+  `);
+} catch (e) { }
+// ── Incident Management ───────────────────────────────────────────────────────
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS incidents (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      title       TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      status      TEXT NOT NULL DEFAULT 'new',
+      priority    TEXT NOT NULL DEFAULT 'P2',
+      assigned_to TEXT DEFAULT NULL,
+      machine     TEXT DEFAULT '',
+      created_by  TEXT NOT NULL DEFAULT 'system',
+      created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      updated_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      resolved_at INTEGER DEFAULT NULL,
+      closed_at   INTEGER DEFAULT NULL,
+      source_chain_id TEXT DEFAULT NULL
+    );
+    CREATE TABLE IF NOT EXISTS incident_notes (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      incident_id INTEGER NOT NULL,
+      author      TEXT NOT NULL,
+      body        TEXT NOT NULL,
+      created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      note_type   TEXT NOT NULL DEFAULT 'comment',
+      FOREIGN KEY (incident_id) REFERENCES incidents(id) ON DELETE CASCADE
+    );
+CREATE TABLE IF NOT EXISTS incident_events (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      incident_id INTEGER NOT NULL,
+      event_id    INTEGER NOT NULL,
+      linked_at   INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      linked_by   TEXT NOT NULL DEFAULT 'system',
+      UNIQUE (incident_id, event_id),
+      FOREIGN KEY (incident_id) REFERENCES incidents(id) ON DELETE CASCADE,
+      FOREIGN KEY (event_id)    REFERENCES events(id)    ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_incidents_status   ON incidents(status);
+    CREATE INDEX IF NOT EXISTS idx_incidents_priority ON incidents(priority);
+    CREATE INDEX IF NOT EXISTS idx_inc_notes_iid      ON incident_notes(incident_id);
+    CREATE INDEX IF NOT EXISTS idx_inc_events_iid     ON incident_events(incident_id);
+  `);
+} catch (e) { }
+try { db.exec(`ALTER TABLE fw_sources ADD COLUMN source_timezone TEXT DEFAULT 'UTC'`); } catch (e) { }
+// ── Users & Sessions ──────────────────────────────────────────────────────────
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      username    TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      password_hash TEXT NOT NULL,
+      salt        TEXT NOT NULL,
+      role        TEXT NOT NULL DEFAULT 'viewer',
+      email       TEXT DEFAULT '',
+      force_password_change INTEGER NOT NULL DEFAULT 0,
+      created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      last_login  INTEGER DEFAULT NULL
+    );
+    CREATE TABLE IF NOT EXISTS sessions (
+      token       TEXT PRIMARY KEY,
+      user_id     INTEGER NOT NULL,
+      username    TEXT NOT NULL,
+      role        TEXT NOT NULL,
+      created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      expires_at  INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+  `);
+} catch (e) { }
+try { db.exec(`ALTER TABLE users ADD COLUMN force_password_change INTEGER NOT NULL DEFAULT 0`); } catch (e) { }
+try { db.exec(`ALTER TABLE users ADD COLUMN mfa_secret TEXT DEFAULT NULL`); } catch (e) { }
+try { db.exec(`ALTER TABLE users ADD COLUMN mfa_enabled INTEGER NOT NULL DEFAULT 0`); } catch (e) { }
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mfa_pending (
+      token      TEXT PRIMARY KEY,
+      user_id    INTEGER NOT NULL,
+      username   TEXT NOT NULL,
+      role       TEXT NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_mfa_pending_exp ON mfa_pending(expires_at);
+  `);
+} catch (e) { }
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS smtp_config (
+      id          INTEGER PRIMARY KEY DEFAULT 1,
+      host        TEXT DEFAULT '',
+      port        INTEGER DEFAULT 587,
+      secure      INTEGER DEFAULT 0,
+      username    TEXT DEFAULT '',
+      password    TEXT DEFAULT '',
+      from_addr   TEXT DEFAULT '',
+      from_name   TEXT DEFAULT 'IOC Hunt',
+      enabled     INTEGER DEFAULT 0,
+      updated_at  INTEGER DEFAULT (strftime('%s','now'))
+    );
+    INSERT OR IGNORE INTO smtp_config (id) VALUES (1);
+    CREATE TABLE IF NOT EXISTS email_schedules (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      name        TEXT NOT NULL,
+      recipients  TEXT NOT NULL DEFAULT '',
+      cron_expr   TEXT NOT NULL DEFAULT '0 8 * * 1',
+      duration    INTEGER NOT NULL DEFAULT 24,
+      machine     TEXT DEFAULT '',
+      severity    TEXT DEFAULT '',
+      category    TEXT DEFAULT '',
+      include_fw  INTEGER DEFAULT 1,
+      enabled     INTEGER DEFAULT 1,
+      last_run    INTEGER DEFAULT NULL,
+      last_status TEXT DEFAULT '',
+      created_at  INTEGER DEFAULT (strftime('%s','now'))
+    );
+  `);
+} catch (e) { }
+
+// Purge expired MFA pending tokens alongside sessions
+setInterval(() => {
+  db.prepare('DELETE FROM mfa_pending WHERE expires_at<?').run(Math.floor(Date.now() / 1000));
+}, 3600000);
+// Seed default admin on first run
+(function seedAdmin() {
+  const existing = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+  if (existing > 0) return;
+  const { hash, salt } = hashPassword('iochunt');
+  db.prepare('INSERT INTO users (username, password_hash, salt, role, force_password_change) VALUES (?,?,?,?,?)')
+    .run('iochunt', hash, salt, 'admin', 1);
+  console.log('[AUTH] Default admin created — username: iochunt  password: iochunt');
+  console.log('[AUTH] User will be forced to change password on first login.');
+})();
+
+// ── Auth helpers ──────────────────────────────────────────────────────────────
+function hashPassword(password, salt) {
+  if (!salt) salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+  return { hash, salt };
+}
+
+function verifyPassword(password, storedHash, salt) {
+  const { hash } = hashPassword(password, salt);
+  return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(storedHash, 'hex'));
+}
+// ── TOTP (RFC 6238) — no external dependencies ────────────────────────────────
+function base32Encode(buf) {
+  const alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0, val = 0, out = '';
+  for (const byte of buf) {
+    val = (val << 8) | byte; bits += 8;
+    while (bits >= 5) { out += alpha[(val >>> (bits - 5)) & 31]; bits -= 5; }
+  }
+  if (bits > 0) out += alpha[(val << (5 - bits)) & 31];
+  return out;
+}
+
+function base32Decode(encoded) {
+  const alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  encoded = encoded.toUpperCase().replace(/=+$/, '').replace(/\s/g, '');
+  let bits = 0, val = 0;
+  const out = [];
+  for (const ch of encoded) {
+    const idx = alpha.indexOf(ch);
+    if (idx === -1) continue;
+    val = (val << 5) | idx; bits += 5;
+    if (bits >= 8) { out.push((val >>> (bits - 8)) & 255); bits -= 8; }
+  }
+  return Buffer.from(out);
+}
+
+function totpCode(secret, windowOffset = 0) {
+  const key = base32Decode(secret);
+  const time = BigInt(Math.floor(Date.now() / 1000 / 30) + windowOffset);
+  const tb = Buffer.alloc(8);
+  tb.writeBigInt64BE(time);
+  const hmac = crypto.createHmac('sha1', key).update(tb).digest();
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const code = (
+    ((hmac[offset] & 0x7f) << 24) |
+    ((hmac[offset + 1] & 0xff) << 16) |
+    ((hmac[offset + 2] & 0xff) << 8) |
+    (hmac[offset + 3] & 0xff)
+  ) % 1_000_000;
+  return String(code).padStart(6, '0');
+}
+
+// Accept current window ±1 step to handle clock drift
+function verifyTOTP(secret, token) {
+  if (!secret || !token) return false;
+  const clean = String(token).replace(/\s/g, '');
+  return [-1, 0, 1].some(w => totpCode(secret, w) === clean);
+}
+
+function generateMFASecret() {
+  return base32Encode(crypto.randomBytes(20));
+}
+
+function otpauthURL(username, secret) {
+  const issuer = 'IOCHunt';
+  return `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(username)}`
+    + `?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
+}
+
+function createSession(user) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Math.floor(Date.now() / 1000) + 8 * 3600; // 8 hours
+  db.prepare('INSERT INTO sessions (token, user_id, username, role, expires_at) VALUES (?,?,?,?,?)')
+    .run(token, user.id, user.username, user.role, expiresAt);
+  return token;
+}
+
+// REPLACE existing getSession:
+function getSession(token) {
+  if (!token) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const row = db.prepare(`
+    SELECT s.*, u.force_password_change
+    FROM sessions s
+    JOIN users u ON u.id = s.user_id
+    WHERE s.token=? AND s.expires_at>?
+  `).get(token, now);
+  return row || null;
+}
+
+function deleteSession(token) {
+  db.prepare('DELETE FROM sessions WHERE token=?').run(token);
+}
+
+function parseSessionCookie(req) {
+  const raw = req.headers.cookie || '';
+  for (const part of raw.split(';')) {
+    const [k, ...v] = part.trim().split('=');
+    if (k.trim() === 'iochunt_session') return decodeURIComponent(v.join('='));
+  }
+  return null;
+}
+
+// Middleware — protects dashboard HTML routes (not agent API routes)
+function requireSession(req, res, next) {
+  const token = parseSessionCookie(req);
+  const session = getSession(token);
+  if (!session) {
+    return res.redirect('/login?next=' + encodeURIComponent(req.originalUrl));
+  }
+  req.session = session;
+
+  // Force password change — redirect to /change-password for every route except itself
+  if (session.force_password_change && req.path !== '/change-password') {
+    return res.redirect('/change-password');
+  }
+
+  next();
+}
+
+// Middleware — admin only
+function requireAdmin(req, res, next) {
+  if (!req.session || req.session.role !== 'admin') {
+    return res.status(403).send('<h2>403 Forbidden — admin only</h2>');
+  }
+  next();
+}
+
+// Purge expired sessions every hour
+setInterval(() => {
+  db.prepare('DELETE FROM sessions WHERE expires_at<?').run(Math.floor(Date.now() / 1000));
+}, 3600000);
+
+
+const insertEvent = db.prepare(`
+  INSERT INTO events (machine, ts, tag, severity, category, message, is_noise)
+  VALUES (@machine, @ts, @tag, @severity, @category, @message, @is_noise)
+`);
+const checkDuplicateEvent = db.prepare('SELECT 1 FROM events WHERE machine=? AND ts=? AND tag=? AND message=? LIMIT 1');
+const upsertMachine = db.prepare(`
+  INSERT INTO machines (id, label, last_seen, event_count, ip)
+  VALUES (@id, @label, @last_seen, @count, @ip)
+  ON CONFLICT(id) DO UPDATE SET
+    label       = excluded.label,
+    last_seen   = excluded.last_seen,
+    event_count = event_count + excluded.event_count,
+    ip          = CASE WHEN excluded.ip != '' THEN excluded.ip ELSE ip END
+`);
+const insertBatch = db.transaction((events) => {
+  for (const e of events) insertEvent.run(e);
+});
+const insertFwEvent = db.prepare(`
+  INSERT INTO fw_events
+    (ts,devname,src_ip,src_port,dst_ip,dst_port,action,service,
+     policy,proto,src_country,dst_country,sent_bytes,rcv_bytes,
+     duration,session_id,severity,raw)
+  VALUES
+    (@ts,@devname,@src_ip,@src_port,@dst_ip,@dst_port,@action,@service,
+     @policy,@proto,@src_country,@dst_country,@sent_bytes,@rcv_bytes,
+     @duration,@session_id,@severity,@raw)
+`);
+// ─────────────────────────────────────────────────────────────────────────────
+// TOOL NAME SETS  (mirrors Program.cs exactly so severities align)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Known credential-dump / attack tools → CRITICAL when detected running
+const SENSITIVE_TOOLS = new Set([
+  'mimikatz.exe', 'wce.exe', 'fgdump.exe', 'pwdump.exe', 'pwdump7.exe',
+  'procdump.exe', 'procdump64.exe', 'maldump.exe', 'ntdsutil.exe', 'esentutl.exe',
+  'diskshadow.exe', 'secretsdump.exe', 'lazagne.exe', 'crackmapexec.exe',
+  'bloodhound.exe', 'sharphound.exe', 'adrecon.exe', 'kerbrute.exe', 'rubeus.exe',
+  'seatbelt.exe', 'certify.exe', 'spoolsample.exe', 'printspoofer.exe',
+  'juicypotato.exe', 'rottenpotato.exe',
+]);
+
+// High-risk child processes (LOLbins / shells) → CRITICAL when spawned by risky parent
+const HIGH_RISK_CHILDREN = new Set([
+  'cmd.exe', 'powershell.exe', 'conhost.exe', 'wscript.exe', 'cscript.exe',
+  'mshta.exe', 'msiexec.exe', 'regsvr32.exe', 'rundll32.exe', 'schtasks.exe',
+  'sc.exe', 'net.exe', 'tasklist.exe', 'taskkill.exe', 'wmic.exe',
+]);
+
+// Enumeration tools → MEDIUM (elevated to HIGH if burst / from risky parent)
+const ENUM_TOOLS = new Set([
+  'nltest.exe', 'dsquery.exe', 'dsget.exe', 'dsmod.exe', 'dnscmd.exe',
+  'klist.exe', 'adfind.exe', 'ldifde.exe', 'csvde.exe', 'pktmon.exe',
+]);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NOISE DETECTION  (operational / system messages — not security events)
+// ─────────────────────────────────────────────────────────────────────────────
+function detectNoise(tag, message, severity) {
+  const tu = (tag || '').toUpperCase();
+  const mu = (message || '').toUpperCase();
+
+  if (tu.includes('[CMD-EXEC]')) {
+    if (mu.includes('PARENT:IOCHUNT')) {
+      // Only suppress known-safe internal commands
+      // Do NOT suppress broadly — parent spoof attack vector
+      if (mu.includes('SCHTASKS.EXE') && mu.includes('/QUERY')) return 1;
+      if (mu.includes('AUDITPOL.EXE')) return 1;
+      if (mu.includes('POWERSHELL.EXE') && mu.includes('GET-AUTHENTICODE')) return 1;
+      if (mu.includes('NETSH.EXE') && mu.includes('ADVFIREWALL')) return 1;
+      if (mu.includes('WMIC.EXE') && mu.includes('WIN32_')) return 1;
+      if (mu.includes('NET.EXE') && mu.includes('USER') &&
+        !mu.includes('/ADD') && !mu.includes('/DELETE')) return 1;
+      if (mu.includes('NETSTAT.EXE') && mu.includes('-P TCP')) return 1;
+      if (mu.includes('TASKKILL.EXE')) return 1;
+      if (mu.includes('LOGOFF.EXE')) return 1;
+      if (mu.includes('SC.EXE') &&
+        (mu.includes('QUERY') || mu.includes('CONFIG'))) return 1;
+      // Anything else from IOC Hunt parent = flag it, could be spoofed
+      return 0;
+    }
+  }
+  // ─────────────────────────────────────────
+  // AD monitor / heartbeat suppression
+  // ─────────────────────────────────────────
+  if (
+    tu.includes('DCSYNC') ||
+    tu.includes('LDAP-ENUM') ||
+    tu.includes('RBCD') ||
+    tu.includes('ASREP') ||
+    tu.includes('KERBEROAST') ||
+    tu.includes('CERTIPY')
+  ) {
+    // ✅ Suppress ONLY monitor/heartbeat messages
+    if (
+      mu.includes('MONITOR ACTIVE') ||
+      mu.includes('MONITORING ACTIVE')
+    ) {
+      return 1;
+    }
+
+    // Keep real attack activity
+    return 0;
+  }
+
+  // Never suppress critical or high events
+  if (severity === 'critical' || severity === 'high') return 0;
+
+
+  if (tu.includes('DEFENDER')) {
+    if (mu.includes('SETTINGS-CHANGE') &&
+      !mu.includes('DISABLEREALTIMEMONITORING') &&
+      !mu.includes('DISABLEBEHAVIORMONITORING') &&
+      !mu.includes('DISABLEONACCESSPROTECTION') &&
+      !mu.includes('DISABLEIOAVPROTECTION') &&
+      !mu.includes('DISABLESCRIPTSCANNING') &&
+      !mu.includes('TAMPERPROTECTION') &&
+      !mu.includes('EXCLUSIONPATH') &&
+      !mu.includes('EXCLUSIONPROCESS') &&
+      !mu.includes('ANTIVIRUSENABLED') &&
+      !mu.includes('SPYNETREPORTING'))
+      return 1;
+
+    if (mu.includes('INTEGRATION ACTIVE') || mu.includes('WATCHER ACTIVE') ||
+      mu.includes('1116/1117/5007')) return 1;
+    if (mu.includes('OLDVALUE:') && mu.includes('NEWVALUE:') &&
+      !mu.includes('DISABLE') && !mu.includes('TAMPER') &&
+      !mu.includes('EXCLUSION')) return 1;
+    return 0;
+  }
+  // Startup noise — replace the existing startup noise check
+  if (tu.includes('[STARTUP]') || tu.includes('STARTUP')) {
+    // Suppress operational/heartbeat messages
+    if (mu.includes('SEEDED') ||
+      mu.includes('FSW ACTIVE ON') ||
+      mu.includes('POLLER ACTIVE') ||
+      mu.includes('CONTINUOUS POLL') ||
+      mu.includes('FSW SETUP FAILED')) return 1;
+    // Keep real detections
+    return 0;
+  }
+  // Never suppress critical or high events
+  if (severity === 'critical' || severity === 'high') return 0;
+
+  // Defender — never suppress real alerts, suppress noise
+  if (tu.includes('DEFENDER')) {
+    if (mu.includes('[SETTINGS-CHANGE]') || mu.includes('SETTINGS-CHANGE') ||
+      mu.includes('OLDVALUE:') || mu.includes('NEWVALUE:')) return 1;
+    if (mu.includes('INTEGRATION ACTIVE') || mu.includes('WATCHER ACTIVE') ||
+      mu.includes('1116/1117/5007')) return 1;
+    if (tu.includes('[DEFENDER-SHIP]') || mu.includes('SHIPPED [DEFENDER]') ||
+      mu.includes('CENTRAL SERVER')) return 1;
+    return 0;
+  }
+
+  // Email status / central-server heartbeat
+  if (tu.includes('[EMAIL') && !tu.includes('ALERT') && !tu.includes('FAILED')) return 1;
+  if (tu.includes('[CENTRAL') && !tu.includes('ERR') && !mu.includes('FAILED')) return 1;
+
+  // Baseline noise
+  if (tu.includes('[BASELINE-DIFF]')) {
+    if (mu.includes('UNSIGNED') && !mu.includes('C:\\WINDOWS') &&
+      !mu.includes('SYSTEM32')) return 0;
+    return 1;
+  }
+  if (tu.includes('[BASELINE') && !tu.includes('SUSPICIOUS') &&
+    !tu.includes('-ACTION') && !tu.includes('-WARN')) return 1;
+
+  // Learning-mode status
+  if (tu.includes('[LEARNING') && !tu.includes('BLOCKED') &&
+    !tu.includes('ACTIVATED')) return 1;
+
+  // Generic info tags
+  if (tu.includes('[INFO]')) return 1;
+  if (tu.includes('[SVC-SKIP')) return 1;
+  if (tu.includes('[LOGON-DEBUG') || tu.includes('[LOGON-POLL')) return 1;
+
+  // Config load/save confirmations
+  if (tu.includes('[CONFIG]') &&
+    (mu.includes('SAVED.') || mu.includes('LOADED.'))) return 1;
+
+  // Whitelist / blocklist load confirmations
+  if ((tu.includes('[WHITELIST]') || tu.includes('[BLOCKLIST]')) &&
+    (mu.includes(' LOADED') || mu.includes(' SAVED'))) return 1;
+
+  // alert
+  if (tu.includes('[AFTER-HOURS-ALERTED]')) return 1;
+
+  // Monitor heartbeats
+  if (tu.includes('[MONITOR]') && severity === 'info') return 1;
+
+  // Audit enabled confirmations
+  if (tu.includes('[AUDIT]') && mu.includes('ENABLED:')) return 1;
+
+  // Firewall status — not errors
+  if (tu.includes('[FIREWALL]') && severity === 'info' &&
+    !mu.includes(' OFF') && !mu.includes('WARN')) return 1;
+
+  // Domain / ADCS / CMD-monitor info lines
+  if ((tu.includes('[DOMAIN]') || tu.includes('[ADCS]') ||
+    tu.includes('[CMDMON]')) && severity === 'info') return 1;
+
+  // IOC Hunt spawning its own child processes
+  if (tu.includes('[CMD-EXEC]') &&
+    (mu.includes('PARENT:IOCHUNT') || mu.includes('PARENT:IOCHUNT.EXE'))) return 1;
+
+  if (tu.includes('[USB]') || tu.includes('[USB-REMOVED]')) {
+    if (mu.includes('SEEDED') || mu.includes('EXISTING REMOVABLE') ||
+      mu.includes('HISTORY')) return 1;
+    if (mu.includes('REMOVED') && !mu.includes('SUSPICIOUS')) return 1;
+    // Do NOT suppress real insertions — they belong in the USB tab
+    return 0;
+  }
+
+  // POLICY UPDATE
+  if ((tu.includes('[CENTRAL-ERR]') || tu.includes('[POLICY-POLL-ERR]')) &&
+    severity === 'info') return 1;
+
+  // POLICY UPDATE
+  if ((tu.includes('[POLICY]')) &&
+    severity === 'info') return 1;
+
+  // Webcam / mic known-safe
+  if ((tu.includes('[WEBCAM]') || tu.includes('[MIC]')) &&
+    severity === 'info') return 1;
+
+  // EVTX baseline info rows
+  if (tu.includes('[EVTX]') && severity === 'info') return 1;
+
+  return 0;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// SEVERITY CLASSIFICATION  (main engine — matches Program.cs agent logic)
+// ─────────────────────────────────────────────────────────────────────────────
+function classifySeverity(tag, message) {
+  const t = (tag || '').toUpperCase();
+  const m = (message || '').toUpperCase();
+
+  // ── User-confirmed allow / whitelist decisions are always INFO ────────────
+  if (t.includes('IOCHUNT-BLOCK') || m.includes('IOCHUNT-BLOCK') ||
+    t.includes('IOCHUNT-ALLOW') || m.includes('IOCHUNT-ALLOW'))
+    return 'info';
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // CRITICAL
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // 1. Windows Defender — malware detected, RTP disabled, tamper
+  // 1. Windows Defender — compound tag [DEFENDER][SUBTYPE] arrives with
+  //    tag=[DEFENDER] and subtype in the message body (ParseLogLine strips compound tags)
+  // 1. Windows Defender — compound tags arrive with tag=[DEFENDER],
+  //    subtype in message body (ParseLogLine strips compound tags)
+  if (t.includes('[DEFENDER]') || t.includes('DEFENDER')) {
+
+    // ── CRITICAL: genuine threats ──────────────────────────────────────────
+    // Real-time protection disabled
+    if (m.includes('[RTP-DISABLED]') || m.includes('RTP-DISABLED') ||
+      (m.includes('RTP') && m.includes('DISABLED')) ||
+      (m.includes('REAL-TIME') && m.includes('DISABLED')))
+      return 'critical';
+
+    // Tamper (someone turned off Defender)
+    if (m.includes('[TAMPER]'))
+      return 'critical';
+
+    // Scan disabled
+    if (m.includes('[SCAN-DISABLED]') || m.includes('SCAN-DISABLED'))
+      return 'critical';
+
+    // Malware DETECTED — subtype may land in tag OR message body
+    if ((m.includes('[DETECTED]') || t.includes('[DETECTED]') || t.includes('DETECTED')) &&
+      (m.includes("THREAT:'") || m.includes('THREAT:') || m.includes('VIRUS') || m.includes('MALWARE')))
+      return 'critical';
+
+    // Remediation failed — malware still active
+    if (m.includes('[REMEDIATION-FAILED]') || m.includes('REMEDIATION-FAILED'))
+      return 'critical';
+
+    // ── HIGH: action taken on threat ──────────────────────────────────────
+    // Quarantine / remove action (Defender dealt with it — high but not critical)
+    if (m.includes('[ACTION]') && !m.includes('FAILED'))
+      return 'high';
+
+    // ── MEDIUM: settings changed (registry value tweaks — common false positives) ─
+    if (m.includes('[SETTINGS-CHANGE]') || m.includes('SETTINGS-CHANGE') ||
+      m.includes('OLDVALUE:') || m.includes('NEWVALUE:'))
+      return 'medium';
+
+    // ── LOW: successful remediation ────────────────────────────────────────
+    if (m.includes('[CLEAN]') || m.includes('REMEDIATION SUCCEEDED') ||
+      m.includes('CLEAN'))
+      return 'low';
+
+    // Default: anything else from Defender is medium
+    return 'medium';
+  }
+
+  // 2. Credential / attack tools detected running
+  if (t.includes('SENSITIVE') || t.includes('BEHAVIORAL-IOC') ||
+    t.includes('SUSPICIOUS-TOOL') || t.includes('HIGH-RISK-PARENT') ||
+    t.includes('MALWARE') || t.includes('AUTO-BLOCKED'))
+    return 'critical';
+
+  // Sensitive tool names anywhere in tag or message
+  for (const tool of SENSITIVE_TOOLS) {
+    const toolUpper = tool.toUpperCase();
+    if (t.includes(toolUpper) || m.includes(toolUpper)) return 'critical';
+  }
+
+  // Mimikatz keywords in message
+  if (m.includes('MIMIKATZ') || m.includes('BLOODHOUND') ||
+    m.includes('SEKURLSA') || m.includes('LSADUMP'))
+    return 'critical';
+
+  // 3. High-risk LOLbin / shell child process spawned (CMD-EXEC critical tags)
+  if (t.includes('[CMD-EXEC][SENSITIVE]') ||
+    t.includes('[CMD-EXEC][HIGH-RISK-PARENT]'))
+    return 'critical';
+
+  // LOLbin / shell names in sensitive context (blocked or detected)
+  if (t.includes('BLOCKED') || t.includes('DETECTED') || t.includes('AUTO-BLOCKED')) {
+    for (const child of HIGH_RISK_CHILDREN) {
+      if (m.includes(child.toUpperCase())) return 'critical';
+    }
+  }
+
+  // 4. Log cleared — evidence destruction
+  if (t.includes('LOG-CLEARED') || m.includes('LOG-CLEARED') ||
+    m.includes('SECURITY EVENT LOG CLEARED'))
+    return 'critical';
+
+  // 5. Critical AD attacks — full domain compromise paths
+  if (t.includes('DCSYNC') || t.includes('DCSHADOW') ||
+    t.includes('GOLDEN-CERT') || t.includes('SHADOW-CRED') ||
+    t.includes('SKELETON-KEY') || t.includes('FORGED-PAC') ||
+    t.includes('KERB-POLICY'))
+    return 'critical';
+
+  // 6. AD CS escalation attacks
+  if (t.includes('ESC1') || t.includes('ESC2') ||
+    t.includes('ESC3') || t.includes('ESC6'))
+    return 'critical';
+
+  // 7. Kerberoasting confirmed burst (20+ TGS)
+  if (t.includes('KERBEROASTING') && !t.includes('RC4'))
+    return 'critical';
+
+  // 8. Connection killed / net blocked (active threat response)
+  if (t.includes('CONN-KILLED') || t.includes('NET-BLOCKED'))
+    return 'critical';
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // HIGH
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // 9. Unsigned process / service / task / registry entry
+  if (t.includes('UNSIGNED') || t.includes('UNSIGNED-UNSAFE-PATH'))
+    return 'high';
+
+  // Persistence mechanisms (startup file, new service, new task, new registry key)
+  if (t.includes('PERSISTENCE'))
+    return 'high';
+
+  // Startup / service / task / registry — new item (not necessarily unsigned)
+  // Only HIGH if not already critical from above
+  if (t.includes('SERVICE-DETECTED') || t.includes('TASK-DETECTED') ||
+    t.includes('STARTUP-DETECTED') || t.includes('REGISTRY-DETECTED'))
+    return 'high';
+
+  // 10. User account changes
+  if (t.includes('USER-CREATED') || t.includes('USER-DELETED') ||
+    t.includes('USER-ENABLED') || t.includes('USER-DISABLED') ||
+    t.includes('GROUP-MEMBER') || t.includes('GROUP-CHANGED') ||
+    t.includes('COMPUTER-ACCT') || t.includes('NEW-COMPUTER') ||
+    t.includes('PASSWORD-RESET') || t.includes('PASSWORD-CHANGE'))
+    return 'high';
+
+  // Config changes that indicate user / group / privilege modification
+  if (t.includes('CONFIG-CHANGE') && (
+    m.includes('USER') || m.includes('GROUP') || m.includes('PRIVILEGE') ||
+    m.includes('ADMIN') || m.includes('PASSWORD') || m.includes('CREATED') ||
+    m.includes('DELETED') || m.includes('ENABLED') || m.includes('DISABLED')))
+    return 'high';
+
+  // 11. Failed logon / brute force / spray / NTLM brute
+  if (t.includes('FAILED-LOGON') || t.includes('BRUTE') ||
+    t.includes('SPRAY') || t.includes('NTLM-BRUTE'))
+    return 'high';
+
+  // 12. AD credential-theft techniques (non-critical tier)
+  if (t.includes('EXPLICIT-CRED') || t.includes('PKINIT') ||
+    t.includes('OVERPASS-HASH') || t.includes('PASS-THE-HASH') ||
+    t.includes('ASREP-ROAST') || t.includes('RBCD') ||
+    t.includes('KERBEROAST-RC4') || t.includes('CERTIPY-ENUM') ||
+    t.includes('LDAP-ENUM') || t.includes('USER-ENUM'))
+    return 'high';
+
+  // 13. Admin share access (lateral movement indicator)
+  if (t.includes('NET-ADMIN-SHARE'))
+    return 'high';
+
+  // 14. After-hours login (interactive session outside office hours)
+  if (t.includes('AFTER-HOURS'))
+    return 'high';
+
+  // 15. USB threat found / autorun
+  if (t.includes('USB') && (m.includes('THREAT') || m.includes('AUTORUN') ||
+    m.includes('AUTORUN!') || m.includes('SUSPICIOUS') || m.includes('ATTACK')))
+    return 'high';
+
+  // 16. Defender — action failed (remediation unsuccessful)
+  if (t.includes('[DEFENDER][ACTION]') && m.includes('FAILED'))
+    return 'high';
+
+  // 17. Certificate requests that look suspicious (ESC-adjacent)
+  if (t.includes('CERT-') || t.includes('CERT-REQUEST') ||
+    t.includes('CERTIPY') || t.includes('GOLDEN-CERT'))
+    return 'high';
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // MEDIUM
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // 18. Inbound / outbound network connections (RDP, SMB, WinRM, SSH…)
+  if (t.includes('NETWORK') || t.includes('NET-') ||
+    t.includes('INBOUND') || t.includes('OUTBOUND') ||
+    t.includes('OUTBOUND-LATERAL') || t.includes('CONN') ||
+    t.includes('[DETECTED][NETWORK]'))
+    return 'medium';
+
+  // Share access (non-admin share)
+  if (t.includes('SHARE') && !t.includes('NET-ADMIN-SHARE'))
+    return 'medium';
+
+  // 19. Enumeration commands (nltest, dsquery, whoami /all, etc.)
+  // 19. Enumeration commands — escalate to HIGH if user/group modification
+  if (t.includes('ENUM') || t.includes('[CMD-EXEC]')) {
+    if (m.includes('USER CREATED') || m.includes('/ADD') ||
+      m.includes('USER /ADD') || m.includes('LOCALGROUP') ||
+      m.includes('NET USER') && m.includes('ADD'))
+      return 'high';
+    return 'medium';
+  }
+
+  for (const tool of ENUM_TOOLS) {
+    if (m.includes(tool.toUpperCase())) return 'medium';
+  }
+
+  // 20. AD / ADCS category events (generic — non-critical tier above)
+  if (t.includes('DOMAIN') || t.includes('ADCS') ||
+    t.includes('TGS-REQUEST') || t.includes('TGT-REQUEST') ||
+    t.includes('NTLM-AUTH') || t.includes('KERBEROS') ||
+    t.includes('REPLICATION') || t.includes('DS-OBJECT'))
+    return 'medium';
+
+  // 21. Config changes — audit policy, GPO, firewall setting
+  if (t.includes('CONFIG-CHANGE') || t.includes('AUDIT-POLICY') ||
+    t.includes('REGISTRY') || t.includes('SERVICE') ||
+    t.includes('TASK') || t.includes('STARTUP'))
+    return 'medium';
+
+  // 22. Webcam / mic — unknown / unsigned app
+  if ((t.includes('WEBCAM') || t.includes('MIC')) && !t.includes('INFO'))
+    return 'medium';
+
+  // 23. Suspicious PowerShell / command-line execution (medium tier)
+  // 23. CMD-EXEC compound tags — ParseLogLine ships only [CMD-EXEC] as the tag,
+  // the second bracket ([DETECTED], [SENSITIVE] etc.) ends up in the message body.
+  if (t.includes('[CMD-EXEC]') || t.includes('CMD-EXEC')) {
+    const mu = m.toUpperCase();
+    if (mu.includes('[SENSITIVE]') || mu.includes('SENSITIVE')) return 'critical';
+    if (mu.includes('[HIGH-RISK-PARENT]') || mu.includes('HIGH-RISK')) return 'critical';
+    if (mu.includes('[ENUM-BURST]') || mu.includes('ENUM-BURST')) return 'high';
+    if (mu.includes('[DETECTED]') || mu.includes('[POWERSHELL]')) return 'medium';
+    if (mu.includes('[ENUM]') || mu.includes('ENUM')) return 'medium';
+    return 'medium';  // any CMD-EXEC event is at least medium
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // LOW
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // 24. Explicit user allow / whitelist decisions
+  if (t.includes('ALLOWED') || t.includes('WHITELISTED') ||
+    t.includes('NET-ALLOWED') || t.includes('OUTBOUND-ALLOWED'))
+    return 'low';
+
+  // 25. USB inserted clean
+  if (t.includes('USB'))
+    return 'low';
+
+  // 26. Webcam / mic — known safe app (info severity for those, low here)
+  if (t.includes('WEBCAM') || t.includes('MIC'))
+    return 'low';
+
+  // 27. Monitoring status
+  if (t.includes('MONITOR'))
+    return 'low';
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // INFO  (default)
+  // ════════════════════════════════════════════════════════════════════════════
+  return 'info';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DYNAMIC FILE WATCHER ENGINE
+// Watches all fw_sources marked enabled=1
+// ─────────────────────────────────────────────────────────────────────────────
+const fsWatchers = {};   // id → fs.FSWatcher
+const fsIntervals = {};   // id → setInterval handle
+
+const batchIngestFw = db.transaction((rows) => {
+  for (const r of rows) insertFwEvent.run(r);
+});
+
+const updateSource = db.prepare(
+  'UPDATE fw_sources SET last_size=?, last_read=?, lines_ingested=lines_ingested+? WHERE id=?'
+);
+
+function readNewLinesFromSource(src) {
+  try {
+    if (!fs.existsSync(src.log_path)) return;
+    const stat = fs.statSync(src.log_path);
+    let lastSize = src.last_size || 0;
+
+    // File was rotated / truncated
+    if (stat.size < lastSize) lastSize = 0;
+    if (stat.size === lastSize) return;
+
+    const stream = fs.createReadStream(src.log_path, {
+      start: lastSize,
+      end: stat.size - 1,
+      encoding: 'utf8',
+    });
+
+    let buffer = '';
+    stream.on('data', chunk => { buffer += chunk; });
+    stream.on('end', () => {
+      // Update persisted size
+      const newSize = stat.size;
+      const lines = buffer.split(/\r?\n/).filter(l => l.trim());
+      const rows = [];
+
+      lines.forEach(line => {
+        try {
+          const parsed = parseFwLog(line, src.name, src.source_timezone || 'UTC');
+          if (parsed) {
+            parsed.devname = parsed.devname || src.name;
+            rows.push(parsed);
+          }
+        } catch (e) { }
+      });
+
+      // Always update size even if no rows (skip binary / non-fw lines)
+      updateSource.run(newSize, Math.floor(Date.now() / 1000), rows.length, src.id);
+      // Update in-memory copy so next poll uses new size
+      src.last_size = newSize;
+
+      if (rows.length) {
+        try {
+          batchIngestFw(rows);
+          // console.log(`[WATCHER:${src.name}] +${rows.length} events`);
+        } catch (e) {
+          console.error(`[WATCHER:${src.name}] insert error:`, e.message);
+        }
+      }
+    });
+    stream.on('error', e => console.error(`[WATCHER:${src.name}] read error:`, e.message));
+  } catch (e) {
+    console.error(`[WATCHER:${src.name}] stat error:`, e.message);
+  }
+}
+
+function startWatchingSource(src) {
+  if (!src.enabled) return;
+  stopWatchingSource(src.id); // clear any existing watcher for this id
+
+  console.log(`[WATCHER] Starting: ${src.name} → ${src.log_path}`);
+
+  // Poll every 2 seconds (reliable across all platforms + NFS)
+  fsIntervals[src.id] = setInterval(() => readNewLinesFromSource(src), 2000);
+
+  // Also use fs.watch for instant trigger
+  try {
+    fsWatchers[src.id] = fs.watch(src.log_path, (event) => {
+      if (event === 'change') readNewLinesFromSource(src);
+    });
+  } catch (e) {
+    console.log(`[WATCHER:${src.name}] fs.watch unavailable, polling only`);
+  }
+}
+
+function stopWatchingSource(id) {
+  if (fsWatchers[id]) { try { fsWatchers[id].close(); } catch (e) { } delete fsWatchers[id]; }
+  if (fsIntervals[id]) { clearInterval(fsIntervals[id]); delete fsIntervals[id]; }
+}
+
+// Start watching all enabled sources on boot
+; (function initSourceWatchers() {
+  const sources = db.prepare('SELECT * FROM fw_sources WHERE enabled=1').all();
+  sources.forEach(startWatchingSource);
+  console.log(`[WATCHER] Loaded ${sources.length} source(s) from DB`);
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CATEGORY PARSER
+// ─────────────────────────────────────────────────────────────────────────────
+function parseCategory(tag, message) {
+  const t = (tag || '').toUpperCase();
+  const m = (message || '').toUpperCase();
+
+  // CMD-EXEC subtypes — categorise by what happened
+  if (t.includes('[CMD-EXEC]') || t.includes('CMD-EXEC')) {
+    if (m.includes('[SENSITIVE]') || m.includes('SENSITIVE')) return 'SENSITIVE';
+    if (m.includes('[HIGH-RISK-PARENT]') || m.includes('HIGH-RISK')) return 'CHILD-PROCESS';
+    if (m.includes('[DETECTED]')) return 'CHILD-PROCESS';
+    if (m.includes('[ENUM]') || m.includes('ENUM')) return 'ENUM';
+    if (m.includes('[POWERSHELL]')) return 'PROCESSES';
+    return 'PROCESSES';
+  }
+
+  if (t.includes('CMD-EXEC') || t.includes('[CMD-EXEC]')) {
+    const mu = (tag || '').toUpperCase() + ' ' + '';
+    // We need the message too — pass it through parseCategory
+    return 'PROCESSES';  // handled below with message context
+  }
+  if (t.includes('PROCESS') || t.includes('BEHAVIORAL') ||
+    t.includes('HIGH-RISK-PARENT'))
+    return 'PROCESSES';
+
+  if (t.includes('REGISTRY')) return 'REGISTRY';
+  if (t.includes('STARTUP')) return 'STARTUP';
+  if (t.includes('SERVICE')) return 'SERVICES';
+  if (t.includes('TASK')) return 'TASKS';
+
+  if (t.includes('NET') || t.includes('SHARE') || t.includes('CONN') ||
+    t.includes('INBOUND') || t.includes('OUTBOUND') || t.includes('LATERAL'))
+    return 'NETWORK';
+
+  if (t.includes('CONFIG')) return 'CONFIG';
+  if (t.includes('SENSITIVE')) return 'SENSITIVE';
+  if (t.includes('ENUM')) return 'ENUM';
+
+  if (t.includes('LOGON') || t.includes('AFTER-HOURS') ||
+    t.includes('FAILED-LOGON') || t.includes('BRUTE'))
+    return 'LOGON';
+
+  if (t.includes('USB')) return 'USB';
+  if (t.includes('WEBCAM') || t.includes('MIC')) return 'WEBCAM';
+
+  if (t.includes('DEFENDER') || t.includes('[DEFENDER]')) return 'DEFENDER';
+
+  // AD domain attacks
+  if (t.includes('DCSYNC') || t.includes('DCSHADOW') ||
+    t.includes('KERBEROAST') || t.includes('RBCD') ||
+    t.includes('SPRAY') || t.includes('NTLM-BRUTE') ||
+    t.includes('COMPUTER-ACCT') || t.includes('EXPLICIT-CRED') ||
+    t.includes('DOMAIN') || t.includes('PASS-THE-HASH') ||
+    t.includes('OVERPASS-HASH') || t.includes('ASREP') ||
+    t.includes('SKELETON-KEY') || t.includes('FORGED-PAC') ||
+    t.includes('KERB-POLICY') || t.includes('GOLDEN-CERT') ||
+    t.includes('SHADOW-CRED'))
+    return 'DOMAIN';
+
+  // AD CS / certificate attacks
+  if (t.includes('ESC') || t.includes('SHADOW-CRED') ||
+    t.includes('PKINIT') || t.includes('CERTIPY') ||
+    t.includes('LDAP-ENUM') || t.includes('CA-CONFIG') ||
+    t.includes('CERT-') || t.includes('ADCS') ||
+    t.includes('GOLDEN-CERT'))
+    return 'ADCS';
+
+  return 'OTHER';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROTOCOL GUESSER  (for topology)
+// ─────────────────────────────────────────────────────────────────────────────
+function guessProto(port) {
+  const m = {
+    3389: 'RDP', 445: 'SMB', 5985: 'WinRM', 5986: 'WinRM-S', 22: 'SSH', 23: 'Telnet',
+    88: 'Kerberos', 389: 'LDAP', 636: 'LDAPS', 135: 'RPC', 139: 'SMB',
+    4444: 'Meterpreter', 80: 'HTTP', 443: 'HTTPS', 8080: 'HTTP-Alt',
+    21: 'FTP', 25: 'SMTP', 53: 'DNS',
+  };
+  return m[port] || ('TCP:' + port);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AD EVENT PARSER  (topology nodes)
+// ─────────────────────────────────────────────────────────────────────────────
+function parseAdEvent(machine, tag, msg, sev) {
+  const t = tag.toUpperCase();
+
+  function isDomainContext() {
+    const mu = msg.toUpperCase();
+    return (
+      /[A-Z0-9_-]{2,}\\[A-Z0-9_-]{2,}/.test(msg) ||
+      /@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(msg) ||
+      mu.includes('KERBEROS') || mu.includes('LDAP') ||
+      mu.includes('KRB') || mu.includes('KRBTGT') ||
+      mu.includes('TGT') || mu.includes('TGS') ||
+      mu.includes(' DOMAIN') || mu.includes('DOMAIN ') ||
+      mu.includes('DOMAIN') || mu.includes('REPLICATION') ||
+      mu.includes('NTDS') || mu.includes('LSASS') ||
+      (mu.includes('EXPLICIT') && mu.includes('->') &&
+        !mu.includes('LOCALHOST') && !mu.includes('127.0.0.1'))
+    );
+  }
+
+  function g(re) { const r = msg.match(re); return r ? r[1] : ''; }
+
+  const alwaysAd = (
+    t.includes('DCSYNC') || t.includes('DCSHADOW') ||
+    t.includes('KERBEROAST') || t.includes('SKELETON-KEY') ||
+    t.includes('GOLDEN-CERT') || t.includes('SHADOW-CRED') ||
+    t.includes('ASREP-ROAST') || t.includes('OVERPASS-HASH') ||
+    t.includes('PASS-THE-HASH') || t.includes('FORGED-PAC') ||
+    t.includes('KERB-POLICY') || t.includes('ESC') ||
+    t.includes('ADCS') || t.includes('CERTIPY') ||
+    t.includes('LDAP-ENUM') || t.includes('PKINIT') ||
+    t.includes('S4U') || t.includes('SPRAY') ||
+    t.includes('NTLM-BRUTE') || t.includes('RBCD')
+  );
+
+  const conditionalAd = (t.includes('EXPLICIT-CRED') || t.includes('COMPUTER-ACCT'));
+
+  if (!alwaysAd && !conditionalAd) return null;
+  if (conditionalAd && !alwaysAd && !isDomainContext()) return null;
+
+  if (t.includes('DCSYNC')) {
+    const actor = g(/by\s+'([^']+)'/i) || g(/by\s+(\S+)/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'DCSync', actor, target_machine: machine, protocol: 'DCSync/RPC', severity: sev, description: 'DCSync: replication rights abused — all hashes exposed' };
+  }
+  if (t.includes('DCSHADOW')) {
+    const actor = g(/'([^']+)'\s+modified/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'DCShadow', actor, target_machine: machine, protocol: 'DCShadow/RPC', severity: sev, description: 'DCShadow: rogue DC registered via nTDSDSA modification' };
+  }
+  if (t.includes('KERBEROAST')) {
+    const actor = g(/'([^']+)'\s+made/i) || g(/from\s+'([^']+)'/i) || 'unknown';
+    const cnt = g(/(\d+)\s+TGS/i) || '?';
+    return { direction: 'ad_attack', attack_type: 'Kerberoasting', actor, target_machine: machine, protocol: 'Kerberoast/KRB5', severity: sev, description: 'Kerberoasting: ' + cnt + ' TGS requests for offline cracking' };
+  }
+  if (t.includes('RBCD')) {
+    const actor = g(/'([^']+)'\s+requesting/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'RBCD', actor, target_machine: machine, protocol: 'RBCD/KRB5', severity: sev, description: 'RBCD: Resource-Based Constrained Delegation abuse' };
+  }
+  if (t.includes('SPRAY')) {
+    const actor = g(/from\s+'([^']+)'/i) || g(/from\s+([\d.]+)/i) || 'unknown';
+    const cnt2 = g(/(\d+)\s+Kerberos/i) || g(/(\d+)\s+failures/i) || '?';
+    const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(actor);
+    return { direction: 'ad_attack', attack_type: 'PasswordSpray', actor, remote_ip: isIp ? actor : '', target_machine: machine, protocol: 'Spray/KRB5', severity: sev, description: 'Password spray: ' + cnt2 + ' pre-auth failures from ' + actor };
+  }
+  if (t.includes('NTLM-BRUTE')) {
+    const actor = g(/workstation\s+'([^']+)'/i) || g(/'([^']+)'/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'NTLM-Brute', actor, target_machine: machine, protocol: 'NTLM-Brute/SMB', severity: sev, description: 'NTLM brute force from ' + actor };
+  }
+  if (t.includes('SHADOW-CRED')) {
+    const actor = g(/by\s+'([^']+)'/i) || g(/actor:\s*([^\s|]+)/i) || 'unknown';
+    let tgt = g(/on\s+'([^']+)'/i) || '?';
+    if (tgt.startsWith('CN=')) tgt = tgt.split(',')[0].replace('CN=', '');
+    return { direction: 'ad_attack', attack_type: 'ShadowCred', actor, target_machine: machine, protocol: 'ShadowCred/LDAP', severity: sev, description: 'Shadow Credentials: msDS-KeyCredentialLink written on ' + tgt };
+  }
+  if (t.includes('ESC1')) {
+    const actor = g(/requester='([^']+)'/i) || g(/issued to:\s*([^\s|]+)/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'ESC1', actor, target_machine: machine, protocol: 'ESC1/HTTPS', severity: sev, description: 'ESC1: certificate SAN injection by ' + actor };
+  }
+  if (t.includes('ESC2')) {
+    const actor = g(/requester:\s*([^\s|]+)/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'ESC2', actor, target_machine: machine, protocol: 'ESC2/HTTPS', severity: sev, description: 'ESC2: Any-Purpose template abused by ' + actor };
+  }
+  if (t.includes('ESC3')) {
+    const actor = g(/'([^']+)'\s+via/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'ESC3', actor, target_machine: machine, protocol: 'ESC3/HTTPS', severity: sev, description: 'ESC3: Enrollment Agent cert by ' + actor };
+  }
+  if (t.includes('ESC6')) {
+    const ca = g(/CA\s+'([^']+)'/i) || machine;
+    return { direction: 'ad_attack', attack_type: 'ESC6', actor: 'CA-MisConfig', target_machine: machine, protocol: 'ESC6/RPC', severity: sev, description: 'ESC6: CA ' + ca + ' has EDITF_ATTRIBUTESUBJECTALTNAME2' };
+  }
+  if (t.includes('CERTIPY') || t.includes('LDAP-ENUM')) {
+    const actor = g(/'([^']+)'/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'CertipyEnum', actor, target_machine: machine, protocol: 'Certipy/LDAP', severity: sev, description: 'Certipy enumeration — cert template/CA discovery' };
+  }
+  if (t.includes('GOLDEN-CERT')) {
+    const actor = g(/by\s+'([^']+)'/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'GoldenCert', actor, target_machine: machine, protocol: 'GoldenCert/RPC', severity: sev, description: 'Golden Certificate: CA private key backed up by ' + actor };
+  }
+  if (t.includes('PKINIT')) {
+    const actor = g(/'([^']+)'\s+from/i) || 'unknown';
+    const src = g(/from\s+([\d.]+)/i) || '';
+    return { direction: 'ad_attack', attack_type: 'PassCert', actor, remote_ip: src, target_machine: machine, protocol: 'PassCert/KRB5', severity: sev, description: 'Pass-the-Cert (PKINIT): ' + actor };
+  }
+  if (t.includes('EXPLICIT-CRED')) {
+    const actor = g(/'([^']+)'\s+used explicit/i) || 'unknown';
+    const tgt2 = g(/to\s+'([^']+)'/i) || machine;
+    return { direction: 'ad_attack', attack_type: 'ExplicitCred', actor, target_machine: tgt2, protocol: 'ExplicitCred/KRB5', severity: sev, description: 'Explicit cred use: ' + actor + ' -> ' + tgt2 };
+  }
+  if (t.includes('COMPUTER-ACCT')) {
+    const actor = g(/by\s+'([^']+)'/i) || 'unknown';
+    const acct = g(/'([^']+)'\s+created/i) || '?';
+    return { direction: 'ad_attack', attack_type: 'NewComputer', actor, target_machine: machine, protocol: 'NewComputer/LDAP', severity: sev, description: 'New computer account ' + acct + ' by ' + actor + ' (RBCD prep)' };
+  }
+  if (t.includes('ASREP-ROAST')) {
+    const actor = g(/'([^']+)'\s+from/i) || g(/account[:\s]+'([^']+)'/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'ASREPRoast', actor, target_machine: machine, protocol: 'ASREP/KRB5', severity: sev, description: 'AS-REP Roasting: pre-auth not required for ' + actor };
+  }
+  if (t.includes('OVERPASS-HASH')) {
+    const actor = g(/'([^']+)'\s+from/i) || 'unknown';
+    const src2 = g(/from\s+([\d.]+)/i) || '';
+    return { direction: 'ad_attack', attack_type: 'OverpassHash', actor, remote_ip: src2, target_machine: machine, protocol: 'OverpassHash/KRB5', severity: sev, description: 'Overpass-the-Hash: RC4 TGT from workstation IP ' + src2 };
+  }
+  if (t.includes('PASS-THE-HASH')) {
+    const actor = g(/'([^']+)@/i) || 'unknown';
+    const src3 = g(/from\s+([\d.]+)/i) || '';
+    return { direction: 'ad_attack', attack_type: 'PassTheHash', actor, remote_ip: src3, target_machine: machine, protocol: 'PTH/NTLM', severity: sev, description: 'Pass-the-Hash: NTLM logon with blank workstation from ' + src3 };
+  }
+  if (t.includes('FORGED-PAC')) {
+    const actor = g(/account[:\s]+'([^']+)'/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'ForgedPAC', actor, target_machine: machine, protocol: 'ForgedPAC/KRB5', severity: sev, description: 'Forged PAC / privilege escalation for ' + actor };
+  }
+  if (t.includes('KERB-POLICY')) {
+    const actor = g(/by\s+'([^']+)'/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'KerbPolicy', actor, target_machine: machine, protocol: 'KerbPolicy/AD', severity: sev, description: 'Kerberos policy modified by ' + actor + ' — golden ticket lifetime change' };
+  }
+  if (t.includes('SKELETON-KEY')) {
+    const src4 = g(/source[:\s]+([\d.]+)/i) || 'unknown';
+    return { direction: 'ad_attack', attack_type: 'SkeletonKey', actor: src4, target_machine: machine, protocol: 'SkeletonKey/KRB5', severity: sev, description: 'Skeleton Key backdoor indicator: repeated 0x18 pre-auth failures from ' + src4 };
+  }
+
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NETWORK EVENT PARSER  (topology)
+// ─────────────────────────────────────────────────────────────────────────────
+function parseNetworkEvent(machine, tag, msg, sev) {
+  const t = tag.toUpperCase();
+
+  // AD attack takes priority
+  const ad = parseAdEvent(machine, tag, msg, sev);
+  if (ad) return ad;
+
+  // Firewall block events
+  const blockM = (tag + ' ' + msg).match(
+    /IOCHunt-Block(?:-(Out|In))?-(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})-(\d{1,5})/i
+  );
+  if (blockM) {
+    const bDir = (blockM[1] || '').toUpperCase();
+    const bIp = blockM[2];
+    const bPort = parseInt(blockM[3]);
+    if (bIp === '127.0.0.1' || bIp === '::1') return null;
+    if (bDir === 'OUT' || t.includes('OUTBOUND'))
+      return { direction: 'outbound', remote_ip: bIp, port: bPort, protocol: guessProto(bPort), severity: sev, blocked: 1 };
+    else
+      return { direction: 'inbound', remote_ip: bIp, port: bPort, protocol: guessProto(bPort), severity: sev, blocked: 1 };
+  }
+
+  const isInbound =
+    t.includes('NET-ADMIN-SHARE') || t.includes('NET-BLOCKED') || t.includes('CONN-KILLED') ||
+    (t.includes('DETECTED') && (
+      msg.includes('RDP') || msg.includes('SMB') || msg.includes('WinRM') ||
+      msg.includes('[NETWORK]') || msg.toUpperCase().includes('NETWORK') ||
+      /from\s+\d{1,3}\.\d/.test(msg)
+    )) ||
+    (t.includes('FAILED-LOGON') && (msg.includes('From:') || msg.includes('from ')));
+
+  if (isInbound) {
+    const ipM = msg.match(/[Ff]rom[:\s]+([\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3})/i) ||
+      msg.match(/remoteip[=:\s]+([\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3})/i);
+    if (!ipM || ipM[1] === '127.0.0.1' || ipM[1] === '::1' || ipM[1] === '-') return null;
+    const portM = msg.match(/port\s+(\d+)/i) || msg.match(/:(\d{2,5})\b/);
+    const protoM = msg.match(/\b(RDP|SMB|WinRM(?:-HTTPS?)?|SSH|Telnet|PsExec|HTTP|HTTPS|FTP|SMTP)\b/i);
+    const port = portM ? parseInt(portM[1]) : 0;
+    return {
+      direction: 'inbound', remote_ip: ipM[1], port,
+      protocol: protoM ? protoM[1].toUpperCase() : guessProto(port),
+      severity: sev, blocked: (t.includes('BLOCKED') || t.includes('KILLED')) ? 1 : 0
+    };
+  }
+
+  const isOutbound = t.includes('OUTBOUND') || msg.toUpperCase().includes('OUTBOUND') ||
+    !!msg.match(/connect(?:ed|ion)?\s+to\s+\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+/i);
+
+  if (isOutbound) {
+    const m2 = msg.match(/→\s*([\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}):(\d+)/) ||
+      msg.match(/->\s*([\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}):(\d+)/) ||
+      msg.match(/Destination[^:]*?([\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}):(\d+)/i) ||
+      msg.match(/\bto\s+([\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}):(\d+)/i) ||
+      msg.match(/connect(?:ed|ion)?\s+to\s+([\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}):(\d+)/i);
+    if (!m2 || m2[1] === '127.0.0.1' || m2[1] === '::1') return null;
+    const port2 = parseInt(m2[2]) || 0;
+    const protoM2 = msg.match(/\b(RDP|SMB|WinRM(?:-HTTPS?)?|SSH|Meterpreter|Telnet|RPC|HTTP|HTTPS|FTP)\b/i);
+    return {
+      direction: 'outbound', remote_ip: m2[1], port: port2,
+      protocol: protoM2 ? protoM2[1].toUpperCase() : guessProto(port2),
+      severity: sev, blocked: t.includes('BLOCKED') ? 1 : 0
+    };
+  }
+
+  return null;
+}
+
+
+
+module.exports = {
+  SENSITIVE_TOOLS, HIGH_RISK_CHILDREN, ENUM_TOOLS,
+  detectNoise, classifySeverity, parseCategory, normalizeToUTC
+};
