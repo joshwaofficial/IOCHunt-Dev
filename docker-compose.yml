@@ -150,12 +150,16 @@ services:
       - central-frontend-dist:/usr/share/nginx/html/central:ro
       - aggregator-frontend-dist:/usr/share/nginx/html/aggregator:ro
     depends_on:
-      - central-backend
-      - aggregator-backend
-      - central-frontend
-      - aggregator-frontend
+      central-backend:
+        condition: service_healthy
+      aggregator-backend:
+        condition: service_healthy
+      central-frontend:
+        condition: service_started
+      aggregator-frontend:
+        condition: service_started
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9090/health"]
+      test: ["CMD-SHELL", "wget --no-check-certificate -qO- https://localhost:8082/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
