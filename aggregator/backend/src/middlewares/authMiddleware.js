@@ -67,7 +67,7 @@ async function requireSession(req, res, next) {
  * Express middleware to validate API key for agent ingestion
  */
 function requireKey(req, res, next) {
-  const API_KEY = process.env.API_KEY || 'iochunt-agent-key-2024';
+  const API_KEY = process.env.API_KEY || process.env.AGGREGATOR_API_KEY || 'iochunt-agent-key-2024';
   const key = req.headers['x-api-key'] || req.query.key;
   if (!key) return res.status(401).json({ error: 'Unauthorized' });
   const cleanKey = key.trim();
@@ -81,7 +81,7 @@ function requireKey(req, res, next) {
  * Express middleware that allows either valid agent API key OR a valid dashboard session
  */
 async function requireSessionOrKey(req, res, next) {
-  const API_KEY = process.env.API_KEY || 'iochunt-agent-key-2024';
+  const API_KEY = process.env.API_KEY || process.env.AGGREGATOR_API_KEY || 'iochunt-agent-key-2024';
   const key = req.headers['x-api-key'] || req.query.key;
   if (key) {
     const cleanKey = key.trim();
