@@ -94,6 +94,40 @@ const initDB = async (retries = 10, delay = 3000) => {
       applied_at INTEGER
     );
 
+    CREATE TABLE IF NOT EXISTS incidents (
+      id SERIAL PRIMARY KEY,
+      title VARCHAR(255) NOT NULL,
+      description TEXT DEFAULT '',
+      status VARCHAR(50) DEFAULT 'new',
+      priority VARCHAR(50) DEFAULT 'P2',
+      assigned_to VARCHAR(255),
+      machine VARCHAR(255) DEFAULT '',
+      created_by VARCHAR(255) DEFAULT 'system',
+      created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
+      updated_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
+      resolved_at BIGINT,
+      closed_at BIGINT,
+      source_chain_id VARCHAR(255)
+    );
+
+    CREATE TABLE IF NOT EXISTS incident_notes (
+      id SERIAL PRIMARY KEY,
+      incident_id INTEGER REFERENCES incidents(id) ON DELETE CASCADE,
+      author VARCHAR(255) NOT NULL,
+      body TEXT NOT NULL,
+      created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
+      note_type VARCHAR(50) DEFAULT 'comment'
+    );
+
+    CREATE TABLE IF NOT EXISTS incident_events (
+      id SERIAL PRIMARY KEY,
+      incident_id INTEGER REFERENCES incidents(id) ON DELETE CASCADE,
+      event_id INTEGER REFERENCES events(id) ON DELETE CASCADE,
+      linked_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
+      linked_by VARCHAR(255) DEFAULT 'system',
+      UNIQUE (incident_id, event_id)
+    );
+
     CREATE TABLE IF NOT EXISTS sessions (
       token VARCHAR(128) PRIMARY KEY,
       user_id INTEGER,
