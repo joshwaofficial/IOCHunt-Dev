@@ -103,7 +103,7 @@ async function forwardToCentral(machine, label, events) {
     events
   }, {
     headers: {
-      'x-api-key': 'iochunt-agent-key-2024'
+      'Authorization': `Bearer ${central_api_key}`
     },
     httpsAgent
   });
