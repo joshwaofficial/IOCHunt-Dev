@@ -34,6 +34,7 @@ const settingsRoutes = require('./routes/settingsRoutes');
 const { initSchedules } = require('./utils/emailScheduler');
 
 const app = express();
+app.set('trust proxy', 1); // Trust Nginx X-Forwarded-For to prevent rate-limit crashes
 
 app.use(helmet());
 app.use(hpp());

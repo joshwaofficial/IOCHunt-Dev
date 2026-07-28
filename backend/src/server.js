@@ -21,6 +21,7 @@ const aggregatorRoutes = require('./routes/aggregatorRoutes');
 const ingestRoutes = require('./routes/ingestRoutes');
 
 const app = express();
+app.set('trust proxy', 1); // Trust Nginx X-Forwarded-For to prevent rate-limit crashes
 
 // ── CORS Configuration ─────────────────────────────────────────
 // In Docker, Nginx proxies everything. Accept the frontend URL from env.
