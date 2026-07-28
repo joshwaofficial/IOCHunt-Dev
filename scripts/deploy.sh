@@ -63,6 +63,8 @@ echo ""
 # ── Step 4: Start services ──────────────────────────────────
 echo -e "${YELLOW}[4/5] Starting services...${NC}"
 docker compose up -d --remove-orphans
+# Force Nginx to restart to clear stale upstream DNS cache if backend IPs changed
+docker restart iochunt-nginx || true
 echo -e "${GREEN}  ✓ Services started${NC}"
 echo ""
 
