@@ -18,9 +18,9 @@ COPY . .
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --retries=5 --start-period=15s \
-  CMD wget -qO- http://localhost:${AGGREGATOR_PORT:-4011}/api/ping || exit 1
+  CMD wget -qO- http://127.0.0.1:${AGGREGATOR_PORT:-4001}/api/ping || exit 1
 
-EXPOSE 4011
+EXPOSE 4001
 
 # Docker is the process manager — no PM2
 CMD ["node", "src/server.js"]

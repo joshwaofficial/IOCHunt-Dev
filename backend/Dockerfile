@@ -18,7 +18,7 @@ COPY . .
 
 # Health check — hits the /api/ping endpoint
 HEALTHCHECK --interval=30s --timeout=5s --retries=5 --start-period=15s \
-  CMD wget -qO- http://localhost:${CENTRAL_PORT:-4001}/api/ping || exit 1
+  CMD wget -qO- http://127.0.0.1:${CENTRAL_PORT:-4001}/api/ping || exit 1
 
 EXPOSE 4001
 
