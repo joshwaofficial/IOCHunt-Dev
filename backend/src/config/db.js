@@ -165,7 +165,7 @@ const initDB = async (retries = 10, delay = 3000) => {
       username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       salt TEXT NOT NULL,
-      role TEXT DEFAULT 'Global Admin',
+      role TEXT DEFAULT 'ADMIN',
       email TEXT DEFAULT '',
       force_password_change INTEGER DEFAULT 0,
       mfa_secret TEXT,
@@ -217,7 +217,7 @@ const initDB = async (retries = 10, delay = 3000) => {
         const { hash, salt } = cryptoHelper.hashPassword('admin');
         const created_at = Math.floor(Date.now() / 1000);
         await pool.query(
-          "INSERT INTO users (username, password_hash, salt, role, created_at) VALUES ('admin', $1, $2, 'Global Admin', $3)", 
+          "INSERT INTO users (username, password_hash, salt, role, created_at) VALUES ('admin', $1, $2, 'ADMIN', $3)", 
           [hash, salt, created_at]
         );
         console.log('[DB] Default admin/admin user created.');
