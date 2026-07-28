@@ -60,6 +60,30 @@ const initDB = async (retries = 10, delay = 3000) => {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS fw_events (
+      id SERIAL PRIMARY KEY,
+      aggregator_name VARCHAR(255) REFERENCES aggregators(name) ON DELETE CASCADE,
+      ts TIMESTAMP,
+      received BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
+      devname VARCHAR(255) DEFAULT '',
+      src_ip VARCHAR(50) DEFAULT '',
+      src_port INTEGER DEFAULT 0,
+      dst_ip VARCHAR(50) DEFAULT '',
+      dst_port INTEGER DEFAULT 0,
+      action VARCHAR(50) DEFAULT '',
+      service VARCHAR(255) DEFAULT '',
+      policy VARCHAR(255) DEFAULT '',
+      proto VARCHAR(50) DEFAULT '',
+      src_country VARCHAR(10) DEFAULT '',
+      dst_country VARCHAR(10) DEFAULT '',
+      sent_bytes BIGINT DEFAULT 0,
+      rcv_bytes BIGINT DEFAULT 0,
+      duration INTEGER DEFAULT 0,
+      session_id VARCHAR(255) DEFAULT '',
+      severity VARCHAR(50) DEFAULT 'info',
+      raw TEXT DEFAULT ''
+    );
+
     CREATE TABLE IF NOT EXISTS machines (
       id SERIAL PRIMARY KEY,
       aggregator_name VARCHAR(255) REFERENCES aggregators(name) ON DELETE CASCADE,

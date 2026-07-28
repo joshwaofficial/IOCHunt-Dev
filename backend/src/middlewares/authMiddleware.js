@@ -96,7 +96,7 @@ async function requireSessionOrKey(req, res, next) {
  * Express middleware to ensure the user has admin privileges
  */
 function requireAdmin(req, res, next) {
-  if (!req.session || req.session.role?.toLowerCase() !== 'admin') {
+  if (!req.session || !req.session.role?.toLowerCase().includes('admin')) {
     return res.status(403).json({ error: 'Forbidden: Insufficient privileges' });
   }
   next();
