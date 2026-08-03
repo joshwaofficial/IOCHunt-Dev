@@ -18,8 +18,9 @@ async function getMachinePolicy(req, res) {
       return res.status(503).json({ error: 'Aggregator not configured with Central Server' });
     }
     
+    const apiKey = settings.central_api_key || process.env.API_KEY || 'iochunt-agent-key-2024';
     const centralRes = await axios.get(`${settings.central_server_url}/api/policy/${machine}`, {
-      headers: { 'x-api-key': 'iochunt-agent-key-2024' },
+      headers: { 'x-api-key': apiKey },
       httpsAgent
     });
     
@@ -40,8 +41,9 @@ async function updateMachineCurrentPolicy(req, res) {
       return res.status(503).json({ error: 'Aggregator not configured with Central Server' });
     }
     
+    const apiKey = settings.central_api_key || process.env.API_KEY || 'iochunt-agent-key-2024';
     const centralRes = await axios.post(`${settings.central_server_url}/api/policy/${machine}/current`, { policy }, {
-      headers: { 'x-api-key': 'iochunt-agent-key-2024' },
+      headers: { 'x-api-key': apiKey },
       httpsAgent
     });
     
@@ -64,8 +66,9 @@ async function ackMachinePolicy(req, res) {
       return res.status(503).json({ error: 'Aggregator not configured with Central Server' });
     }
     
+    const apiKey = settings.central_api_key || process.env.API_KEY || 'iochunt-agent-key-2024';
     const centralRes = await axios.patch(`${settings.central_server_url}/api/policy/${machine}/ack`, {}, {
-      headers: { 'x-api-key': 'iochunt-agent-key-2024' },
+      headers: { 'x-api-key': apiKey },
       httpsAgent
     });
     
@@ -83,8 +86,9 @@ async function getAllPolicies(req, res) {
       return res.status(503).json({ error: 'Aggregator not configured with Central Server' });
     }
     
+    const apiKey = settings.central_api_key || process.env.API_KEY || 'iochunt-agent-key-2024';
     const centralRes = await axios.get(`${settings.central_server_url}/api/policy/`, {
-      headers: { 'x-api-key': 'iochunt-agent-key-2024' },
+      headers: { 'x-api-key': apiKey },
       httpsAgent
     });
     
