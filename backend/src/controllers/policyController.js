@@ -78,11 +78,31 @@ async function setMachinePolicy(req, res) {
 async function ackMachinePolicy(req, res) {
   try {
     const machine = req.params.machine;
+    
+    // Get effective policy to synchronize current_json immediately on ACK
+    const rowRes = await db.query('SELECT policy_json FROM policies WHERE machine=$1', [machine]);
+    let effectivePolicy = rowRes.rows[0]?.policy_json;
+    if (!effectivePolicy || effectivePolicy === '{}') {
+      const grpRes = await db.query(`
+        SELECT pg.policy_json FROM machine_groups mg
+        JOIN pol_groups pg ON pg.id = mg.group_id
+        WHERE mg.machine = $1 ORDER BY pg.updated_at DESC LIMIT 1
+      `, [machine]);
+      if (grpRes.rows[0]?.policy_json && grpRes.rows[0]?.policy_json !== '{}') {
+        effectivePolicy = grpRes.rows[0].policy_json;
+      }
+    }
+
     await db.query(`
       UPDATE policies
-      SET applied_at = (EXTRACT(EPOCH FROM NOW())::INTEGER)
+      SET applied_at = (EXTRACT(EPOCH FROM NOW())::INTEGER),
+          current_json = CASE 
+            WHEN $2::text IS NOT NULL AND $2::text != '{}' THEN $2::text 
+            ELSE current_json 
+          END
       WHERE machine = $1
-    `, [machine]);
+    `, [machine, effectivePolicy || null]);
+
     res.json({ ok: true });
   } catch (error) {
     console.error('[Policy] Failed to ack policy:', error);

@@ -368,16 +368,56 @@ def start_central_shipper():
 def start_policy_poller():
     def _poll():
         while True:
-            time.sleep(60)
             try:
                 if not config.get("central_server_enabled"):
+                    time.sleep(15)
                     continue
                 url = config.get("central_server_url", "").rstrip("/")
                 key = config.get("central_server_key", "")
                 if not url or not key:
+                    time.sleep(15)
                     continue
                 machine = socket.gethostname()
-                
+
+                # 1. Fetch latest policy from Central / Aggregator
+                resp = requests.get(
+                    f"{url}/api/policy/{machine}",
+                    headers={"x-api-key": key},
+                    timeout=10, verify=False,
+                )
+                if resp.ok:
+                    data = resp.json()
+                    pol  = data.get("policy") or data.get("effective_policy") or {}
+                    if pol:
+                        changed = False
+                        if "catModes" in pol:
+                            for i, v in enumerate(pol["catModes"]):
+                                if i < len(cat_modes) and cat_modes[i] != int(v):
+                                    cat_modes[i] = int(v)
+                                    changed = True
+                        for k, attr in [
+                            ("officeHoursStart",     "office_hours_start"),
+                            ("officeHoursEnd",       "office_hours_end"),
+                            ("officeHoursDays",      "office_hours_days"),
+                            ("failedLogonThreshold", "failed_logon_threshold"),
+                            ("failedLogonWindowMins","failed_logon_window_mins"),
+                        ]:
+                            if k in pol:
+                                config[attr] = pol[k]
+                        if "learningMode" in pol:
+                            config["learning_mode"] = bool(pol["learningMode"])
+                        
+                        log("[POLICY] Applied machine-specific policy.")
+                        
+                        # 2. Acknowledge policy application
+                        requests.patch(
+                            f"{url}/api/policy/{machine}/ack",
+                            headers={"x-api-key": key},
+                            json={"policy": {"catModes": cat_modes}},
+                            timeout=5, verify=False,
+                        )
+
+                # 3. Report active running policy to Central
                 try:
                     requests.post(
                         f"{url}/api/policy/{machine}/current",
@@ -388,40 +428,11 @@ def start_policy_poller():
                 except Exception as ex:
                     log(f"[POLICY-REPORT-ERR] {ex}")
 
-                resp = requests.get(
-                    f"{url}/api/policy/{machine}",
-                    headers={"x-api-key": key},
-                    timeout=10, verify=False,
-                )
-                if not resp.ok:
-                    continue
-                data = resp.json()
-                pol  = data.get("policy") or data.get("effective_policy") or {}
-                if not pol:
-                    continue
-                if "catModes" in pol:
-                    for i, v in enumerate(pol["catModes"]):
-                        if i < len(cat_modes):
-                            cat_modes[i] = int(v)
-                for k, attr in [
-                    ("officeHoursStart",     "office_hours_start"),
-                    ("officeHoursEnd",       "office_hours_end"),
-                    ("officeHoursDays",      "office_hours_days"),
-                    ("failedLogonThreshold", "failed_logon_threshold"),
-                    ("failedLogonWindowMins","failed_logon_window_mins"),
-                ]:
-                    if k in pol:
-                        config[attr] = pol[k]
-                if "learningMode" in pol:
-                    config["learning_mode"] = bool(pol["learningMode"])
-                log("[POLICY] Applied policy from central server.")
-                requests.patch(
-                    f"{url}/api/policy/{machine}/ack",
-                    headers={"x-api-key": key},
-                    timeout=5, verify=False,
-                )
             except Exception as ex:
                 log(f"[POLICY-POLL-ERR] {ex}")
+            
+            time.sleep(20)
+
     threading.Thread(target=_poll, daemon=True, name="PolicyPoller").start()
 
 # ═══════════════════════════════════════════════════════════════════════════════
