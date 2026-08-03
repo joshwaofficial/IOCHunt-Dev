@@ -63,22 +63,34 @@ async function requireSession(req, res, next) {
   next();
 }
 
+const crypto = require('crypto');
+const hash = (text) => crypto.createHash('sha256').update(text).digest('hex');
+
 /**
  * Express middleware to validate API key for agent ingestion
  */
-function requireKey(req, res, next) {
+async function requireKey(req, res, next) {
   const API_KEY = process.env.API_KEY || 'iochunt-agent-key-2024';
   const key = req.headers['x-api-key'] || req.query.key;
   if (!key) return res.status(401).json({ error: 'Unauthorized' });
   const cleanKey = key.trim();
-  if (cleanKey !== API_KEY) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  if (cleanKey === API_KEY) {
+    return next();
   }
-  next();
+  try {
+    const aggRes = await db.query('SELECT name FROM aggregators WHERE api_key_hash = $1 AND status = $2', [hash(cleanKey), 'active']);
+    if (aggRes.rows.length > 0) {
+      req.aggregator = aggRes.rows[0];
+      return next();
+    }
+  } catch (e) {
+    console.error('[AUTH DEBUG] Error checking aggregator key in requireKey:', e);
+  }
+  return res.status(401).json({ error: 'Unauthorized' });
 }
 
 /**
- * Express middleware that allows either valid agent API key OR a valid dashboard session
+ * Express middleware that allows either valid agent/aggregator API key OR a valid dashboard session
  */
 async function requireSessionOrKey(req, res, next) {
   const API_KEY = process.env.API_KEY || 'iochunt-agent-key-2024';
@@ -87,6 +99,15 @@ async function requireSessionOrKey(req, res, next) {
     const cleanKey = key.trim();
     if (cleanKey === API_KEY) {
       return next();
+    }
+    try {
+      const aggRes = await db.query('SELECT name FROM aggregators WHERE api_key_hash = $1 AND status = $2', [hash(cleanKey), 'active']);
+      if (aggRes.rows.length > 0) {
+        req.aggregator = aggRes.rows[0];
+        return next();
+      }
+    } catch (e) {
+      console.error('[AUTH DEBUG] Error checking aggregator key in requireSessionOrKey:', e);
     }
   }
   return requireSession(req, res, next);
