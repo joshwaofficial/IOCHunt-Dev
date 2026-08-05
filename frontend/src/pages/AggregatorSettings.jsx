@@ -1,0 +1,282 @@
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+import toast from 'react-hot-toast';
+
+export default function AggregatorSettings() {
+  const [settings, setSettings] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [url, setUrl] = useState('');
+  const [pairingCode, setPairingCode] = useState('');
+  const [isPairing, setIsPairing] = useState(false);
+  const [sources, setSources] = useState([]);
+  const [newSource, setNewSource] = useState({ name: '', type: 'syslog', path: '', port: 5514 });
+
+  useEffect(() => {
+    fetchSettings();
+    fetchSources();
+  }, []);
+
+  const fetchSettings = async () => {
+    try {
+      const res = await axios.get('/api/settings');
+      setSettings(res.data);
+      setStats(res.data.stats);
+      if (res.data.central_server_url) setUrl(res.data.central_server_url);
+    } catch (err) {
+      if (!err.response?.data?.force_password_change) {
+        toast.error('Failed to load aggregator settings');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchSources = async () => {
+    try {
+      const res = await axios.get('/api/fw-sources');
+      setSources(res.data.sources || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handlePair = async (e) => {
+    e.preventDefault();
+    setIsPairing(true);
+    try {
+      await axios.post('/api/settings/pair', { url, pairing_code: pairingCode });
+      toast.success('Successfully paired to Central Server!');
+      setPairingCode('');
+      fetchSettings();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Pairing failed.');
+    } finally {
+      setIsPairing(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!window.confirm('Are you sure? Events will no longer be forwarded to Central Server.')) return;
+    try {
+      await axios.post('/api/settings/disconnect');
+      toast.success('Disconnected from Central Server');
+      fetchSettings();
+    } catch (err) {
+      toast.error('Failed to disconnect');
+    }
+  };
+
+  const handleRetentionChange = async (e) => {
+    const days = e.target.value;
+    try {
+      await axios.put('/api/settings/retention', { local_retention_days: days });
+      toast.success('Local data retention policy updated');
+      fetchSettings();
+    } catch (err) {
+      toast.error('Failed to update retention policy');
+    }
+  };
+
+  const handleAddSource = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.post('/api/fw-sources', newSource);
+      toast.success('Source added');
+      setNewSource({ name: '', type: 'syslog', path: '', port: 5514 });
+      fetchSources();
+    } catch (err) {
+      toast.error('Failed to add source');
+    }
+  };
+
+  const handleDeleteSource = async (id) => {
+    try {
+      await axios.delete(`/api/fw-sources/${id}`);
+      toast.success('Source removed');
+      fetchSources();
+    } catch (err) {
+      toast.error('Failed to remove source');
+    }
+  };
+
+  if (loading) return <div className="p-6 text-foreground">Loading aggregator configurations...</div>;
+
+  const isPaired = !!settings?.central_server_url;
+
+  return (
+    <div className="tab-panel active animate-fade-in" style={{ width: '100%', paddingBottom: '40px' }}>
+      
+      {/* Page Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
+        <div>
+          <h2 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.5px', color: 'var(--text)', margin: 0 }}>
+            Branch Aggregator Settings
+          </h2>
+          <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '6px 0 0', fontFamily: 'var(--mono)' }}>
+            Manage Central Server pairing, event forwarding queue, and local log collectors.
+          </p>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
+        
+        {/* Pairing & Forwarding Card */}
+        <div style={{
+          background: 'var(--surface)',
+          borderRadius: '8px',
+          border: '1px solid var(--border)',
+          padding: '24px'
+        }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
+            Central Server Connection
+          </h3>
+          <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '20px' }}>
+            Forwarding pipeline status to Central Server
+          </p>
+
+          {!isPaired ? (
+            <form onSubmit={handlePair}>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginBottom: '6px' }}>
+                  Central Server URL & Port (IP Address)
+                </label>
+                <input 
+                  type="url" 
+                  required
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://192.168.1.100:4001 (or Central Server IP)"
+                  style={{
+                    width: '100%', padding: '10px 14px', background: 'var(--background)',
+                    border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '13px'
+                  }}
+                />
+                <span style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
+                  Specify the Central Server IP and port (e.g. <code>https://192.168.1.100:4001</code>). Do not use 0.0.0.0.
+                </span>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginBottom: '6px' }}>
+                  Pairing Code
+                </label>
+                <input 
+                  type="text" 
+                  required
+                  value={pairingCode}
+                  onChange={(e) => setPairingCode(e.target.value)}
+                  placeholder="e.g. 6-character code from Central Aggregators page"
+                  style={{
+                    width: '100%', padding: '10px 14px', background: 'var(--background)',
+                    border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '13px',
+                    fontFamily: 'monospace'
+                  }}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isPairing}
+                style={{
+                  background: 'var(--primary, #3b82f6)',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '10px 20px',
+                  color: '#fff',
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  cursor: 'pointer'
+                }}
+              >
+                {isPairing ? 'Pairing...' : 'Connect to Central Server'}
+              </button>
+            </form>
+          ) : (
+            <div>
+              <div style={{
+                background: 'rgba(16, 185, 129, 0.1)',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                padding: '16px',
+                borderRadius: '6px',
+                marginBottom: '20px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontWeight: 700, fontSize: '14px' }}>
+                  <span className="material-symbols-outlined">check_circle</span>
+                  Connected to Central Server
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text)', marginTop: '8px', wordBreak: 'break-all' }}>
+                  <strong>URL:</strong> {settings.central_server_url}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '4px' }}>
+                  <strong>Last Sync:</strong> {settings.last_sync_at ? new Date(settings.last_sync_at).toLocaleString() : 'Pending'}
+                </div>
+                {stats && (
+                  <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '4px' }}>
+                    <strong>Queued Events:</strong> {stats.unsynced_events || 0}
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleDisconnect}
+                style={{
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  color: '#ef4444',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  borderRadius: '6px',
+                  padding: '8px 16px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Disconnect Node
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Local Retention Policy Card */}
+        <div style={{
+          background: 'var(--surface)',
+          borderRadius: '8px',
+          border: '1px solid var(--border)',
+          padding: '24px'
+        }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
+            Branch Log Retention
+          </h3>
+          <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '20px' }}>
+            Configure local disk retention for forwarded events.
+          </p>
+
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginBottom: '6px' }}>
+              Local Event Retention Period
+            </label>
+            <select
+              value={settings?.local_retention_days || 30}
+              onChange={handleRetentionChange}
+              style={{
+                width: '100%', padding: '10px 14px', background: 'var(--background)',
+                border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '13px'
+              }}
+            >
+              <option value={7}>7 Days (High Traffic / Low Storage)</option>
+              <option value={14}>14 Days</option>
+              <option value={30}>30 Days (Standard)</option>
+              <option value={60}>60 Days</option>
+              <option value={90}>90 Days (Extended)</option>
+            </select>
+          </div>
+          <p style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.5 }}>
+            Events are preserved until successfully synced with Central Server, after which local copies older than this threshold are purged.
+          </p>
+        </div>
+
+      </div>
+    </div>
+  );
+}

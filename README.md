@@ -1,157 +1,99 @@
-# IOC Hunt — Cyber Security Platform
+# IOC Hunt — Unified Cybersecurity Platform
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)]()
 [![Docker](https://img.shields.io/badge/docker-ready-brightgreen.svg)]()
+[![Multi-Tenant](https://img.shields.io/badge/multi--tenant-ready-purple.svg)]()
 [![License](https://img.shields.io/badge/license-proprietary-red.svg)]()
 
-> Enterprise-grade SOC platform for real-time threat detection, incident response, and security monitoring.
+> Enterprise SOC platform for real-time threat detection, automated incident response, syslog aggregation, and multi-tenant cyber security monitoring.
 
 ---
 
-## Architecture
+## 🏗️ Architecture
 
 ```
-Windows Endpoints (500+)
-    │
-    │ HTTPS (API Key Auth)
-    ▼
-┌────────────────────────────────────────────┐
-│           Docker Compose Stack             │
-│                                            │
-│  Nginx (:9090/:9443)                       │
-│    ├── Central Dashboard (React)           │
-│    ├── Aggregator Dashboard (React)        │
-│    ├── /api/ → Central Backend (:4001)     │
-│    └── /aggregator/api/ → Agg Backend      │
-│                                            │
-│  Central Backend (Node.js)                 │
-│    └── PostgreSQL (iochunt_central)        │
-│                                            │
-│  Aggregator Backend (Node.js)              │
-│    └── PostgreSQL (iochunt_aggregator)     │
-│                                            │
-└────────────────────────────────────────────┘
+                      ┌───────────────────────────────────────────────┐
+                      │              Windows Endpoints                │
+                      │               (agent/iochunt.py)              │
+                      └──────────────────────┬────────────────────────┘
+                                             │ HTTPS /api/logs
+                                             ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                          Unified Docker Stack (3 Services)                      │
+│                                                                                 │
+│  Nginx Reverse Proxy (:80 / :443 TLS)                                           │
+│    └── Routes all web traffic & terminates SSL certificates                     │
+│                                                                                 │
+│  Unified Platform Container (:4001 HTTP, :5514 Syslog UDP)                      │
+│    ├── Mode: Central Management Server OR Branch Aggregator                     │
+│    ├── React Single Page Application (Dashboard & Setup Wizard)                 │
+│    ├── Direct Agent Ingestion Engine & Syslog Receiver                          │
+│    └── Dynamic Multi-Tenant PostgreSQL Schema Isolation                         │
+│                                                                                 │
+│  PostgreSQL 16 Multi-Tenant Database (iochunt_db)                               │
+│    ├── public schema: tenants, users, sessions, instance_config                 │
+│    └── tenant_<id> schemas: events, machines, incidents, firewall_rules        │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
 
-### Prerequisites
-
-- Docker Engine 24+
-- Docker Compose v2+
-- Git
-
-### First Deployment
-
+### 1. Configure Environment
 ```bash
-# 1. Clone the repository
-git clone https://github.com/joshwaofficial/IOCHunt-Dev.git
-cd IOCHunt-Dev
-
-# 2. Create environment file
 cp .env.example .env
-nano .env  # Fill in your values
+nano .env  # Set your secrets and instance mode
+```
 
-# 3. Generate SSL certificates
+### 2. Generate TLS Certificates
+```bash
 ./scripts/generate-certs.sh
+```
 
-# 4. Deploy
+### 3. Deploy Stack
+```bash
 ./scripts/deploy.sh
 ```
 
-### Access
-
-| Service | URL |
-|---|---|
-| Central Dashboard | `https://72.62.241.39:9443` |
-| Aggregator Dashboard | `https://72.62.241.39:9443/aggregator` |
-| Default Login | `admin` / `admin` |
+### 4. Access Platform
+Open your browser at `https://localhost` (or your domain/IP). If this is a fresh deployment, you will automatically be guided through the **First-Time Setup Wizard**.
 
 ---
 
-## Deployment Workflow
-
-```
-Developer (Mac/VS Code)
-    │
-    │ git push
-    ▼
-GitHub (joshwaofficial/IOCHunt-Dev)
-    │
-    │ SSH into server
-    ▼
-Server (72.62.241.39)
-    │
-    │ cd /opt/iochunt && ./scripts/deploy.sh
-    ▼
-Everything updated automatically
-```
-
-No CI/CD. No Jenkins. No GitHub Actions. Just Git + Docker + SSH.
-
----
-
-## Project Structure
+## 📂 Project Structure
 
 ```
 iochunt/
-├── frontend/           # Central Dashboard (React + Vite)
-├── backend/            # Central Backend (Node.js + Express)
-├── aggregator/
-│   ├── backend/        # Aggregator Backend (Node.js)
-│   └── frontend/       # Aggregator Dashboard (React)
-├── agent/              # Windows Agent (Python)
-├── nginx/              # Reverse Proxy Config
-├── postgres/           # Database Init Scripts
-├── scripts/            # Deployment & Operations
-├── docs/               # Documentation
-├── docker-compose.yml  # Service Orchestration
-├── .env.example        # Environment Template
+├── backend/            # Unified Node.js Platform Backend & Aggregator Modules
+├── frontend/           # Unified React SPA Dashboard & Setup Wizard
+├── agent/              # Endpoint Agent (Python)
+├── nginx/              # Reverse Proxy & SSL Configuration
+├── postgres/           # Database Initialization Scripts
+├── scripts/            # Deployment, Backup, and Simulation Tools
+├── docs/               # Architecture and Operations Documentation
+├── docker-compose.yml  # 3-Service Production Orchestration
+├── Dockerfile          # Multi-Stage Production Build
+├── .env.example        # Environment Variable Template
 └── VERSION             # Current Version
 ```
 
 ---
 
-## Operations
+## 🛠️ Operations & Management
 
 | Task | Command |
 |---|---|
-| Deploy | `./scripts/deploy.sh` |
-| View logs | `docker compose logs -f` |
-| Backup | `./scripts/backup.sh` |
-| Restore | `./scripts/restore.sh <file>` |
-| Rollback | `./scripts/rollback.sh` |
-| Restart | `docker compose restart` |
-| Stop | `docker compose down` |
-| Status | `docker compose ps` |
+| Deploy / Update | `./scripts/deploy.sh` |
+| View Live Logs | `docker compose logs -f` |
+| Backup Database | `./scripts/backup.sh` |
+| Restore Database | `./scripts/restore.sh <backup-file>` |
+| Rollback Version | `./scripts/rollback.sh` |
+| Send Mock Attacks | `node scripts/mock_logs.js` |
+| Stop Platform | `docker compose down` |
 
 ---
 
-## Documentation
-
-- [Deployment Guide](docs/DEPLOYMENT.md)
-- [Development Guide](docs/DEVELOPMENT.md)
-- [Backup & Restore](docs/BACKUP.md)
-- [Rollback Guide](docs/ROLLBACK.md)
-- [Version Upgrade](docs/UPGRADE.md)
-
----
-
-## Tech Stack
-
-| Component | Technology |
-|---|---|
-| Frontend | React 19, Vite 8, TailwindCSS |
-| Backend | Node.js 20, Express 5 |
-| Database | PostgreSQL 16 |
-| Web Server | Nginx (Alpine) |
-| Containers | Docker, Docker Compose |
-| Agent | Python (Windows) |
-
----
-
-## License
+## 🛡️ License
 
 Proprietary — DefSecOne © 2026

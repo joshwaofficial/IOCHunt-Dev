@@ -1,64 +1,171 @@
+// ════════════════════════════════════════════════════════════════
+// IOC Hunt — Aggregator Controller
+// ════════════════════════════════════════════════════════════════
+// Handles:
+// 1. Aggregator separate database creation & provisioning
+// 2. Secure pairing code exchange & API key generation
+// 3. Querying specific aggregator branch databases and logs
+// ════════════════════════════════════════════════════════════════
+
 const crypto = require('crypto');
 const db = require('../config/db');
+const { createAggregatorDatabase, queryAggregator, closeAggregatorPool } = require('../config/aggregatorDbManager');
+const { hashPassword } = require('../utils/cryptoHelper');
 
-// Helper to hash
 const hash = (text) => crypto.createHash('sha256').update(text).digest('hex');
 
+/**
+ * Admin registers an aggregator account in Central Server
+ * (Does NOT create database on Central Server; database is created on the branch node upon remote login)
+ */
+const createAggregator = async (req, res) => {
+  try {
+    const { name, display_name, admin_username, admin_password } = req.body;
+    if (!name) return res.status(400).json({ error: 'Aggregator name is required' });
+
+    const safeName = name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const dbName = `iochunt_agg_${safeName}`;
+
+    // 1. If branch admin credentials provided, register user on Central Server mapped strictly to this aggregator
+    if (admin_username && admin_password) {
+      const { hash: pHash, salt } = hashPassword(admin_password);
+      const createdAt = Math.floor(Date.now() / 1000);
+      const uName = admin_username.trim().toLowerCase();
+
+      await db.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS aggregator_name VARCHAR(255) DEFAULT NULL;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(255) DEFAULT '';
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 1;
+      `);
+      await db.query(`
+        INSERT INTO users (username, password_hash, salt, role, aggregator_name, display_name, force_password_change, created_at)
+        VALUES ($1, $2, $3, 'AGGREGATOR_ADMIN', $4, $5, 1, $6)
+        ON CONFLICT (username) DO UPDATE SET
+          password_hash = EXCLUDED.password_hash,
+          salt = EXCLUDED.salt,
+          aggregator_name = EXCLUDED.aggregator_name,
+          display_name = EXCLUDED.display_name,
+          role = 'AGGREGATOR_ADMIN',
+          force_password_change = 1
+      `, [uName, pHash, salt, safeName, display_name || safeName, createdAt]);
+    }
+
+    // 2. Generate pairing code (valid for 48 hours)
+    const pairingCode = 'PAIR-' + crypto.randomBytes(6).toString('hex').toUpperCase().match(/.{4}/g).join('-');
+    const expires = new Date();
+    expires.setHours(expires.getHours() + 48);
+
+    // 3. Save record in Central Server aggregators registry with status 'pending_provisioning'
+    await db.query(`
+      INSERT INTO aggregators (name, display_name, pairing_code_hash, pairing_expires, status, database_name)
+      VALUES ($1, $2, $3, $4, 'pending_provisioning', $5)
+      ON CONFLICT (name) DO UPDATE SET
+        display_name = EXCLUDED.display_name,
+        pairing_code_hash = EXCLUDED.pairing_code_hash,
+        pairing_expires = EXCLUDED.pairing_expires,
+        database_name = EXCLUDED.database_name,
+        status = 'pending_provisioning'
+    `, [
+      safeName,
+      display_name || name,
+      hash(pairingCode),
+      expires,
+      dbName
+    ]);
+
+    const { getNetworkUrl } = require('../utils/networkHelper');
+    const port = process.env.PORT || 4001;
+    const isHttps = req.protocol === 'https' || req.secure || Boolean(process.env.SSL_KEY_PATH);
+    const centralServerUrl = getNetworkUrl(port, isHttps);
+
+    res.status(201).json({
+      success: true,
+      message: `Aggregator '${safeName}' registered. Ready to be provisioned on remote Branch server.`,
+      name: safeName,
+      display_name: display_name || name,
+      database_name: dbName,
+      status: 'pending_provisioning',
+      pairing_code: pairingCode,
+      central_server_url: centralServerUrl,
+      expires_at: expires
+    });
+  } catch (error) {
+    console.error('[Create Aggregator Error]', error);
+    res.status(500).json({ error: 'Server error: ' + error.message });
+  }
+};
+
+/**
+ * Remote Aggregator Node connects for first-time provisioning & authentication
+ * Central Server verifies branch credentials and returns authorization bundle
+ */
+
+/**
+ * Generate/Regenerate a pairing code for an existing aggregator
+ */
 const generateCode = async (req, res) => {
   try {
-    const { aggregator_name } = req.body;
+    const { aggregator_name, display_name } = req.body;
     if (!aggregator_name) return res.status(400).json({ error: 'aggregator_name required' });
 
-    // Generate pairing code (short, human-readable)
+    const safeName = aggregator_name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+
+    // Ensure database exists
+    const dbInfo = await createAggregatorDatabase(safeName);
+
     const pairingCode = 'PAIR-' + crypto.randomBytes(6).toString('hex').toUpperCase().match(/.{4}/g).join('-');
-    
-    // Generate actual API key (long)
-    const apiKey = 'agg_' + crypto.randomBytes(32).toString('hex');
-    
-    // Expires in 24h
     const expires = new Date();
     expires.setHours(expires.getHours() + 24);
 
-    const query = `
-      INSERT INTO aggregators (name, api_key_hash, pairing_code_hash, pairing_expires, status)
-      VALUES ($1, $2, $3, $4, 'pending')
+    await db.query(`
+      INSERT INTO aggregators (name, display_name, pairing_code_hash, pairing_expires, status, database_name)
+      VALUES ($1, $2, $3, $4, 'pending', $5)
       ON CONFLICT (name) DO UPDATE SET 
-        api_key_hash = EXCLUDED.api_key_hash,
+        display_name = COALESCE(EXCLUDED.display_name, aggregators.display_name),
         pairing_code_hash = EXCLUDED.pairing_code_hash,
         pairing_expires = EXCLUDED.pairing_expires,
+        database_name = EXCLUDED.database_name,
         status = 'pending'
-    `;
-    
-    await db.query(query, [
-      aggregator_name,
-      hash(apiKey),
+    `, [
+      safeName,
+      display_name || safeName,
       hash(pairingCode),
-      expires
+      expires,
+      dbInfo.databaseName
     ]);
 
-    // Return the pairing code to the UI (but not the API key)
+    const { getNetworkUrl } = require('../utils/networkHelper');
+    const port = process.env.PORT || 4001;
+    const isHttps = req.protocol === 'https' || req.secure || Boolean(process.env.SSL_KEY_PATH);
+    const centralServerUrl = getNetworkUrl(port, isHttps);
+
     res.json({
       success: true,
-      aggregator_name,
+      aggregator_name: safeName,
+      database_name: dbInfo.databaseName,
       pairing_code: pairingCode,
+      central_server_url: centralServerUrl,
       expires_at: expires
     });
   } catch (error) {
     console.error('[Generate Code Error]', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Server error: ' + error.message });
   }
 };
 
+/**
+ * Branch Aggregator exchanges its pairing code for an active API key
+ */
 const pair = async (req, res) => {
   try {
     const { pairing_code } = req.body;
     if (!pairing_code) return res.status(400).json({ error: 'pairing_code required' });
 
-    const codeHash = hash(pairing_code);
+    const codeHash = hash(pairing_code.trim());
 
     const result = await db.query(
-      'SELECT * FROM aggregators WHERE pairing_code_hash = $1 AND status = $2',
-      [codeHash, 'pending']
+      'SELECT * FROM aggregators WHERE pairing_code_hash = $1 AND status != $2',
+      [codeHash, 'revoked']
     );
 
     if (result.rows.length === 0) {
@@ -68,63 +175,131 @@ const pair = async (req, res) => {
     const aggregator = result.rows[0];
 
     // Check expiration
-    if (new Date() > new Date(aggregator.pairing_expires)) {
-      return res.status(400).json({ error: 'Pairing code expired' });
+    if (aggregator.pairing_expires && new Date() > new Date(aggregator.pairing_expires)) {
+      return res.status(400).json({ error: 'Pairing code has expired. Request a new one from Central Server.' });
     }
 
-    // Since we only stored the hash of the api key in DB, we need to generate a new one, store its hash, and return it.
-    // Wait, in my design (from user prompt):
-    // "Central Server generates API key, stores hash, but NEVER shows to anyone"
-    // So the central server MUST give the API key during the /pair call!
-    // But if we generated the API key in generateCode and only stored the hash, we don't know the plain API key now!
-    // Correct approach: We generate the REAL API key inside /pair, OR we generate it here and save the plain one in memory/redis temporarily?
-    // Actually, in the user's flow:
-    // 1. Generate code (UI gets PAIR-xxx).
-    // 2. /pair receives PAIR-xxx, validates, then generates API key, hashes it, saves in DB, and returns it to Aggregator.
-    // Let's do that instead to avoid storing plaintext API key.
-    
+    // Generate unique API key for this aggregator
     const apiKey = 'agg_' + crypto.randomBytes(32).toString('hex');
 
     await db.query(`
       UPDATE aggregators 
       SET status = 'active', 
           api_key_hash = $1, 
-          pairing_code_hash = NULL 
+          pairing_code_hash = NULL,
+          last_sync = NOW()
       WHERE id = $2
     `, [hash(apiKey), aggregator.id]);
 
     res.json({
       status: 'paired',
       api_key: apiKey,
-      aggregator_name: aggregator.name
+      aggregator_name: aggregator.name,
+      database_name: aggregator.database_name
     });
   } catch (error) {
     console.error('[Pairing Error]', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Server error: ' + error.message });
   }
 };
 
+/**
+ * List all registered aggregators with sync health & stats
+ */
 const getAggregators = async (req, res) => {
   try {
-    const result = await db.query('SELECT id, name, status, last_sync, agent_count FROM aggregators ORDER BY created_at DESC');
+    const isAggAdmin = req.session?.role === 'AGGREGATOR_ADMIN' || Boolean(req.session?.aggregator_name);
+    
+    let result;
+    if (isAggAdmin && req.session?.aggregator_name) {
+      result = await db.query(`
+        SELECT id, name, display_name, status, database_name, last_sync, agent_count, created_at 
+        FROM aggregators 
+        WHERE name = $1
+        ORDER BY created_at DESC
+      `, [req.session.aggregator_name]);
+    } else {
+      result = await db.query(`
+        SELECT id, name, display_name, status, database_name, last_sync, agent_count, created_at 
+        FROM aggregators 
+        ORDER BY created_at DESC
+      `);
+    }
     res.json(result.rows);
   } catch (error) {
+    console.error('[Get Aggregators Error]', error);
     res.status(500).json({ error: 'Server error' });
   }
 };
 
+/**
+ * View live logs from a specific aggregator's separate database
+ */
+const getAggregatorLogs = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { limit = 100, severity, machine } = req.query;
+
+    const aggRes = await db.query('SELECT name, database_name FROM aggregators WHERE id = $1', [id]);
+    if (aggRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Aggregator not found' });
+    }
+
+    const aggName = aggRes.rows[0].name;
+
+    // Query events either from Central Server's ingested table or directly from aggregator database
+    let queryText = 'SELECT * FROM events WHERE aggregator_name = $1';
+    const params = [aggName];
+    let pIdx = 2;
+
+    if (severity) {
+      queryText += ` AND severity = $${pIdx++}`;
+      params.push(severity);
+    }
+    if (machine) {
+      queryText += ` AND machine = $${pIdx++}`;
+      params.push(machine);
+    }
+
+    queryText += ` ORDER BY ts DESC LIMIT $${pIdx}`;
+    params.push(parseInt(limit, 10));
+
+    const eventsRes = await db.query(queryText, params);
+    res.json({
+      aggregator: aggName,
+      total: eventsRes.rows.length,
+      events: eventsRes.rows
+    });
+  } catch (error) {
+    console.error('[Get Aggregator Logs Error]', error);
+    res.status(500).json({ error: 'Failed to retrieve aggregator logs' });
+  }
+};
+
+/**
+ * Delete aggregator and close its connection pool
+ */
 const deleteAggregator = async (req, res) => {
   try {
-    await db.query('DELETE FROM aggregators WHERE id = $1', [req.params.id]);
-    res.json({ success: true });
+    const { id } = req.params;
+    const aggRes = await db.query('SELECT name FROM aggregators WHERE id = $1', [id]);
+    if (aggRes.rows.length > 0) {
+      await closeAggregatorPool(aggRes.rows[0].name);
+    }
+    await db.query('DELETE FROM aggregators WHERE id = $1', [id]);
+    res.json({ success: true, message: 'Aggregator removed' });
   } catch (error) {
+    console.error('[Delete Aggregator Error]', error);
     res.status(500).json({ error: 'Server error' });
   }
 };
 
 module.exports = {
+  createAggregator,
+
   generateCode,
   pair,
   getAggregators,
+  getAggregatorLogs,
   deleteAggregator
 };

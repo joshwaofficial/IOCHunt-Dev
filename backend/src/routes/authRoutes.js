@@ -1,3 +1,7 @@
+// ════════════════════════════════════════════════════════════════
+// IOC Hunt — Authentication Routes
+// ════════════════════════════════════════════════════════════════
+
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
@@ -12,12 +16,14 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Public routes
+// Public authentication routes
 router.post('/login', loginLimiter, authController.login);
+router.post('/setup-branch', loginLimiter, authController.setupBranchNode);
 router.post('/mfa/verify', authController.mfaVerify);
 
-// Protected routes
+// Protected authentication routes
 router.post('/logout', requireSession, authController.logout);
 router.get('/me', requireSession, authController.me);
+router.post('/change-password', requireSession, authController.changePassword);
 
 module.exports = router;

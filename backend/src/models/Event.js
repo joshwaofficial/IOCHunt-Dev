@@ -1,4 +1,16 @@
+const { getAggregatorPool } = require('../config/aggregatorDbManager');
 const db = require('../config/db');
+
+function getDb(aggregator) {
+  if (aggregator && aggregator !== 'All Aggregators' && aggregator !== 'All Branches' && aggregator !== 'default' && aggregator !== 'direct') {
+    try {
+      return getAggregatorPool(aggregator);
+    } catch(e) {
+      return db.pool;
+    }
+  }
+  return db.pool;
+}
 
 class Event {
   static async getAdAttacks(aggregator = '', machine = '', limit = 3000, from, to) {
@@ -33,7 +45,8 @@ class Event {
     sql += ` ORDER BY e.ts DESC LIMIT $${pIdx}`;
     params.push(limit);
 
-    const res = await db.query(sql, params);
+    const pool = getDb(aggregator);
+    const res = await pool.query(sql, params);
     return res.rows;
   }
 
@@ -60,7 +73,8 @@ class Event {
     sql += ` ORDER BY e.ts DESC LIMIT $${pIdx}`;
     params.push(limit);
 
-    const res = await db.query(sql, params);
+    const pool = getDb(aggregator);
+    const res = await pool.query(sql, params);
     return res.rows;
   }
 
@@ -74,7 +88,8 @@ class Event {
     sql += ` ORDER BY ts DESC LIMIT $${pIdx}`;
     params.push(limit);
 
-    const res = await db.query(sql, params);
+    const pool = getDb(aggregator);
+    const res = await pool.query(sql, params);
     return res.rows;
   }
 
@@ -94,12 +109,14 @@ class Event {
     sql += ` ORDER BY ts DESC LIMIT $${pIdx}`;
     params.push(limit);
 
-    const res = await db.query(sql, params);
+    const pool = getDb(aggregator);
+    const res = await pool.query(sql, params);
     return res.rows;
   }
 
-  static async getFirewallEvents(limit = 100, offset = 0) {
-    const res = await db.query(`
+  static async getFirewallEvents(aggregator = '', limit = 100, offset = 0) {
+    const pool = getDb(aggregator);
+    const res = await pool.query(`
       SELECT * FROM fw_events
       ORDER BY ts DESC
       LIMIT $1 OFFSET $2

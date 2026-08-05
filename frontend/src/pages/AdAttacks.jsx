@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useFilter } from '../context/FilterContext';
+import { useInstance } from '../context/InstanceContext';
 
 const sevColor = {
   critical: '#f04f5a',
@@ -37,6 +38,7 @@ export default function AdAttacks() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
+  let savedRange = (localStorage.getItem('iochunt_ad_range') || '24').replace('h', '');
   const [range, setRange] = useState(savedRange);
   const [branchFilter, setBranchFilter] = useState('');
   const [aggregators, setAggregators] = useState([]);
@@ -57,7 +59,8 @@ export default function AdAttacks() {
   const [sortFilter, setSortFilter] = useState('newest');
         
   const { aggregator } = useFilter();
-
+  const { isCentral } = useInstance();
+  
   const [customFrom, setCustomFrom] = useState(() => {
     const d = new Date();
     d.setHours(d.getHours() - 24);
@@ -67,6 +70,7 @@ export default function AdAttacks() {
 
   useEffect(() => {
     const fetchAggregators = async () => {
+      if (!isCentral()) return;
       try {
         const aggRes = await axios.get('/api/aggregators');
         setAggregators(aggRes.data.data || aggRes.data || []);
@@ -75,7 +79,7 @@ export default function AdAttacks() {
       }
     };
     fetchAggregators();
-  }, []);
+  }, [isCentral]);
 
   useEffect(() => {
     const fetchMachines = async () => {

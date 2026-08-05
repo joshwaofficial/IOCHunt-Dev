@@ -3866,7 +3866,7 @@ def run_setup_wizard():
         "Enable central server shipping?", False)
     if config["central_server_enabled"]:
         config["central_server_url"]   = _ask("Server URL", "")
-        config["central_server_key"]   = _ask("API key", "iochunt-change-me")
+        config["central_server_key"]   = _ask("API key")
         config["central_server_label"] = _ask("Machine label",
                                                socket.gethostname())
 

@@ -37,13 +37,13 @@ echo -e "${YELLOW}[1/3] Backing up databases...${NC}"
 docker compose exec -T db pg_dumpall -U postgres \
   | gzip > "${BACKUP_DIR}/db_full_${TIMESTAMP}.sql.gz"
 DB_SIZE=$(du -sh "${BACKUP_DIR}/db_full_${TIMESTAMP}.sql.gz" | cut -f1)
-echo -e "${GREEN}  ✓ Database backup: ${DB_SIZE}${NC}"
+echo -e "${GREEN}   Database backup: ${DB_SIZE}${NC}"
 
 # ── Certificate Backup ──────────────────────────────────────
 echo -e "${YELLOW}[2/3] Backing up certificates...${NC}"
 if [ -d nginx/ssl ] && [ "$(ls -A nginx/ssl/*.crt 2>/dev/null)" ]; then
   tar czf "${BACKUP_DIR}/certs_${TIMESTAMP}.tar.gz" nginx/ssl/
-  echo -e "${GREEN}  ✓ Certificate backup complete${NC}"
+  echo -e "${GREEN}   Certificate backup complete${NC}"
 else
   echo -e "${YELLOW}  ⚠ No certificates found — skipping${NC}"
 fi
@@ -52,7 +52,7 @@ fi
 echo -e "${YELLOW}[3/3] Backing up configuration...${NC}"
 if [ -f .env ]; then
   cp .env "${BACKUP_DIR}/env_${TIMESTAMP}.bak"
-  echo -e "${GREEN}  ✓ Configuration backup complete${NC}"
+  echo -e "${GREEN}   Configuration backup complete${NC}"
 fi
 
 # ── Retention: delete backups older than 30 days ─────────────

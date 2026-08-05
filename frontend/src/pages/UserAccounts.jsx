@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useFilter } from '../context/FilterContext';
+import { useInstance } from '../context/InstanceContext';
 
 const sevColor = {
   critical: '#f04f5a',
@@ -23,10 +24,12 @@ const adCol = (type) => {
 
 const esc = (s) => (s || '').toString();
 
-let savedRange = '168';
-
 export default function UserAccounts() {
   const { aggregator } = useFilter();
+  const { isCentral } = useInstance();
+
+  let savedRange = (localStorage.getItem('iochunt_user_range') || '24').replace('h', '');
+  
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -41,6 +44,7 @@ export default function UserAccounts() {
   const [aggregators, setAggregators] = useState([]);
   const [machine, setMachine] = useState('');
   const [availableMachines, setAvailableMachines] = useState([]);
+  const [serverStats, setServerStats] = useState({ total: 0, critical: 0, high: 0 });
   
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10); 
@@ -60,6 +64,7 @@ export default function UserAccounts() {
 
   useEffect(() => {
     const fetchAggregators = async () => {
+      if (!isCentral()) return;
       try {
         const aggRes = await axios.get('/api/aggregators');
         setAggregators(aggRes.data.data || aggRes.data || []);
@@ -68,7 +73,7 @@ export default function UserAccounts() {
       }
     };
     fetchAggregators();
-  }, []);
+  }, [isCentral]);
 
   useEffect(() => {
     const fetchMachines = async () => {

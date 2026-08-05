@@ -1,32 +1,63 @@
-// backend/src/middlewares/rbac.js
-// Role-Based Access Control middleware
-// Supports roles: admin, L3, L2, L1, viewer
-// Usage: router.get('/protected', requireRole(['admin', 'L3']), handler);
+// ════════════════════════════════════════════════════════════════
+// IOC Hunt — Role-Based Access Control (RBAC) Middleware
+// ════════════════════════════════════════════════════════════════
+// Enforces hierarchical role checks and granular permissions
+// ════════════════════════════════════════════════════════════════
+
+const { normalizeRole, isRoleAboveOrEqual, hasPermission } = require('../config/roles');
+
+/**
+ * Middleware generator that ensures the session role meets or exceeds the required role.
+ * Accepts an array of roles or a single role string.
+ */
+function requireRole(allowedRoles) {
+  const rolesList = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
+
+  return function (req, res, next) {
+    const userRole = req.session && req.session.role ? req.session.role : null;
+    if (!userRole) {
+      return res.status(401).json({ error: 'Unauthenticated: valid session required' });
+    }
+
+    const normUserRole = normalizeRole(userRole);
+
+    // Check if the user role matches or is above any of the allowed roles
+    const isPermitted = rolesList.some(r => isRoleAboveOrEqual(normUserRole, r));
+
+    if (isPermitted) {
+      return next();
+    }
+
+    return res.status(403).json({
+      error: 'Forbidden: Insufficient privileges for this resource',
+      requiredRoles: rolesList,
+      currentRole: normUserRole
+    });
+  };
+}
+
+/**
+ * Middleware generator that ensures user has a specific granular permission
+ */
+function requirePermission(permission) {
+  return function (req, res, next) {
+    const userRole = req.session && req.session.role ? req.session.role : null;
+    if (!userRole) {
+      return res.status(401).json({ error: 'Unauthenticated: valid session required' });
+    }
+
+    if (hasPermission(userRole, permission)) {
+      return next();
+    }
+
+    return res.status(403).json({
+      error: `Forbidden: Missing required permission '${permission}'`,
+      currentRole: normalizeRole(userRole)
+    });
+  };
+}
 
 module.exports = {
-  /**
-   * Middleware generator that ensures the current session role is one of the allowedRoles.
-   * @param {Array<string>} allowedRoles - List of role strings permitted to access the route.
-   * @returns {function(req, res, next)} Express middleware.
-   */
-  requireRole: function (allowedRoles) {
-    const rolesSet = new Set(allowedRoles.map(r => r.toLowerCase()));
-    return function (req, res, next) {
-      const userRole = (req.session && req.session.role) ? req.session.role.toLowerCase() : null;
-      if (!userRole) {
-        return res.status(401).json({ error: 'Unauthenticated: session missing' });
-      }
-      if (rolesSet.has(userRole)) {
-        return next();
-      }
-      // For hierarchical roles, allow higher privilege to access lower privilege routes
-      const hierarchy = ['viewer', 'l1_analyst', 'l2_analyst', 'l3_analyst', 'admin'];
-      const userIdx = hierarchy.indexOf(userRole);
-      const minIdx = Math.min(...Array.from(rolesSet).map(r => hierarchy.indexOf(r)));
-      if (userIdx >= minIdx && userIdx !== -1) {
-        return next();
-      }
-      return res.status(403).json({ error: 'Forbidden: insufficient role' });
-    };
-  }
+  requireRole,
+  requirePermission
 };

@@ -40,7 +40,7 @@ export default function Users() {
   const [alertDialog, setAlertDialog] = useState({ isOpen: false, title: '', message: '', type: 'info' });
 
   // Add User Form
-  const [newForm, setNewForm] = useState({ username: '', email: '', password: '', role: 'L1_ANALYST' });
+  const [newForm, setNewForm] = useState({ username: '', email: '', password: '', role: 'L1_ANALYST', force_password_change: true });
   const [newError, setNewError] = useState('');
 
   const fetchData = async () => {
@@ -73,7 +73,7 @@ export default function Users() {
     }
     try {
       await axios.post('/api/users', newForm);
-      setNewForm({ username: '', email: '', password: '', role: 'L1_ANALYST' });
+      setNewForm({ username: '', email: '', password: '', role: 'L1_ANALYST', force_password_change: true });
       fetchData();
     } catch (e) {
       setNewError(e.response?.data?.error || 'Failed to create user');
@@ -360,6 +360,12 @@ export default function Users() {
                                 <span style={{ fontWeight: 600, fontFamily: 'var(--mono)', color: 'var(--text)' }}>{esc(u.username)}</span>
                                 {isSelf && <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '.05em', background: badgeYouCls.bg, color: badgeYouCls.color, border: badgeYouCls.border }}>YOU</span>}
                                 <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '.05em', background: badgeRoleCls.bg, color: badgeRoleCls.color, border: badgeRoleCls.border }}>{esc(u.role)}</span>
+                                {Boolean(u.force_password_change) && (
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '.05em', background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}>
+                                    <span className="material-symbols-outlined" style={{ fontSize: '9px' }}>key</span>
+                                    Reset Required
+                                  </span>
+                                )}
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '.05em', background: badgeMfaCls.bg, color: badgeMfaCls.color, border: badgeMfaCls.border }}>
                                   <span className="material-symbols-outlined" style={{ fontSize: '9px' }}>{hasMFA ? 'lock' : 'lock_open'}</span>
                                   {hasMFA ? 'MFA' : 'No MFA'}

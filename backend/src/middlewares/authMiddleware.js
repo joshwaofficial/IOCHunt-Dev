@@ -1,43 +1,66 @@
+// ════════════════════════════════════════════════════════════════
+// IOC Hunt — Authentication & Key Validation Middleware
+// ════════════════════════════════════════════════════════════════
+
+const crypto = require('crypto');
 const db = require('../config/db');
+const { normalizeRole, isRoleAboveOrEqual } = require('../config/roles');
+
+const hash = (text) => crypto.createHash('sha256').update(text).digest('hex');
 
 /**
- * Parses the session cookie from the request headers
- * @param {Object} req - Express request object
- * @returns {string|null} The session token or null
+ * Parses the session cookie or authorization token from request headers
  */
 function parseSessionCookie(req) {
+  // 1. Check Authorization Bearer header
+  const authHeader = req.headers.authorization || '';
+  if (authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7).trim();
+    if (token) return token;
+  }
+
+  // 2. Check X-Session-Token custom header
+  if (req.headers['x-session-token']) {
+    return req.headers['x-session-token'].trim();
+  }
+
+  // 3. Check Cookie headers
   const raw = req.headers.cookie || '';
   for (const part of raw.split(';')) {
     const [k, ...v] = part.trim().split('=');
     if (k.trim() === 'iochunt_session') return decodeURIComponent(v.join('='));
   }
+
+  // 4. Check parsed req.cookies if cookie-parser is active
+  if (req.cookies?.iochunt_session) {
+    return req.cookies.iochunt_session;
+  }
+
   return null;
 }
 
 /**
  * Retrieves a valid session from the database
- * @param {string} token - Session token
- * @returns {Object|null} Session data including user force_password_change flag
  */
 async function getSession(token) {
   if (!token) return null;
   const now = Math.floor(Date.now() / 1000);
   try {
     const res = await db.query(`
-      SELECT s.token, s.user_id, s.username, s.expires_at, u.role, u.force_password_change 
+      SELECT s.token, s.user_id, s.username, s.expires_at, u.role, u.force_password_change, u.aggregator_name, u.display_name 
       FROM sessions s 
       JOIN users u ON u.id = s.user_id 
       WHERE s.token = $1 AND s.expires_at > $2
     `, [token, now]);
     return res.rows[0] || null;
   } catch (err) {
-    console.error('[AUTH DEBUG] getSession error:', err);
+    console.error('[AUTH] getSession error:', err.message);
     return null;
   }
 }
 
 /**
- * Express middleware to ensure a valid session exists
+ * Express middleware to ensure a valid session exists and enforces mandatory password change
  */
 async function requireSession(req, res, next) {
   const token = parseSessionCookie(req) || req.cookies?.iochunt_session;
@@ -51,63 +74,74 @@ async function requireSession(req, res, next) {
   }
 
   req.session = session;
-  
-  // Enforce password change strictly
-  if (session.force_password_change && req.path !== '/change-password' && req.path !== '/logout') {
-    return res.status(403).json({ 
-      error: 'Forbidden: Password change required', 
-      force_password_change: true 
+
+  // Enforce password change strictly: only allow password change and logout endpoints
+  const isAllowedPath = req.path === '/change-password' || req.path === '/logout' || req.path === '/me';
+  if ((session.force_password_change === 1 || session.force_password_change === true) && !isAllowedPath) {
+    return res.status(403).json({
+      error: 'Forbidden: Mandatory password change required before accessing the system',
+      force_password_change: true
     });
   }
 
   next();
 }
 
-const crypto = require('crypto');
-const hash = (text) => crypto.createHash('sha256').update(text).digest('hex');
-
 /**
- * Express middleware to validate API key for agent ingestion
+ * Express middleware to validate API key for agent log ingestion and aggregator syncing
  */
 async function requireKey(req, res, next) {
-  const API_KEY = process.env.API_KEY || 'iochunt-agent-key-2024';
-  const key = req.headers['x-api-key'] || req.query.key;
-  if (!key) return res.status(401).json({ error: 'Unauthorized' });
+  const API_KEY = process.env.API_KEY || process.env.AGGREGATOR_API_KEY;
+  const key = req.headers['x-api-key'] || req.headers['x-aggregator-key'] || req.query.key;
+  if (!key) return res.status(401).json({ error: 'Unauthorized: Missing API key' });
+
   const cleanKey = key.trim();
   if (cleanKey === API_KEY) {
+    req.authType = 'direct_agent';
     return next();
   }
+
   try {
-    const aggRes = await db.query('SELECT name FROM aggregators WHERE api_key_hash = $1 AND status = $2', [hash(cleanKey), 'active']);
+    const aggRes = await db.query(
+      'SELECT id, name, database_name, status FROM aggregators WHERE api_key_hash = $1 AND status = $2',
+      [hash(cleanKey), 'active']
+    );
     if (aggRes.rows.length > 0) {
       req.aggregator = aggRes.rows[0];
+      req.authType = 'aggregator';
       return next();
     }
   } catch (e) {
-    console.error('[AUTH DEBUG] Error checking aggregator key in requireKey:', e);
+    console.error('[AUTH] Error checking aggregator key in requireKey:', e.message);
   }
-  return res.status(401).json({ error: 'Unauthorized' });
+
+  return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
 }
 
 /**
  * Express middleware that allows either valid agent/aggregator API key OR a valid dashboard session
  */
 async function requireSessionOrKey(req, res, next) {
-  const API_KEY = process.env.API_KEY || 'iochunt-agent-key-2024';
-  const key = req.headers['x-api-key'] || req.query.key;
+  const API_KEY = process.env.API_KEY || process.env.AGGREGATOR_API_KEY;
+  const key = req.headers['x-api-key'] || req.headers['x-aggregator-key'] || req.query.key;
   if (key) {
     const cleanKey = key.trim();
     if (cleanKey === API_KEY) {
+      req.authType = 'direct_agent';
       return next();
     }
     try {
-      const aggRes = await db.query('SELECT name FROM aggregators WHERE api_key_hash = $1 AND status = $2', [hash(cleanKey), 'active']);
+      const aggRes = await db.query(
+        'SELECT id, name, database_name, status FROM aggregators WHERE api_key_hash = $1 AND status = $2',
+        [hash(cleanKey), 'active']
+      );
       if (aggRes.rows.length > 0) {
         req.aggregator = aggRes.rows[0];
+        req.authType = 'aggregator';
         return next();
       }
     } catch (e) {
-      console.error('[AUTH DEBUG] Error checking aggregator key in requireSessionOrKey:', e);
+      console.error('[AUTH] Error checking aggregator key in requireSessionOrKey:', e.message);
     }
   }
   return requireSession(req, res, next);
@@ -117,15 +151,30 @@ async function requireSessionOrKey(req, res, next) {
  * Express middleware to ensure the user has admin privileges
  */
 function requireAdmin(req, res, next) {
-  if (!req.session || !req.session.role?.toLowerCase().includes('admin')) {
-    return res.status(403).json({ error: 'Forbidden: Insufficient privileges' });
+  const role = req.session?.role;
+  if (!req.session || !isRoleAboveOrEqual(role, 'ADMIN')) {
+    return res.status(403).json({ error: 'Forbidden: Admin privileges required' });
+  }
+  next();
+}
+
+/**
+ * Express middleware to ensure the user has analyst privileges
+ */
+function requireAnalyst(req, res, next) {
+  const role = req.session?.role;
+  if (!req.session || !isRoleAboveOrEqual(role, 'L1_ANALYST')) {
+    return res.status(403).json({ error: 'Forbidden: Analyst privileges required' });
   }
   next();
 }
 
 module.exports = {
+  parseSessionCookie,
+  getSession,
   requireSession,
   requireAdmin,
+  requireAnalyst,
   requireKey,
   requireSessionOrKey
 };

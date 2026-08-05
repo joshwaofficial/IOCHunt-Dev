@@ -40,7 +40,7 @@ fi
 # Checkout target
 echo -e "${YELLOW}[1/3] Checking out ${TARGET}...${NC}"
 git checkout "${TARGET}" -- .
-echo -e "${GREEN}  ✓ Code reverted${NC}"
+echo -e "${GREEN}   Code reverted${NC}"
 
 # Rebuild and restart
 echo -e "${YELLOW}[2/3] Rebuilding images...${NC}"

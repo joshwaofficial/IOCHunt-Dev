@@ -1,14 +1,17 @@
 import { useEffect, useRef } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useInstance } from '../context/InstanceContext';
 
 export default function Sidebar({ collapsed, toggle }) {
   const { user, logout } = useAuth();
+  const { instanceInfo, isCentral, isAggregator } = useInstance();
   const location = useLocation();
   const scrollRef = useRef(null);
 
+  const isAdmin = user?.role?.toLowerCase().includes('admin') || user?.role?.toLowerCase().includes('superadmin');
+
   useEffect(() => {
-    // Small timeout ensures the active class has been applied by React Router
     const timer = setTimeout(() => {
       if (scrollRef.current) {
         const activeEl = scrollRef.current.querySelector('.snb.active');
@@ -45,8 +48,8 @@ export default function Sidebar({ collapsed, toggle }) {
             </svg>
           </div>
           <div className="logo-text">
-            <h1>IOC <span className="font-light">CENTRAL</span></h1>
-            <p>GLOBAL COMMAND</p>
+            <h1>IOC <span className="font-light">{(isAggregator() || user?.aggregator_name) ? 'AGGREGATOR' : 'CENTRAL'}</span></h1>
+            <p>{(isAggregator() || user?.aggregator_name) ? `BRANCH NODE [${user?.aggregator_name || instanceInfo?.tenant_id || 'DEFAULT'}]` : 'GLOBAL COMMAND HUB'}</p>
           </div>
         </Link>
         <button onClick={toggle} className="tb-icon-btn" style={{ width: '28px', height: '28px', transform: collapsed ? 'rotate(180deg)' : 'none' }}>
@@ -83,12 +86,27 @@ export default function Sidebar({ collapsed, toggle }) {
 
         <div className="sidebar-section">
           <div className="sidebar-section-label">Management</div>
-          <NavLink to="/aggregators" className={navClass}><span className="icon material-symbols-outlined">network_node</span> Aggregators</NavLink>
-          <NavLink to="/policy" className={navClass}><span className="icon material-symbols-outlined">settings</span> Policy</NavLink>
-          <NavLink to="/users" className={navClass}><span className="icon material-symbols-outlined">group</span> Users</NavLink>
+          {/* Only Central Master Admin manages all aggregators */}
+          {isCentral() && !user?.aggregator_name && (
+            <NavLink to="/aggregators" className={navClass}><span className="icon material-symbols-outlined">network_node</span> Aggregators</NavLink>
+          )}
+
+          {/* In Aggregator mode or Branch Admin view */}
+          {(isAggregator() || user?.aggregator_name) && (
+            <NavLink to="/aggregator-settings" className={navClass}><span className="icon material-symbols-outlined">sync</span> Node Sync & Pair</NavLink>
+          )}
+
           <NavLink to="/incidents" className={navClass}><span className="icon material-symbols-outlined">emergency</span> Incidents</NavLink>
           <NavLink to="/reports" className={navClass}><span className="icon material-symbols-outlined">bar_chart</span> Reports</NavLink>
           <NavLink to="/email-reports" className={navClass}><span className="icon material-symbols-outlined">mail</span> Email Reports</NavLink>
+          
+          {/* Admin only routes */}
+          {isAdmin && (
+            <>
+              <NavLink to="/policy" className={navClass}><span className="icon material-symbols-outlined">settings</span> Policy</NavLink>
+              <NavLink to="/users" className={navClass}><span className="icon material-symbols-outlined">group</span> Users</NavLink>
+            </>
+          )}
         </div>
       </div>
 
@@ -99,7 +117,7 @@ export default function Sidebar({ collapsed, toggle }) {
           </div>
           <div className="user-info">
             <div className="user-name" id="sidebar-username">{user?.username || 'Loading...'}</div>
-            <div className="user-role" id="sidebar-role">{user?.role || '—'}</div>
+            <div className="user-role" id="sidebar-role">{user?.role || '—'} {user?.tenant_id ? `(${user.tenant_id})` : ''}</div>
           </div>
         </div>
         

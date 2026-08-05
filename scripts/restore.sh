@@ -48,17 +48,17 @@ fi
 # Stop application services (keep DB running)
 echo -e "${YELLOW}[1/4] Stopping application services...${NC}"
 docker compose stop central-backend aggregator-backend nginx
-echo -e "${GREEN}  ✓ Services stopped${NC}"
+echo -e "${GREEN}   Services stopped${NC}"
 
 # Restore database
 echo -e "${YELLOW}[2/4] Restoring database...${NC}"
 gunzip -c "${BACKUP_FILE}" | docker compose exec -T db psql -U postgres
-echo -e "${GREEN}  ✓ Database restored${NC}"
+echo -e "${GREEN}   Database restored${NC}"
 
 # Restart all services
 echo -e "${YELLOW}[3/4] Restarting all services...${NC}"
 docker compose up -d
-echo -e "${GREEN}  ✓ Services restarted${NC}"
+echo -e "${GREEN}   Services restarted${NC}"
 
 # Health check
 echo -e "${YELLOW}[4/4] Waiting for health checks (15s)...${NC}"

@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const dashboardController = require('../controllers/dashboardController');
+const { requireSession } = require('../middlewares/authMiddleware');
+
+// Secure all dashboard endpoints
+router.use(requireSession);
 
 // Global events & machines
 router.get('/machines', dashboardController.getMachines);

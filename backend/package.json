@@ -4,7 +4,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
+    "dev": "node --watch src/server.js",
+    "db:reset": "node ../scripts/clear_all_databases.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

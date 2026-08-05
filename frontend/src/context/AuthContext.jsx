@@ -4,17 +4,33 @@ import axios from 'axios';
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
+  // Pre-load user from localStorage to prevent unauthenticated flash on reload
+  const [user, setUser] = useState(() => {
+    try {
+      const cached = localStorage.getItem('iochunt_user');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check session on mount
+    // Verify session on mount with the backend
     axios.get('/api/auth/me')
       .then(res => {
-        setUser(res.data.user);
+        if (res.data?.user) {
+          setUser(res.data.user);
+          localStorage.setItem('iochunt_user', JSON.stringify(res.data.user));
+        }
       })
-      .catch(() => {
-        setUser(null);
+      .catch((err) => {
+        // Only clear user on explicit 401 Unauthorized
+        if (err.response?.status === 401) {
+          localStorage.removeItem('iochunt_user');
+          localStorage.removeItem('iochunt_token');
+          setUser(null);
+        }
       })
       .finally(() => {
         setLoading(false);
@@ -26,13 +42,28 @@ export function AuthProvider({ children }) {
     if (res.data.mfa_required) {
       return { mfaRequired: true, tempToken: res.data.tempToken };
     }
-    setUser(res.data.user);
+    if (res.data.token) {
+      localStorage.setItem('iochunt_token', res.data.token);
+    }
+    if (res.data.user) {
+      localStorage.setItem('iochunt_user', JSON.stringify(res.data.user));
+      setUser(res.data.user);
+    }
     return { success: true };
   };
 
+
+
   const logout = async () => {
-    await axios.post('/api/auth/logout');
-    setUser(null);
+    try {
+      await axios.post('/api/auth/logout');
+    } catch (e) {
+      console.warn('Logout API failed:', e);
+    } finally {
+      localStorage.removeItem('iochunt_user');
+      localStorage.removeItem('iochunt_token');
+      setUser(null);
+    }
   };
 
   return (
@@ -43,3 +74,4 @@ export function AuthProvider({ children }) {
 }
 
 export const useAuth = () => useContext(AuthContext);
+

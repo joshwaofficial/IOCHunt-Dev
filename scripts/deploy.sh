@@ -1,108 +1,76 @@
 #!/bin/bash
 # ════════════════════════════════════════════════════════════════
-# IOC Hunt — Deployment Script
+# IOC Hunt — Unified Platform Deployment Script
 # ════════════════════════════════════════════════════════════════
 # Usage: ./scripts/deploy.sh
-#
-# This script:
-#   1. Pulls latest code from GitHub
-#   2. Builds Docker images
-#   3. Starts/restarts all services
-#   4. Cleans up old images
-#   5. Shows deployment status
 # ════════════════════════════════════════════════════════════════
 
 set -euo pipefail
 
-# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-VERSION=$(cat VERSION 2>/dev/null || echo "unknown")
+VERSION=$(cat VERSION 2>/dev/null || echo "2.0.0")
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
 echo ""
 echo -e "${CYAN}═══════════════════════════════════════════${NC}"
-echo -e "${CYAN}  IOC Hunt — Deployment${NC}"
+echo -e "${CYAN}  IOC Hunt — Unified Platform Deployment${NC}"
 echo -e "${CYAN}  Version: ${VERSION}${NC}"
 echo -e "${CYAN}  Time:    ${TIMESTAMP}${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════${NC}"
 echo ""
 
-# ── Step 1: Pull latest code ─────────────────────────────────
-echo -e "${YELLOW}[1/5] Pulling latest code from GitHub...${NC}"
-git pull origin main 2>&1 || git pull origin master 2>&1 || echo -e "${RED}  ⚠ Git pull failed — continuing with local code${NC}"
-echo ""
-
-# ── Step 2: Check .env exists ────────────────────────────────
-echo -e "${YELLOW}[2/5] Checking configuration...${NC}"
+# ── Step 1: Check .env exists ────────────────────────────────
+echo -e "${YELLOW}[1/4] Checking configuration...${NC}"
 if [ ! -f .env ]; then
   echo -e "${RED}  ✗ .env file not found!${NC}"
   echo -e "${RED}  Run: cp .env.example .env && nano .env${NC}"
   exit 1
 fi
-echo -e "${GREEN}  ✓ .env file found${NC}"
+echo -e "${GREEN}   .env file found${NC}"
 
 # Check SSL certificates exist
-if [ ! -f nginx/ssl/central.crt ] || [ ! -f nginx/ssl/central.key ]; then
+if [ ! -f nginx/ssl/iochunt.crt ] || [ ! -f nginx/ssl/iochunt.key ]; then
   echo -e "${YELLOW}  ⚠ SSL certificates not found — generating self-signed certs...${NC}"
   ./scripts/generate-certs.sh
 fi
-echo -e "${GREEN}  ✓ SSL certificates found${NC}"
+echo -e "${GREEN}   SSL certificates verified${NC}"
 echo ""
 
-# ── Step 3: Build images ────────────────────────────────────
-echo -e "${YELLOW}[3/5] Building Docker images...${NC}"
+# ── Step 2: Build images ────────────────────────────────────
+echo -e "${YELLOW}[2/4] Building Unified Docker image...${NC}"
 docker compose build
-echo -e "${GREEN}  ✓ Images built successfully${NC}"
+echo -e "${GREEN}   Images built successfully${NC}"
 echo ""
 
-# ── Step 4: Start services ──────────────────────────────────
-echo -e "${YELLOW}[4/5] Starting services...${NC}"
+# ── Step 3: Start services ──────────────────────────────────
+echo -e "${YELLOW}[3/4] Starting 3-service platform (db, app, nginx)...${NC}"
 docker compose up -d --remove-orphans
-# Force Nginx to restart to clear stale upstream DNS cache if backend IPs changed
 docker restart iochunt-nginx || true
-echo -e "${GREEN}  ✓ Services started${NC}"
+echo -e "${GREEN}   Platform services started${NC}"
 echo ""
 
-# ── Step 5: Cleanup ─────────────────────────────────────────
-echo -e "${YELLOW}[5/5] Cleaning up old images...${NC}"
-docker image prune -f
-echo ""
+# ── Step 4: Health Verification ─────────────────────────────
+echo -e "${YELLOW}[4/4] Verifying health checks (10s)...${NC}"
+sleep 10
 
-# ── Status ──────────────────────────────────────────────────
-echo -e "${CYAN}═══════════════════════════════════════════${NC}"
-echo -e "${CYAN}  Deployment Status${NC}"
-echo -e "${CYAN}═══════════════════════════════════════════${NC}"
-echo ""
-docker compose ps
-echo ""
-
-# Wait for health checks
-echo -e "${YELLOW}Waiting for health checks (15s)...${NC}"
-sleep 15
-
-# Check health
-CENTRAL_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' iochunt-central-backend 2>/dev/null || echo "unknown")
-AGG_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' iochunt-aggregator-backend 2>/dev/null || echo "unknown")
 DB_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' iochunt-db 2>/dev/null || echo "unknown")
+APP_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' iochunt-app 2>/dev/null || echo "unknown")
 NGINX_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' iochunt-nginx 2>/dev/null || echo "unknown")
 
 echo ""
 echo -e "${CYAN}  Service Health:${NC}"
-echo -e "  PostgreSQL:         ${DB_HEALTH}"
-echo -e "  Central Backend:    ${CENTRAL_HEALTH}"
-echo -e "  Aggregator Backend: ${AGG_HEALTH}"
-echo -e "  Nginx:              ${NGINX_HEALTH}"
+echo -e "  PostgreSQL (db):    ${DB_HEALTH}"
+echo -e "  Platform Node (app): ${APP_HEALTH}"
+echo -e "  Nginx Proxy:        ${NGINX_HEALTH}"
 echo ""
 echo -e "${GREEN}═══════════════════════════════════════════${NC}"
 echo -e "${GREEN}  Deployment Complete!${NC}"
-echo -e "${GREEN}  Aggregator Frontend: https://72.62.241.39:8082${NC}"
-echo -e "${GREEN}  Aggregator Backend:  Directly on port 4001 (or via https://72.62.241.39:8082/api)${NC}"
-echo -e "${GREEN}  Central Frontend:    https://72.62.241.39:8083${NC}"
-echo -e "${GREEN}  Central Backend:     Directly on port 4002 (or via https://72.62.241.39:8083/api)${NC}"
+echo -e "${GREEN}  Platform Web UI: https://localhost (or configured domain)${NC}"
+echo -e "${GREEN}  API Endpoint:    https://localhost/api${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════${NC}"
 echo ""

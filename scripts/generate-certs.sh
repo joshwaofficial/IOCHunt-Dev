@@ -2,10 +2,6 @@
 # ════════════════════════════════════════════════════════════════
 # IOC Hunt — Self-Signed Certificate Generator
 # ════════════════════════════════════════════════════════════════
-# Usage: ./scripts/generate-certs.sh
-#
-# Generates self-signed certificates for TLS termination at Nginx.
-# ════════════════════════════════════════════════════════════════
 
 set -euo pipefail
 
@@ -24,33 +20,20 @@ echo ""
 
 mkdir -p "${SSL_DIR}"
 
-if [ -f "${SSL_DIR}/central.crt" ] && [ -f "${SSL_DIR}/central.key" ] && [ -f "${SSL_DIR}/iochunt.crt" ] && [ -f "${SSL_DIR}/iochunt.key" ]; then
+if [ -f "${SSL_DIR}/iochunt.crt" ] && [ -f "${SSL_DIR}/iochunt.key" ]; then
   echo -e "${YELLOW}Certificates already exist.${NC}"
-  read -p "Regenerate? (y/N) " confirm
-  if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
-    echo "Keeping existing certificates."
-    exit 0
-  fi
+  echo "Keeping existing certificates."
+  exit 0
 fi
 
-echo -e "${YELLOW}Generating self-signed certificate for Central Server...${NC}"
-openssl req -x509 \
-  -newkey rsa:4096 \
-  -keyout "${SSL_DIR}/central.key" \
-  -out "${SSL_DIR}/central.crt" \
-  -days 3650 \
-  -nodes \
-  -subj "/CN=iochunt-central/O=DefSecOne/C=IN" \
-  2>/dev/null
-
-echo -e "${YELLOW}Generating self-signed certificate for Aggregator...${NC}"
+echo -e "${YELLOW}Generating self-signed TLS certificate for IOC Hunt...${NC}"
 openssl req -x509 \
   -newkey rsa:4096 \
   -keyout "${SSL_DIR}/iochunt.key" \
   -out "${SSL_DIR}/iochunt.crt" \
   -days 3650 \
   -nodes \
-  -subj "/CN=iochunt-aggregator/O=DefSecOne/C=IN" \
+  -subj "/CN=iochunt-platform/O=DefSecOne/C=IN" \
   2>/dev/null
 
 # Print fingerprint for agent cert pinning
@@ -58,16 +41,13 @@ FINGERPRINT=$(openssl x509 -in "${SSL_DIR}/iochunt.crt" -fingerprint -sha256 -no
 
 echo ""
 echo -e "${GREEN}═══════════════════════════════════════════${NC}"
-echo -e "${GREEN}  Certificate Generated!${NC}"
+echo -e "${GREEN}  Certificate Generated Successfully!${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════${NC}"
 echo ""
-echo -e "  Certificate: ${SSL_DIR}/central.crt"
-echo -e "  Private Key: ${SSL_DIR}/central.key"
+echo -e "  Certificate: ${SSL_DIR}/iochunt.crt"
+echo -e "  Private Key: ${SSL_DIR}/iochunt.key"
 echo -e "  Valid For:   3650 days (10 years)"
 echo ""
 echo -e "  SHA-256 Fingerprint:"
 echo -e "  ${CYAN}${FINGERPRINT}${NC}"
-echo ""
-echo -e "  Paste this fingerprint into the Windows Agent"
-echo -e "  configuration for certificate pinning."
 echo ""

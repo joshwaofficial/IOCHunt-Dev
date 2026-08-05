@@ -2,9 +2,12 @@ import { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Navbar from './Navbar';
+import ForcePasswordChangeModal from './ForcePasswordChangeModal';
+import { useAuth } from '../context/AuthContext';
 
 export default function Layout() {
   const [collapsed, setCollapsed] = useState(false);
+  const { user } = useAuth();
 
   useEffect(() => {
     if (collapsed) {
@@ -13,6 +16,14 @@ export default function Layout() {
       document.body.classList.remove('sidebar-collapsed');
     }
   }, [collapsed]);
+
+  if (user?.force_password_change) {
+    return (
+      <div id="main-layout" className="flex h-screen overflow-hidden relative z-0">
+        <ForcePasswordChangeModal />
+      </div>
+    );
+  }
 
   return (
     <div id="main-layout" className="flex h-screen overflow-hidden relative z-0">

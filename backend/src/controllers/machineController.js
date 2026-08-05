@@ -1,12 +1,25 @@
 const Machine = require('../models/Machine');
+const { getAggregatorPool } = require('../config/aggregatorDbManager');
 const db = require('../config/db');
+
+function getDb(aggregator) {
+  if (aggregator && aggregator !== 'All Aggregators' && aggregator !== 'All Branches' && aggregator !== 'default' && aggregator !== 'direct') {
+    try {
+      return getAggregatorPool(aggregator);
+    } catch(e) {
+      return db.pool;
+    }
+  }
+  return db.pool;
+}
 
 /**
  * Get all machines/clients
  */
 async function getAllMachines(req, res) {
   try {
-    const machines = await Machine.getAllMachines();
+    const userAgg = req.session?.aggregator_name || req.query.aggregator;
+    const machines = await Machine.getAllMachines(userAgg);
     return res.status(200).json({ data: machines });
   } catch (error) {
     console.error('[Machine Error] Failed to get machines:', error);
@@ -22,7 +35,8 @@ async function getMachinePolicy(req, res) {
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'Machine ID is required' });
 
-    const policy = await Machine.getPolicy(id);
+    const userAgg = req.session?.aggregator_name || req.query.aggregator;
+    const policy = await Machine.getPolicy(id, userAgg);
     return res.status(200).json({ data: policy || {} });
   } catch (error) {
     console.error('[Machine Error] Failed to get machine policy:', error);
@@ -42,7 +56,8 @@ async function updateMachinePolicy(req, res) {
       return res.status(400).json({ error: 'Machine ID and policy data are required' });
     }
 
-    await Machine.updatePolicy(id, policyData);
+    const userAgg = req.session?.aggregator_name || req.query.aggregator;
+    await Machine.updatePolicy(id, policyData, userAgg);
     return res.status(200).json({ message: 'Policy updated successfully' });
   } catch (error) {
     console.error('[Machine Error] Failed to update policy:', error);
@@ -65,7 +80,19 @@ async function getClients(req, res) {
       from = new Date(Date.now() - hours * 3600000).toISOString();
     }
     const now = Math.floor(Date.now() / 1000);
-    const machinesRes = await db.query('SELECT * FROM machines ORDER BY last_seen DESC');
+
+    const agg = req.session?.aggregator_name || (req.query.aggregator !== 'All Aggregators' ? req.query.aggregator : '');
+    const pool = getDb(agg);
+
+    let machinesQuery = 'SELECT * FROM machines';
+    const params = [];
+    if (agg && agg !== 'all' && agg !== '') {
+      machinesQuery += ' WHERE aggregator_name = $1';
+      params.push(agg);
+    }
+    machinesQuery += ' ORDER BY last_seen DESC';
+
+    const machinesRes = await pool.query(machinesQuery, params);
     const machines = machinesRes.rows;
 
     const clients = [];
@@ -78,7 +105,7 @@ async function getClients(req, res) {
       else if (age < 3600) { status = 'Away'; statusCol = '#f97316'; }
       else { status = 'Offline'; statusCol = '#ef4444'; }
 
-      const statsRes = await db.query(`
+      const statsRes = await pool.query(`
         SELECT COUNT(*) as total,
           SUM(CASE WHEN severity='critical' THEN 1 ELSE 0 END) as critical,
           SUM(CASE WHEN severity='high'     THEN 1 ELSE 0 END) as high,
@@ -98,19 +125,22 @@ async function getClients(req, res) {
         label: m.name || m.label, 
         ip: m.ip || '',
         aggregator: m.aggregator_name,
-        last_seen: lastSeenEpoch,
-        last_seen_str: m.last_seen ? new Date(m.last_seen).toISOString().slice(0, 19).replace('T', ' ') : 'Never',
-        event_count: m.event_count || 0,
-        status, statusCol, age,
-        total_recent: parseInt(s.total || 0, 10), critical: parseInt(s.critical || 0, 10), high: parseInt(s.high || 0, 10),
-        medium: parseInt(s.medium || 0, 10), ad_events: parseInt(s.ad_events || 0, 10),
-        risk, riskLabel,
+        last_seen: m.last_seen,
+        status,
+        status_col: statusCol,
+        total: parseInt(s.total || 0, 10),
+        critical: parseInt(s.critical || 0, 10),
+        high: parseInt(s.high || 0, 10),
+        ad_events: parseInt(s.ad_events || 0, 10),
+        risk_score: risk,
+        risk_label: riskLabel,
+        group_name: m.group_name || ''
       });
     }
 
     const top5 = new Set(
-      [...clients].sort((a, b) => b.risk - a.risk).slice(0, 5)
-        .filter(c => c.risk > 0).map(c => c.id)
+      [...clients].sort((a, b) => b.risk_score - a.risk_score).slice(0, 5)
+        .filter(c => c.risk_score > 0).map(c => c.id)
     );
     clients.forEach(c => { c.is_top5 = top5.has(c.id); });
 

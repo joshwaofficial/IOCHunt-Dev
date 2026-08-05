@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useFilter } from '../context/FilterContext';
+import { useThreatStore } from '../store/useThreatStore';
 
 const sevColor = {
   critical: '#ef4444',
@@ -12,6 +14,7 @@ const sevColor = {
 const esc = (s) => (s || '').toString();
 
 export default function AllLogs() {
+  const { range: globalRange, machine: globalMachine, aggregator: globalAggregator } = useFilter();
   const [data, setData] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -22,10 +25,10 @@ export default function AllLogs() {
     return isoStr.replace('T', ' ').slice(0, 19);
   }
   
-  const [range, setRange] = useState(localStorage.getItem('iochunt-logs-range') || '168');
-  const [machine, setMachine] = useState(localStorage.getItem('iochunt-logs-machine') || '');
-  const [severityFilter, setSeverityFilter] = useState(localStorage.getItem('iochunt-logs-severity') || '');
-  const [categoryFilter, setCategoryFilter] = useState(localStorage.getItem('iochunt-logs-category') || '');
+  const [range, setRange] = useState(() => localStorage.getItem('iochunt-logs-range') || (globalRange ? String(globalRange) : '168'));
+  const [machine, setMachine] = useState(() => localStorage.getItem('iochunt-logs-machine') || globalMachine || '');
+  const [severityFilter, setSeverityFilter] = useState(() => localStorage.getItem('iochunt-logs-severity') || '');
+  const [categoryFilter, setCategoryFilter] = useState(() => localStorage.getItem('iochunt-logs-category') || '');
   const [searchTerm, setSearchTerm] = useState('');
   const [showNoise, setShowNoise] = useState(false);
 
@@ -36,7 +39,7 @@ export default function AllLogs() {
   });
   const [customTo, setCustomTo] = useState(() => formatTime(new Date().toISOString()));
   
-  const [branchFilter, setBranchFilter] = useState(localStorage.getItem('iochunt-logs-branch') || '');
+  const [branchFilter, setBranchFilter] = useState(() => localStorage.getItem('iochunt-logs-branch') || (globalAggregator !== 'All Aggregators' ? globalAggregator : '') || '');
   const [aggregators, setAggregators] = useState([]);
   const [availableMachines, setAvailableMachines] = useState([]);
   
@@ -44,11 +47,29 @@ export default function AllLogs() {
   const [perPage, setPerPage] = useState(10); 
   const [selectedEvent, setSelectedEvent] = useState(null);
 
+  // Live SSE real-time stream integration
+  const { events: liveEvents, connectSSE, disconnectSSE } = useThreatStore();
+
+  useEffect(() => {
+    connectSSE();
+    return () => disconnectSSE();
+  }, [connectSSE, disconnectSSE]);
+
+  // Re-fetch on incoming live events if on first page
+  useEffect(() => {
+    if (liveEvents && liveEvents.length > 0 && page === 1) {
+      fetchData();
+    }
+  }, [liveEvents]);
+
   useEffect(() => {
     const fetchAggregators = async () => {
       try {
         const aggRes = await axios.get('/api/aggregators');
-        setAggregators(aggRes.data.data || aggRes.data || []);
+        const list = aggRes.data.data || aggRes.data || [];
+        if (Array.isArray(list)) {
+          setAggregators(list);
+        }
       } catch (err) {
         console.error('Failed to load aggregators', err);
       }
@@ -63,7 +84,7 @@ export default function AllLogs() {
         const res = await axios.get('/api/machines');
         const machinesData = res.data.data || res.data;
         if (Array.isArray(machinesData)) {
-          setAvailableMachines(machinesData.map(m => ({ name: m.name, label: m.name || m.label, aggregator: m.aggregator_name })));
+          setAvailableMachines(machinesData.map(m => ({ name: m.name, label: m.label || m.name, aggregator: m.aggregator_name })));
         }
       } catch (err) {
         console.error('Failed to load machines', err);
@@ -90,7 +111,7 @@ export default function AllLogs() {
         aggregator: branchFilter || undefined,
         severity: severityFilter || undefined,
         category: categoryFilter || undefined,
-        search: searchTerm || undefined,
+        search: searchTerm.trim() || undefined,
         show_noise: showNoise ? '1' : '0',
         limit: perPage,
         offset: offset,
@@ -121,6 +142,17 @@ export default function AllLogs() {
     fetchData();
     // eslint-disable-next-line
   }, [range, machine, severityFilter, categoryFilter, searchTerm, showNoise, page, perPage, customFrom, customTo, branchFilter]);
+
+  const resetFilters = () => {
+    setRange('168');
+    setMachine('');
+    setBranchFilter('');
+    setSeverityFilter('');
+    setCategoryFilter('');
+    setSearchTerm('');
+    setShowNoise(false);
+    setPage(1);
+  };
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
   const startIdx = (page - 1) * perPage;
@@ -201,7 +233,8 @@ export default function AllLogs() {
             
             <select value={branchFilter} onChange={(e) => { setBranchFilter(e.target.value); setPage(1); setMachine(''); }} style={{ background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 12px', fontSize: '12px', fontFamily: 'var(--sans)', cursor: 'pointer', outline: 'none', transition: 'border 0.2s' }}>
                <option value="">All Branches</option>
-               {aggregators.map(a => (
+               <option value="direct">HQ Direct Infrastructure</option>
+               {aggregators.filter(a => a.name !== 'direct').map(a => (
                  <option key={a.name} value={a.name}>{a.name}</option>
                ))}
             </select>
@@ -224,19 +257,20 @@ export default function AllLogs() {
 
             <select value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }} style={{ background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 12px', fontSize: '12px', fontFamily: 'var(--sans)', cursor: 'pointer', outline: 'none', transition: 'border 0.2s' }}>
                <option value="">All Categories</option>
-               <option value="PROCESSES">Processes</option>
-               <option value="CHILD-PROCESS">Child Process</option>
-               <option value="NETWORK">Network</option>
-               <option value="DOMAIN">Domain</option>
-               <option value="ADCS">ADCS</option>
-               <option value="LOGON">Logon</option>
-               <option value="CONFIG">Config</option>
-               <option value="SENSITIVE">Sensitive</option>
-               <option value="USB">USB</option>
-               <option value="SERVICES">Services</option>
-               <option value="TASKS">Tasks</option>
-               <option value="REGISTRY">Registry</option>
-               <option value="DEFENDER">Defender</option>
+               <option value="Active Directory">Active Directory</option>
+               <option value="Credential Access">Credential Access</option>
+               <option value="Execution">Execution</option>
+               <option value="Persistence">Persistence</option>
+               <option value="Defense Evasion">Defense Evasion</option>
+               <option value="Command & Control">Command & Control</option>
+               <option value="Antivirus">Antivirus</option>
+               <option value="Hardware / USB">Hardware / USB</option>
+               <option value="Account Management">Account Management</option>
+               <option value="Privilege Escalation">Privilege Escalation</option>
+               <option value="Processes">Processes</option>
+               <option value="Network">Network</option>
+               <option value="Logon">Logon</option>
+               <option value="Defender">Defender</option>
             </select>
             
             <div className="tb-search-wrap" style={{ flex: 1, minWidth: '160px', position: 'relative' }}>
@@ -287,7 +321,13 @@ export default function AllLogs() {
                 <tr>
                   <td colSpan="6" style={{ textAlign: 'center', padding: '48px', color: 'var(--muted)', fontSize: '14px' }}>
                     <div style={{ marginBottom: '8px' }}><span className="material-symbols-outlined" style={{ fontSize: '32px', opacity: 0.5 }}>search_off</span></div>
-                    No logs match filters
+                    <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '8px' }}>No logs match the current filters</div>
+                    <button 
+                      onClick={resetFilters} 
+                      style={{ padding: '6px 14px', borderRadius: '6px', background: 'var(--surface2)', border: '1px solid var(--border)', color: '#3b82f6', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      Reset Filters
+                    </button>
                   </td>
                 </tr>
               ) : (

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useThreatStore } from '../store/useThreatStore';
 import { useFilter } from '../context/FilterContext';
+import { useInstance } from '../context/InstanceContext';
 
 const sevColor = {
   critical: '#f04f5a',
@@ -34,10 +35,11 @@ const formatTime = (ts) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
-let savedRange = '168';
-
 export default function MaliciousActivity() {
   const { aggregator } = useFilter();
+  const { isCentral } = useInstance();
+
+  let savedRange = (localStorage.getItem('iochunt_mal_range') || '24').replace('h', '');
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -60,7 +62,6 @@ export default function MaliciousActivity() {
   const [actorFilter, setActorFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [sortFilter, setSortFilter] = useState('newest');
-        
   const [customFrom, setCustomFrom] = useState(() => {
     const d = new Date();
     d.setHours(d.getHours() - 24);
@@ -79,6 +80,7 @@ export default function MaliciousActivity() {
 
   useEffect(() => {
     const fetchAggregators = async () => {
+      if (!isCentral()) return;
       try {
         const aggRes = await axios.get('/api/aggregators');
         setAggregators(aggRes.data.data || aggRes.data || []);
@@ -87,7 +89,7 @@ export default function MaliciousActivity() {
       }
     };
     fetchAggregators();
-  }, []);
+  }, [isCentral]);
 
   useEffect(() => {
     const fetchMachines = async () => {
