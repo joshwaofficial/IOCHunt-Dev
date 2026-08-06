@@ -17,8 +17,8 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app
 
-# Install openssl for TLS cert generation
-RUN apk add --no-cache openssl
+# Install openssl and curl for TLS cert generation and healthchecks
+RUN apk add --no-cache openssl curl
 
 # Install backend dependencies
 COPY backend/package*.json ./backend/
@@ -37,7 +37,7 @@ COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 EXPOSE 4001 5514/udp
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=5 --start-period=15s \
-  CMD wget -qO- http://127.0.0.1:${PORT:-4001}/api/ping || exit 1
+  CMD curl -k -f https://127.0.0.1:${PORT:-4001}/api/ping || curl -f http://127.0.0.1:${PORT:-4001}/api/ping || exit 1
 
 WORKDIR /app/backend
 CMD ["node", "src/server.js"]
