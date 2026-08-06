@@ -17,6 +17,9 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app
 
+# Install openssl for TLS cert generation
+RUN apk add --no-cache openssl
+
 # Install backend dependencies
 COPY backend/package*.json ./backend/
 WORKDIR /app/backend
