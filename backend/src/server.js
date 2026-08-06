@@ -78,8 +78,6 @@ app.use('/api/smtp', express.json(), emailRoutes);
 app.use('/api/policy', express.json(), policyRoutes);
 app.use('/api/groups', express.json(), groupRoutes);
 
-// Dashboard Metrics
-app.use('/api', dashboardRoutes);
 
 // Firewall Analytics
 app.get('/api/firewall/devices', firewallController.getDevices);
@@ -110,6 +108,9 @@ const fwSourceRoutes = require('./modules/aggregator/routes/fwSourceRoutes');
 
 app.use('/api/settings', requireAggregator, express.json(), aggregatorSettingsRoutes);
 app.use('/api/fw-sources', requireAggregator, express.json(), fwSourceRoutes);
+
+// Dashboard Metrics (Catch-all for /api routes)
+app.use('/api', dashboardRoutes);
 
 // ── Health Check ────────────────────────────────────────────────
 app.get('/api/ping', (req, res) => {
