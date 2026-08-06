@@ -17,7 +17,7 @@ services:
   # ── PostgreSQL 16 Multi-Tenant Database ───────────────────────
   db:
     image: postgres:16-alpine
-    container_name: iochunt-db
+    container_name: iochunt-db-${TENANT_ID:-default}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iochunt_password}
@@ -47,7 +47,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: iochunt-app
+    container_name: iochunt-app-${TENANT_ID:-default}
     environment:
       NODE_ENV: production
       PORT: 4001
@@ -65,8 +65,8 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-noreply@iochunt.local}
     ports:
-      - "4001:4001"
-      - "5514:5514/udp" # Syslog receiver for branch firewalls/switches
+      - "${APP_PORT:-4001}:4001"
+      - "${SYSLOG_PORT:-5514}:5514/udp" # Syslog receiver for branch firewalls/switches
     volumes:
       - ./nginx/ssl:/app/nginx/ssl
     depends_on:
@@ -85,7 +85,7 @@ services:
   # ── Nginx TLS Reverse Proxy ───────────────────────────────────
   nginx:
     image: nginx:alpine
-    container_name: iochunt-nginx
+    container_name: iochunt-nginx-${TENANT_ID:-default}
     ports:
       - "${NGINX_HTTP_PORT:-80}:80"
       - "${NGINX_HTTPS_PORT:-443}:443"
@@ -113,13 +113,13 @@ services:
 # ── Volumes ────────────────────────────────────────────────────
 volumes:
   pgdata:
-    name: iochunt-pgdata
+    name: iochunt-pgdata-${TENANT_ID:-default}
 
 # ── Networks ───────────────────────────────────────────────────
 networks:
   app-net:
-    name: iochunt-app-net
+    name: iochunt-app-net-${TENANT_ID:-default}
     driver: bridge
   db-net:
-    name: iochunt-db-net
+    name: iochunt-db-net-${TENANT_ID:-default}
     driver: bridge
