@@ -65,9 +65,18 @@ function getTableSchemaSQL() {
       force_password_change INTEGER DEFAULT 1,
       mfa_secret TEXT,
       mfa_enabled INTEGER DEFAULT 0,
+      aggregator_name TEXT DEFAULT NULL,
+      display_name TEXT DEFAULT NULL,
       created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
       last_login BIGINT
     );
+
+    // Migration to add missing columns if table already existed
+    try {
+      await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS aggregator_name TEXT DEFAULT NULL');
+      await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT DEFAULT NULL');
+    } catch (err) { /* ignore if they exist */ }
+
 
     CREATE TABLE IF NOT EXISTS sessions (
       token VARCHAR(128) PRIMARY KEY,
