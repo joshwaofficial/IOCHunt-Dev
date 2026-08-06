@@ -123,8 +123,8 @@ app.get('/api/ping', (req, res) => {
   });
 });
 
-// ── Server Status (Root) ─────────────────────────────────────────
-app.get('/', (req, res) => {
+// ── Server Status (API Status) ──────────────────────────────────
+app.get('/api/status', (req, res) => {
   const config = appMode.getConfig();
   res.json({
     status: 'online',
