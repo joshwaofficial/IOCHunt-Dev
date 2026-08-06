@@ -296,6 +296,8 @@ const initDB = async (retries = 10, delay = 3000) => {
           ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS database_user VARCHAR(255) DEFAULT 'postgres';
           ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS database_password_encrypted TEXT DEFAULT '';
           ALTER TABLE users ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 1;
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS aggregator_name TEXT DEFAULT NULL;
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT DEFAULT NULL;
           ALTER TABLE settings ADD COLUMN IF NOT EXISTS aggregator_name VARCHAR(255) DEFAULT '';
         `);
 
