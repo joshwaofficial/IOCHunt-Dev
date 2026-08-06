@@ -71,13 +71,6 @@ function getTableSchemaSQL() {
       last_login BIGINT
     );
 
-    // Migration to add missing columns if table already existed
-    try {
-      await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS aggregator_name TEXT DEFAULT NULL');
-      await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT DEFAULT NULL');
-    } catch (err) { /* ignore if they exist */ }
-
-
     CREATE TABLE IF NOT EXISTS sessions (
       token VARCHAR(128) PRIMARY KEY,
       user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
