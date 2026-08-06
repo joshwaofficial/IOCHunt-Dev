@@ -15,10 +15,27 @@ const aggregatorPools = new Map();
  * Derives database configuration from base environment or custom overrides
  */
 function getDbConnectionConfig(databaseName) {
-  const host = process.env.AGG_DB_HOST || process.env.DB_HOST || 'localhost';
-  const port = parseInt(process.env.AGG_DB_PORT || process.env.POSTGRES_PORT || process.env.DB_PORT || 5433, 10);
-  const user = process.env.AGG_DB_USER || process.env.POSTGRES_USER || process.env.DB_USER || 'postgres';
-  const password = process.env.AGG_DB_PASSWORD || process.env.POSTGRES_PASSWORD || process.env.DB_PASSWORD || 'iochunt_password';
+  let dbUrlHost = 'localhost';
+  let dbUrlPort = 5433;
+  let dbUrlUser = 'postgres';
+  let dbUrlPassword = 'iochunt_password';
+
+  if (process.env.DATABASE_URL) {
+    try {
+      const parsedUrl = new URL(process.env.DATABASE_URL);
+      dbUrlHost = parsedUrl.hostname || dbUrlHost;
+      dbUrlPort = parseInt(parsedUrl.port, 10) || dbUrlPort;
+      dbUrlUser = decodeURIComponent(parsedUrl.username) || dbUrlUser;
+      dbUrlPassword = decodeURIComponent(parsedUrl.password) || dbUrlPassword;
+    } catch (e) {
+      // Ignore URL parse errors
+    }
+  }
+
+  const host = process.env.AGG_DB_HOST || process.env.DB_HOST || dbUrlHost;
+  const port = parseInt(process.env.AGG_DB_PORT || process.env.POSTGRES_PORT || process.env.DB_PORT || dbUrlPort, 10);
+  const user = process.env.AGG_DB_USER || process.env.POSTGRES_USER || process.env.DB_USER || dbUrlUser;
+  const password = process.env.AGG_DB_PASSWORD || process.env.POSTGRES_PASSWORD || process.env.DB_PASSWORD || dbUrlPassword;
 
   return {
     host,
