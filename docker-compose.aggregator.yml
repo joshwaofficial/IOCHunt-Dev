@@ -56,6 +56,9 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-iochunt_password}@db:5432/${POSTGRES_DB:-iochunt_db}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855}
       API_KEY: ${API_KEY:-iochunt-change-me}
+      AGGREGATOR_NAME: ${AGGREGATOR_NAME:-}
+      CENTRAL_URL: ${CENTRAL_URL:-}
+      AGGREGATOR_API_KEY: ${AGGREGATOR_API_KEY:-}
       FRONTEND_URL: ${FRONTEND_URL:-*}
       DISPLAY_TZ: ${DISPLAY_TZ:-Asia/Kolkata}
       APP_VERSION: ${APP_VERSION:-2.0.0}
