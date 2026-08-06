@@ -15,12 +15,7 @@ const Aggregators = () => {
   const [copied, setCopied] = useState(false);
 
   // Form state for creating an aggregator
-  const [formData, setFormData] = useState({
-    name: '',
-    display_name: '',
-    admin_username: '',
-    admin_password: ''
-  });
+  const [formData, setFormData] = useState({ name: '', display_name: '' });
 
   // Log viewer state
   const [selectedAggForLogs, setSelectedAggForLogs] = useState(null);
@@ -56,13 +51,11 @@ const Aggregators = () => {
     try {
       const res = await axios.post('/api/aggregators', {
         name: formData.name,
-        display_name: formData.display_name || formData.name,
-        admin_username: formData.admin_username || undefined,
-        admin_password: formData.admin_password || undefined
+        display_name: formData.display_name || formData.name
       });
 
       setPairingData(res.data);
-      setFormData({ name: '', display_name: '', admin_username: '', admin_password: '' });
+      setFormData({ name: '', display_name: '' });
       fetchAggregators();
       toast.success('Aggregator and separate database provisioned successfully!');
     } catch (err) {
@@ -302,31 +295,7 @@ const Aggregators = () => {
                   />
                 </div>
 
-                <div style={{ background: 'rgba(255,255,255,0.03)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: '#93c5fd', marginBottom: '8px' }}>
-                    Optional: Seed Branch Admin Account
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                    <div>
-                      <input 
-                        type="text" 
-                        value={formData.admin_username}
-                        onChange={(e) => setFormData({ ...formData, admin_username: e.target.value })}
-                        placeholder="Admin username"
-                        style={{ width: '100%', boxSizing: 'border-box', background: '#090d16', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none' }}
-                      />
-                    </div>
-                    <div>
-                      <input 
-                        type="password" 
-                        value={formData.admin_password}
-                        onChange={(e) => setFormData({ ...formData, admin_password: e.target.value })}
-                        placeholder="Admin password"
-                        style={{ width: '100%', boxSizing: 'border-box', background: '#090d16', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none' }}
-                      />
-                    </div>
-                  </div>
-                </div>
+
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '10px' }}>
                   <button 

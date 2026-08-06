@@ -20,36 +20,13 @@ const hash = (text) => crypto.createHash('sha256').update(text).digest('hex');
  */
 const createAggregator = async (req, res) => {
   try {
-    const { name, display_name, admin_username, admin_password } = req.body;
+    const { name, display_name } = req.body;
     if (!name) return res.status(400).json({ error: 'Aggregator name is required' });
 
     const safeName = name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
     const dbName = `iochunt_agg_${safeName}`;
 
-    // 1. If branch admin credentials provided, register user on Central Server mapped strictly to this aggregator
-    if (admin_username && admin_password) {
-      const { hash: pHash, salt } = hashPassword(admin_password);
-      const createdAt = Math.floor(Date.now() / 1000);
-      const uName = admin_username.trim().toLowerCase();
-
-      await db.query(`
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS aggregator_name VARCHAR(255) DEFAULT NULL;
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(255) DEFAULT '';
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 1;
-      `);
-      await db.query(`
-        INSERT INTO users (username, password_hash, salt, role, aggregator_name, display_name, force_password_change, created_at)
-        VALUES ($1, $2, $3, 'AGGREGATOR_ADMIN', $4, $5, 1, $6)
-        ON CONFLICT (username) DO UPDATE SET
-          password_hash = EXCLUDED.password_hash,
-          salt = EXCLUDED.salt,
-          aggregator_name = EXCLUDED.aggregator_name,
-          display_name = EXCLUDED.display_name,
-          role = 'AGGREGATOR_ADMIN',
-          force_password_change = 1
-      `, [uName, pHash, salt, safeName, display_name || safeName, createdAt]);
-    }
-
+    // User seeding logic removed as requested
     // 2. Generate pairing code (valid for 48 hours)
     const pairingCode = 'PAIR-' + crypto.randomBytes(6).toString('hex').toUpperCase().match(/.{4}/g).join('-');
     const expires = new Date();
