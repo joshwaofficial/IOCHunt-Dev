@@ -58,6 +58,7 @@ services:
       API_KEY: ${API_KEY:-iochunt-change-me}
       AGGREGATOR_NAME: ${AGGREGATOR_NAME:-}
       INSTANCE_NAME: ${INSTANCE_NAME:-}
+      IS_CENTRAL_SERVER: "false"
       CENTRAL_URL: ${CENTRAL_URL:-}
       AGGREGATOR_API_KEY: ${AGGREGATOR_API_KEY:-}
       FRONTEND_URL: ${FRONTEND_URL:-*}
