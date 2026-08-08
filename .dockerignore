@@ -1,0 +1,5 @@
+node_modules
+.git
+frontend/dist
+super-admin/frontend/dist
+.env*

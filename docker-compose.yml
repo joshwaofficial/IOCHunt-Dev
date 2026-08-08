@@ -44,6 +44,7 @@ services:
 
   # ── IOC Hunt Unified Application (Backend + Built Frontend) ──
   app:
+    image: iochunt-app:latest
     build:
       context: .
       dockerfile: Dockerfile
