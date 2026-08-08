@@ -17,6 +17,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Mount the root directory so the node app can read/write .env files and docker-compose.yml
       - .:/app
+      # Preserve the built node_modules and frontend dist directories from the Docker image
+      - /app/super-admin/node_modules
+      - /app/super-admin/frontend/dist
     restart: unless-stopped
     logging:
       driver: "json-file"
