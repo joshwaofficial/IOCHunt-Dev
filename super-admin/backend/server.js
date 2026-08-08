@@ -233,10 +233,10 @@ if (process.env.SERVE_STATIC === 'true' || fs.existsSync(staticPath)) {
 initSuperAdminDB().then(() => {
   const sslDir = path.resolve(__dirname, '../../nginx/ssl');
   let server;
-  if (fs.existsSync(path.join(sslDir, 'server.key')) && fs.existsSync(path.join(sslDir, 'server.crt'))) {
+  if (fs.existsSync(path.join(sslDir, 'iochunt.key')) && fs.existsSync(path.join(sslDir, 'iochunt.crt'))) {
     const sslOptions = {
-      key: fs.readFileSync(path.join(sslDir, 'server.key')),
-      cert: fs.readFileSync(path.join(sslDir, 'server.crt'))
+      key: fs.readFileSync(path.join(sslDir, 'iochunt.key')),
+      cert: fs.readFileSync(path.join(sslDir, 'iochunt.crt'))
     };
     server = https.createServer(sslOptions, app);
   } else {
