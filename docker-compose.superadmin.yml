@@ -13,6 +13,7 @@ services:
       - SUPER_ADMIN_PORT=4001
       - SERVE_STATIC=true
       - SUPER_ADMIN_DATABASE_URL=postgres://postgres:iochunt_password@iochunt-db-default:5432/iochunt_db
+      - HOST_PWD=${HOST_PWD:-/app}
     volumes:
       # Mount docker socket so the node app can spawn other containers
       - /var/run/docker.sock:/var/run/docker.sock

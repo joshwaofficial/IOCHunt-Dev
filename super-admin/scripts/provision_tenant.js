@@ -89,10 +89,22 @@ FRONTEND_URL=*
   console.log(`[Provision] Writing environment file for tenant ${company_id} at ${envFilePath}`);
   fs.writeFileSync(envFilePath, envContent.trim() + '\n');
 
+  // Compile docker-compose file with absolute host paths to prevent bind mount failures
+  const hostPwd = process.env.HOST_PWD || '/app';
+  const composeTemplatePath = path.join(rootDir, 'docker-compose.yml');
+  const composeTemplate = fs.readFileSync(composeTemplatePath, 'utf-8');
+  const compiledCompose = composeTemplate.replace(/\.\/postgres\/init/g, `${hostPwd}/postgres/init`)
+                                         .replace(/\.\/nginx\/ssl/g, `${hostPwd}/nginx/ssl`)
+                                         .replace(/\.\/nginx\/nginx\.conf/g, `${hostPwd}/nginx/nginx.conf`)
+                                         .replace(/\.\/nginx\/conf\.d/g, `${hostPwd}/nginx/conf.d`);
+  
+  const compiledComposePath = path.join(rootDir, `docker-compose.${company_id}.yml`);
+  fs.writeFileSync(compiledComposePath, compiledCompose);
+
   try {
     // ── STAGE 1: Spin up ONLY the database container ──
     console.log(`[Provision] Stage 1: Spinning up Postgres container for tenant ${company_id}...`);
-    execSync(`docker compose -p ${company_id} -f docker-compose.yml --env-file .env.${company_id} up -d db`, {
+    execSync(`docker compose -p ${company_id} -f docker-compose.${company_id}.yml --env-file .env.${company_id} up -d db`, {
       cwd: rootDir,
       stdio: 'pipe'
     });
@@ -146,7 +158,7 @@ FRONTEND_URL=*
 
     // ── STAGE 3: Spin up the rest of the stack ──
     console.log(`[Provision] Stage 3: Spinning up the full stack for tenant ${company_id}...`);
-    execSync(`docker compose -p ${company_id} -f docker-compose.yml --env-file .env.${company_id} up -d`, {
+    execSync(`docker compose -p ${company_id} -f docker-compose.${company_id}.yml --env-file .env.${company_id} up -d`, {
       cwd: rootDir,
       stdio: 'pipe'
     });

@@ -54,6 +54,7 @@ if [[ "$MODE" == "central" ]]; then
     docker compose up -d --build
 
     # Start Super Admin stack (Port 8081)
+    export HOST_PWD=$PWD
     docker compose -f docker-compose.superadmin.yml up -d --build
 
     echo -e "\033[0;32m============================================================\033[0m"
