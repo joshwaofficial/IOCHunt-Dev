@@ -125,9 +125,22 @@ FRONTEND_URL=*
       INSERT INTO users (username, password_hash, salt, role, force_password_change, created_at) VALUES ('${admin_username}', '${hash}', '${salt}', 'ADMIN', 1, ${createdAt}) ON CONFLICT DO NOTHING;
     `;
 
-    execSync(`docker exec iochunt-db-${company_id} psql -U postgres -d iochunt_db -c "${sql.replace(/\n/g, ' ')}"`, {
-      stdio: 'inherit'
-    });
+    // We will retry the database injection up to 10 times in case Postgres takes longer to initialize
+    let success = false;
+    let attempts = 0;
+    while (!success && attempts < 10) {
+      try {
+        attempts++;
+        execSync(`docker exec iochunt-db-${company_id} psql -U postgres -d iochunt_db -c "${sql.replace(/\n/g, ' ')}"`, {
+          stdio: 'inherit'
+        });
+        success = true;
+      } catch (err) {
+        console.log(`[Provision] Database not ready yet on attempt ${attempts}. Retrying in 3 seconds...`);
+        if (attempts >= 10) throw new Error("Database failed to initialize within 30 seconds.");
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+    }
 
     console.log(`[Provision] Successfully injected admin credentials for ${admin_username}.`);
 
