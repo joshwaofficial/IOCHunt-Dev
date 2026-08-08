@@ -180,11 +180,12 @@ app.post('/api/super/companies', superAuthMiddleware, async (req, res) => {
     // Find highest ports currently used to pass as a starting hint
     const portRes = await pool.query('SELECT MAX(app_port) as max_app, MAX(http_port) as max_http, MAX(https_port) as max_https, MAX(syslog_port) as max_syslog, MAX(db_port) as max_db FROM managed_companies');
     
-    const startingAppPort = portRes.rows[0].max_app ? portRes.rows[0].max_app + 1 : 6000;
-    const startingHttpPort = portRes.rows[0].max_http ? portRes.rows[0].max_http + 1 : 8080;
-    const startingHttpsPort = portRes.rows[0].max_https ? portRes.rows[0].max_https + 1 : 8000;
-    const startingSyslogPort = portRes.rows[0].max_syslog ? portRes.rows[0].max_syslog + 1 : 9000;
-    const startingDbPort = portRes.rows[0].max_db ? portRes.rows[0].max_db + 1 : 5500;
+    const randomOffset = Math.floor(Math.random() * 500);
+    const startingAppPort = portRes.rows[0].max_app ? portRes.rows[0].max_app + 1 : 6000 + randomOffset;
+    const startingHttpPort = portRes.rows[0].max_http ? portRes.rows[0].max_http + 1 : 8080 + randomOffset;
+    const startingHttpsPort = portRes.rows[0].max_https ? portRes.rows[0].max_https + 1 : 8000 + randomOffset;
+    const startingSyslogPort = portRes.rows[0].max_syslog ? portRes.rows[0].max_syslog + 1 : 9000 + randomOffset;
+    const startingDbPort = portRes.rows[0].max_db ? portRes.rows[0].max_db + 1 : 5500 + randomOffset;
 
     // Provision the tenant (it will return the actual allocated ports)
     const provisionTenant = require('../scripts/provision_tenant');
@@ -210,7 +211,7 @@ app.post('/api/super/companies', superAuthMiddleware, async (req, res) => {
     res.status(201).json(insertRes.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to create company (may already exist or provisioning failed)' });
+    res.status(500).json({ error: `Provisioning failed: ${err.message}` });
   }
 });
 
