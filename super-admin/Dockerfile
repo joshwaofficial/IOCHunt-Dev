@@ -2,10 +2,10 @@
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 
-COPY frontend/package*.json ./
+COPY super-admin/frontend/package*.json ./
 RUN npm ci || npm install
 
-COPY frontend/ ./
+COPY super-admin/frontend/ ./
 RUN npm run build
 
 # ── Stage 2: Super Admin Backend ────────────────────────────────
@@ -17,14 +17,14 @@ RUN apk add --no-cache docker-cli docker-cli-compose
 WORKDIR /app
 
 # Copy Super Admin backend dependencies
-COPY backend/package*.json ./backend/
-WORKDIR /app/backend
+COPY super-admin/package*.json ./super-admin/
+WORKDIR /app/super-admin
 RUN npm install
 
 # We need the entire repository because provision_tenant.js expects to run docker compose
 # from the root folder where the main docker-compose.yml lives.
 WORKDIR /app
-COPY .. /app/
+COPY . /app/
 
 # Copy built frontend assets from stage 1
 COPY --from=frontend-builder /app/frontend/dist /app/super-admin/frontend/dist

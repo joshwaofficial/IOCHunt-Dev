@@ -3,8 +3,8 @@ version: "3.8"
 services:
   super-admin:
     build:
-      context: ./super-admin
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: super-admin/Dockerfile
     container_name: iochunt-super-admin
     ports:
       - "8081:4001"
