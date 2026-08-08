@@ -101,19 +101,12 @@ FRONTEND_URL=*
     await new Promise(resolve => setTimeout(resolve, 10000));
 
     // ── STAGE 2: Direct Database Injection ──
-    console.log(`[Provision] Injecting Admin Credentials directly into isolated database on port ${db_port}...`);
-    const pgClient = new Client({
-      host: '127.0.0.1',
-      port: db_port,
-      user: 'postgres',
-      password: dbPassword,
-      database: 'iochunt_db'
-    });
-
-    await pgClient.connect();
+    console.log(`[Provision] Injecting Admin Credentials directly into isolated database...`);
     
-    // Ensure the users table exists (it might not be fully initialized yet by the backend, so we create it if it doesn't exist)
-    await pgClient.query(`
+    const { hash, salt } = hashPassword(admin_password);
+    const createdAt = Math.floor(Date.now() / 1000);
+    
+    const sql = `
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
         username TEXT UNIQUE NOT NULL,
@@ -129,18 +122,13 @@ FRONTEND_URL=*
         created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
         last_login BIGINT
       );
-    `);
+      INSERT INTO users (username, password_hash, salt, role, force_password_change, created_at) VALUES ('${admin_username}', '${hash}', '${salt}', 'ADMIN', 1, ${createdAt}) ON CONFLICT DO NOTHING;
+    `;
 
-    const { hash, salt } = hashPassword(admin_password);
-    const createdAt = Math.floor(Date.now() / 1000);
+    execSync(`docker exec iochunt-db-${company_id} psql -U postgres -d iochunt_db -c "${sql.replace(/\n/g, ' ')}"`, {
+      stdio: 'inherit'
+    });
 
-    // Insert the admin user with force_password_change = 1
-    await pgClient.query(
-      "INSERT INTO users (username, password_hash, salt, role, force_password_change, created_at) VALUES ($1, $2, $3, 'ADMIN', 1, $4) ON CONFLICT DO NOTHING",
-      [admin_username, hash, salt, createdAt]
-    );
-
-    await pgClient.end();
     console.log(`[Provision] Successfully injected admin credentials for ${admin_username}.`);
 
     // ── STAGE 3: Spin up the rest of the stack ──
