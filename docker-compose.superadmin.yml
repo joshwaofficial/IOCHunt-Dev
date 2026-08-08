@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  super-admin:
+    build:
+      context: ./super-admin
+      dockerfile: Dockerfile
+    container_name: iochunt-super-admin
+    ports:
+      - "8081:4001"
+      - "4001:4001"
+    environment:
+      - NODE_ENV=production
+      - SUPER_ADMIN_PORT=4001
+      - SERVE_STATIC=true
+    volumes:
+      # Mount docker socket so the node app can spawn other containers
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount the root directory so the node app can read/write .env files and docker-compose.yml
+      - .:/app
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"

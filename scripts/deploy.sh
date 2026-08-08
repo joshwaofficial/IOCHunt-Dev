@@ -1,76 +1,74 @@
 #!/bin/bash
 # ════════════════════════════════════════════════════════════════
-# IOC Hunt — Unified Platform Deployment Script
-# ════════════════════════════════════════════════════════════════
-# Usage: ./scripts/deploy.sh
+# IOC Hunt — Multi-Server Deployment Script
 # ════════════════════════════════════════════════════════════════
 
-set -euo pipefail
+set -e
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+# Parse arguments
+MODE=$1
 
-VERSION=$(cat VERSION 2>/dev/null || echo "2.0.0")
-TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+if [[ "$MODE" != "central" && "$MODE" != "aggregator" ]]; then
+    echo -e "\033[0;31mUsage: $0 [central|aggregator]\033[0m"
+    exit 1
+fi
 
-echo ""
-echo -e "${CYAN}═══════════════════════════════════════════${NC}"
-echo -e "${CYAN}  IOC Hunt — Unified Platform Deployment${NC}"
-echo -e "${CYAN}  Version: ${VERSION}${NC}"
-echo -e "${CYAN}  Time:    ${TIMESTAMP}${NC}"
-echo -e "${CYAN}═══════════════════════════════════════════${NC}"
-echo ""
+echo -e "\033[0;36m============================================================\033[0m"
+echo -e "\033[0;36m Starting deployment for: $MODE\033[0m"
+echo -e "\033[0;36m============================================================\033[0m"
 
-# ── Step 1: Check .env exists ────────────────────────────────
-echo -e "${YELLOW}[1/4] Checking configuration...${NC}"
+# Ensure .env exists
 if [ ! -f .env ]; then
-  echo -e "${RED}  ✗ .env file not found!${NC}"
-  echo -e "${RED}  Run: cp .env.example .env && nano .env${NC}"
-  exit 1
+  echo -e "\033[1;33m[1/4] .env file not found! Copying from .env.example...\033[0m"
+  cp .env.example .env
 fi
-echo -e "${GREEN}   .env file found${NC}"
 
-# Check SSL certificates exist
-if [ ! -f nginx/ssl/iochunt.crt ] || [ ! -f nginx/ssl/iochunt.key ]; then
-  echo -e "${YELLOW}  ⚠ SSL certificates not found — generating self-signed certs...${NC}"
-  ./scripts/generate-certs.sh
+# Ensure Nginx SSL directory exists
+SSL_DIR="./nginx/ssl"
+mkdir -p $SSL_DIR
+
+# Generate self-signed certificates if they don't exist
+if [[ ! -f "$SSL_DIR/iochunt.crt" || ! -f "$SSL_DIR/iochunt.key" ]]; then
+    echo -e "\033[1;33m[2/4] Generating self-signed TLS certificates for Nginx proxy...\033[0m"
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+        -keyout "$SSL_DIR/iochunt.key" \
+        -out "$SSL_DIR/iochunt.crt" \
+        -subj "/C=US/ST=State/L=City/O=IOCHunt/CN=localhost"
+    echo -e "\033[0;32m[CertManager] Certificates generated.\033[0m"
+else
+    echo -e "\033[0;32m[2/4] TLS certificates already exist. Skipping generation.\033[0m"
 fi
-echo -e "${GREEN}   SSL certificates verified${NC}"
-echo ""
 
-# ── Step 2: Build images ────────────────────────────────────
-echo -e "${YELLOW}[2/4] Building Unified Docker image...${NC}"
-docker compose build
-echo -e "${GREEN}   Images built successfully${NC}"
-echo ""
+# Bring down existing containers
+echo -e "\033[1;33m[3/4] Stopping any running containers...\033[0m"
+docker compose down 2>/dev/null || true
+docker compose -f docker-compose.superadmin.yml down 2>/dev/null || true
+docker compose -f docker-compose.aggregator.yml down 2>/dev/null || true
 
-# ── Step 3: Start services ──────────────────────────────────
-echo -e "${YELLOW}[3/4] Starting 3-service platform (db, app, nginx)...${NC}"
-docker compose up -d --remove-orphans
-docker restart iochunt-nginx || true
-echo -e "${GREEN}   Platform services started${NC}"
-echo ""
+echo -e "\033[1;33m[4/4] Rebuilding and starting containers for $MODE...\033[0m"
 
-# ── Step 4: Health Verification ─────────────────────────────
-echo -e "${YELLOW}[4/4] Verifying health checks (10s)...${NC}"
-sleep 10
+if [[ "$MODE" == "central" ]]; then
+    # Start Central Server stack (Port 8082)
+    export NGINX_HTTP_PORT=8080
+    export NGINX_HTTPS_PORT=8082
+    docker compose up -d --build
 
-DB_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' iochunt-db 2>/dev/null || echo "unknown")
-APP_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' iochunt-app 2>/dev/null || echo "unknown")
-NGINX_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' iochunt-nginx 2>/dev/null || echo "unknown")
+    # Start Super Admin stack (Port 8081)
+    docker compose -f docker-compose.superadmin.yml up -d --build
 
-echo ""
-echo -e "${CYAN}  Service Health:${NC}"
-echo -e "  PostgreSQL (db):    ${DB_HEALTH}"
-echo -e "  Platform Node (app): ${APP_HEALTH}"
-echo -e "  Nginx Proxy:        ${NGINX_HEALTH}"
-echo ""
-echo -e "${GREEN}═══════════════════════════════════════════${NC}"
-echo -e "${GREEN}  Deployment Complete!${NC}"
-echo -e "${GREEN}  Platform Web UI: https://localhost (or configured domain)${NC}"
-echo -e "${GREEN}  API Endpoint:    https://localhost/api${NC}"
-echo -e "${GREEN}═══════════════════════════════════════════${NC}"
-echo ""
+    echo -e "\033[0;32m============================================================\033[0m"
+    echo -e "\033[0;32m Central Server Deployment Complete!\033[0m"
+    echo -e "\033[0;32m ➜ Super Admin UI:  https://$(hostname -I | awk '{print $1}'):8081\033[0m"
+    echo -e "\033[0;32m ➜ Central UI:      https://$(hostname -I | awk '{print $1}'):8082\033[0m"
+    echo -e "\033[0;32m============================================================\033[0m"
+else
+    # Start Aggregator stack (Port 8083)
+    export NGINX_HTTP_PORT=8080
+    export NGINX_HTTPS_PORT=8083
+    docker compose -f docker-compose.aggregator.yml up -d --build
+
+    echo -e "\033[0;32m============================================================\033[0m"
+    echo -e "\033[0;32m Aggregator Deployment Complete!\033[0m"
+    echo -e "\033[0;32m ➜ Aggregator UI:   https://$(hostname -I | awk '{print $1}'):8083\033[0m"
+    echo -e "\033[0;32m============================================================\033[0m"
+fi

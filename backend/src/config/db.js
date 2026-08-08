@@ -320,7 +320,7 @@ const initDB = async (retries = 10, delay = 3000) => {
 
         if (isCentral) {
           // Default Central Super Administrator Seeding (admin / admin with mandatory password change)
-          const userRes = await client.query("SELECT * FROM users WHERE username='admin'");
+          const userRes = await client.query("SELECT * FROM users WHERE role='ADMIN'");
           if (userRes.rows.length === 0) {
             const { hash, salt } = cryptoHelper.hashPassword('admin');
             const createdAt = Math.floor(Date.now() / 1000);
@@ -329,6 +329,8 @@ const initDB = async (retries = 10, delay = 3000) => {
               [hash, salt, createdAt]
             );
             console.log('[DB] Default Central Admin initialized (admin / admin).');
+          } else {
+            console.log('[DB] Central Admin already exists. Skipping default seeding.');
           }
         } else {
           // Branch Aggregator Administrator Seeding

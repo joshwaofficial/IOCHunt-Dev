@@ -51,15 +51,19 @@ async function initSuperAdminDB() {
         company_name VARCHAR(255) NOT NULL,
         central_url VARCHAR(255) DEFAULT '',
         app_port INTEGER,
+        http_port INTEGER,
         https_port INTEGER,
         syslog_port INTEGER,
+        db_port INTEGER,
         status VARCHAR(50) DEFAULT 'active',
         created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())
       );
       
       ALTER TABLE managed_companies ADD COLUMN IF NOT EXISTS app_port INTEGER;
+      ALTER TABLE managed_companies ADD COLUMN IF NOT EXISTS http_port INTEGER;
       ALTER TABLE managed_companies ADD COLUMN IF NOT EXISTS https_port INTEGER;
       ALTER TABLE managed_companies ADD COLUMN IF NOT EXISTS syslog_port INTEGER;
+      ALTER TABLE managed_companies ADD COLUMN IF NOT EXISTS db_port INTEGER;
     `);
 
     // Seed default superadmin / superadmin with mandatory password change
@@ -163,8 +167,9 @@ app.get('/api/super/companies', superAuthMiddleware, async (req, res) => {
 
 app.post('/api/super/companies', superAuthMiddleware, async (req, res) => {
   try {
-    const { company_name, company_id } = req.body;
+    const { company_name, company_id, admin_username, admin_password } = req.body;
     if (!company_name || !company_id) return res.status(400).json({ error: 'Company Name and ID are required' });
+    if (!admin_username || !admin_password) return res.status(400).json({ error: 'Admin Username and Password are required' });
 
     const safeId = company_id.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
     
@@ -172,38 +177,34 @@ app.post('/api/super/companies', superAuthMiddleware, async (req, res) => {
     const checkRes = await pool.query('SELECT id FROM managed_companies WHERE company_id = $1', [safeId]);
     if (checkRes.rows.length > 0) return res.status(400).json({ error: 'Company ID already exists' });
 
-    // Allocate ports dynamically (find max used ports, or start from base)
-    const portRes = await pool.query('SELECT MAX(app_port) as max_app, MAX(https_port) as max_https, MAX(syslog_port) as max_syslog FROM managed_companies');
+    // Find highest ports currently used to pass as a starting hint
+    const portRes = await pool.query('SELECT MAX(app_port) as max_app, MAX(http_port) as max_http, MAX(https_port) as max_https, MAX(syslog_port) as max_syslog, MAX(db_port) as max_db FROM managed_companies');
     
-    const baseAppPort = 6000;
-    const baseHttpsPort = 8000;
-    const baseSyslogPort = 9000;
+    const startingAppPort = portRes.rows[0].max_app ? portRes.rows[0].max_app + 1 : 6000;
+    const startingHttpPort = portRes.rows[0].max_http ? portRes.rows[0].max_http + 1 : 8080;
+    const startingHttpsPort = portRes.rows[0].max_https ? portRes.rows[0].max_https + 1 : 8000;
+    const startingSyslogPort = portRes.rows[0].max_syslog ? portRes.rows[0].max_syslog + 1 : 9000;
+    const startingDbPort = portRes.rows[0].max_db ? portRes.rows[0].max_db + 1 : 5500;
 
-    let app_port = baseAppPort;
-    let https_port = baseHttpsPort;
-    let syslog_port = baseSyslogPort;
-
-    if (portRes.rows[0].max_app) {
-      app_port = portRes.rows[0].max_app + 1;
-      https_port = portRes.rows[0].max_https + 1;
-      syslog_port = portRes.rows[0].max_syslog + 1;
-    }
-
-    const central_url = `https://10.90.120.177:${https_port}`;
-
-    // Provision the tenant
+    // Provision the tenant (it will return the actual allocated ports)
     const provisionTenant = require('../scripts/provision_tenant');
-    await provisionTenant({
+    const allocated = await provisionTenant({
       company_id: safeId,
       company_name: company_name.trim(),
-      app_port,
-      https_port,
-      syslog_port
+      admin_username: admin_username.trim(),
+      admin_password: admin_password.trim(),
+      startingAppPort,
+      startingHttpPort,
+      startingHttpsPort,
+      startingSyslogPort,
+      startingDbPort
     });
 
+    const central_url = `https://10.90.120.177:${allocated.https_port}`;
+
     const insertRes = await pool.query(
-      'INSERT INTO managed_companies (company_id, company_name, central_url, app_port, https_port, syslog_port) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-      [safeId, company_name.trim(), central_url, app_port, https_port, syslog_port]
+      'INSERT INTO managed_companies (company_id, company_name, central_url, app_port, http_port, https_port, syslog_port, db_port) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+      [safeId, company_name.trim(), central_url, allocated.app_port, allocated.http_port, allocated.https_port, allocated.syslog_port, allocated.db_port]
     );
 
     res.status(201).json(insertRes.rows[0]);
@@ -212,6 +213,21 @@ app.post('/api/super/companies', superAuthMiddleware, async (req, res) => {
     res.status(500).json({ error: 'Failed to create company (may already exist or provisioning failed)' });
   }
 });
+
+// Static Frontend Serving
+const staticPath = path.join(__dirname, '../frontend/dist');
+if (process.env.SERVE_STATIC === 'true' || fs.existsSync(staticPath)) {
+  app.use(express.static(staticPath));
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/api')) {
+      const indexPath = path.join(staticPath, 'index.html');
+      return res.sendFile(indexPath, err => {
+        if (err) next();
+      });
+    }
+    next();
+  });
+}
 
 // Start Server
 initSuperAdminDB().then(() => {

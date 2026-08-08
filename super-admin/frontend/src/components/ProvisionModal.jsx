@@ -6,9 +6,20 @@ import axios from 'axios';
 export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
   const [companyName, setCompanyName] = useState('');
   const [companyId, setCompanyId] = useState('');
+  const [adminUsername, setAdminUsername] = useState('admin');
+  const [adminPassword, setAdminPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [provisioningStatus, setProvisioningStatus] = useState('');
+
+  const generatePassword = () => {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+    let pass = '';
+    for (let i = 0; i < 12; i++) {
+      pass += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setAdminPassword(pass);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -23,13 +34,16 @@ export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
       
       await axios.post('/api/super/companies', {
         company_name: companyName,
-        company_id: companyId
+        company_id: companyId,
+        admin_username: adminUsername,
+        admin_password: adminPassword
       });
       
       onSuccess();
       onClose();
       setCompanyName('');
       setCompanyId('');
+      setAdminPassword('');
     } catch (err) {
       setError(err.response?.data?.error || 'Provisioning failed. Check server logs.');
     } finally {
@@ -115,6 +129,35 @@ export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
                 disabled={isLoading}
                 required 
               />
+            </div>
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
+                Admin Username
+              </label>
+              <input 
+                type="text" 
+                className="glass-input" 
+                value={adminUsername}
+                onChange={(e) => setAdminUsername(e.target.value.trim())}
+                disabled={isLoading}
+                required 
+              />
+            </div>
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
+                Initial Admin Password
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input 
+                  type="text" 
+                  className="glass-input" 
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value.trim())}
+                  disabled={isLoading}
+                  required 
+                />
+                <button type="button" className="glass-button" onClick={generatePassword} disabled={isLoading} style={{ padding: '0.5rem 1rem' }}>Generate</button>
+              </div>
             </div>
 
             {isLoading && (
