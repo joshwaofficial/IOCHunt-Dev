@@ -94,7 +94,7 @@ FRONTEND_URL=*
     console.log(`[Provision] Stage 1: Spinning up Postgres container for tenant ${company_id}...`);
     execSync(`docker compose -p ${company_id} -f docker-compose.yml --env-file .env.${company_id} up -d db`, {
       cwd: rootDir,
-      stdio: 'inherit'
+      stdio: 'pipe'
     });
 
     console.log(`[Provision] Waiting 10 seconds for PostgreSQL to initialize...`);
@@ -148,7 +148,7 @@ FRONTEND_URL=*
     console.log(`[Provision] Stage 3: Spinning up the full stack for tenant ${company_id}...`);
     execSync(`docker compose -p ${company_id} -f docker-compose.yml --env-file .env.${company_id} up -d`, {
       cwd: rootDir,
-      stdio: 'inherit'
+      stdio: 'pipe'
     });
     
     console.log(`[Provision] Successfully provisioned tenant ${company_id} on HTTPS port ${https_port}`);
@@ -157,8 +157,11 @@ FRONTEND_URL=*
       app_port, http_port, https_port, syslog_port, db_port
     };
   } catch (error) {
-    console.error(`[Provision] Failed to spin up docker stack for tenant ${company_id}:`, error.message);
-    throw error;
+    let errMsg = error.message;
+    if (error.stderr) errMsg += ' | STDERR: ' + error.stderr.toString();
+    if (error.stdout) errMsg += ' | STDOUT: ' + error.stdout.toString();
+    console.error(`[Provision] Failed to spin up docker stack for tenant ${company_id}:`, errMsg);
+    throw new Error(errMsg);
   }
 }
 
