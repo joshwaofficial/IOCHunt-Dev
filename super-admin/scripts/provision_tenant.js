@@ -154,7 +154,7 @@ FRONTEND_URL=*
     console.log(`[Provision] Successfully provisioned tenant ${company_id} on HTTPS port ${https_port}`);
     
     return {
-      app_port, https_port, syslog_port, db_port
+      app_port, http_port, https_port, syslog_port, db_port
     };
   } catch (error) {
     console.error(`[Provision] Failed to spin up docker stack for tenant ${company_id}:`, error.message);
