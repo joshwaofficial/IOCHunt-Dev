@@ -169,7 +169,7 @@ export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
 
             <button 
               type="submit" 
-              className="glass-button mt-4" 
+              className="glass-button primary mt-4" 
               disabled={isLoading}
               style={{ width: '100%' }}
             >
