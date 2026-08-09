@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Shield, Grid, Bell, Zap, Monitor, AlertTriangle, FileText, Settings, LogOut } from 'lucide-react';
+import { Shield, Grid, Server, Settings } from 'lucide-react';
 import Login from './pages/Login';
 import SetupPassword from './pages/SetupPassword';
 import Dashboard from './pages/Dashboard';
@@ -17,12 +17,7 @@ function Sidebar() {
 
   const menuItems = [
     { name: 'Overview', icon: <Grid size={18} />, path: '/' },
-    { name: 'Alerts', icon: <Bell size={18} />, path: '#' },
-    { name: 'Threats', icon: <Zap size={18} />, path: '#' },
-    { name: 'Assets', icon: <Monitor size={18} />, path: '#' },
-    { name: 'Vulnerabilities', icon: <AlertTriangle size={18} />, path: '#' },
-    { name: 'Logs', icon: <FileText size={18} />, path: '#' },
-    { name: 'Reports', icon: <FileText size={18} />, path: '#' },
+    { name: 'Tenants', icon: <Server size={18} />, path: '#' },
     { name: 'Settings', icon: <Settings size={18} />, path: '#' },
   ];
 
