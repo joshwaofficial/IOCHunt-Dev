@@ -109,9 +109,6 @@ const fwSourceRoutes = require('./modules/aggregator/routes/fwSourceRoutes');
 app.use('/api/settings', requireAggregator, express.json(), aggregatorSettingsRoutes);
 app.use('/api/fw-sources', requireAggregator, express.json(), fwSourceRoutes);
 
-// Dashboard Metrics (Catch-all for /api routes)
-app.use('/api', dashboardRoutes);
-
 // ── Health Check ────────────────────────────────────────────────
 app.get('/api/ping', (req, res) => {
   const config = appMode.getConfig();
@@ -145,12 +142,17 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+// Dashboard Metrics (Catch-all for /api routes)
+app.use('/api', dashboardRoutes);
+
 // Static Frontend Serving
 const staticPath = path.join(__dirname, '../../frontend/dist');
 if (process.env.SERVE_STATIC === 'true' || fs.existsSync(staticPath)) {
   app.use(express.static(staticPath));
   app.use((req, res, next) => {
-    if (req.method === 'GET' && !req.path.startsWith('/api')) {
+    // Only send index.html for navigation requests that expect HTML
+    // Exclude API requests and direct requests for files with extensions (like .js, .css, .png)
+    if (req.method === 'GET' && !req.path.startsWith('/api') && req.accepts('html') && !req.path.match(/\.[a-z0-9]+$/i)) {
       const indexPath = path.join(staticPath, 'index.html');
       return res.sendFile(indexPath, err => {
         if (err) next();
