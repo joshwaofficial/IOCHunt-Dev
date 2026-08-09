@@ -9,7 +9,7 @@ import { Toaster } from 'react-hot-toast';
 export const queryClient = new QueryClient();
 
 // Pages
-import SetupWizard from './pages/SetupWizard';
+import ForcePasswordReset from './pages/ForcePasswordReset';
 import Login from './pages/Login';
 import MfaChallenge from './pages/MfaChallenge';
 import Dashboard from './pages/Dashboard';
@@ -46,9 +46,11 @@ const ProtectedRoute = ({ children, requiredRole }) => {
     );
   }
 
-  // If instance is not setup yet, redirect to /setup
-  if (instanceInfo && instanceInfo.setup_complete === false) {
-    return <Navigate to="/setup" replace />;
+  // If the user's password must be changed, and they aren't already on that page, redirect them.
+  if (user && user.force_password_change) {
+    if (window.location.pathname !== '/force-password-reset') {
+      return <Navigate to="/force-password-reset" replace />;
+    }
   }
   
   if (!user) {
@@ -62,16 +64,7 @@ const ProtectedRoute = ({ children, requiredRole }) => {
   return children;
 };
 
-// Setup Route Wrapper
-const SetupRoute = () => {
-  const { instanceInfo, loading } = useInstance();
-  if (loading) return null;
-  // If already setup, redirect to dashboard or login
-  if (instanceInfo?.setup_complete) {
-    return <Navigate to="/login" replace />;
-  }
-  return <SetupWizard />;
-};
+
 
 function App() {
   return (
@@ -83,11 +76,13 @@ function App() {
               <Toaster position="top-right" toastOptions={{ style: { background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' } }} />
               <Router>
                 <Routes>
-                  {/* Setup Wizard Route */}
-                  <Route path="/setup" element={<SetupRoute />} />
-
                   {/* Auth Routes */}
                   <Route path="/login" element={<Login />} />
+                  <Route path="/force-password-reset" element={
+                    <ProtectedRoute>
+                      <ForcePasswordReset />
+                    </ProtectedRoute>
+                  } />
                   <Route path="/mfa-challenge" element={<MfaChallenge />} />
                   <Route path="/mfa-setup" element={
                     <ProtectedRoute>

@@ -335,7 +335,7 @@ const initDB = async (retries = 10, delay = 3000) => {
         } else {
           // Branch Aggregator Administrator Seeding
           const branchName = process.env.INSTANCE_NAME || 'branch';
-          const defaultUsername = `admin_${branchName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}`;
+          const defaultUsername = 'admin'; // Changed to standard admin
           const userRes = await client.query("SELECT * FROM users WHERE role='AGGREGATOR_ADMIN'");
           if (userRes.rows.length === 0) {
             const { hash, salt } = cryptoHelper.hashPassword('admin');

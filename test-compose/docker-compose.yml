@@ -1,0 +1,4 @@
+services:
+  test:
+    image: alpine
+    command: sh -c "exit 1"

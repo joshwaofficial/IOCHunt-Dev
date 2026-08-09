@@ -48,11 +48,6 @@ docker compose -f docker-compose.aggregator.yml down 2>/dev/null || true
 echo -e "\033[1;33m[4/4] Rebuilding and starting containers for $MODE...\033[0m"
 
 if [[ "$MODE" == "central" ]]; then
-    # Start Central Server stack (Port 8082)
-    export NGINX_HTTP_PORT=8080
-    export NGINX_HTTPS_PORT=8082
-    docker compose up -d --build
-
     # Start Super Admin stack (Port 8081)
     export HOST_PWD=$PWD
     docker compose -f docker-compose.superadmin.yml up -d --build
@@ -60,7 +55,6 @@ if [[ "$MODE" == "central" ]]; then
     echo -e "\033[0;32m============================================================\033[0m"
     echo -e "\033[0;32m Central Server Deployment Complete!\033[0m"
     echo -e "\033[0;32m ➜ Super Admin UI:  https://$(hostname -I | awk '{print $1}'):8081\033[0m"
-    echo -e "\033[0;32m ➜ Central UI:      https://$(hostname -I | awk '{print $1}'):8082\033[0m"
     echo -e "\033[0;32m============================================================\033[0m"
 else
     # Start Aggregator stack (Port 8083)

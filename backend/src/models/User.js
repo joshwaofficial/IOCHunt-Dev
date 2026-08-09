@@ -62,6 +62,13 @@ class User {
     );
   }
 
+  static async updateCredentials(id, username, passwordHash, salt) {
+    await db.query(
+      'UPDATE users SET username = $1, password_hash = $2, salt = $3, force_password_change = 0 WHERE id = $4',
+      [username.trim().toLowerCase(), passwordHash, salt, id]
+    );
+  }
+
   static async setForcePasswordChange(id, value) {
     await db.query('UPDATE users SET force_password_change = $1 WHERE id = $2', [value ? 1 : 0, id]);
   }

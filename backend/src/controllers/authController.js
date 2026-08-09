@@ -121,7 +121,7 @@ async function login(req, res) {
 
 async function changePassword(req, res) {
   try {
-    const { current_password, new_password, confirm_password } = req.body;
+    const { current_password, new_password, confirm_password, new_username } = req.body;
 
     if (!current_password || !new_password || !confirm_password) {
       return res.status(400).json({ error: 'All password fields are required' });
@@ -152,7 +152,16 @@ async function changePassword(req, res) {
 
     // Hash new password and reset force_password_change flag
     const { hash, salt } = hashPassword(new_password);
-    await User.updatePassword(user.id, hash, salt);
+    
+    if (new_username && new_username.trim().toLowerCase() !== user.username) {
+      const existingUser = await User.findByUsername(new_username);
+      if (existingUser) {
+        return res.status(400).json({ error: 'Username is already taken' });
+      }
+      await User.updateCredentials(user.id, new_username, hash, salt);
+    } else {
+      await User.updatePassword(user.id, hash, salt);
+    }
 
     // Update the session in memory if needed
     if (req.session) {
