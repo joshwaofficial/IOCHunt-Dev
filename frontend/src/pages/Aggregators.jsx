@@ -25,7 +25,7 @@ const Aggregators = () => {
   const fetchAggregators = async () => {
     try {
       setLoading(true);
-      const res = await axios.get('/api/aggregators');
+      const res = await axios.get('/api/aggregators', { params: { _t: Date.now() } });
       if (Array.isArray(res.data)) {
         setAggregators(res.data);
       } else {

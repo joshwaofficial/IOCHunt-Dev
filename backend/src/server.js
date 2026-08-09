@@ -93,11 +93,7 @@ app.get('/api/stream', sseBroadcaster.subscribe);
 const aggregatorRoutes = require('./routes/aggregatorRoutes');
 const ingestRoutes = require('./routes/ingestRoutes');
 
-// Intercept GET /api/aggregators on branch nodes to return empty array instead of 403 (prevents console spam)
-app.get('/api/aggregators', (req, res, next) => {
-  if (!appMode.isCentralServer()) return res.json({ data: [] });
-  next();
-});
+// Removed interceptor for GET /api/aggregators to ensure the actual route handler processes the request
 
 app.use('/api/aggregators', requireCentralServer, express.json(), aggregatorRoutes);
 app.use('/api/ingest', requireCentralServer, ingestRoutes); // Handles batch streams
