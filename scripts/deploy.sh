@@ -48,7 +48,10 @@ docker compose -f docker-compose.aggregator.yml down 2>/dev/null || true
 echo -e "\033[1;33m[4/4] Rebuilding and starting containers for $MODE...\033[0m"
 
 if [[ "$MODE" == "central" ]]; then
-    # Start Super Admin stack (Port 8081)
+    echo -e "\033[1;33m[4.1/4] Starting base infrastructure (Network & Default DB)...\033[0m"
+    docker compose up -d
+
+    echo -e "\033[1;33m[4.2/4] Starting Super Admin stack (Port 8081)...\033[0m"
     export HOST_PWD=$PWD
     docker compose -f docker-compose.superadmin.yml up -d --build
 
