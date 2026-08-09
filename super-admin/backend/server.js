@@ -201,7 +201,7 @@ app.post('/api/super/companies', superAuthMiddleware, async (req, res) => {
       startingDbPort
     });
 
-    const central_url = `https://10.90.120.177:${allocated.https_port}`;
+    const central_url = `https://${req.hostname}:${allocated.https_port}`;
 
     const insertRes = await pool.query(
       'INSERT INTO managed_companies (company_id, company_name, central_url, app_port, http_port, https_port, syslog_port, db_port) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
