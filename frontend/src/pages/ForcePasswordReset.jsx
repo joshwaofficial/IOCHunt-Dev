@@ -28,7 +28,7 @@ export default function ForcePasswordReset() {
     }
 
     try {
-      await axios.put('/api/auth/change-password', {
+      await axios.post('/api/auth/change-password', {
         current_password: currentPassword,
         new_password: newPassword,
         confirm_password: confirmPassword,
