@@ -265,7 +265,8 @@ const batchIngest = async (req, res) => {
 
     // 5.5 Process machine policies (current_json from agent)
     if (data.policies && data.policies.length > 0) {
-      const client = await db.connect();
+      const aggPool = getAggregatorPool(agg.name);
+      const client = await aggPool.connect();
       try {
         await client.query('BEGIN');
         for (const p of data.policies) {
@@ -310,9 +311,10 @@ const batchIngest = async (req, res) => {
     });
 
     // 8. Fetch global policies and groups to send back to aggregator
-    const globalPoliciesRes = await db.query('SELECT machine, policy_json, updated_at FROM policies WHERE policy_json IS NOT NULL AND policy_json::text != \'{}\'');
-    const polGroupsRes = await db.query('SELECT id, name, policy_json, updated_at FROM pol_groups');
-    const machineGroupsRes = await db.query('SELECT machine, group_id FROM machine_groups');
+    const aggPool = getAggregatorPool(agg.name);
+    const globalPoliciesRes = await aggPool.query('SELECT machine, policy_json, updated_at FROM policies WHERE policy_json IS NOT NULL AND policy_json::text != \'{}\'');
+    const polGroupsRes = await aggPool.query('SELECT id, name, policy_json, updated_at FROM pol_groups');
+    const machineGroupsRes = await aggPool.query('SELECT machine, group_id FROM machine_groups');
 
     console.log(`[IngestController] Sending ${globalPoliciesRes.rows.length} policies down to aggregator ${agg.name}`);
 

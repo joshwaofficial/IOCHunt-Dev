@@ -1,13 +1,13 @@
-const db = require('../config/db');
+const { queryContext } = require('../config/aggregatorDbManager');
 
 async function getMachinePolicy(req, res) {
   try {
     const machine = req.params.machine;
-    const rowRes = await db.query('SELECT * FROM policies WHERE machine=$1', [machine]);
+    const rowRes = await queryContext(req, 'SELECT * FROM policies WHERE machine=$1', [machine]);
     const row = rowRes.rows[0];
     
     // Find group policy for this machine (first group wins)
-    const groupRowRes = await db.query(`
+    const groupRowRes = await queryContext(req, `
       SELECT pg.id, pg.name, pg.policy_json, pg.updated_at
       FROM machine_groups mg
       JOIN pol_groups pg ON pg.id = mg.group_id
@@ -40,7 +40,7 @@ async function updateMachineCurrentPolicy(req, res) {
     const { policy } = req.body;
     if (!policy) return res.status(400).json({ error: 'policy required' });
     
-    await db.query(`
+    await queryContext(req, `
       INSERT INTO policies (machine, policy_json, current_json, updated_at)
       VALUES ($1, '{}', $2, (EXTRACT(EPOCH FROM NOW())::INTEGER))
       ON CONFLICT(machine) DO UPDATE SET current_json = excluded.current_json
@@ -59,7 +59,7 @@ async function setMachinePolicy(req, res) {
     const { policy } = req.body;
     if (!policy) return res.status(400).json({ error: 'policy object required' });
     
-    await db.query(`
+    await queryContext(req, `
       INSERT INTO policies (machine, policy_json, updated_at)
       VALUES ($1, $2, (EXTRACT(EPOCH FROM NOW())::INTEGER))
       ON CONFLICT(machine) DO UPDATE SET
@@ -80,10 +80,10 @@ async function ackMachinePolicy(req, res) {
     const machine = req.params.machine;
     
     // Get effective policy to synchronize current_json immediately on ACK
-    const rowRes = await db.query('SELECT policy_json FROM policies WHERE machine=$1', [machine]);
+    const rowRes = await queryContext(req, 'SELECT policy_json FROM policies WHERE machine=$1', [machine]);
     let effectivePolicy = rowRes.rows[0]?.policy_json;
     if (!effectivePolicy || effectivePolicy === '{}') {
-      const grpRes = await db.query(`
+      const grpRes = await queryContext(req, `
         SELECT pg.policy_json FROM machine_groups mg
         JOIN pol_groups pg ON pg.id = mg.group_id
         WHERE mg.machine = $1 ORDER BY pg.updated_at DESC LIMIT 1
@@ -93,7 +93,7 @@ async function ackMachinePolicy(req, res) {
       }
     }
 
-    await db.query(`
+    await queryContext(req, `
       UPDATE policies
       SET applied_at = (EXTRACT(EPOCH FROM NOW())::INTEGER),
           current_json = CASE 
@@ -112,7 +112,7 @@ async function ackMachinePolicy(req, res) {
 
 async function getAllPolicies(req, res) {
   try {
-    const rowsRes = await db.query('SELECT * FROM policies ORDER BY updated_at DESC');
+    const rowsRes = await queryContext(req, 'SELECT * FROM policies ORDER BY updated_at DESC');
     res.json(rowsRes.rows.map(r => ({ ...r, policy: JSON.parse(r.policy_json || '{}') })));
   } catch (error) {
     console.error('[Policy] Failed to list policies:', error);

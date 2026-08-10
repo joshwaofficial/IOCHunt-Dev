@@ -377,7 +377,7 @@ def start_policy_poller():
                 if not url or not key:
                     time.sleep(15)
                     continue
-                machine = config.get("central_server_label") or socket.gethostname()
+                machine = socket.gethostname()
 
                 # 1. Fetch latest policy from Central / Aggregator
                 resp = requests.get(
@@ -387,7 +387,7 @@ def start_policy_poller():
                 )
                 if resp.ok:
                     data = resp.json()
-                    pol  = data.get("effective_policy", {})
+                    pol  = data.get("policy") or data.get("effective_policy") or {}
                     if pol:
                         changed = False
                         if "catModes" in pol:
@@ -403,27 +403,19 @@ def start_policy_poller():
                             ("failedLogonWindowMins","failed_logon_window_mins"),
                         ]:
                             if k in pol:
-                                if config.get(attr) != pol[k]:
-                                    config[attr] = pol[k]
-                                    changed = True
+                                config[attr] = pol[k]
                         if "learningMode" in pol:
-                            val = bool(pol["learningMode"])
-                            if config.get("learning_mode") != val:
-                                config["learning_mode"] = val
-                                changed = True
+                            config["learning_mode"] = bool(pol["learningMode"])
                         
-                        if changed:
-                            log("[POLICY] Applied new policy from server.")
-                            # 2. Acknowledge policy application
-                            try:
-                                requests.patch(
-                                    f"{url}/api/policy/{machine}/ack",
-                                    headers={"x-api-key": key},
-                                    json={"policy": {"catModes": cat_modes}},
-                                    timeout=5, verify=False,
-                                )
-                            except Exception as ex:
-                                log(f"[POLICY-ACK-ERR] {ex}")
+                        log("[POLICY] Applied machine-specific policy.")
+                        
+                        # 2. Acknowledge policy application
+                        requests.patch(
+                            f"{url}/api/policy/{machine}/ack",
+                            headers={"x-api-key": key},
+                            json={"policy": {"catModes": cat_modes}},
+                            timeout=5, verify=False,
+                        )
 
                 # 3. Report active running policy to Central
                 try:
