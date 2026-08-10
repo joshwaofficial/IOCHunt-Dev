@@ -92,7 +92,7 @@ async function login(req, res) {
       `);
       const { setConfig, MODES } = require('../config/appMode');
       setConfig({
-        mode: MODES.CENTRAL_SERVER,
+        mode: MODES.CENTRAL,
         setupComplete: true,
         source: 'database'
       });
