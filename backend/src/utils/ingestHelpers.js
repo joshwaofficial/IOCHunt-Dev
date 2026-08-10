@@ -412,7 +412,7 @@ function parseCategory(tag, message) {
   return 'OTHER';
 }
 
-function normalizeToUTC(raw, sourceTZ = 'UTC') {
+function normalizeToUTC(raw, sourceTZ = 'local') {
   if (!raw) return raw;
 
   const trimmed = raw.trim();
