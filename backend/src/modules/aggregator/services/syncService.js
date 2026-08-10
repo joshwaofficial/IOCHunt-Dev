@@ -20,10 +20,16 @@ async function syncQueueToCentral() {
   let client;
   try {
     const settingsRes = await db.query('SELECT central_server_url, central_api_key FROM settings LIMIT 1');
-    if (settingsRes.rows.length === 0) return;
+    if (settingsRes.rows.length === 0) {
+      console.log('[SyncService] Aborted: settings table is empty. Node not paired?');
+      return;
+    }
     
     const { central_server_url, central_api_key } = settingsRes.rows[0];
-    if (!central_server_url || !central_api_key) return;
+    if (!central_server_url || !central_api_key) {
+      console.log('[SyncService] Aborted: missing central_server_url or central_api_key in settings.');
+      return;
+    }
 
     client = await db.connect();
 
