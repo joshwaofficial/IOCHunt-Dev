@@ -67,6 +67,9 @@ async function syncQueueToCentral() {
       const agentCountRes = await client.query('SELECT COUNT(*) FROM machines');
       const totalAgents = parseInt(agentCountRes.rows[0].count, 10);
 
+      const policiesRes = await client.query('SELECT machine, current_json, applied_at FROM policies WHERE current_json IS NOT NULL');
+      const policies = policiesRes.rows;
+
       const payload = {
         events: events.map(e => ({
           machine: e.machine,
@@ -100,6 +103,7 @@ async function syncQueueToCentral() {
           raw: e.raw
         })),
         machines,
+        policies,
         total_agents: totalAgents
       };
 
@@ -108,13 +112,54 @@ async function syncQueueToCentral() {
       const gzipped = zlib.gzipSync(Buffer.from(rawJson, 'utf-8'));
 
       // 5. Send to central server
-      await axios.post(`${central_server_url}/api/ingest/batch`, gzipped, {
+      const res = await axios.post(`${central_server_url}/api/ingest/batch`, gzipped, {
         headers: {
           'x-aggregator-key': central_api_key,
           'Content-Type': 'application/octet-stream'
         },
         httpsAgent
       });
+
+      // 5.5 Process returned policy updates from central server
+      if (res.data && res.data.sync_data) {
+        const { global_policies, pol_groups, machine_groups } = res.data.sync_data;
+        
+        if (pol_groups && pol_groups.length > 0) {
+          for (const pg of pol_groups) {
+            await client.query(`
+              INSERT INTO pol_groups (id, name, policy_json, updated_at)
+              VALUES ($1, $2, $3, $4)
+              ON CONFLICT(id) DO UPDATE SET
+                name = EXCLUDED.name,
+                policy_json = EXCLUDED.policy_json,
+                updated_at = EXCLUDED.updated_at
+            `, [pg.id, pg.name, pg.policy_json, pg.updated_at]);
+          }
+        }
+        
+        if (machine_groups && machine_groups.length > 0) {
+          await client.query('TRUNCATE machine_groups');
+          for (const mg of machine_groups) {
+            await client.query(`
+              INSERT INTO machine_groups (machine, group_id)
+              VALUES ($1, $2)
+              ON CONFLICT DO NOTHING
+            `, [mg.machine, mg.group_id]);
+          }
+        }
+        
+        if (global_policies && global_policies.length > 0) {
+          for (const p of global_policies) {
+            await client.query(`
+              INSERT INTO policies (machine, policy_json, updated_at)
+              VALUES ($1, $2, $3)
+              ON CONFLICT(machine) DO UPDATE SET
+                policy_json = EXCLUDED.policy_json,
+                updated_at = EXCLUDED.updated_at
+            `, [p.machine, p.policy_json, p.updated_at]);
+          }
+        }
+      }
 
       // 6. Mark as forwarded
       if (events.length > 0) {

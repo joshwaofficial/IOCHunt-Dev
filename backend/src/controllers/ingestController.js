@@ -263,6 +263,29 @@ const batchIngest = async (req, res) => {
       }
     }
 
+    // 5.5 Process machine policies (current_json from agent)
+    if (data.policies && data.policies.length > 0) {
+      const client = await db.connect();
+      try {
+        await client.query('BEGIN');
+        for (const p of data.policies) {
+          await client.query(`
+            INSERT INTO policies (machine, policy_json, current_json, applied_at)
+            VALUES ($1, '{}', $2, $3)
+            ON CONFLICT (machine) DO UPDATE SET
+              current_json = EXCLUDED.current_json,
+              applied_at = EXCLUDED.applied_at
+          `, [p.machine, p.current_json, p.applied_at]);
+        }
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+    }
+
     // 6. Sync to the dedicated separate Aggregator PostgreSQL Database
     await syncToAggregatorDatabase(agg.name, data);
 
@@ -286,7 +309,20 @@ const batchIngest = async (req, res) => {
       agent_count: totalAgents
     });
 
-    res.json({ success: true, ingested: data.events.length });
+    // 8. Fetch global policies and groups to send back to aggregator
+    const globalPoliciesRes = await db.query('SELECT machine, policy_json, updated_at FROM policies WHERE policy_json IS NOT NULL AND policy_json != \'{}\'');
+    const polGroupsRes = await db.query('SELECT id, name, policy_json, updated_at FROM pol_groups');
+    const machineGroupsRes = await db.query('SELECT machine, group_id FROM machine_groups');
+
+    res.json({
+      success: true,
+      ingested: data.events.length,
+      sync_data: {
+        global_policies: globalPoliciesRes.rows,
+        pol_groups: polGroupsRes.rows,
+        machine_groups: machineGroupsRes.rows
+      }
+    });
   } catch (error) {
     console.error('[Ingest Batch Error]', error.message);
     res.status(500).json({ error: 'Server error: ' + error.message });
