@@ -2119,7 +2119,6 @@ def start_sensitive_file_monitor():
         return snap
 
     def _monitor():
-        global _sensitive_baseline
         all_files = get_all_sensitive_files()
         baseline  = _build_snapshot(all_files)
         log(f"[MONITOR] Sensitive file monitor: watching {len(baseline)} files.")
