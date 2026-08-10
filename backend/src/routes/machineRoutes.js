@@ -12,10 +12,6 @@ router.get('/', machineController.getAllMachines);
 // Get clients with status and risk
 router.get('/clients', machineController.getClients);
 
-// Get machine specific policy
-router.get('/:id/policy', machineController.getMachinePolicy);
 
-// Update machine specific policy (Admin only)
-router.post('/:id/policy', requireAdmin, machineController.updateMachinePolicy);
 
 module.exports = router;

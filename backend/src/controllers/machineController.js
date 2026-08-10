@@ -28,44 +28,6 @@ async function getAllMachines(req, res) {
 }
 
 /**
- * Get a specific machine's policy
- */
-async function getMachinePolicy(req, res) {
-  try {
-    const { id } = req.params;
-    if (!id) return res.status(400).json({ error: 'Machine ID is required' });
-
-    const userAgg = req.session?.aggregator_name || req.query.aggregator;
-    const policy = await Machine.getPolicy(id, userAgg);
-    return res.status(200).json({ data: policy || {} });
-  } catch (error) {
-    console.error('[Machine Error] Failed to get machine policy:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-}
-
-/**
- * Update a machine's policy (Admin only)
- */
-async function updateMachinePolicy(req, res) {
-  try {
-    const { id } = req.params;
-    const policyData = req.body;
-
-    if (!id || !policyData) {
-      return res.status(400).json({ error: 'Machine ID and policy data are required' });
-    }
-
-    const userAgg = req.session?.aggregator_name || req.query.aggregator;
-    await Machine.updatePolicy(id, policyData, userAgg);
-    return res.status(200).json({ message: 'Policy updated successfully' });
-  } catch (error) {
-    console.error('[Machine Error] Failed to update policy:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-}
-
-/**
  * Get clients status and risk logic
  */
 async function getClients(req, res) {
@@ -153,7 +115,5 @@ async function getClients(req, res) {
 
 module.exports = {
   getAllMachines,
-  getMachinePolicy,
-  updateMachinePolicy,
   getClients
 };
