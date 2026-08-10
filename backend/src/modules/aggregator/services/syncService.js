@@ -43,10 +43,8 @@ async function syncQueueToCentral() {
       );
       const fw_events = fwEventsRes.rows;
 
-      if (events.length === 0 && fw_events.length === 0) {
-        hasMore = false;
-        break;
-      }
+      // We used to break early here if no events, but we MUST proceed to fetch policy updates.
+      // The loop will naturally terminate at the bottom since events.length < BATCH_SIZE.
 
       // 3. Prepare unique machine details
       let machines = [];
