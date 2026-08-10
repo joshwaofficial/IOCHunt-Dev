@@ -9,8 +9,8 @@ const appMode = require('../config/appMode');
 const { parseSessionCookie, getSession } = require('./authMiddleware');
 
 async function requireCentralServer(req, res, next) {
-  // Endpoints needed for provisioning and remote branch pairing should always be reachable on Central Server
-  if (req.path === '/provision-remote' || req.path === '/pair') {
+  // Endpoints needed for provisioning, remote branch pairing, and aggregator sync should always be reachable
+  if (req.path === '/provision-remote' || req.path === '/pair' || req.path === '/batch' || req.path === '/events') {
     return next();
   }
   if (appMode.isCentralServer()) {
