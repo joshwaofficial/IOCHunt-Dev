@@ -115,7 +115,8 @@ async function syncQueueToCentral() {
           'x-aggregator-key': central_api_key,
           'Content-Type': 'application/octet-stream'
         },
-        httpsAgent
+        httpsAgent,
+        timeout: 8000 // IMPORTANT: Prevent infinite hanging if IP is wrong
       });
 
       // 5.5 Process returned policy updates from central server
