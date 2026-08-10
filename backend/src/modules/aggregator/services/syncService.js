@@ -65,8 +65,10 @@ async function syncQueueToCentral() {
       const agentCountRes = await client.query('SELECT COUNT(*) FROM machines');
       const totalAgents = parseInt(agentCountRes.rows[0].count, 10);
 
-      const policiesRes = await client.query('SELECT machine, current_json, applied_at FROM policies WHERE current_json IS NOT NULL');
+      const policiesRes = await client.query('SELECT machine, current_json, applied_at FROM policies WHERE current_json IS NOT NULL AND current_json::text != \'{}\'');
       const policies = policiesRes.rows;
+
+      console.log(`[SyncService] Found ${events.length} events, ${fw_events.length} fw_events, ${policies.length} policies to push.`);
 
       const payload = {
         events: events.map(e => ({
@@ -110,6 +112,7 @@ async function syncQueueToCentral() {
       const gzipped = zlib.gzipSync(Buffer.from(rawJson, 'utf-8'));
 
       // 5. Send to central server
+      console.log(`[SyncService] POSTing to ${central_server_url}/api/ingest/batch ...`);
       const res = await axios.post(`${central_server_url}/api/ingest/batch`, gzipped, {
         headers: {
           'x-aggregator-key': central_api_key,
@@ -118,10 +121,13 @@ async function syncQueueToCentral() {
         httpsAgent,
         timeout: 8000 // IMPORTANT: Prevent infinite hanging if IP is wrong
       });
+      console.log(`[SyncService] Success! Got response status ${res.status}.`);
 
       // 5.5 Process returned policy updates from central server
       if (res.data && res.data.sync_data) {
         const { global_policies, pol_groups, machine_groups } = res.data.sync_data;
+        console.log(`[SyncService] Received ${global_policies ? global_policies.length : 0} global policies from central hub.`);
+
         
         if (pol_groups && pol_groups.length > 0) {
           for (const pg of pol_groups) {
