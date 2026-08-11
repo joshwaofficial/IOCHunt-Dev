@@ -4,7 +4,7 @@ const https = require('https');
 const zlib = require('zlib');
 const appMode = require('../../../config/appMode');
 
-const BATCH_SIZE = 10000;
+const BATCH_SIZE = 500; // Limit batch size to prevent query timeouts and excessive sequential DB inserts
 const SYNC_INTERVAL_MS = 10000; // 10s Sweeper Fallback
 const DEBOUNCE_DELAY_MS = 2000; // 2s Debounce
 
