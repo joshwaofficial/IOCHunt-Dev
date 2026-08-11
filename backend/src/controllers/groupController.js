@@ -1,11 +1,12 @@
-const { queryContext, getDbForRequest } = require('../config/aggregatorDbManager');
+const db = require('../config/db');
+const appMode = require('../config/appMode');
 
 async function getGroups(req, res) {
   try {
-    const rowsRes = await queryContext(req, 'SELECT * FROM pol_groups');
+    const rowsRes = await db.query('SELECT * FROM pol_groups');
     const groups = [];
     for (const g of rowsRes.rows) {
-      const machinesRes = await queryContext(req, 'SELECT machine FROM machine_groups WHERE group_id=$1', [g.id]);
+      const machinesRes = await db.query('SELECT machine FROM machine_groups WHERE group_id=$1', [g.id]);
       const machines = machinesRes.rows.map(r => r.machine);
       groups.push({
         id: g.id, 
@@ -24,10 +25,11 @@ async function getGroups(req, res) {
 
 async function createGroup(req, res) {
   try {
+    if (appMode.isAggregator()) return res.status(403).json({ error: 'Policies are managed centrally. This instance is read-only.' });
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
     const id = 'grp_' + Date.now() + '_' + Math.random().toString(36).substr(2,5);
-    await queryContext(req, `INSERT INTO pol_groups (id, name, updated_at) VALUES ($1, $2, EXTRACT(EPOCH FROM NOW())::INTEGER)`, [id, name]);
+    await db.query(`INSERT INTO pol_groups (id, name, updated_at) VALUES ($1, $2, EXTRACT(EPOCH FROM NOW())::INTEGER)`, [id, name]);
     res.json({ id, name });
   } catch (error) {
     console.error('[Groups] Failed to create group:', error);
@@ -37,8 +39,9 @@ async function createGroup(req, res) {
 
 async function deleteGroup(req, res) {
   try {
-    await queryContext(req, 'DELETE FROM pol_groups WHERE id=$1', [req.params.id]);
-    await queryContext(req, 'DELETE FROM machine_groups WHERE group_id=$1', [req.params.id]);
+    if (appMode.isAggregator()) return res.status(403).json({ error: 'Policies are managed centrally. This instance is read-only.' });
+    await db.query('DELETE FROM pol_groups WHERE id=$1', [req.params.id]);
+    await db.query('DELETE FROM machine_groups WHERE group_id=$1', [req.params.id]);
     res.json({ ok: true });
   } catch (error) {
     console.error('[Groups] Failed to delete group:', error);
@@ -48,8 +51,9 @@ async function deleteGroup(req, res) {
 
 async function updateGroupPolicy(req, res) {
   try {
+    if (appMode.isAggregator()) return res.status(403).json({ error: 'Policies are managed centrally. This instance is read-only.' });
     const { policy } = req.body;
-    await queryContext(req, `
+    await db.query(`
       UPDATE pol_groups SET policy_json=$1, updated_at=EXTRACT(EPOCH FROM NOW())::INTEGER WHERE id=$2
     `, [JSON.stringify(policy || {}), req.params.id]);
     res.json({ ok: true });
@@ -61,10 +65,11 @@ async function updateGroupPolicy(req, res) {
 
 async function updateGroupMachines(req, res) {
   try {
+    if (appMode.isAggregator()) return res.status(403).json({ error: 'Policies are managed centrally. This instance is read-only.' });
     const groupId = req.params.id;
     const machines = req.body.machines || [];
     
-    const client = await getDbForRequest(req).connect();
+    const client = await db.connect();
     try {
       await client.query('BEGIN');
       for (const m of machines) {
@@ -78,7 +83,7 @@ async function updateGroupMachines(req, res) {
       client.release();
     }
     
-    await queryContext(req, `UPDATE pol_groups SET updated_at=EXTRACT(EPOCH FROM NOW())::INTEGER WHERE id=$1`, [groupId]);
+    await db.query(`UPDATE pol_groups SET updated_at=EXTRACT(EPOCH FROM NOW())::INTEGER WHERE id=$1`, [groupId]);
     
     res.json({ success: true });
   } catch (error) {
@@ -89,11 +94,12 @@ async function updateGroupMachines(req, res) {
 
 async function removeMachineFromGroup(req, res) {
   try {
+    if (appMode.isAggregator()) return res.status(403).json({ error: 'Policies are managed centrally. This instance is read-only.' });
     const groupId = req.params.id;
     const machineId = req.params.machine;
     
-    await queryContext(req, 'DELETE FROM machine_groups WHERE group_id=$1 AND machine=$2', [groupId, machineId]);
-    await queryContext(req, `UPDATE pol_groups SET updated_at=EXTRACT(EPOCH FROM NOW())::INTEGER WHERE id=$1`, [groupId]);
+    await db.query('DELETE FROM machine_groups WHERE group_id=$1 AND machine=$2', [groupId, machineId]);
+    await db.query(`UPDATE pol_groups SET updated_at=EXTRACT(EPOCH FROM NOW())::INTEGER WHERE id=$1`, [groupId]);
     
     res.json({ success: true });
   } catch (error) {

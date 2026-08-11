@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useInstance } from '../context/InstanceContext';
 
 const CAT_NAMES = [
   "Process Monitoring", "Registry Run Keys", "Startup Folder", "Service Creation", "Scheduled Tasks",
@@ -13,6 +14,9 @@ const DEFAULT_MODES = [3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2];
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function Policy() {
+  const { isAggregator } = useInstance();
+  const readOnly = isAggregator();
+
   const [machines, setMachines] = useState([]);
   const [groups, setGroups] = useState([]);
 
@@ -310,6 +314,7 @@ export default function Policy() {
                       </td>
                       <td style={{ padding: '10px 20px', verticalAlign: 'middle', textAlign: 'right' }}>
                         <select
+                          disabled={readOnly}
                           value={val}
                           onChange={(e) => {
                             const newModes = [...modes];
@@ -361,6 +366,7 @@ export default function Policy() {
                               type="text"
                               value={ohStart}
                               className="input-field no-focus-outline"
+                              disabled={readOnly}
                               onChange={(e) => {
                                 let val = e.target.value.replace(/\D/g, '');
                                 if (val !== '') {
@@ -384,6 +390,7 @@ export default function Policy() {
                               type="text"
                               value={ohEnd}
                               className="input-field no-focus-outline"
+                              disabled={readOnly}
                               onChange={(e) => {
                                 let val = e.target.value.replace(/\D/g, '');
                                 if (val !== '') {
@@ -409,6 +416,7 @@ export default function Policy() {
                               <button
                                 key={i}
                                 onClick={() => {
+                                  if (readOnly) return;
                                   let newDays = ohDays;
                                   if (!chk) newDays |= (1 << i);
                                   else newDays &= ~(1 << i);
@@ -470,6 +478,7 @@ export default function Policy() {
                               type="number"
                               value={flThreshold}
                               className="input-field no-focus-outline"
+                              disabled={readOnly}
                               onChange={(e) => updatePolicyField('failedLogonThreshold', parseInt(e.target.value, 10))}
                               style={{ width: '60px', background: 'transparent', border: 'none', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '15px', outline: 'none', fontWeight: 600, padding: 0 }}
                             />
@@ -484,6 +493,7 @@ export default function Policy() {
                               type="number"
                               value={flWindow}
                               className="input-field no-focus-outline"
+                              disabled={readOnly}
                               onChange={(e) => updatePolicyField('failedLogonWindowMins', parseInt(e.target.value, 10))}
                               style={{ width: '60px', background: 'transparent', border: 'none', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '15px', outline: 'none', fontWeight: 600, padding: 0 }}
                             />
@@ -494,7 +504,7 @@ export default function Policy() {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontFamily: 'var(--mono)' }}>Learning Mode</label>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', height: '42px' }}>
-                          <input type="checkbox" checked={learning} onChange={(e) => updatePolicyField('learningMode', e.target.checked)} />
+                          <input type="checkbox" disabled={readOnly} checked={learning} onChange={(e) => updatePolicyField('learningMode', e.target.checked)} />
                           <span style={{ fontSize: '13px', color: 'var(--text)' }}>Enable (Alerts only, no auto-block)</span>
                         </label>
                       </div>
@@ -508,7 +518,7 @@ export default function Policy() {
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
-          {!editingGroupId && selectedMachine && machinePolicyData?.policy_source === 'machine' && (
+          {!readOnly && !editingGroupId && selectedMachine && machinePolicyData?.policy_source === 'machine' && (
             <button
               onClick={handleClearOverride}
               style={{
@@ -526,8 +536,9 @@ export default function Policy() {
               Clear Override
             </button>
           )}
-          <button
-            onClick={handleSavePolicy}
+          {!readOnly && (
+            <button
+              onClick={handleSavePolicy}
             disabled={!hasChanges}
             style={{
               background: editingGroupId ? '#a78bfa' : 'var(--accent)',
@@ -545,6 +556,7 @@ export default function Policy() {
           >
             {editingGroupId ? 'Save Group Policy' : 'Save Machine Policy'}
           </button>
+          )}
         </div>
       </div>
     );
@@ -559,6 +571,11 @@ export default function Policy() {
           <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '6px 0 0', fontFamily: 'var(--mono)' }}>Configure global and machine-specific security policies, rules, and exclusions.</p>
         </div>
       </div>
+      {readOnly && (
+        <div style={{ background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: '8px', padding: '12px 16px', marginBottom: '24px', fontSize: '13px', color: '#ef4444', fontWeight: 600 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: '16px', verticalAlign: 'middle', marginRight: '6px' }}>lock</span> Policies are managed centrally. This Branch Aggregator is read-only.
+        </div>
+      )}
 
       {/* Machine/Group Selection Bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px', flexWrap: 'wrap', background: 'var(--surface)', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
@@ -639,7 +656,7 @@ export default function Policy() {
       <div style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px' }}>
           <span style={{ fontFamily: 'var(--mono)', fontSize: '10px', color: 'var(--muted)', letterSpacing: '1px', fontWeight: 700 }}>GROUPS</span>
-          <button onClick={createGroup} style={{ background: 'var(--accent)', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(37,99,235,0.2)', transition: 'all 0.2s' }}>+ New Group</button>
+          {!readOnly && <button onClick={createGroup} style={{ background: 'var(--accent)', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(37,99,235,0.2)', transition: 'all 0.2s' }}>+ New Group</button>}
         </div>
 
         {groups.length === 0 ? (
@@ -666,8 +683,8 @@ export default function Policy() {
                     <span style={{ fontSize: '10px', color: 'var(--muted)', fontWeight: 600 }}>no policy</span>
                   )}
                   <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-                    <button onClick={() => startEditGroup(g)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>Edit Policy</button>
-                    <button onClick={() => deleteGroup(g.id)} style={{ background: 'rgba(239,68,68,.05)', border: '1px solid rgba(239,68,68,.3)', color: '#f87171', padding: '4px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>✕ Delete</button>
+                    <button onClick={() => startEditGroup(g)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>{readOnly ? 'View Policy' : 'Edit Policy'}</button>
+                    {!readOnly && <button onClick={() => deleteGroup(g.id)} style={{ background: 'rgba(239,68,68,.05)', border: '1px solid rgba(239,68,68,.3)', color: '#f87171', padding: '4px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>✕ Delete</button>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
@@ -677,10 +694,11 @@ export default function Policy() {
                     return (
                       <span key={m} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(59,130,246,.08)', border: '1px solid rgba(59,130,246,.25)', color: '#60a5fa', fontFamily: 'var(--mono)', fontSize: '11px', padding: '3px 10px', borderRadius: '6px', fontWeight: 600 }}>
                         {mName}
-                        <button onClick={() => assignMachineToGroup(m, '')} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', padding: 0, fontSize: '12px', lineHeight: 1 }}>✕</button>
+                        {!readOnly && <button onClick={() => assignMachineToGroup(m, '')} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', padding: 0, fontSize: '12px', lineHeight: 1 }}>✕</button>}
                       </span>
                     );
                   })}
+                  {readOnly ? null : (
                   <select onChange={(e) => { if (e.target.value) assignMachineToGroup(e.target.value, g.id); e.target.value = ''; }} style={{ background: 'var(--surface2)', border: '1px dashed var(--border)', color: 'var(--muted)', fontFamily: 'var(--sans)', fontSize: '11px', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer', outline: 'none' }}>
                     <option value="">+ Add machine</option>
                     {machines.map(m => {
@@ -692,6 +710,7 @@ export default function Policy() {
                       return null;
                     })}
                   </select>
+                  )}
                 </div>
               </div>
             );
