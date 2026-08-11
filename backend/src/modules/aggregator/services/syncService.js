@@ -166,6 +166,7 @@ async function syncQueueToCentral() {
               VALUES ($1, $2, $3)
               ON CONFLICT(machine) DO UPDATE SET
                 policy_json = EXCLUDED.policy_json,
+                applied_at = CASE WHEN EXCLUDED.updated_at > policies.updated_at THEN NULL ELSE policies.applied_at END,
                 updated_at = EXCLUDED.updated_at
             `, [p.machine, p.policy_json, p.updated_at]);
           }
