@@ -71,7 +71,7 @@ async function syncQueueToCentral() {
       const agentCountRes = await client.query('SELECT COUNT(*) FROM machines');
       const totalAgents = parseInt(agentCountRes.rows[0].count, 10);
 
-      const policiesRes = await client.query('SELECT machine, current_json, applied_at FROM policies WHERE current_json IS NOT NULL AND current_json::text != \'{}\'');
+      const policiesRes = await client.query('SELECT machine, current_json, applied_at FROM policies WHERE applied_at IS NOT NULL');
       const policies = policiesRes.rows;
 
       console.log(`[SyncService] Found ${events.length} events, ${fw_events.length} fw_events, ${policies.length} policies to push.`);

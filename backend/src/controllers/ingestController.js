@@ -310,7 +310,7 @@ const batchIngest = async (req, res) => {
     });
 
     // 8. Fetch global policies and groups to send back to aggregator
-    const globalPoliciesRes = await db.query('SELECT machine, policy_json, updated_at FROM policies WHERE policy_json IS NOT NULL AND policy_json::text != \'{}\'');
+    const globalPoliciesRes = await db.query('SELECT machine, policy_json, updated_at FROM policies WHERE policy_json IS NOT NULL');
     const polGroupsRes = await db.query('SELECT id, name, policy_json, updated_at FROM pol_groups');
     const machineGroupsRes = await db.query('SELECT machine, group_id FROM machine_groups');
 
