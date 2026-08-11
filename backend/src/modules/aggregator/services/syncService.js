@@ -125,7 +125,7 @@ async function syncQueueToCentral() {
           'Content-Type': 'application/octet-stream'
         },
         httpsAgent,
-        timeout: 8000 // IMPORTANT: Prevent infinite hanging if IP is wrong
+        timeout: 60000 // IMPORTANT: Prevent infinite hanging if IP is wrong
       });
       console.log(`[SyncService] Success! Got response status ${res.status}.`);
 
