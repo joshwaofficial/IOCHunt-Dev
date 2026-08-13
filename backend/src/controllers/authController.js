@@ -37,10 +37,12 @@ function validatePasswordStrength(password) {
 
 async function login(req, res) {
   try {
-    const { username, password, workspace_id } = req.body;
+    let { username, password, workspace_id } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password are required' });
     }
+    
+    password = password.trim();
 
     if (appMode.isCentralServer()) {
       if (!workspace_id) {
@@ -226,7 +228,7 @@ async function login(req, res) {
         is_aggregator_admin: Boolean(user.aggregator_name || user.role === 'AGGREGATOR_ADMIN'),
         force_password_change: isForcedChange,
         instance_mode: user.aggregator_name ? 'aggregator' : 'central_server',
-        deployment_mode: getConfig().deploymentMode
+        deployment_mode: appMode.getConfig().deploymentMode
       }
     });
   } catch (error) {
@@ -237,11 +239,15 @@ async function login(req, res) {
 
 async function changePassword(req, res) {
   try {
-    const { current_password, new_password, confirm_password, new_username } = req.body;
+    let { current_password, new_password, confirm_password, new_username } = req.body;
 
     if (!current_password || !new_password || !confirm_password) {
       return res.status(400).json({ error: 'All password fields are required' });
     }
+
+    current_password = current_password.trim();
+    new_password = new_password.trim();
+    confirm_password = confirm_password.trim();
 
     if (new_password !== confirm_password) {
       return res.status(400).json({ error: 'New password and confirm password do not match' });
@@ -358,8 +364,8 @@ async function mfaVerify(req, res) {
         username: user.username,
         role: user.role,
         force_password_change: isForcedChange,
-        instance_mode: getConfig().mode,
-        deployment_mode: getConfig().deploymentMode
+        instance_mode: appMode.getConfig().mode,
+        deployment_mode: appMode.getConfig().deploymentMode
       }
     });
   } catch (error) {
@@ -396,9 +402,9 @@ async function me(req, res) {
         display_name: req.session.display_name || null,
         is_aggregator_admin: Boolean(req.session.aggregator_name || req.session.role === 'AGGREGATOR_ADMIN'),
         force_password_change: isForcedChange,
-        instance_mode: getConfig().mode,
-        deployment_mode: getConfig().deploymentMode,
-        company_name: getConfig().companyName
+        instance_mode: appMode.getConfig().mode,
+        deployment_mode: appMode.getConfig().deploymentMode,
+        company_name: appMode.getConfig().companyName
       }
     });
   } catch (error) {
