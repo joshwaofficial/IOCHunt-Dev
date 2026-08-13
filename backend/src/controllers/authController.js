@@ -6,6 +6,7 @@ const User = require('../models/User');
 const { hashPassword, verifyPassword } = require('../utils/cryptoHelper');
 const crypto = require('crypto');
 const db = require('../config/db');
+const tenantDbManager = require('../config/tenantDbManager');
 const { verifyTOTP } = require('../utils/totpHelper');
 const { getConfig } = require('../config/appMode');
 
@@ -36,11 +37,123 @@ function validatePasswordStrength(password) {
 
 async function login(req, res) {
   try {
-    const { username, password } = req.body;
+    const { username, password, workspace_id } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password are required' });
     }
 
+    if (appMode.isCentralServer()) {
+      if (!workspace_id) {
+        return res.status(400).json({ error: 'Workspace ID is required for SaaS login' });
+      }
+
+      let tenantId = null;
+      let tenantPool = null;
+      let companyName = '';
+
+      // Look up the tenant in the control plane
+      const tenantRes = await db.query(
+        'SELECT tenant_id, company_name, status FROM tenants WHERE tenant_id = $1',
+        [workspace_id.trim().toLowerCase()]
+      );
+
+      if (tenantRes.rows.length === 0) {
+        return res.status(401).json({ error: 'Invalid workspace ID' });
+      }
+
+      const tenant = tenantRes.rows[0];
+      if (tenant.status !== 'active') {
+        return res.status(403).json({ error: 'This workspace has been deactivated' });
+      }
+
+      tenantId = tenant.tenant_id;
+      companyName = tenant.company_name;
+
+      // Get a connection to the tenant's database
+      try {
+        tenantPool = await tenantDbManager.getTenantPool(tenantId);
+      } catch (err) {
+        console.error(`[Auth] Failed to connect to tenant DB for ${tenantId}:`, err.message);
+        return res.status(500).json({ error: 'Unable to connect to workspace database' });
+      }
+
+      // Look up the user in the TENANT's database
+      const userRes = await tenantPool.query(
+        'SELECT * FROM users WHERE LOWER(username) = LOWER($1)',
+        [username.trim()]
+      );
+
+      if (userRes.rows.length === 0) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      const user = userRes.rows[0];
+      const isValid = verifyPassword(password, user.password_hash, user.salt);
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+
+      // MFA check
+      if (user.mfa_enabled) {
+        const tempToken = crypto.randomBytes(32).toString('hex');
+        const expiresAt = Math.floor(Date.now() / 1000) + 300;
+
+        await db.query(
+          'INSERT INTO mfa_pending (token, user_id, username, role, tenant_id, expires_at) VALUES ($1, $2, $3, $4, $5, $6)',
+          [tempToken, user.id, user.username, user.role, tenantId, expiresAt]
+        );
+
+        return res.status(200).json({
+          message: 'MFA required',
+          mfa_required: true,
+          tempToken: tempToken
+        });
+      }
+
+      // Create session in control plane with tenant_id
+      const token = crypto.randomBytes(32).toString('hex');
+      const expiresAt = Math.floor(Date.now() / 1000) + 7 * 86400;
+      const isForcedChange = user.force_password_change === 1 || user.force_password_change === true;
+
+      await db.query(
+        `INSERT INTO sessions (token, user_id, username, role, tenant_id, force_password_change, aggregator_name, display_name, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [token, user.id, user.username, user.role, tenantId, isForcedChange ? 1 : 0, user.aggregator_name || null, user.display_name || null, expiresAt]
+      );
+
+      // Update last login in tenant DB
+      const now = Math.floor(Date.now() / 1000);
+      await tenantPool.query('UPDATE users SET last_login = $1 WHERE id = $2', [now, user.id]);
+
+      // Set secure session cookie
+      res.cookie('iochunt_session', token, {
+        httpOnly: true,
+        secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 7 * 24 * 3600 * 1000
+      });
+
+      return res.status(200).json({
+        message: 'Login successful',
+        token: token,
+        user: {
+          id: user.id,
+          username: user.username,
+          role: user.role,
+          aggregator_name: user.aggregator_name || null,
+          display_name: user.display_name || null,
+          force_password_change: isForcedChange,
+          tenant_id: tenantId,
+          company_name: companyName,
+          instance_mode: 'central_server',
+          deployment_mode: 'cloud'
+        }
+      });
+    }
+
+    // ── Legacy Single-Tenant Login (no workspace_id) ────────
+    // Falls back to the original login flow for backwards compatibility
     const user = await User.findByUsername(username);
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -57,8 +170,8 @@ async function login(req, res) {
       const expiresAt = Math.floor(Date.now() / 1000) + 300; // 5 mins
       
       await db.query(
-        'INSERT INTO mfa_pending (token, user_id, username, role, expires_at) VALUES ($1, $2, $3, $4, $5)',
-        [tempToken, user.id, user.username, user.role, expiresAt]
+        'INSERT INTO mfa_pending (token, user_id, username, role, tenant_id, expires_at) VALUES ($1, $2, $3, $4, $5, $6)',
+        [tempToken, user.id, user.username, user.role, '', expiresAt]
       );
       
       return res.status(200).json({ 

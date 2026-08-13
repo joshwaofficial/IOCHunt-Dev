@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 export default function Login() {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
+  const [workspaceId, setWorkspaceId] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -24,7 +25,7 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const result = await login(username, password);
+      const result = await login(username, password, serverMode === 'central_server' ? workspaceId : undefined);
 
       if (result.mfaRequired) {
         navigate('/mfa-challenge', {
@@ -386,6 +387,21 @@ export default function Login() {
 
         <form onSubmit={handleSubmit}>
 
+          {serverMode === 'central_server' && (
+            <div className="field">
+              <label>WORKSPACE ID (Optional for Super Admin)</label>
+              <div className="input-wrap">
+                <span className="input-icon material-symbols-outlined">domain</span>
+                <input
+                  id="login-workspace"
+                  type="text"
+                  placeholder="Workspace ID (e.g., mycompany)"
+                  value={workspaceId}
+                  onChange={(e) => setWorkspaceId(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
 
           <div className="field">
             <label>USERNAME</label>

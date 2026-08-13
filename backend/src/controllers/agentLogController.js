@@ -4,7 +4,7 @@
 // Accepts logs directly from endpoint agents (Scenario 2 or local branch)
 // ════════════════════════════════════════════════════════════════
 
-const db = require('../config/db');
+
 const sseBroadcaster = require('../services/sseBroadcaster');
 const { detectNoise, classifySeverity, parseCategory, normalizeToUTC } = require('../utils/ingestHelpers');
 const { isAggregator } = require('../config/appMode');
@@ -39,7 +39,7 @@ async function ingestAgentLogs(req, res) {
 
     const uniqueRows = [];
     for (const r of rows) {
-      const dupRes = await db.query(
+      const dupRes = await req.queryTenant(
         'SELECT 1 FROM events WHERE machine=$1 AND ts=$2 AND tag=$3 AND message=$4 LIMIT 1',
         [r.machine, r.ts, r.tag, r.message]
       );
@@ -49,7 +49,8 @@ async function ingestAgentLogs(req, res) {
     }
 
     if (uniqueRows.length) {
-      const client = await db.connect();
+      const tenantPool = await req.getTenantPool();
+      const client = await tenantPool.connect();
       try {
         await client.query('BEGIN');
         for (const e of uniqueRows) {

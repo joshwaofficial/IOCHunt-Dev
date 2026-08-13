@@ -1,40 +1,5 @@
-const { getAggregatorPool } = require('../config/aggregatorDbManager');
-const db = require('../config/db');
 const Event = require('../models/Event');
 const { parseAdEvent, parseMaliciousEvent, parseUsbEvent, parseUserEvent } = require('../utils/eventParsers');
-
-function getEffectiveAggregator(req) {
-  if (req.session?.role === 'ADMIN') {
-    const q = req.query.aggregator || req.query.branch;
-    if (!q || q === 'All Aggregators' || q === 'All Branches' || q === 'all') {
-      return '';
-    }
-    return q;
-  }
-  return req.session?.aggregator_name || '';
-}
-
-function getDb(aggregator) {
-  if (aggregator && aggregator !== 'All Aggregators' && aggregator !== 'All Branches' && aggregator !== 'default' && aggregator !== 'direct') {
-    try {
-      return getAggregatorPool(aggregator);
-    } catch(e) {
-      return db.pool;
-    }
-  }
-  return db.pool;
-}
-
-async function safeQuery(pool, text, params = []) {
-  try {
-    return await pool.query(text, params);
-  } catch (err) {
-    if (err.code === '3D000' && pool !== db.pool) {
-      return await db.pool.query(text, params);
-    }
-    throw err;
-  }
-}
 
 const getEvents = async (req, res) => {
   try {
@@ -124,11 +89,11 @@ const getEvents = async (req, res) => {
     }
     
     const whereString = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
-    const pool = getDb(aggregator);
+
     
     // Get total count
     const countQuery = `SELECT COUNT(*) FROM events ${whereString}`;
-    const countRes = await safeQuery(pool, countQuery, params);
+    const countRes = await req.queryTenant(countQuery, params);
     const total = parseInt(countRes.rows[0].count, 10);
     
     // Get paginated events
@@ -139,7 +104,7 @@ const getEvents = async (req, res) => {
     
     const query = `SELECT * FROM events ${whereString} ORDER BY ts DESC LIMIT $${limitIdx} OFFSET $${offsetIdx}`;
     
-    const result = await safeQuery(pool, query, params);
+    const result = await req.queryTenant(query, params);
     res.json({ events: result.rows, total });
   } catch (error) {
     console.error('[Dashboard] getEvents error:', error);
@@ -150,7 +115,7 @@ const getEvents = async (req, res) => {
 const getMachines = async (req, res) => {
   try {
     const aggregator = getEffectiveAggregator(req);
-    const pool = getDb(aggregator);
+
     
     let query = 'SELECT * FROM machines';
     const params = [];
@@ -160,7 +125,7 @@ const getMachines = async (req, res) => {
       params.push(aggregator);
     }
     
-    const result = await safeQuery(pool, query, params);
+    const result = await req.queryTenant(query, params);
     res.json(result.rows);
   } catch (error) {
     console.error('[Dashboard] getMachines error:', error);
@@ -208,9 +173,7 @@ async function buildChains(from, to, machine, aggregator) {
   }
 
   const pool = getDb(aggregator);
-  const eventsRes = await safeQuery(
-    pool,
-    `SELECT e.*, i.id as incident_id, i.assigned_to as incident_assigned_to, i.status as incident_status
+  const eventsRes = await req.queryTenant(`SELECT e.*, i.id as incident_id, i.assigned_to as incident_assigned_to, i.status as incident_status
      FROM events e
      LEFT JOIN incident_events ie ON ie.event_id = e.id
      LEFT JOIN incidents i ON i.id = ie.incident_id
@@ -253,7 +216,7 @@ const getStats = async (req, res) => {
     const hours = Number(req.query.hours || req.query.range || 24);
     const to = nowUTC();
     const from = hoursAgoUTC(hours);
-    const pool = getDb(aggregator);
+
     
     let nw = "WHERE ts>=$1 AND ts<=$2 AND is_noise=false AND message NOT ILIKE '%iochuntwatchdog%' AND tag NOT ILIKE '%iochuntwatchdog%'";
     const bp = [from, to];
@@ -271,19 +234,19 @@ const getStats = async (req, res) => {
       pIdx++;
     }
     
-    const totalRes = await safeQuery(pool, 'SELECT COUNT(*) AS n FROM events ' + nw, bp);
+    const totalRes = await req.queryTenant('SELECT COUNT(*) AS n FROM events ' + nw, bp);
     const total = parseInt(totalRes.rows[0].n, 10);
 
-    const bySevRes = await safeQuery(pool, 'SELECT severity,COUNT(*) AS n FROM events ' + nw + ' GROUP BY severity', bp);
+    const bySevRes = await req.queryTenant('SELECT severity,COUNT(*) AS n FROM events ' + nw + ' GROUP BY severity', bp);
     const bySev = bySevRes.rows;
 
-    const byCatRes = await safeQuery(pool, 'SELECT category,COUNT(*) AS n FROM events ' + nw + ' GROUP BY category ORDER BY n DESC', bp);
+    const byCatRes = await req.queryTenant('SELECT category,COUNT(*) AS n FROM events ' + nw + ' GROUP BY category ORDER BY n DESC', bp);
     const byCat = byCatRes.rows;
 
-    const byMachineRes = await safeQuery(pool, 'SELECT machine,COUNT(*) AS n FROM events ' + nw + ' GROUP BY machine ORDER BY n DESC', bp);
+    const byMachineRes = await req.queryTenant('SELECT machine,COUNT(*) AS n FROM events ' + nw + ' GROUP BY machine ORDER BY n DESC', bp);
     const byMachine = byMachineRes.rows;
 
-    const byMachineSevRes = await safeQuery(pool, "SELECT machine,severity,COUNT(*) AS n FROM events " + nw + " AND severity IN ('critical','high') GROUP BY machine,severity", bp);
+    const byMachineSevRes = await req.queryTenant("SELECT machine,severity,COUNT(*) AS n FROM events " + nw + " AND severity IN ('critical','high') GROUP BY machine,severity", bp);
     const byMachineSev = byMachineSevRes.rows;
 
     let machinesQuery = 'SELECT * FROM machines';
@@ -293,16 +256,16 @@ const getStats = async (req, res) => {
       machinesParams.push(aggregator);
     }
     machinesQuery += ' ORDER BY last_seen DESC';
-    const machinesRes = await safeQuery(pool, machinesQuery, machinesParams);
+    const machinesRes = await req.queryTenant(machinesQuery, machinesParams);
     const machines = machinesRes.rows;
 
-    const hourlyRes = await safeQuery(pool, "SELECT TO_CHAR(ts::timestamp, 'YYYY-MM-DD HH24:00') AS hour,severity,COUNT(*) AS n FROM events " + nw + " GROUP BY hour,severity ORDER BY hour", bp);
+    const hourlyRes = await req.queryTenant("SELECT TO_CHAR(ts::timestamp, 'YYYY-MM-DD HH24:00') AS hour,severity,COUNT(*) AS n FROM events " + nw + " GROUP BY hour,severity ORDER BY hour", bp);
     const hourly = hourlyRes.rows;
 
-    const criticalRes = await safeQuery(pool, "SELECT * FROM events " + nw.replace('WHERE', "WHERE severity = 'critical' AND") + " ORDER BY ts DESC LIMIT 20", bp);
+    const criticalRes = await req.queryTenant("SELECT * FROM events " + nw.replace('WHERE', "WHERE severity = 'critical' AND") + " ORDER BY ts DESC LIMIT 20", bp);
     const critical = criticalRes.rows;
 
-    const criticalStatsRes = await safeQuery(pool, "SELECT COALESCE(category, tag, 'Unknown') as type, COUNT(*) as n FROM events " + nw.replace('WHERE', "WHERE severity = 'critical' AND") + " GROUP BY type", bp);
+    const criticalStatsRes = await req.queryTenant("SELECT COALESCE(category, tag, 'Unknown') as type, COUNT(*) as n FROM events " + nw.replace('WHERE', "WHERE severity = 'critical' AND") + " GROUP BY type", bp);
     const criticalStats = criticalStatsRes.rows;
     const totalCritical = criticalStats.reduce((sum, row) => sum + parseInt(row.n, 10), 0);
 
@@ -551,7 +514,7 @@ const getUserEvents = async (req, res) => {
 const getTopLevelStats = async (req, res) => {
   try {
     const aggregator = getEffectiveAggregator(req);
-    const pool = getDb(aggregator);
+
     
     let condition = '';
     const params = [];
@@ -561,7 +524,7 @@ const getTopLevelStats = async (req, res) => {
       params.push(aggregator);
     }
     
-    const countRes = await safeQuery(pool, `SELECT COUNT(*) FROM events ${condition}`, params);
+    const countRes = await req.queryTenant(`SELECT COUNT(*) FROM events ${condition}`, params);
     
     res.json({ total: parseInt(countRes.rows[0].count, 10) });
   } catch (error) {
@@ -573,7 +536,7 @@ const getTopLevelStats = async (req, res) => {
 const getNetworkTopology = async (req, res) => {
   try {
     const aggregator = getEffectiveAggregator(req);
-    const pool = getDb(aggregator);
+
     const { machine, hours = 24 } = req.query;
     
     let whereClauses = ["last_seen >= NOW() - INTERVAL '1 hour' * $1"];
@@ -589,7 +552,7 @@ const getNetworkTopology = async (req, res) => {
       whereClauses.push(`name = $${params.length}`);
     }
     
-    const mRes = await safeQuery(pool, `SELECT * FROM machines WHERE ${whereClauses.join(' AND ')}`, params);
+    const mRes = await req.queryTenant(`SELECT * FROM machines WHERE ${whereClauses.join(' AND ')}`, params);
     const machines = mRes.rows;
     
     if (machines.length === 0) {

@@ -1,4 +1,4 @@
-const db = require('../config/db');
+
 const cron = require('node-cron');
 const { getSmtpConfig, createTransporter } = require('../utils/emailHelper');
 const { startSchedule, stopSchedule } = require('../utils/emailScheduler');
@@ -26,7 +26,7 @@ exports.updateSmtpConfig = async (req, res) => {
       password = '', from_addr = '', from_name = 'IOC Hunt', enabled = 0
     } = req.body;
 
-    const existingRes = await db.query('SELECT password FROM smtp_config WHERE id=1');
+    const existingRes = await req.queryTenant('SELECT password FROM smtp_config WHERE id=1');
     const existing = existingRes.rows[0];
 
     // If user provided a new password → encrypt it.
@@ -35,7 +35,7 @@ exports.updateSmtpConfig = async (req, res) => {
       ? encryptText(password)
       : (existing ? existing.password : '');
 
-    await db.query(
+    await req.queryTenant(
       `UPDATE smtp_config
        SET host=$1, port=$2, secure=$3, username=$4, password=$5,
            from_addr=$6, from_name=$7, enabled=$8
@@ -73,7 +73,7 @@ exports.testSmtp = async (req, res) => {
 // ── GET /api/smtp/schedules ──────────────────────────────────────────────────
 exports.getSchedules = async (req, res) => {
   try {
-    const rowsRes = await db.query('SELECT * FROM email_schedules ORDER BY id DESC');
+    const rowsRes = await req.queryTenant('SELECT * FROM email_schedules ORDER BY id DESC');
     res.json(rowsRes.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -95,7 +95,7 @@ exports.createSchedule = async (req, res) => {
     if (!cron.validate(cron_expr))
       return res.status(400).json({ error: 'Invalid cron expression' });
 
-    const infoRes = await db.query(
+    const infoRes = await req.queryTenant(
       `INSERT INTO email_schedules
        (name,recipients,cron_expr,duration,aggregator,machine,severity,category,include_fw,enabled)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
@@ -103,7 +103,7 @@ exports.createSchedule = async (req, res) => {
        category, include_fw ? 1 : 0, enabled ? 1 : 0]
     );
 
-    const sRes = await db.query(
+    const sRes = await req.queryTenant(
       'SELECT * FROM email_schedules WHERE id=$1', [infoRes.rows[0].id]
     );
     const s = sRes.rows[0];
@@ -123,7 +123,7 @@ exports.updateSchedule = async (req, res) => {
       severity, category, include_fw, enabled
     } = req.body;
 
-    const existingRes = await db.query(
+    const existingRes = await req.queryTenant(
       'SELECT * FROM email_schedules WHERE id=$1', [req.params.id]
     );
     const existing = existingRes.rows[0];
@@ -145,7 +145,7 @@ exports.updateSchedule = async (req, res) => {
       enabled: enabled ?? existing.enabled,
     };
 
-    await db.query(
+    await req.queryTenant(
       `UPDATE email_schedules
        SET name=$1,recipients=$2,cron_expr=$3,duration=$4,
            aggregator=$5,machine=$6,severity=$7,category=$8,include_fw=$9,enabled=$10
@@ -155,7 +155,7 @@ exports.updateSchedule = async (req, res) => {
        updated.include_fw ? 1 : 0, updated.enabled ? 1 : 0, req.params.id]
     );
 
-    const sRes = await db.query(
+    const sRes = await req.queryTenant(
       'SELECT * FROM email_schedules WHERE id=$1', [req.params.id]
     );
     const s = sRes.rows[0];
@@ -174,7 +174,7 @@ exports.updateSchedule = async (req, res) => {
 exports.deleteSchedule = async (req, res) => {
   try {
     stopSchedule(Number(req.params.id));
-    await db.query('DELETE FROM email_schedules WHERE id=$1', [req.params.id]);
+    await req.queryTenant('DELETE FROM email_schedules WHERE id=$1', [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -185,7 +185,7 @@ exports.deleteSchedule = async (req, res) => {
 // Manually triggers a schedule to send a report immediately
 exports.runSchedule = async (req, res) => {
   try {
-    const sRes = await db.query(
+    const sRes = await req.queryTenant(
       'SELECT * FROM email_schedules WHERE id=$1', [req.params.id]
     );
     const s = sRes.rows[0];
@@ -193,13 +193,13 @@ exports.runSchedule = async (req, res) => {
 
     try {
       await generateAndSendReport(s);
-      await db.query(
+      await req.queryTenant(
         'UPDATE email_schedules SET last_run=$1,last_status=$2 WHERE id=$3',
         [Math.floor(Date.now() / 1000), 'OK', s.id]
       );
       res.json({ ok: true });
     } catch (e) {
-      await db.query(
+      await req.queryTenant(
         'UPDATE email_schedules SET last_run=$1,last_status=$2 WHERE id=$3',
         [Math.floor(Date.now() / 1000), 'ERROR: ' + e.message.slice(0, 120), s.id]
       );

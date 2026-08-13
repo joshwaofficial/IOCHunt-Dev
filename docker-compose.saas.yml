@@ -1,0 +1,158 @@
+# ════════════════════════════════════════════════════════════════
+# IOC Hunt — SaaS Multi-Tenant Platform Docker Compose
+# ════════════════════════════════════════════════════════════════
+# Architecture:
+#   1. db:    PostgreSQL 16 (Control Plane + Tenant Databases)
+#   2. redis: Redis server (Ingestion pipeline streams)
+#   3. app:   Unified Node.js Backend (Central Server)
+#   4. nginx: TLS Reverse Proxy & SSL Termination
+#
+# Usage:
+#   docker compose -f docker-compose.saas.yml up -d
+# ════════════════════════════════════════════════════════════════
+
+services:
+
+  # ── PostgreSQL 16 Control Plane & Tenant Databases ────────────
+  db:
+    image: postgres:16-alpine
+    container_name: iochunt-saas-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iochunt_password}
+      POSTGRES_DB: ${POSTGRES_DB:-iochunt_control}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - iochunt-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ── Redis (Ingestion Stream Pipeline) ─────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: iochunt-saas-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - iochunt-net
+
+  # ── IOC Hunt Unified Application ──────────────────────────────
+  app:
+    image: iochunt-app:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: iochunt-saas-app
+    environment:
+      NODE_ENV: production
+      PORT: 4001
+      INSTANCE_MODE: central_server
+      # Control Plane DB Configuration
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-iochunt_password}@db:5432/${POSTGRES_DB:-iochunt_control}
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # App Config
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855}
+      FRONTEND_URL: ${FRONTEND_URL:-*}
+      DISPLAY_TZ: ${DISPLAY_TZ:-UTC}
+      APP_VERSION: ${APP_VERSION:-2.0.0}
+    ports:
+      - "${APP_PORT:-4001}:4001"
+      # Expose a block of ports for multi-tenant syslog (e.g., 5500-5600)
+      - "5500-5600:5500-5600/udp"
+    volumes:
+      - ./nginx/ssl:/app/nginx/ssl
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - iochunt-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ── Super Admin Control Plane ─────────────────────────────────
+  super_admin:
+    image: iochunt-superadmin:latest
+    build:
+      context: .
+      dockerfile: super-admin/Dockerfile
+    container_name: iochunt-saas-superadmin
+    environment:
+      NODE_ENV: production
+      SUPER_ADMIN_PORT: 4002
+      SUPER_ADMIN_DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-iochunt_password}@db:5432/${POSTGRES_DB:-iochunt_control}
+    ports:
+      - "${SUPER_ADMIN_PORT:-8083}:4002"
+    volumes:
+      - ./nginx/ssl:/app/nginx/ssl
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - iochunt-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+  # ── Nginx TLS Reverse Proxy ───────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: iochunt-saas-nginx
+    ports:
+      - "${NGINX_HTTP_PORT:-8081}:80"
+      - "${NGINX_HTTPS_PORT:-8082}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d/saas.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      app:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - iochunt-net
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  iochunt-net:
+    driver: bridge

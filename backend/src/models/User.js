@@ -6,29 +6,32 @@ const db = require('../config/db');
 const crypto = require('crypto');
 
 class User {
-  static async findByUsername(username) {
+  static async findByUsername(username, queryFn) {
     if (!username) return null;
-    const res = await db.query('SELECT * FROM users WHERE LOWER(username) = LOWER($1)', [username.trim()]);
+    const q = queryFn || db.query.bind(db);
+    const res = await q('SELECT * FROM users WHERE LOWER(username) = LOWER($1)', [username.trim()]);
     return res.rows[0];
   }
 
-  static async findById(id) {
-    const res = await db.query('SELECT * FROM users WHERE id = $1', [id]);
+  static async findById(id, queryFn) {
+    const q = queryFn || db.query.bind(db);
+    const res = await q('SELECT * FROM users WHERE id = $1', [id]);
     return res.rows[0];
   }
 
-  static async updateLastLogin(id) {
+  static async updateLastLogin(id, queryFn) {
     const now = Math.floor(Date.now() / 1000);
-    await db.query('UPDATE users SET last_login = $1 WHERE id = $2', [now, id]);
+    const q = queryFn || db.query.bind(db);
+    await q('UPDATE users SET last_login = $1 WHERE id = $2', [now, id]);
   }
 
-  static async createSession(userId, username, role) {
+  static async createSession(userId, username, role, tenantId = 'default') {
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = Math.floor(Date.now() / 1000) + 7 * 86400; // 7 days
     
     await db.query(
-      'INSERT INTO sessions (token, user_id, username, role, expires_at) VALUES ($1, $2, $3, $4, $5)',
-      [token, userId, username, role, expiresAt]
+      'INSERT INTO sessions (token, user_id, username, role, tenant_id, expires_at) VALUES ($1, $2, $3, $4, $5, $6)',
+      [token, userId, username, role, tenantId, expiresAt]
     );
     return token;
   }
@@ -37,8 +40,9 @@ class User {
     await db.query('DELETE FROM sessions WHERE token = $1', [token]);
   }
 
-  static async getAllUsers() {
-    const res = await db.query(`
+  static async getAllUsers(queryFn) {
+    const q = queryFn || db.query.bind(db);
+    const res = await q(`
       SELECT id, username, email, role, force_password_change, mfa_enabled, created_at, last_login 
       FROM users 
       ORDER BY id ASC
@@ -46,9 +50,10 @@ class User {
     return res.rows;
   }
 
-  static async createUser({ username, email, passwordHash, salt, role, forcePasswordChange = 1 }) {
+  static async createUser({ username, email, passwordHash, salt, role, forcePasswordChange = 1 }, queryFn) {
     const now = Math.floor(Date.now() / 1000);
-    const res = await db.query(
+    const q = queryFn || db.query.bind(db);
+    const res = await q(
       'INSERT INTO users (username, email, password_hash, salt, role, force_password_change, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
       [username.trim().toLowerCase(), email || '', passwordHash, salt, role || 'ADMIN', forcePasswordChange ? 1 : 0, now]
     );
@@ -73,26 +78,29 @@ class User {
     await db.query('UPDATE users SET force_password_change = $1 WHERE id = $2', [value ? 1 : 0, id]);
   }
 
-  static async updateUser(id, { username, email, role, passwordHash, salt, forcePasswordChange }) {
+  static async updateUser(id, { username, email, role, passwordHash, salt, forcePasswordChange }, queryFn) {
+    const q = queryFn || db.query.bind(db);
     if (passwordHash && salt) {
-      await db.query(
+      await q(
         'UPDATE users SET username = $1, email = $2, role = $3, password_hash = $4, salt = $5, force_password_change = $6 WHERE id = $7',
         [username.trim().toLowerCase(), email || '', role, passwordHash, salt, forcePasswordChange !== undefined ? (forcePasswordChange ? 1 : 0) : 0, id]
       );
     } else {
-      await db.query(
+      await q(
         'UPDATE users SET username = $1, email = $2, role = $3 WHERE id = $4',
         [username.trim().toLowerCase(), email || '', role, id]
       );
     }
   }
 
-  static async deleteUser(id) {
-    await db.query('DELETE FROM users WHERE id = $1', [id]);
+  static async deleteUser(id, queryFn) {
+    const q = queryFn || db.query.bind(db);
+    await q('DELETE FROM users WHERE id = $1', [id]);
   }
 
-  static async disableMfa(id) {
-    await db.query('UPDATE users SET mfa_enabled = 0, mfa_secret = NULL WHERE id = $1', [id]);
+  static async disableMfa(id, queryFn) {
+    const q = queryFn || db.query.bind(db);
+    await q('UPDATE users SET mfa_enabled = 0, mfa_secret = NULL WHERE id = $1', [id]);
   }
 }
 

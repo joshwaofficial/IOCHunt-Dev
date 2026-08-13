@@ -1,34 +1,54 @@
 // ════════════════════════════════════════════════════════════════
-// IOC Hunt — Database Context & Query Router Middleware
+// IOC Hunt — Database Context & Query Router Middleware (SaaS)
 // ════════════════════════════════════════════════════════════════
-// Attaches database context and aggregator query helpers to requests
+// Attaches two query helpers to every request:
+//   req.queryControlPlane(sql, params) → Control plane DB (sessions, tenants, config)
+//   req.queryTenant(sql, params)       → Tenant-specific DB (events, machines, incidents)
+//
+// The tenant is resolved from req.tenantId which is set by authMiddleware
+// from the authenticated session. NEVER from a client-supplied header.
 // ════════════════════════════════════════════════════════════════
 
 const db = require('../config/db');
-const aggregatorDbManager = require('../config/aggregatorDbManager');
-const { isCentralServer } = require('../config/appMode');
+const tenantDbManager = require('../config/tenantDbManager');
 
 /**
- * Attaches convenient query execution helpers to the express request object
+ * Attaches convenient query execution helpers to the express request object.
+ * 
+ * Usage in controllers:
+ *   await req.queryControlPlane('SELECT * FROM tenants WHERE ...', [params])
+ *   await req.queryTenant('SELECT * FROM events WHERE ...', [params])
  */
 function databaseContext(req, res, next) {
-  // Standard query executing on the main/local database
-  req.queryDb = (text, params = []) => {
+  // ── Control Plane Queries ───────────────────────────────────
+  // For: sessions, tenants, super_admins, audit_log, syslog_port_map
+  req.queryControlPlane = (text, params = []) => {
     return db.query(text, params);
   };
 
-  // Helper for Central Server to query a specific branch aggregator's separate database
-  req.queryAggregator = (aggregatorName, text, params = []) => {
-    if (!isCentralServer()) {
-      throw new Error('Direct aggregator database querying is only permitted in Central Server mode');
+  // Legacy alias: req.queryDb still works for control plane queries
+  req.queryDb = req.queryControlPlane;
+
+  // ── Tenant-Specific Queries ─────────────────────────────────
+  // For: events, fw_events, machines, incidents, policies, groups, etc.
+  // Uses the tenant_id from the authenticated session to route to the correct DB.
+  req.queryTenant = async (text, params = []) => {
+    const tenantId = req.tenantId;
+    if (!tenantId) {
+      throw new Error('No tenant context available. User must be authenticated with a workspace.');
     }
-    return aggregatorDbManager.queryAggregator(aggregatorName, text, params);
+    return tenantDbManager.queryTenant(tenantId, text, params);
   };
 
-  // If request is from an authenticated aggregator
-  if (req.aggregator && req.aggregator.name) {
-    req.aggregatorName = req.aggregator.name;
-  }
+  // ── Get Tenant Pool (for advanced use cases) ────────────────
+  // For: transactions, COPY, streaming queries
+  req.getTenantPool = async () => {
+    const tenantId = req.tenantId;
+    if (!tenantId) {
+      throw new Error('No tenant context available.');
+    }
+    return tenantDbManager.getTenantPool(tenantId);
+  };
 
   next();
 }

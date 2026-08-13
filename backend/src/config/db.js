@@ -1,9 +1,14 @@
 // ════════════════════════════════════════════════════════════════
-// IOC Hunt — PostgreSQL Connection & Database Initializer
+// IOC Hunt — Control Plane PostgreSQL Connection & Initializer
 // ════════════════════════════════════════════════════════════════
-// Clean relational architecture:
-// 1. Central Server DB stores global configuration, users, aggregators, & security data
-// 2. Aggregators each maintain their own independent, separate PostgreSQL database
+// SaaS Architecture:
+// This module manages the CONTROL PLANE database connection.
+// The control plane stores: sessions, tenant registry, audit logs.
+// Tenant-specific data (events, machines, incidents) is stored in
+// dedicated per-tenant databases managed by tenantDbManager.js.
+//
+// getTableSchemaSQL() is exported and reused during tenant provisioning
+// to initialize each new tenant's database with the full IOCHunt schema.
 // ════════════════════════════════════════════════════════════════
 
 const { Pool } = require('pg');
@@ -23,9 +28,9 @@ for (const p of envPaths) {
   }
 }
 
-const connectionString = process.env.DATABASE_URL
+const connectionString = process.env.CONTROL_PLANE_DB_URL
+  || process.env.DATABASE_URL
   || process.env.CENTRAL_DATABASE_URL
-  || process.env.AGGREGATOR_DATABASE_URL
   || `postgres://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || 'iochunt_password'}@${process.env.DB_HOST || 'localhost'}:${process.env.POSTGRES_PORT || 5433}/${process.env.POSTGRES_DB || 'iochunt_db'}`;
 
 const pool = new Pool({
@@ -348,7 +353,12 @@ const initDB = async (retries = 10, delay = 3000) => {
           }
         }
 
-        console.log('[DB] Core PostgreSQL Database Tables Initialized Successfully.');
+        console.log('[DB] Control Plane Database Tables Initialized Successfully.');
+
+        // Initialize the Tenant DB Manager with this control plane pool
+        const tenantDbManager = require('./tenantDbManager');
+        tenantDbManager.init(pool);
+        console.log('[DB] Tenant Database Pool Manager initialized.');
       } finally {
         client.release();
       }

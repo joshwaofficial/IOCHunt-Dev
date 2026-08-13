@@ -1,25 +1,11 @@
 const Machine = require('../models/Machine');
-const { getAggregatorPool } = require('../config/aggregatorDbManager');
-const db = require('../config/db');
-
-function getDb(aggregator) {
-  if (aggregator && aggregator !== 'All Aggregators' && aggregator !== 'All Branches' && aggregator !== 'default' && aggregator !== 'direct') {
-    try {
-      return getAggregatorPool(aggregator);
-    } catch(e) {
-      return db.pool;
-    }
-  }
-  return db.pool;
-}
 
 /**
  * Get all machines/clients
  */
 async function getAllMachines(req, res) {
   try {
-    const userAgg = req.session?.aggregator_name || req.query.aggregator;
-    const machines = await Machine.getAllMachines(userAgg);
+    const machines = await Machine.getAllMachines(req.queryTenant);
     return res.status(200).json({ data: machines });
   } catch (error) {
     console.error('[Machine Error] Failed to get machines:', error);
@@ -35,8 +21,7 @@ async function getMachinePolicy(req, res) {
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'Machine ID is required' });
 
-    const userAgg = req.session?.aggregator_name || req.query.aggregator;
-    const policy = await Machine.getPolicy(id, userAgg);
+    const policy = await Machine.getPolicy(req.queryTenant, id);
     return res.status(200).json({ data: policy || {} });
   } catch (error) {
     console.error('[Machine Error] Failed to get machine policy:', error);
@@ -56,8 +41,7 @@ async function updateMachinePolicy(req, res) {
       return res.status(400).json({ error: 'Machine ID and policy data are required' });
     }
 
-    const userAgg = req.session?.aggregator_name || req.query.aggregator;
-    await Machine.updatePolicy(id, policyData, userAgg);
+    await Machine.updatePolicy(req.queryTenant, id, policyData);
     return res.status(200).json({ message: 'Policy updated successfully' });
   } catch (error) {
     console.error('[Machine Error] Failed to update policy:', error);
@@ -81,73 +65,57 @@ async function getClients(req, res) {
     }
     const now = Math.floor(Date.now() / 1000);
 
-    const agg = req.session?.aggregator_name || (req.query.aggregator !== 'All Aggregators' ? req.query.aggregator : '');
-    const pool = getDb(agg);
-
-    let machinesQuery = 'SELECT * FROM machines';
-    const params = [];
-    if (agg && agg !== 'all' && agg !== '') {
-      machinesQuery += ' WHERE aggregator_name = $1';
-      params.push(agg);
-    }
-    machinesQuery += ' ORDER BY last_seen DESC';
-
-    const machinesRes = await pool.query(machinesQuery, params);
+    let machinesQuery = 'SELECT * FROM machines ORDER BY last_seen DESC';
+    const machinesRes = await req.queryTenant(machinesQuery);
     const machines = machinesRes.rows;
 
     const clients = [];
     for (const m of machines) {
       const lastSeenEpoch = m.last_seen ? Math.floor(new Date(m.last_seen).getTime() / 1000) : 0;
-      const age = now - lastSeenEpoch;
-      let status, statusCol;
-      if (age < 180) { status = 'Online'; statusCol = '#22c55e'; }
-      else if (age < 600) { status = 'Recent'; statusCol = '#84cc16'; }
-      else if (age < 3600) { status = 'Away'; statusCol = '#f97316'; }
-      else { status = 'Offline'; statusCol = '#ef4444'; }
+      const isOnline = (now - lastSeenEpoch) <= 300; 
 
-      const statsRes = await pool.query(`
-        SELECT COUNT(*) as total,
-          SUM(CASE WHEN severity='critical' THEN 1 ELSE 0 END) as critical,
-          SUM(CASE WHEN severity='high'     THEN 1 ELSE 0 END) as high,
-          SUM(CASE WHEN severity='medium'   THEN 1 ELSE 0 END) as medium,
-          SUM(CASE WHEN category IN ('DOMAIN','ADCS') THEN 1 ELSE 0 END) as ad_events
-        FROM events WHERE machine=$1 AND ts>=$2 AND ts<=$3 AND is_noise=false`,
-        [m.name, from, to]
+      const activeIncidentCount = await req.queryTenant(
+        `SELECT COUNT(DISTINCT i.id) as count 
+         FROM incidents i 
+         JOIN incident_events ie ON i.id = ie.incident_id 
+         JOIN events e ON ie.event_id = e.id 
+         WHERE e.machine = $1 AND i.status != 'resolved'`,
+        [m.name]
       );
-      const s = statsRes.rows[0] || {};
-      const risk = Math.min(100,
-        parseInt(s.critical || 0, 10) * 10 + parseInt(s.high || 0, 10) * 3 + parseInt(s.medium || 0, 10) + parseInt(s.ad_events || 0, 10) * 5
-      );
-      const riskLabel = risk >= 50 ? 'Critical' : risk >= 20 ? 'High' : risk >= 5 ? 'Medium' : 'Low';
+      const incidentsCount = parseInt(activeIncidentCount.rows[0].count, 10);
+
+      const policyRes = await req.queryTenant('SELECT updated_at FROM policies WHERE machine=$1', [m.name]);
+      const lastPolicyUpdate = policyRes.rows.length ? policyRes.rows[0].updated_at : 0;
+      
+      let pendingUpdates = false;
+      if (lastPolicyUpdate > 0 && lastPolicyUpdate > lastSeenEpoch) {
+        pendingUpdates = true;
+      }
+
+      let riskScore = 0;
+      if (incidentsCount > 0) riskScore += 50;
+      if (m.os_type && m.os_type.toLowerCase().includes('windows 7')) riskScore += 20; 
+      if (!isOnline && (now - lastSeenEpoch) > 86400 * 7) riskScore += 10; 
 
       clients.push({
-        id: m.name, 
-        label: m.name || m.label, 
-        ip: m.ip || '',
-        aggregator: m.aggregator_name,
+        id: m.name,
+        hostname: m.name,
+        ip: m.ip_address,
+        os: m.os_type,
+        agent_version: m.agent_version,
+        status: isOnline ? 'Online' : 'Offline',
         last_seen: m.last_seen,
-        status,
-        status_col: statusCol,
-        total: parseInt(s.total || 0, 10),
-        critical: parseInt(s.critical || 0, 10),
-        high: parseInt(s.high || 0, 10),
-        ad_events: parseInt(s.ad_events || 0, 10),
-        risk_score: risk,
-        risk_label: riskLabel,
-        group_name: m.group_name || ''
+        active_incidents: incidentsCount,
+        risk_score: Math.min(riskScore, 100),
+        pending_updates: pendingUpdates,
+        aggregator_name: m.aggregator_name
       });
     }
 
-    const top5 = new Set(
-      [...clients].sort((a, b) => b.risk_score - a.risk_score).slice(0, 5)
-        .filter(c => c.risk_score > 0).map(c => c.id)
-    );
-    clients.forEach(c => { c.is_top5 = top5.has(c.id); });
-
-    return res.status(200).json({ clients, online: clients.filter(c => c.status === 'Online').length });
+    res.json({ clients });
   } catch (error) {
-    console.error('[Machine Error] Failed to get clients:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('[Machine Error] Failed to get clients list:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 }
 

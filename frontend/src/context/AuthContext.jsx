@@ -37,8 +37,8 @@ export function AuthProvider({ children }) {
       });
   }, []);
 
-  const login = async (username, password) => {
-    const res = await axios.post('/api/auth/login', { username, password });
+  const login = async (username, password, workspace_id) => {
+    const res = await axios.post('/api/auth/login', { username, password, workspace_id });
     if (res.data.mfa_required) {
       return { mfaRequired: true, tempToken: res.data.tempToken };
     }

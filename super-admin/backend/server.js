@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════
 // IOC Hunt — Super Admin Standalone Control Plane Backend
 // ════════════════════════════════════════════════════════════════
+// SaaS Architecture: Manages tenant provisioning via dedicated
+// logical databases. No Docker containers are spun up per tenant.
+// All tenants share a fixed HTTPS port (8080) via NGINX load balancer.
+// ════════════════════════════════════════════════════════════════
 
 const express = require('express');
 const cors = require('cors');
@@ -45,25 +49,46 @@ async function initSuperAdminDB() {
         expires_at BIGINT NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS managed_companies (
+      CREATE TABLE IF NOT EXISTS tenants (
         id SERIAL PRIMARY KEY,
-        company_id VARCHAR(64) UNIQUE NOT NULL,
+        tenant_id VARCHAR(64) UNIQUE NOT NULL,
         company_name VARCHAR(255) NOT NULL,
-        central_url VARCHAR(255) DEFAULT '',
-        app_port INTEGER,
-        http_port INTEGER,
-        https_port INTEGER,
+        db_name VARCHAR(255) NOT NULL,
+        db_user VARCHAR(255) NOT NULL,
+        db_password_encrypted TEXT NOT NULL DEFAULT '',
+        db_host VARCHAR(255) DEFAULT 'db',
+        db_port INTEGER DEFAULT 5432,
         syslog_port INTEGER,
-        db_port INTEGER,
+        api_key_hash VARCHAR(255),
         status VARCHAR(50) DEFAULT 'active',
+        tier VARCHAR(50) DEFAULT 'standard',
+        max_eps INTEGER DEFAULT 5000,
+        central_url VARCHAR(255) DEFAULT '',
+        created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
+        updated_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())
+      );
+
+      CREATE TABLE IF NOT EXISTS syslog_port_map (
+        port INTEGER PRIMARY KEY,
+        tenant_id VARCHAR(64),
+        protocol VARCHAR(10) DEFAULT 'udp',
+        enabled BOOLEAN DEFAULT TRUE,
         created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())
       );
-      
-      ALTER TABLE managed_companies ADD COLUMN IF NOT EXISTS app_port INTEGER;
-      ALTER TABLE managed_companies ADD COLUMN IF NOT EXISTS http_port INTEGER;
-      ALTER TABLE managed_companies ADD COLUMN IF NOT EXISTS https_port INTEGER;
-      ALTER TABLE managed_companies ADD COLUMN IF NOT EXISTS syslog_port INTEGER;
-      ALTER TABLE managed_companies ADD COLUMN IF NOT EXISTS db_port INTEGER;
+
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id BIGSERIAL PRIMARY KEY,
+        tenant_id VARCHAR(64),
+        user_id INTEGER,
+        username VARCHAR(255),
+        action VARCHAR(100) NOT NULL,
+        resource VARCHAR(255),
+        detail TEXT,
+        ip_address VARCHAR(50),
+        user_agent TEXT,
+        result VARCHAR(20) DEFAULT 'SUCCESS',
+        created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())
+      );
     `);
 
     // Seed default superadmin / superadmin with mandatory password change
@@ -155,9 +180,12 @@ app.post('/api/super/change-password', superAuthMiddleware, async (req, res) => 
   }
 });
 
+// ── List All Tenants ────────────────────────────────────────────
 app.get('/api/super/companies', superAuthMiddleware, async (req, res) => {
   try {
-    const companiesRes = await pool.query('SELECT * FROM managed_companies ORDER BY id DESC');
+    const companiesRes = await pool.query(
+      'SELECT id, tenant_id AS company_id, company_name, status, central_url, syslog_port, db_name, tier, max_eps, created_at FROM tenants ORDER BY id DESC'
+    );
     res.json(companiesRes.rows);
   } catch (err) {
     console.error(err);
@@ -165,6 +193,7 @@ app.get('/api/super/companies', superAuthMiddleware, async (req, res) => {
   }
 });
 
+// ── Provision New Tenant ────────────────────────────────────────
 app.post('/api/super/companies', superAuthMiddleware, async (req, res) => {
   try {
     const { company_name, company_id, admin_username, admin_password } = req.body;
@@ -172,43 +201,48 @@ app.post('/api/super/companies', superAuthMiddleware, async (req, res) => {
     if (!admin_username || !admin_password) return res.status(400).json({ error: 'Admin Username and Password are required' });
 
     const safeId = company_id.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
-    
-    // Check if company already exists
-    const checkRes = await pool.query('SELECT id FROM managed_companies WHERE company_id = $1', [safeId]);
-    if (checkRes.rows.length > 0) return res.status(400).json({ error: 'Company ID already exists' });
 
-    // Find highest ports currently used to pass as a starting hint
-    const portRes = await pool.query('SELECT MAX(app_port) as max_app, MAX(http_port) as max_http, MAX(https_port) as max_https, MAX(syslog_port) as max_syslog, MAX(db_port) as max_db FROM managed_companies');
-    
-    const randomOffset = Math.floor(Math.random() * 500);
-    const startingAppPort = portRes.rows[0].max_app ? portRes.rows[0].max_app + 1 : 6000 + randomOffset;
-    const startingHttpPort = portRes.rows[0].max_http ? portRes.rows[0].max_http + 1 : 8080 + randomOffset;
-    const startingHttpsPort = portRes.rows[0].max_https ? portRes.rows[0].max_https + 1 : 8000 + randomOffset;
-    const startingSyslogPort = portRes.rows[0].max_syslog ? portRes.rows[0].max_syslog + 1 : 9000 + randomOffset;
-    const startingDbPort = portRes.rows[0].max_db ? portRes.rows[0].max_db + 1 : 5500 + randomOffset;
+    // Check if tenant already exists
+    const checkRes = await pool.query('SELECT id FROM tenants WHERE tenant_id = $1', [safeId]);
+    if (checkRes.rows.length > 0) return res.status(400).json({ error: 'Tenant ID already exists' });
 
-    // Provision the tenant (it will return the actual allocated ports)
+    // Find the next available syslog port
+    const portRes = await pool.query('SELECT MAX(syslog_port) as max_syslog FROM tenants');
+    const startingSyslogPort = portRes.rows[0].max_syslog ? portRes.rows[0].max_syslog + 1 : 9500;
+
+    // Provision the tenant database (no Docker containers!)
     const provisionTenant = require('../scripts/provision_tenant');
-    const allocated = await provisionTenant({
+    const result = await provisionTenant({
       company_id: safeId,
       company_name: company_name.trim(),
       admin_username: admin_username.trim(),
       admin_password: admin_password.trim(),
-      startingAppPort,
-      startingHttpPort,
-      startingHttpsPort,
-      startingSyslogPort,
-      startingDbPort
+      startingSyslogPort
     });
 
-    const central_url = `https://${req.hostname}:${allocated.https_port}`;
+    // All tenants share the same fixed URL on port 8082
+    const central_url = `https://${req.hostname}:8082`;
 
-    const insertRes = await pool.query(
-      'INSERT INTO managed_companies (company_id, company_name, central_url, app_port, http_port, https_port, syslog_port, db_port) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
-      [safeId, company_name.trim(), central_url, allocated.app_port, allocated.http_port, allocated.https_port, allocated.syslog_port, allocated.db_port]
+    // Update the central_url in the tenants table
+    await pool.query(
+      'UPDATE tenants SET central_url = $1 WHERE tenant_id = $2',
+      [central_url, safeId]
     );
 
-    res.status(201).json(insertRes.rows[0]);
+    // Log the provisioning action
+    await pool.query(
+      `INSERT INTO audit_log (tenant_id, username, action, resource, detail, ip_address, result)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [safeId, req.superAdmin.username, 'PROVISION_TENANT', safeId, `Provisioned tenant ${safeId} with DB ${result.db_name}`, req.ip, 'SUCCESS']
+    );
+
+    // Return the tenant info
+    const tenantRes = await pool.query(
+      'SELECT id, tenant_id AS company_id, company_name, status, central_url, syslog_port, db_name, tier, created_at FROM tenants WHERE tenant_id = $1',
+      [safeId]
+    );
+
+    res.status(201).json(tenantRes.rows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: `Provisioning failed: ${err.message}` });
@@ -246,6 +280,7 @@ initSuperAdminDB().then(() => {
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`[SuperAdmin] Isolated Super Admin Control Plane running on port ${PORT}`);
+    console.log(`[SuperAdmin] SaaS Mode: All tenants share port 8080 via NGINX`);
   });
 }).catch(err => {
   console.error('[SuperAdmin] Failed to initialize database:', err);

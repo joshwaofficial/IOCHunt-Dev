@@ -7,8 +7,7 @@ const crypto = require('crypto');
  * Finds or creates the SSL directory.
  */
 function resolveSslDir() {
-  if (process.env.SSL_DIR) {
-    fs.mkdirSync(process.env.SSL_DIR, { recursive: true });
+  if (process.env.SSL_DIR && fs.existsSync(process.env.SSL_DIR)) {
     return process.env.SSL_DIR;
   }
 
@@ -74,7 +73,7 @@ function ensureCertificates() {
     if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
       const certContent = fs.readFileSync(certPath, 'utf8');
       const fingerprint = getCertFingerprint(certContent);
-      console.log(`[SSL] ✓ TLS certificates verified in ${sslDir}`);
+      console.log(`[SSL]  TLS certificates verified in ${sslDir}`);
       console.log(`[SSL] Fingerprint (SHA-256): ${fingerprint}`);
       return { exists: true, certPath, keyPath, fingerprint };
     }
@@ -85,7 +84,7 @@ function ensureCertificates() {
       fs.copyFileSync(altKeyPath, keyPath);
       const certContent = fs.readFileSync(certPath, 'utf8');
       const fingerprint = getCertFingerprint(certContent);
-      console.log(`[SSL] ✓ Migrated legacy certificates in ${sslDir}`);
+      console.log(`[SSL]  Migrated legacy certificates in ${sslDir}`);
       return { exists: true, certPath, keyPath, fingerprint };
     }
 
@@ -116,7 +115,7 @@ function ensureCertificates() {
     if (fs.existsSync(certPath)) {
       const certContent = fs.readFileSync(certPath, 'utf8');
       const fingerprint = getCertFingerprint(certContent);
-      console.log(`[SSL] ✅ Successfully generated TLS certificates!`);
+      console.log(`[SSL] Successfully generated TLS certificates!`);
       console.log(`[SSL] Certificate: ${certPath}`);
       console.log(`[SSL] Private Key: ${keyPath}`);
       console.log(`[SSL] Fingerprint (SHA-256): ${fingerprint}`);

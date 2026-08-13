@@ -65,8 +65,6 @@ export default function Dashboard() {
                   <th style={{ paddingBottom: '16px', fontWeight: '500' }}>Company Name</th>
                   <th style={{ paddingBottom: '16px', fontWeight: '500' }}>Status</th>
                   <th style={{ paddingBottom: '16px', fontWeight: '500' }}>Central URL</th>
-                  <th style={{ paddingBottom: '16px', fontWeight: '500' }}>Web Port</th>
-                  <th style={{ paddingBottom: '16px', fontWeight: '500' }}>Syslog Port</th>
                 </tr>
               </thead>
               <tbody>
@@ -84,8 +82,6 @@ export default function Dashboard() {
                         {company.central_url}
                       </a>
                     </td>
-                    <td style={{ padding: '16px 0', color: 'var(--text-muted)' }}>{company.https_port}</td>
-                    <td style={{ padding: '16px 0', color: 'var(--text-muted)' }}>{company.syslog_port}</td>
                   </tr>
                 ))}
               </tbody>

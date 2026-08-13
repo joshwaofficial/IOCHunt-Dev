@@ -1,22 +1,7 @@
-const { getAggregatorPool } = require('../config/aggregatorDbManager');
-const db = require('../config/db');
 const { sendAssignmentEmail } = require('../utils/emailHelper');
-
-function getDb(req) {
-  const aggregator = req.session?.aggregator_name || (req.query?.aggregator !== 'All Aggregators' ? req.query?.aggregator : '');
-  if (aggregator && aggregator !== 'All Aggregators' && aggregator !== 'All Branches' && aggregator !== 'default' && aggregator !== 'direct') {
-    try {
-      return getAggregatorPool(aggregator);
-    } catch(e) {
-      return db.pool;
-    }
-  }
-  return db.pool;
-}
-
 async function getIncidents(req, res) {
   try {
-    const pool = getDb(req);
+
     const { status, priority, assigned_to, limit = 100, offset = 0 } = req.query;
     const conds = [];
     const p = [];
@@ -35,10 +20,10 @@ async function getIncidents(req, res) {
     }
     
     const w = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
-    const totalRes = await pool.query(`SELECT COUNT(*) AS n FROM incidents ${w}`, p);
+    const totalRes = await req.queryTenant(`SELECT COUNT(*) AS n FROM incidents ${w}`, p);
     const total = parseInt(totalRes.rows[0].n, 10);
 
-    const rowsRes = await pool.query(`
+    const rowsRes = await req.queryTenant(`
       SELECT i.*,
         (SELECT COUNT(*) FROM incident_notes WHERE incident_id=i.id) AS note_count,
         (SELECT COUNT(*) FROM incident_events WHERE incident_id=i.id) AS event_count
@@ -56,7 +41,7 @@ async function getIncidents(req, res) {
 
 async function getIncidentSummary(req, res) {
   try {
-    const pool = getDb(req);
+
     const conds = [];
     const params = [];
     let paramIndex = 1;
@@ -71,21 +56,21 @@ async function getIncidentSummary(req, res) {
     let whereBase = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
 
     const byStatusQ = `SELECT status, COUNT(*) AS n FROM incidents ${whereBase} GROUP BY status`;
-    const byStatus = await pool.query(byStatusQ, params);
+    const byStatus = await req.queryTenant(byStatusQ, params);
 
     const whereNotClosed = whereBase ? `${whereBase} AND status NOT IN ('resolved','closed')` : `WHERE status NOT IN ('resolved','closed')`;
     const byPriorityQ = `SELECT priority, COUNT(*) AS n FROM incidents ${whereNotClosed} GROUP BY priority`;
-    const byPriority = await pool.query(byPriorityQ, params);
+    const byPriority = await req.queryTenant(byPriorityQ, params);
 
     const openQ = `SELECT COUNT(*) AS n FROM incidents ${whereNotClosed}`;
-    const openRes = await pool.query(openQ, params);
+    const openRes = await req.queryTenant(openQ, params);
 
     const whereP1 = whereBase ? `${whereBase} AND priority='P1' AND status NOT IN ('resolved','closed')` : `WHERE priority='P1' AND status NOT IN ('resolved','closed')`;
     const p1OpenQ = `SELECT COUNT(*) AS n FROM incidents ${whereP1}`;
-    const p1OpenRes = await pool.query(p1OpenQ, params);
+    const p1OpenRes = await req.queryTenant(p1OpenQ, params);
 
     const recentQ = `SELECT * FROM incidents ${whereBase} ORDER BY created_at DESC LIMIT 5`;
-    const recentRes = await pool.query(recentQ, params);
+    const recentRes = await req.queryTenant(recentQ, params);
     
     return res.status(200).json({ 
       byStatus: byStatus.rows, 
@@ -102,7 +87,7 @@ async function getIncidentSummary(req, res) {
 
 async function createIncident(req, res) {
   try {
-    const pool = getDb(req);
+
     const {
       title, description = '', status = 'new', priority = 'P2',
       assigned_to = null, machine = '', source_chain_id = null, event_ids = []
@@ -114,7 +99,7 @@ async function createIncident(req, res) {
       return res.status(400).json({ error: 'title required' });
     }
 
-    const info = await pool.query(`
+    const info = await req.queryTenant(`
       INSERT INTO incidents (title, description, status, priority, assigned_to, machine, created_by, source_chain_id)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING id
@@ -123,7 +108,8 @@ async function createIncident(req, res) {
     const incId = info.rows[0].id;
 
     if (event_ids && event_ids.length > 0) {
-      const client = await pool.connect();
+      const tenantPool = await req.getTenantPool();
+      const client = await tenantPool.connect();
       try {
         await client.query('BEGIN');
         for (const eid of event_ids) {
@@ -137,7 +123,7 @@ async function createIncident(req, res) {
       }
     }
 
-    await pool.query('INSERT INTO incident_notes (incident_id, author, body, note_type) VALUES ($1,$2,$3,$4)',
+    await req.queryTenant('INSERT INTO incident_notes (incident_id, author, body, note_type) VALUES ($1,$2,$3,$4)',
       [incId, created_by, `Incident created with priority ${priority}.`, 'system']);
 
     if (assigned_to) {
@@ -154,17 +140,17 @@ async function createIncident(req, res) {
 
 async function getIncident(req, res) {
   try {
-    const pool = getDb(req);
+
     const { id } = req.params;
-    const incRes = await pool.query('SELECT * FROM incidents WHERE id=$1', [id]);
+    const incRes = await req.queryTenant('SELECT * FROM incidents WHERE id=$1', [id]);
     const inc = incRes.rows[0];
     if (!inc) {
       return res.status(404).json({ error: 'Not found' });
     }
     
-    const notesRes = await pool.query('SELECT * FROM incident_notes WHERE incident_id=$1 ORDER BY created_at ASC', [inc.id]);
+    const notesRes = await req.queryTenant('SELECT * FROM incident_notes WHERE incident_id=$1 ORDER BY created_at ASC', [inc.id]);
     
-    const eventsRes = await pool.query(`
+    const eventsRes = await req.queryTenant(`
       SELECT e.id, e.machine, e.ts, e.tag, e.severity, e.category, e.message,
              ie.linked_at, ie.linked_by
       FROM incident_events ie
@@ -182,9 +168,9 @@ async function getIncident(req, res) {
 
 async function updateIncident(req, res) {
   try {
-    const pool = getDb(req);
+
     const { id } = req.params;
-    const incRes = await pool.query('SELECT * FROM incidents WHERE id=$1', [id]);
+    const incRes = await req.queryTenant('SELECT * FROM incidents WHERE id=$1', [id]);
     const inc = incRes.rows[0];
     if (!inc) {
       return res.status(404).json({ error: 'Not found' });
@@ -233,11 +219,11 @@ async function updateIncident(req, res) {
       changes.push(['updated_at', Math.floor(Date.now() / 1000)]);
       const sets = changes.map(([k], i) => `${k}=$${i+1}`).join(',');
       const vals = changes.map(([, v]) => v);
-      await pool.query(`UPDATE incidents SET ${sets} WHERE id=$${vals.length+1}`, [...vals, inc.id]);
+      await req.queryTenant(`UPDATE incidents SET ${sets} WHERE id=$${vals.length+1}`, [...vals, inc.id]);
     }
 
     if (auditLines.length) {
-      await pool.query('INSERT INTO incident_notes (incident_id, author, body, note_type) VALUES ($1,$2,$3,$4)',
+      await req.queryTenant('INSERT INTO incident_notes (incident_id, author, body, note_type) VALUES ($1,$2,$3,$4)',
         [inc.id, updated_by, auditLines.join(' '), 'system']);
     }
 
@@ -250,18 +236,18 @@ async function updateIncident(req, res) {
 
 async function addNote(req, res) {
   try {
-    const pool = getDb(req);
+
     const { id } = req.params;
     const { body, note_type = 'comment' } = req.body;
     const author = req.session && req.session.username ? req.session.username : 'dashboard';
     if (!body) return res.status(400).json({ error: 'body required' });
 
-    const incRes = await pool.query('SELECT * FROM incidents WHERE id=$1', [id]);
+    const incRes = await req.queryTenant('SELECT * FROM incidents WHERE id=$1', [id]);
     const inc = incRes.rows[0];
     if (!inc) return res.status(404).json({ error: 'Not found' });
 
-    await pool.query('INSERT INTO incident_notes (incident_id, author, body, note_type) VALUES ($1,$2,$3,$4)', [inc.id, author, body, note_type]);
-    await pool.query('UPDATE incidents SET updated_at=$1 WHERE id=$2', [Math.floor(Date.now() / 1000), inc.id]);
+    await req.queryTenant('INSERT INTO incident_notes (incident_id, author, body, note_type) VALUES ($1,$2,$3,$4)', [inc.id, author, body, note_type]);
+    await req.queryTenant('UPDATE incidents SET updated_at=$1 WHERE id=$2', [Math.floor(Date.now() / 1000), inc.id]);
 
     return res.status(201).json({ ok: true });
   } catch (error) {
@@ -272,13 +258,13 @@ async function addNote(req, res) {
 
 async function linkEvents(req, res) {
   try {
-    const pool = getDb(req);
+
     const { id } = req.params;
     const { event_ids = [] } = req.body;
     const linked_by = req.session && req.session.username ? req.session.username : 'dashboard';
     if (!event_ids.length) return res.status(400).json({ error: 'event_ids required' });
 
-    const incRes = await pool.query('SELECT * FROM incidents WHERE id=$1', [id]);
+    const incRes = await req.queryTenant('SELECT * FROM incidents WHERE id=$1', [id]);
     const inc = incRes.rows[0];
     if (!inc) return res.status(404).json({ error: 'Not found' });
 
@@ -286,7 +272,8 @@ async function linkEvents(req, res) {
       return res.status(403).json({ error: 'Forbidden: You are not assigned to this incident' });
     }
 
-    const client = await pool.connect();
+    const tenantPool = await req.getTenantPool();
+    const client = await tenantPool.connect();
     try {
       await client.query('BEGIN');
       for (const eid of event_ids) {
@@ -310,9 +297,9 @@ async function linkEvents(req, res) {
 
 async function deleteIncident(req, res) {
   try {
-    const pool = getDb(req);
+
     const { id } = req.params;
-    await pool.query('DELETE FROM incidents WHERE id=$1', [id]);
+    await req.queryTenant('DELETE FROM incidents WHERE id=$1', [id]);
     return res.status(200).json({ ok: true });
   } catch (error) {
     console.error('[Incident Error] Failed to delete incident:', error);
@@ -322,11 +309,11 @@ async function deleteIncident(req, res) {
 
 async function assignIncident(req, res) {
   try {
-    const pool = getDb(req);
+
     const { id } = req.params;
     const { assignee } = req.body;
     
-    const incRes = await pool.query('SELECT * FROM incidents WHERE id=$1', [id]);
+    const incRes = await req.queryTenant('SELECT * FROM incidents WHERE id=$1', [id]);
     const inc = incRes.rows[0];
     if (!inc) return res.status(404).json({ error: 'Not found' });
 
@@ -349,7 +336,7 @@ async function assignIncident(req, res) {
 
     const updated_by = req.session.username;
     
-    await pool.query('UPDATE incidents SET assigned_to=$1, updated_at=$2 WHERE id=$3',
+    await req.queryTenant('UPDATE incidents SET assigned_to=$1, updated_at=$2 WHERE id=$3',
       [assignee, Math.floor(Date.now() / 1000), id]);
 
     let noteBody = `Assigned to ${assignee} by ${updated_by}`;
@@ -357,10 +344,10 @@ async function assignIncident(req, res) {
       noteBody = `Escalated to L3 - assigned to ${assignee} by ${updated_by}`;
     }
 
-    await pool.query('INSERT INTO incident_notes (incident_id, author, body, note_type) VALUES ($1,$2,$3,$4)',
+    await req.queryTenant('INSERT INTO incident_notes (incident_id, author, body, note_type) VALUES ($1,$2,$3,$4)',
       [id, updated_by, noteBody, 'system']);
 
-    const updatedIncRes = await pool.query('SELECT * FROM incidents WHERE id=$1', [id]);
+    const updatedIncRes = await req.queryTenant('SELECT * FROM incidents WHERE id=$1', [id]);
     const updatedInc = updatedIncRes.rows[0];
     const { sendAssignmentEmail } = require('../utils/emailHelper');
     await sendAssignmentEmail(updatedInc, assignee);

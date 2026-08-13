@@ -40,16 +40,17 @@ function parseSessionCookie(req) {
 }
 
 /**
- * Retrieves a valid session from the database
+ * Retrieves a valid session from the control plane database.
+ * Sessions now include tenant_id for multi-tenant routing.
  */
 async function getSession(token) {
   if (!token) return null;
   const now = Math.floor(Date.now() / 1000);
   try {
     const res = await db.query(`
-      SELECT s.token, s.user_id, s.username, s.expires_at, u.role, u.force_password_change, u.aggregator_name, u.display_name 
-      FROM sessions s 
-      JOIN users u ON u.id = s.user_id 
+      SELECT s.token, s.user_id, s.username, s.expires_at, s.role, s.tenant_id,
+             s.force_password_change, s.aggregator_name, s.display_name
+      FROM sessions s
       WHERE s.token = $1 AND s.expires_at > $2
     `, [token, now]);
     return res.rows[0] || null;
@@ -60,7 +61,9 @@ async function getSession(token) {
 }
 
 /**
- * Express middleware to ensure a valid session exists and enforces mandatory password change
+ * Express middleware to ensure a valid session exists and enforces mandatory password change.
+ * Sets req.tenantId from the session's tenant_id — this is the SOLE source of truth
+ * for which tenant database to route queries to.
  */
 async function requireSession(req, res, next) {
   const token = parseSessionCookie(req) || req.cookies?.iochunt_session;
@@ -74,6 +77,8 @@ async function requireSession(req, res, next) {
   }
 
   req.session = session;
+  // Set tenant context from the authenticated session (NEVER from client input)
+  req.tenantId = session.tenant_id || null;
 
   // Enforce password change strictly: only allow password change and logout endpoints
   const isAllowedPath = req.path === '/change-password' || req.path === '/logout' || req.path === '/me';

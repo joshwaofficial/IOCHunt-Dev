@@ -178,6 +178,7 @@ const { initSourceWatchers } = require('./utils/fwWatcher');
 const { startSyncService } = require('./modules/aggregator/services/syncService');
 const { startRetentionService } = require('./modules/aggregator/services/retentionService');
 const { ensureCertificates } = require('./utils/certManager');
+const { startWorker } = require('./workers/bulkWorker');
 
 const https = require('https');
 const http = require('http');
@@ -214,6 +215,13 @@ db.initDB().then(async () => {
     initSourceWatchers().catch(err => console.error('[Watcher Error]', err.message));
     startSyncService();
     startRetentionService();
+  }
+
+  // If running in Central Server mode, start multi-tenant syslog and bulk ingest worker
+  if (config.mode === 'central_server') {
+    console.log('[Bootstrap] Initializing Central SaaS Background Services...');
+    initSyslogReceiver().catch(err => console.error('[Syslog Error]', err.message));
+    startWorker().catch(err => console.error('[BulkWorker Error]', err.message));
   }
 
   // Strictly HTTPS Server by default

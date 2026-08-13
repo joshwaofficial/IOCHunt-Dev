@@ -1,4 +1,4 @@
-const db = require('../config/db');
+
 
 const { DateTime } = require('luxon');
 const displayTz = process.env.DISPLAY_TZ || 'UTC';
@@ -72,15 +72,15 @@ exports.getFirewallStats = async (req, res) => {
 
     const w = 'WHERE ' + conds.join(' AND ');
 
-    const totalRes = await db.query('SELECT COUNT(*) AS n FROM fw_events ' + w, p);
+    const totalRes = await req.queryTenant('SELECT COUNT(*) AS n FROM fw_events ' + w, p);
     const total = parseInt(totalRes.rows[0].n, 10);
-    const bySev = (await db.query('SELECT severity,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY severity', p)).rows;
-    const byAction = (await db.query('SELECT action,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY action ORDER BY n DESC', p)).rows;
-    const byService = (await db.query('SELECT service,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY service ORDER BY n DESC LIMIT 10', p)).rows;
-    const topSrc = (await db.query('SELECT src_ip,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY src_ip ORDER BY n DESC LIMIT 10', p)).rows;
-    const topDst = (await db.query('SELECT dst_ip,dst_port,service,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY dst_ip,dst_port,service ORDER BY n DESC LIMIT 10', p)).rows;
+    const bySev = (await req.queryTenant('SELECT severity,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY severity', p)).rows;
+    const byAction = (await req.queryTenant('SELECT action,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY action ORDER BY n DESC', p)).rows;
+    const byService = (await req.queryTenant('SELECT service,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY service ORDER BY n DESC LIMIT 10', p)).rows;
+    const topSrc = (await req.queryTenant('SELECT src_ip,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY src_ip ORDER BY n DESC LIMIT 10', p)).rows;
+    const topDst = (await req.queryTenant('SELECT dst_ip,dst_port,service,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY dst_ip,dst_port,service ORDER BY n DESC LIMIT 10', p)).rows;
     
-    const eventsRes = await db.query(`SELECT * FROM fw_events ${w} ORDER BY ts DESC LIMIT $${pIdx} OFFSET $${pIdx+1}`, [...p, Number(limit), Number(offset)]);
+    const eventsRes = await req.queryTenant(`SELECT * FROM fw_events ${w} ORDER BY ts DESC LIMIT $${pIdx} OFFSET $${pIdx+1}`, [...p, Number(limit), Number(offset)]);
     const events = eventsRes.rows.map(e => ({ ...e, ts: displayTs(e.ts) }));
 
     res.json({
@@ -131,7 +131,7 @@ exports.getTopology = async (req, res) => {
 
     const w = 'WHERE ' + conds.join(' AND ');
 
-    const groupedRes = await db.query(`
+    const groupedRes = await req.queryTenant(`
       SELECT src_ip,dst_ip,dst_port,service,action,severity,
              COUNT(*) AS count, MIN(ts) AS first_seen, MAX(ts) AS last_seen
       FROM fw_events ${w}
@@ -153,7 +153,7 @@ exports.getTopology = async (req, res) => {
 
 exports.getDevices = async (req, res) => {
   try {
-    const rowsRes = await db.query(
+    const rowsRes = await req.queryTenant(
       "SELECT DISTINCT devname FROM fw_events WHERE devname != '' AND devname IS NOT NULL ORDER BY devname"
     );
     res.json(rowsRes.rows.map(r => r.devname));
@@ -175,7 +175,7 @@ exports.getLiveEvents = async (req, res) => {
     p.push(Number(limit));
     const query = `SELECT * FROM fw_events WHERE ${conds.join(' AND ')} ORDER BY id ASC LIMIT $${pIdx}`;
     
-    const eventsRes = await db.query(query, p);
+    const eventsRes = await req.queryTenant(query, p);
     const events = eventsRes.rows;
     res.json({ events, last_id: events.length ? events[events.length - 1].id : Number(last_id) });
   } catch (e) { 
@@ -259,7 +259,7 @@ exports.getSecurityAlerts = async (req, res) => {
 
     params.push(Number(limit));
 
-    const rowsRes = await db.query(`
+    const rowsRes = await req.queryTenant(`
       SELECT id, devname AS machine, ts, severity, src_ip, raw AS message
       FROM fw_events
       WHERE ${conds.join(' AND ')}
