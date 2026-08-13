@@ -21,6 +21,7 @@ const db = require('./config/db');
 const appMode = require('./config/appMode');
 const { databaseContext } = require('./middlewares/tenantMiddleware');
 const { requireCentralServer, requireAggregator } = require('./middlewares/modeGuard');
+const { requireSession } = require('./middlewares/authMiddleware');
 const sseBroadcaster = require('./services/sseBroadcaster');
 
 const app = express();
@@ -80,11 +81,11 @@ app.use('/api/groups', express.json(), groupRoutes);
 
 
 // Firewall Analytics
-app.get('/api/firewall/devices', firewallController.getDevices);
-app.get('/api/firewall/topology', firewallController.getTopology);
-app.get('/api/firewall/stats', firewallController.getFirewallStats);
-app.get('/api/firewall/alerts', firewallController.getSecurityAlerts);
-app.get('/api/firewall/live', firewallController.getLiveEvents);
+app.get('/api/firewall/devices', requireSession, firewallController.getDevices);
+app.get('/api/firewall/topology', requireSession, firewallController.getTopology);
+app.get('/api/firewall/stats', requireSession, firewallController.getFirewallStats);
+app.get('/api/firewall/alerts', requireSession, firewallController.getSecurityAlerts);
+app.get('/api/firewall/live', requireSession, firewallController.getLiveEvents);
 
 // SSE Real-Time Stream
 app.get('/api/stream', sseBroadcaster.subscribe);
