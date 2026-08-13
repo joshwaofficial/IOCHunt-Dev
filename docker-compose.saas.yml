@@ -76,6 +76,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       # App Config
+      USE_HTTPS: "false"
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855}
       FRONTEND_URL: ${FRONTEND_URL:-*}
       DISPLAY_TZ: ${DISPLAY_TZ:-UTC}
