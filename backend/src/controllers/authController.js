@@ -8,7 +8,7 @@ const crypto = require('crypto');
 const db = require('../config/db');
 const tenantDbManager = require('../config/tenantDbManager');
 const { verifyTOTP } = require('../utils/totpHelper');
-const { getConfig } = require('../config/appMode');
+const appMode = require('../config/appMode');
 
 /**
  * Validates password complexity
