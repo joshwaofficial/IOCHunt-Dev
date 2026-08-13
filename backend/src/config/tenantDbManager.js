@@ -140,12 +140,14 @@ async function getTenantPool(tenantId) {
     }
   }
 
+  // Build superuser connection string for self-healing operations
+  const adminUrl = process.env.CONTROL_PLANE_DB_URL
+    || process.env.DATABASE_URL
+    || `postgres://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || 'iochunt_password'}@${tenant.db_host || 'db'}:${tenant.db_port || 5432}/postgres`;
+  const parsedUrl = new URL(adminUrl);
+
   // Self-healing: Ensure tenant role has full permissions on all existing tables/sequences
   try {
-    const adminUrl = process.env.CONTROL_PLANE_DB_URL
-      || process.env.DATABASE_URL
-      || `postgres://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || 'iochunt_password'}@${tenant.db_host || 'db'}:${tenant.db_port || 5432}/postgres`;
-    const parsedUrl = new URL(adminUrl);
     const tenantAdminConnStr = `postgres://${parsedUrl.username}:${parsedUrl.password}@${parsedUrl.hostname}:${parsedUrl.port || 5432}/${tenant.db_name}`;
     const fixPool = new Pool({ connectionString: tenantAdminConnStr, max: 1 });
     await fixPool.query(`GRANT ALL ON ALL TABLES IN SCHEMA public TO "${tenant.db_user}"`);
@@ -156,7 +158,7 @@ async function getTenantPool(tenantId) {
   }
 
   // Create a new pool with tenant-specific credentials (NOT superuser)
-  const pool = new Pool({
+  let pool = new Pool({
     host: tenant.db_host || 'db',
     port: tenant.db_port || 5432,
     user: tenant.db_user,
@@ -166,6 +168,48 @@ async function getTenantPool(tenantId) {
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: CONNECTION_TIMEOUT_MS
   });
+
+  // Test the connection — if auth fails, self-heal by resetting the role password
+  try {
+    const testClient = await pool.connect();
+    testClient.release();
+  } catch (connErr) {
+    if (connErr.code === '28P01') {
+      // Password mismatch between stored password and PostgreSQL role
+      console.warn(`[TenantDB:${tenantId}] Auth failed — resetting role password to match stored credentials...`);
+      try {
+        const resetConnStr = `postgres://${parsedUrl.username}:${parsedUrl.password}@${parsedUrl.hostname}:${parsedUrl.port || 5432}/postgres`;
+        const resetPool = new Pool({ connectionString: resetConnStr, max: 1 });
+        // Reset the PostgreSQL role password to match what we have stored
+        await resetPool.query(`ALTER ROLE "${tenant.db_user}" WITH PASSWORD '${dbPassword.replace(/'/g, "''")}'`);
+        await resetPool.end().catch(() => {});
+        console.log(`[TenantDB:${tenantId}] Role password reset successfully. Reconnecting...`);
+
+        // Close the failed pool and create a fresh one
+        await pool.end().catch(() => {});
+        pool = new Pool({
+          host: tenant.db_host || 'db',
+          port: tenant.db_port || 5432,
+          user: tenant.db_user,
+          password: dbPassword,
+          database: tenant.db_name,
+          max: POOL_MAX_CONNECTIONS,
+          idleTimeoutMillis: 30000,
+          connectionTimeoutMillis: CONNECTION_TIMEOUT_MS
+        });
+
+        // Verify the fix worked
+        const verifyClient = await pool.connect();
+        verifyClient.release();
+        console.log(`[TenantDB:${tenantId}] Reconnected successfully after password reset.`);
+      } catch (resetErr) {
+        console.error(`[TenantDB:${tenantId}] Failed to self-heal:`, resetErr.message);
+        throw connErr; // Throw the original auth error
+      }
+    } else {
+      throw connErr;
+    }
+  }
 
   pool.on('error', (err) => {
     console.error(`[TenantDB:${tenantId}] Pool error:`, err.message);

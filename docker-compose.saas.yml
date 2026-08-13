@@ -111,6 +111,9 @@ services:
       NODE_ENV: production
       SUPER_ADMIN_PORT: 4002
       SUPER_ADMIN_DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-iochunt_password}@db:5432/${POSTGRES_DB:-iochunt_control}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iochunt_password}
     ports:
       - "${SUPER_ADMIN_PORT:-8083}:4002"
     volumes:
