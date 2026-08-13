@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     status VARCHAR(50) DEFAULT 'active',
     tier VARCHAR(50) DEFAULT 'standard',
     max_eps INTEGER DEFAULT 5000,
+    central_url VARCHAR(255) DEFAULT '',
     created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
     updated_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())
 );

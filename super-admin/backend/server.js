@@ -91,6 +91,14 @@ async function initSuperAdminDB() {
       );
     `);
 
+    // Auto-migrate schema for missing columns in existing deployments
+    try {
+      await client.query('ALTER TABLE tenants ADD COLUMN central_url VARCHAR(255) DEFAULT \'\'');
+      console.log('[SuperAdmin] Auto-migrated: Added central_url to tenants table');
+    } catch (e) {
+      // Column already exists, ignore
+    }
+
     // Seed default superadmin / superadmin with mandatory password change
     const checkRes = await client.query('SELECT * FROM super_admins WHERE username = $1', ['superadmin']);
     if (checkRes.rows.length === 0) {
