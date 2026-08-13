@@ -93,23 +93,20 @@ async function requireSession(req, res, next) {
 }
 
 /**
- * Express middleware to validate API key for agent log ingestion and aggregator syncing
+ * Express middleware to validate API key for agent log ingestion and aggregator syncing.
+ * Queries the control plane `tenants` table to map the API key to a specific tenant database.
  */
 async function requireKey(req, res, next) {
-  const API_KEY = process.env.API_KEY || process.env.AGGREGATOR_API_KEY;
   const key = req.headers['x-api-key'] || req.headers['x-aggregator-key'] || req.query.key;
   if (!key) return res.status(401).json({ error: 'Unauthorized: Missing API key' });
 
   const cleanKey = key.trim();
-  const keyHash = hash(cleanKey);
 
   try {
-    // Check if the API key belongs to a SaaS Tenant (Direct Agent Ingestion)
     const tenantRes = await db.query(
-      'SELECT tenant_id, company_name, status FROM tenants WHERE api_key_hash = $1 AND status = $2',
-      [keyHash, 'active']
+      'SELECT id, tenant_id, company_name, status FROM tenants WHERE api_key_hash = $1 AND status = $2',
+      [hash(cleanKey), 'active']
     );
-
     if (tenantRes.rows.length > 0) {
       const tenant = tenantRes.rows[0];
       req.tenantId = tenant.tenant_id;
@@ -120,12 +117,6 @@ async function requireKey(req, res, next) {
     console.error('[AUTH] Error checking tenant API key in requireKey:', e.message);
   }
 
-  // Fallback for Single-Tenant On-Prem deployments
-  if (cleanKey === API_KEY) {
-    req.authType = 'direct_agent';
-    return next();
-  }
-
   return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
 }
 
@@ -133,18 +124,14 @@ async function requireKey(req, res, next) {
  * Express middleware that allows either valid agent/aggregator API key OR a valid dashboard session
  */
 async function requireSessionOrKey(req, res, next) {
-  const API_KEY = process.env.API_KEY || process.env.AGGREGATOR_API_KEY;
   const key = req.headers['x-api-key'] || req.headers['x-aggregator-key'] || req.query.key;
   if (key) {
     const cleanKey = key.trim();
-    const keyHash = hash(cleanKey);
-
     try {
       const tenantRes = await db.query(
-        'SELECT tenant_id, company_name, status FROM tenants WHERE api_key_hash = $1 AND status = $2',
-        [keyHash, 'active']
+        'SELECT id, tenant_id, company_name, status FROM tenants WHERE api_key_hash = $1 AND status = $2',
+        [hash(cleanKey), 'active']
       );
-
       if (tenantRes.rows.length > 0) {
         const tenant = tenantRes.rows[0];
         req.tenantId = tenant.tenant_id;
@@ -153,11 +140,6 @@ async function requireSessionOrKey(req, res, next) {
       }
     } catch (e) {
       console.error('[AUTH] Error checking tenant API key in requireSessionOrKey:', e.message);
-    }
-
-    if (cleanKey === API_KEY) {
-      req.authType = 'direct_agent';
-      return next();
     }
   }
   return requireSession(req, res, next);

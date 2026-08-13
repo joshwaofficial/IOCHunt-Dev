@@ -547,7 +547,7 @@ export default function Users() {
         <span className="material-symbols-outlined" style={{ color: '#2563eb', flexShrink: 0, marginTop: '1px' }}>info</span>
         <div style={{ fontSize: '12px', lineHeight: 1.7, color: 'var(--text)' }}>
           <strong style={{ color: '#2563eb' }}>API Key Agent Authentication</strong><br />
-          IOC Hunt agents authenticate using the server <strong>API_KEY</strong> environment variable not these user accounts. User accounts are for dashboard access only. Set <code style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(37,99,235,0.15)', border: '1px solid rgba(37,99,235,0.3)', color: '#3b82f6' }}>API_KEY=your-secret</code> when starting the server.
+          IOC Hunt agents authenticate using your unique Workspace API Key. This key was securely generated and provided to you by your administrator when your workspace was provisioned. Keep it secret. User accounts are for dashboard access only.
         </div>
       </div>
 
