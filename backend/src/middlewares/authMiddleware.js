@@ -101,23 +101,29 @@ async function requireKey(req, res, next) {
   if (!key) return res.status(401).json({ error: 'Unauthorized: Missing API key' });
 
   const cleanKey = key.trim();
-  if (cleanKey === API_KEY) {
-    req.authType = 'direct_agent';
-    return next();
-  }
+  const keyHash = hash(cleanKey);
 
   try {
-    const aggRes = await db.query(
-      'SELECT id, name, database_name, status FROM aggregators WHERE api_key_hash = $1 AND status = $2',
-      [hash(cleanKey), 'active']
+    // Check if the API key belongs to a SaaS Tenant (Direct Agent Ingestion)
+    const tenantRes = await db.query(
+      'SELECT tenant_id, company_name, status FROM tenants WHERE api_key_hash = $1 AND status = $2',
+      [keyHash, 'active']
     );
-    if (aggRes.rows.length > 0) {
-      req.aggregator = aggRes.rows[0];
-      req.authType = 'aggregator';
+
+    if (tenantRes.rows.length > 0) {
+      const tenant = tenantRes.rows[0];
+      req.tenantId = tenant.tenant_id;
+      req.authType = 'tenant_agent';
       return next();
     }
   } catch (e) {
-    console.error('[AUTH] Error checking aggregator key in requireKey:', e.message);
+    console.error('[AUTH] Error checking tenant API key in requireKey:', e.message);
+  }
+
+  // Fallback for Single-Tenant On-Prem deployments
+  if (cleanKey === API_KEY) {
+    req.authType = 'direct_agent';
+    return next();
   }
 
   return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
@@ -131,22 +137,27 @@ async function requireSessionOrKey(req, res, next) {
   const key = req.headers['x-api-key'] || req.headers['x-aggregator-key'] || req.query.key;
   if (key) {
     const cleanKey = key.trim();
-    if (cleanKey === API_KEY) {
-      req.authType = 'direct_agent';
-      return next();
-    }
+    const keyHash = hash(cleanKey);
+
     try {
-      const aggRes = await db.query(
-        'SELECT id, name, database_name, status FROM aggregators WHERE api_key_hash = $1 AND status = $2',
-        [hash(cleanKey), 'active']
+      const tenantRes = await db.query(
+        'SELECT tenant_id, company_name, status FROM tenants WHERE api_key_hash = $1 AND status = $2',
+        [keyHash, 'active']
       );
-      if (aggRes.rows.length > 0) {
-        req.aggregator = aggRes.rows[0];
-        req.authType = 'aggregator';
+
+      if (tenantRes.rows.length > 0) {
+        const tenant = tenantRes.rows[0];
+        req.tenantId = tenant.tenant_id;
+        req.authType = 'tenant_agent';
         return next();
       }
     } catch (e) {
-      console.error('[AUTH] Error checking aggregator key in requireSessionOrKey:', e.message);
+      console.error('[AUTH] Error checking tenant API key in requireSessionOrKey:', e.message);
+    }
+
+    if (cleanKey === API_KEY) {
+      req.authType = 'direct_agent';
+      return next();
     }
   }
   return requireSession(req, res, next);
