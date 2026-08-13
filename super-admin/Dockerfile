@@ -26,6 +26,10 @@ RUN npm install
 WORKDIR /app
 COPY . /app/
 
+# Install backend dependencies because provision_tenant.js requires backend/src/config/db.js
+WORKDIR /app/backend
+RUN npm install
+
 # Copy built frontend assets from stage 1
 COPY --from=frontend-builder /app/frontend/dist /app/super-admin/frontend/dist
 
