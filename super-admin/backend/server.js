@@ -244,13 +244,16 @@ app.post('/api/super/companies', superAuthMiddleware, async (req, res) => {
       [safeId, req.superAdmin.username, 'PROVISION_TENANT', safeId, `Provisioned tenant ${safeId} with DB ${result.db_name}`, req.ip, 'SUCCESS']
     );
 
-    // Return the tenant info
+    // Return the tenant info along with the raw API key
     const tenantRes = await pool.query(
       'SELECT id, tenant_id AS company_id, company_name, status, central_url, syslog_port, db_name, tier, created_at FROM tenants WHERE tenant_id = $1',
       [safeId]
     );
-
-    res.status(201).json(tenantRes.rows[0]);
+    
+    const tenantData = tenantRes.rows[0];
+    tenantData.api_key = result.api_key;
+    
+    res.json(tenantData);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: `Provisioning failed: ${err.message}` });

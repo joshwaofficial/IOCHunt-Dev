@@ -97,7 +97,12 @@ async function requireSession(req, res, next) {
  * Queries the control plane `tenants` table to map the API key to a specific tenant database.
  */
 async function requireKey(req, res, next) {
-  const key = req.headers['x-api-key'] || req.headers['x-aggregator-key'] || req.query.key;
+  let key = req.headers['x-api-key'] || req.headers['x-aggregator-key'] || req.query.key;
+  
+  if (!key && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    key = req.headers.authorization.split(' ')[1];
+  }
+
   if (!key) return res.status(401).json({ error: 'Unauthorized: Missing API key' });
 
   const cleanKey = key.trim();
@@ -124,7 +129,12 @@ async function requireKey(req, res, next) {
  * Express middleware that allows either valid agent/aggregator API key OR a valid dashboard session
  */
 async function requireSessionOrKey(req, res, next) {
-  const key = req.headers['x-api-key'] || req.headers['x-aggregator-key'] || req.query.key;
+  let key = req.headers['x-api-key'] || req.headers['x-aggregator-key'] || req.query.key;
+  
+  if (!key && req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    key = req.headers.authorization.split(' ')[1];
+  }
+
   if (key) {
     const cleanKey = key.trim();
     try {

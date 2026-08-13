@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const ingestController = require('../controllers/ingestController');
+const { requireKey } = require('../middlewares/authMiddleware');
 
 // Accept raw gzip body
 router.post('/batch', express.raw({ type: 'application/octet-stream', limit: '50mb' }), ingestController.batchIngest);
@@ -8,9 +9,9 @@ router.post('/batch', express.raw({ type: 'application/octet-stream', limit: '50
 // Accept JSON forwarded events from branch aggregators
 router.post('/events', express.json({ limit: '50mb' }), ingestController.ingestEvents);
 
-// Aggregator incident proxy routes
-router.get('/incidents', ingestController.getAggregatorIncidents);
-router.get('/incidents/summary', ingestController.getAggregatorIncidentSummary);
-router.get('/incidents/:id', ingestController.getAggregatorIncident);
+// Aggregator incident proxy routes (protected by requireKey so req.tenantId is set)
+router.get('/incidents', requireKey, ingestController.getAggregatorIncidents);
+router.get('/incidents/summary', requireKey, ingestController.getAggregatorIncidentSummary);
+router.get('/incidents/:id', requireKey, ingestController.getAggregatorIncident);
 
 module.exports = router;
