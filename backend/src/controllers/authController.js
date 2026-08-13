@@ -84,11 +84,14 @@ async function login(req, res) {
       );
 
       if (userRes.rows.length === 0) {
+        console.log(`[DEBUG Auth] User not found: ${username.trim()}`);
         return res.status(401).json({ error: 'Invalid credentials' });
       }
 
       const user = userRes.rows[0];
       const isValid = verifyPassword(password, user.password_hash, user.salt);
+      console.log(`[DEBUG Auth] verifyPassword for ${user.username}:`, isValid);
+      
       if (!isValid) {
         return res.status(401).json({ error: 'Invalid credentials' });
       }
