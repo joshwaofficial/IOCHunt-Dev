@@ -1,5 +1,18 @@
 const Event = require('../models/Event');
 const { parseAdEvent, parseMaliciousEvent, parseUsbEvent, parseUserEvent } = require('../utils/eventParsers');
+const appMode = require('../config/appMode');
+
+/**
+ * Resolves the effective aggregator to query based on user role and request query parameters.
+ * - If Central Server: Admins can view all (null) or filter by query.aggregator
+ * - If Aggregator Admin: Can ONLY view their own aggregator_name
+ */
+function getEffectiveAggregator(req) {
+  if (req.session && req.session.role === 'AGGREGATOR_ADMIN') {
+    return req.session.aggregator_name;
+  }
+  return req.query.aggregator || null;
+}
 
 const getEvents = async (req, res) => {
   try {
@@ -155,7 +168,7 @@ function hoursAgoUTC(hours) {
 
 const crypto = require('crypto');
 
-async function buildChains(from, to, machine, aggregator) {
+async function buildChains(req, from, to, machine, aggregator) {
   let params = [from, to];
   let pIdx = 3;
   let where = "WHERE ts>=$1 AND ts<=$2 AND message NOT ILIKE '%iochuntwatchdog%' AND tag NOT ILIKE '%iochuntwatchdog%'";
@@ -171,8 +184,6 @@ async function buildChains(from, to, machine, aggregator) {
     params.push(aggregator);
     pIdx++;
   }
-
-  const pool = getDb(aggregator);
   const eventsRes = await req.queryTenant(`SELECT e.*, i.id as incident_id, i.assigned_to as incident_assigned_to, i.status as incident_status
      FROM events e
      LEFT JOIN incident_events ie ON ie.event_id = e.id
@@ -269,7 +280,7 @@ const getStats = async (req, res) => {
     const criticalStats = criticalStatsRes.rows;
     const totalCritical = criticalStats.reduce((sum, row) => sum + parseInt(row.n, 10), 0);
 
-    const chains = await buildChains(from, to, machine, aggregator);
+    const chains = await buildChains(req, from, to, machine, aggregator);
 
     res.json({ total, bySev, byCat, byMachine, byMachineSev, machines, hourly, critical, criticalStats, totalCritical, chains });
   } catch (error) {
