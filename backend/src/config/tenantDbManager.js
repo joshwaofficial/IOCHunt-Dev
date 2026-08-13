@@ -140,6 +140,21 @@ async function getTenantPool(tenantId) {
     }
   }
 
+  // Self-healing: Ensure tenant role has full permissions on all existing tables/sequences
+  try {
+    const adminUrl = process.env.CONTROL_PLANE_DB_URL
+      || process.env.DATABASE_URL
+      || `postgres://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || 'iochunt_password'}@${tenant.db_host || 'db'}:${tenant.db_port || 5432}/postgres`;
+    const parsedUrl = new URL(adminUrl);
+    const tenantAdminConnStr = `postgres://${parsedUrl.username}:${parsedUrl.password}@${parsedUrl.hostname}:${parsedUrl.port || 5432}/${tenant.db_name}`;
+    const fixPool = new Pool({ connectionString: tenantAdminConnStr, max: 1 });
+    await fixPool.query(`GRANT ALL ON ALL TABLES IN SCHEMA public TO "${tenant.db_user}"`);
+    await fixPool.query(`GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "${tenant.db_user}"`);
+    await fixPool.end().catch(() => {});
+  } catch (healErr) {
+    console.warn(`[TenantDB:${tenantId}] Self-healing permission check note:`, healErr.message);
+  }
+
   // Create a new pool with tenant-specific credentials (NOT superuser)
   const pool = new Pool({
     host: tenant.db_host || 'db',

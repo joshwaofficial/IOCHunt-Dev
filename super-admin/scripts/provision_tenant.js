@@ -161,6 +161,10 @@ async function provisionTenant({
 
     await tenantClient.query(getTableSchemaSQL());
 
+    // Grant full permissions on all created tables and sequences to the tenant DB role
+    await tenantClient.query(`GRANT ALL ON ALL TABLES IN SCHEMA public TO "${dbUser}"`);
+    await tenantClient.query(`GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "${dbUser}"`);
+
     // Seed the initial admin user
     const { hash, salt } = hashPassword(admin_password);
     const createdAt = Math.floor(Date.now() / 1000);
