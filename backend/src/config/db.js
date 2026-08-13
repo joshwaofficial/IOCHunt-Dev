@@ -78,9 +78,13 @@ function getTableSchemaSQL() {
 
     CREATE TABLE IF NOT EXISTS sessions (
       token VARCHAR(128) PRIMARY KEY,
-      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL,
       username VARCHAR(255) NOT NULL,
       role VARCHAR(50) NOT NULL,
+      tenant_id VARCHAR(64) DEFAULT '',
+      aggregator_name VARCHAR(255) DEFAULT NULL,
+      display_name VARCHAR(255) DEFAULT NULL,
+      force_password_change INTEGER DEFAULT 0,
       created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
       expires_at BIGINT NOT NULL
     );
@@ -90,6 +94,7 @@ function getTableSchemaSQL() {
       user_id INTEGER NOT NULL,
       username VARCHAR(255) NOT NULL,
       role VARCHAR(50) NOT NULL,
+      tenant_id VARCHAR(64) DEFAULT '',
       expires_at BIGINT NOT NULL
     );
 
@@ -304,6 +309,11 @@ const initDB = async (retries = 10, delay = 3000) => {
           ALTER TABLE users ADD COLUMN IF NOT EXISTS aggregator_name TEXT DEFAULT NULL;
           ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT DEFAULT NULL;
           ALTER TABLE settings ADD COLUMN IF NOT EXISTS aggregator_name VARCHAR(255) DEFAULT '';
+          ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT '';
+          ALTER TABLE sessions ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 0;
+          ALTER TABLE sessions ADD COLUMN IF NOT EXISTS aggregator_name VARCHAR(255) DEFAULT NULL;
+          ALTER TABLE sessions ADD COLUMN IF NOT EXISTS display_name VARCHAR(255) DEFAULT NULL;
+          ALTER TABLE mfa_pending ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT '';
         `);
 
         // Instance Configuration Initialization
