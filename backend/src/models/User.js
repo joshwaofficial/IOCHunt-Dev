@@ -60,15 +60,17 @@ class User {
     return res.rows[0];
   }
 
-  static async updatePassword(id, passwordHash, salt) {
-    await db.query(
+  static async updatePassword(id, passwordHash, salt, queryFn) {
+    const q = queryFn || db.query.bind(db);
+    await q(
       'UPDATE users SET password_hash = $1, salt = $2, force_password_change = 0 WHERE id = $3',
       [passwordHash, salt, id]
     );
   }
 
-  static async updateCredentials(id, username, passwordHash, salt) {
-    await db.query(
+  static async updateCredentials(id, username, passwordHash, salt, queryFn) {
+    const q = queryFn || db.query.bind(db);
+    await q(
       'UPDATE users SET username = $1, password_hash = $2, salt = $3, force_password_change = 0 WHERE id = $4',
       [username.trim().toLowerCase(), passwordHash, salt, id]
     );

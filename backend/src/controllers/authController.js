@@ -256,7 +256,18 @@ async function changePassword(req, res) {
       return res.status(400).json({ error: validationError });
     }
 
-    const user = await User.findById(req.session.user_id);
+    // Support multi-tenancy by selecting the appropriate query function
+    let queryFn;
+    if (req.tenantId) {
+      const tenantDbManager = require('../config/tenantDbManager');
+      const tenantPool = await tenantDbManager.getTenantPool(req.tenantId);
+      queryFn = tenantPool.query.bind(tenantPool);
+    } else {
+      const db = require('../config/db');
+      queryFn = db.query.bind(db);
+    }
+
+    const user = await User.findById(req.session.user_id, queryFn);
     if (!user) {
       return res.status(404).json({ error: 'User account not found' });
     }
@@ -270,18 +281,23 @@ async function changePassword(req, res) {
     const { hash, salt } = hashPassword(new_password);
     
     if (new_username && new_username.trim().toLowerCase() !== user.username) {
-      const existingUser = await User.findByUsername(new_username);
+      const existingUser = await User.findByUsername(new_username, queryFn);
       if (existingUser) {
         return res.status(400).json({ error: 'Username is already taken' });
       }
-      await User.updateCredentials(user.id, new_username, hash, salt);
+      await User.updateCredentials(user.id, new_username, hash, salt, queryFn);
     } else {
-      await User.updatePassword(user.id, hash, salt);
+      await User.updatePassword(user.id, hash, salt, queryFn);
     }
 
-    // Update the session in memory if needed
-    if (req.session) {
+    // Update the session in memory and in the control plane database
+    if (req.session && req.session.token) {
       req.session.force_password_change = 0;
+      const db = require('../config/db');
+      await db.query(
+        'UPDATE sessions SET force_password_change = 0 WHERE token = $1',
+        [req.session.token]
+      );
     }
 
     return res.status(200).json({
