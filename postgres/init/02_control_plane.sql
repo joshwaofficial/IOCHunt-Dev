@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     db_name VARCHAR(255) NOT NULL,
     db_user VARCHAR(255) NOT NULL,
     db_password_encrypted TEXT NOT NULL,
-    db_host VARCHAR(255) DEFAULT 'db',
+    db_host VARCHAR(255) DEFAULT 'iochunt-db-default',
     db_port INTEGER DEFAULT 5432,
     syslog_port INTEGER,
     api_key_hash VARCHAR(255),

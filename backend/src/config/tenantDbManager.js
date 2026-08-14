@@ -143,7 +143,7 @@ async function getTenantPool(tenantId) {
   // Build superuser connection string for self-healing operations
   const adminUrl = process.env.CONTROL_PLANE_DB_URL
     || process.env.DATABASE_URL
-    || `postgres://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || 'iochunt_password'}@${tenant.db_host || 'db'}:${tenant.db_port || 5432}/postgres`;
+    || `postgres://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || 'iochunt_password'}@${tenant.db_host || 'iochunt-db-default'}:${tenant.db_port || 5432}/postgres`;
   const parsedUrl = new URL(adminUrl);
 
   // Self-healing: Ensure tenant role has full permissions on all existing tables/sequences
@@ -159,7 +159,7 @@ async function getTenantPool(tenantId) {
 
   // Create a new pool with tenant-specific credentials (NOT superuser)
   let pool = new Pool({
-    host: tenant.db_host || 'db',
+    host: tenant.db_host || 'iochunt-db-default',
     port: tenant.db_port || 5432,
     user: tenant.db_user,
     password: dbPassword,
@@ -188,7 +188,7 @@ async function getTenantPool(tenantId) {
         // Close the failed pool and create a fresh one
         await pool.end().catch(() => {});
         pool = new Pool({
-          host: tenant.db_host || 'db',
+          host: tenant.db_host || 'iochunt-db-default',
           port: tenant.db_port || 5432,
           user: tenant.db_user,
           password: dbPassword,
