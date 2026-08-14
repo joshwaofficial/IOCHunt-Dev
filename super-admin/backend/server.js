@@ -14,6 +14,23 @@ const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 const crypto = require('crypto');
+const { execSync } = require('child_process');
+
+// ── Auto-Generate SSL Certificates ─────────────────────────────
+try {
+  const sslDir = path.join(__dirname, '../../../nginx/ssl');
+  if (fs.existsSync(sslDir)) {
+    const crtPath = path.join(sslDir, 'iochunt.crt');
+    const keyPath = path.join(sslDir, 'iochunt.key');
+    if (!fs.existsSync(crtPath) || !fs.existsSync(keyPath)) {
+      console.log('[SuperAdmin] SSL certificates missing. Generating self-signed certificates...');
+      execSync(`openssl req -x509 -newkey rsa:4096 -keyout "${keyPath}" -out "${crtPath}" -days 3650 -nodes -subj "/CN=iochunt-platform/O=DefSecOne/C=IN"`, { stdio: 'ignore' });
+      console.log('[SuperAdmin] SSL certificates generated successfully.');
+    }
+  }
+} catch (err) {
+  console.error('[SuperAdmin] Failed to auto-generate SSL certificates:', err.message);
+}
 
 const app = express();
 const PORT = process.env.SUPER_ADMIN_PORT || 4002;
