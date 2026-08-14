@@ -1,14 +1,4 @@
-const Redis = require('ioredis');
-
-const redisOptions = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: process.env.REDIS_PORT || 6379,
-  retryStrategy(times) {
-    return Math.min(times * 50, 2000);
-  }
-};
-
-const redis = new Redis(redisOptions);
+const { getRedisClient } = require('../config/redisClient');
 
 /**
  * Publishes parsed events into a Redis Stream for bulk processing.
@@ -21,6 +11,7 @@ async function publishToStream(streamKey, tenantId, events) {
   if (!events || events.length === 0) return;
   
   // Create a pipeline to batch XADD commands
+  const redis = getRedisClient();
   const pipeline = redis.pipeline();
   
   for (const event of events) {
@@ -33,6 +24,6 @@ async function publishToStream(streamKey, tenantId, events) {
 }
 
 module.exports = {
-  redis,
+  get redis() { return getRedisClient(); },
   publishToStream
 };
