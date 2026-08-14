@@ -57,6 +57,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-iochunt_password}@db:5432/${POSTGRES_DB:-iochunt_db}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855}
       API_KEY: ${API_KEY:-iochunt-change-me}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       FRONTEND_URL: ${FRONTEND_URL:-*}
       DISPLAY_TZ: ${DISPLAY_TZ:-Asia/Kolkata}
       APP_VERSION: ${APP_VERSION:-2.0.0}
@@ -73,6 +74,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     restart: unless-stopped
     networks:
       - db-net
@@ -105,6 +108,19 @@ services:
     restart: unless-stopped
     networks:
       - app-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ── Redis (In-Memory Queue & Cache) ───────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: iochunt-redis-${TENANT_ID:-default}
+    restart: unless-stopped
+    networks:
+      - db-net
     logging:
       driver: "json-file"
       options:
