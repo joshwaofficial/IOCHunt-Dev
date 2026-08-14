@@ -90,7 +90,7 @@ async function provisionTenant({
   const dbName = `iochunt_tenant_${safeId}`;
   const dbUser = `tenant_${safeId}`;
   const dbPassword = crypto.randomBytes(24).toString('hex');
-  const apiKey = 'iochunt-' + crypto.randomBytes(16).toString('hex');
+  const apiKey = 'iochunt-' + crypto.randomBytes(4).toString('hex').slice(0, 7);
   const apiKeyHash = crypto.createHash('sha256').update(apiKey).digest('hex');
 
   // Find an available syslog port
