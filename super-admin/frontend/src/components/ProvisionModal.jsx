@@ -184,6 +184,18 @@ export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
                     required 
                   />
                   <button type="button" className="glass-button" onClick={generatePassword} disabled={isLoading} style={{ padding: '0.5rem 1rem' }}>Generate</button>
+                  <button 
+                    type="button" 
+                    className="glass-button" 
+                    onClick={() => {
+                      navigator.clipboard.writeText(adminPassword);
+                      alert('Password copied to clipboard!');
+                    }} 
+                    disabled={isLoading || !adminPassword} 
+                    style={{ padding: '0.5rem 1rem' }}
+                  >
+                    Copy
+                  </button>
                 </div>
               </div>
 
