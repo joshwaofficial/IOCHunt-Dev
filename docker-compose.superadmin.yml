@@ -22,6 +22,7 @@ services:
       # Preserve the built node_modules and frontend dist directories from the Docker image
       - /app/super-admin/node_modules
       - /app/super-admin/frontend/dist
+      - /app/backend/node_modules
     restart: unless-stopped
     logging:
       driver: "json-file"
