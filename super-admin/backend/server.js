@@ -260,6 +260,36 @@ app.post('/api/super/companies', superAuthMiddleware, async (req, res) => {
   }
 });
 
+// ── Delete Tenant ───────────────────────────────────────────────
+app.delete('/api/super/companies/:company_id', superAuthMiddleware, async (req, res) => {
+  try {
+    const { company_id } = req.params;
+    if (!company_id) return res.status(400).json({ error: 'Company ID is required' });
+
+    const safeId = company_id.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+
+    // Check if tenant exists
+    const checkRes = await pool.query('SELECT id FROM tenants WHERE tenant_id = $1', [safeId]);
+    if (checkRes.rows.length === 0) return res.status(404).json({ error: 'Tenant not found' });
+
+    // Execute teardown
+    const deleteTenant = require('../scripts/delete_tenant');
+    await deleteTenant(safeId);
+
+    // Log the deletion action
+    await pool.query(
+      `INSERT INTO audit_log (tenant_id, username, action, resource, detail, ip_address, result)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [safeId, req.superAdmin.username, 'DELETE_TENANT', safeId, `Deleted tenant ${safeId}`, req.ip, 'SUCCESS']
+    );
+
+    res.json({ success: true, message: `Tenant ${safeId} has been successfully deleted.` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: `Deletion failed: ${err.message}` });
+  }
+});
+
 // Static Frontend Serving
 const staticPath = path.join(__dirname, '../frontend/dist');
 if (process.env.SERVE_STATIC === 'true' || fs.existsSync(staticPath)) {
