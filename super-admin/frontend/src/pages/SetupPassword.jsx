@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { motion } from 'framer-motion';
 import { ShieldCheck, LockKeyhole } from 'lucide-react';
 
 export default function SetupPassword() {
@@ -37,21 +36,19 @@ export default function SetupPassword() {
   };
 
   return (
-    <div className="container flex items-center justify-center" style={{ minHeight: '100vh' }}>
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
+    <div className="layout-wrapper flex items-center justify-center" style={{ minHeight: '100vh', width: '100vw', background: 'var(--bg-dark)' }}>
+      <div 
         className="glass-panel" 
-        style={{ width: '100%', maxWidth: '420px', padding: '2.5rem' }}
+        style={{ width: '100%', maxWidth: '400px', padding: '40px 32px', background: 'var(--bg-card)' }}
       >
-        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
-            <div style={{ background: 'rgba(16, 185, 129, 0.2)', padding: '1rem', borderRadius: '50%', boxShadow: '0 0 20px rgba(16, 185, 129, 0.4)' }}>
-              <ShieldCheck size={40} color="var(--success)" />
+        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+            <div style={{ background: '#111', border: '1px solid var(--border-color)', padding: '12px', borderRadius: '8px' }}>
+              <ShieldCheck size={32} color="var(--success)" />
             </div>
           </div>
-          <h2 className="text-gradient" style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>Security Setup Required</h2>
-          <p className="text-muted" style={{ fontSize: '0.9rem' }}>Please set a secure permanent password for the Super Admin Control Plane.</p>
+          <h2 style={{ fontSize: '20px', marginBottom: '4px', letterSpacing: '-0.02em', color: 'var(--text-heading)' }}>Security Setup Required</h2>
+          <p className="text-muted" style={{ fontSize: '14px' }}>Please set a secure permanent password for the Super Admin Control Plane.</p>
         </div>
 
         {error && (
@@ -87,13 +84,13 @@ export default function SetupPassword() {
           </div>
           <button 
             type="submit" 
-            className="glass-button mt-4" 
+            className="glass-button primary mt-4" 
             disabled={isLoading}
           >
             {isLoading ? 'Securing...' : 'Set Password & Continue'}
           </button>
         </form>
-      </motion.div>
+      </div>
     </div>
   );
 }

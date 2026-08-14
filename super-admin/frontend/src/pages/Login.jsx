@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { motion } from 'framer-motion';
 import { Shield, Lock, User } from 'lucide-react';
 
 export default function Login() {
@@ -31,22 +30,19 @@ export default function Login() {
   };
 
   return (
-    <div className="container flex items-center justify-center" style={{ minHeight: '100vh' }}>
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
+    <div className="layout-wrapper flex items-center justify-center" style={{ minHeight: '100vh', width: '100vw', background: 'var(--bg-dark)' }}>
+      <div 
         className="glass-panel" 
-        style={{ width: '100%', maxWidth: '420px', padding: '2.5rem' }}
+        style={{ width: '100%', maxWidth: '400px', padding: '40px 32px', background: 'var(--bg-card)' }}
       >
-        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
-            <div style={{ background: 'rgba(99, 102, 241, 0.2)', padding: '1rem', borderRadius: '50%', boxShadow: '0 0 20px rgba(99, 102, 241, 0.4)' }}>
-              <Shield size={40} color="var(--primary)" />
+        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+            <div style={{ background: '#111', border: '1px solid var(--border-color)', padding: '12px', borderRadius: '8px' }}>
+              <Shield size={32} color="var(--text-heading)" />
             </div>
           </div>
-          <h2 className="text-gradient" style={{ fontSize: '1.8rem', marginBottom: '0.5rem' }}>Cloud Orchestrator</h2>
-          <p className="text-muted">Super Admin Control Plane</p>
+          <h2 style={{ fontSize: '24px', marginBottom: '4px', letterSpacing: '-0.02em', color: 'var(--text-heading)' }}>Cloud Orchestrator</h2>
+          <p className="text-muted" style={{ fontSize: '14px' }}>Super Admin Control Plane</p>
         </div>
 
         {error && (
@@ -88,7 +84,7 @@ export default function Login() {
             {isLoading ? 'Authenticating...' : 'Secure Access'}
           </button>
         </form>
-      </motion.div>
+      </div>
     </div>
   );
 }

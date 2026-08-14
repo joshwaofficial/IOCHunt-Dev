@@ -64,46 +64,45 @@ export default function Dashboard() {
         </div>
         
         {companies.length === 0 ? (
-          <div className="text-muted" style={{ textAlign: 'center', padding: '40px 20px' }}>
-            <Server size={48} color="var(--text-muted)" style={{ margin: '0 auto', marginBottom: '16px', opacity: 0.5 }} />
-            <div style={{ fontSize: '18px', fontWeight: '500', color: '#fff', marginBottom: '8px' }}>No Tenants Provisioned</div>
-            <div>Click "Provision Tenant" to deploy your first Central Server.</div>
+          <div className="text-muted" style={{ textAlign: 'center', padding: '60px 20px' }}>
+            <Server size={32} color="var(--border-color)" style={{ margin: '0 auto', marginBottom: '16px' }} />
+            <div style={{ fontSize: '15px', fontWeight: '500', color: 'var(--text-heading)', marginBottom: '4px' }}>No Tenants Provisioned</div>
+            <div style={{ fontSize: '13px' }}>Click "Provision Tenant" to deploy your first Central Server.</div>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+            <table>
               <thead>
-                <tr className="text-muted" style={{ borderBottom: '1px solid var(--border-color)' }}>
-                  <th style={{ paddingBottom: '16px', fontWeight: '500' }}>Tenant ID</th>
-                  <th style={{ paddingBottom: '16px', fontWeight: '500' }}>Company Name</th>
-                  <th style={{ paddingBottom: '16px', fontWeight: '500' }}>Status</th>
-                  <th style={{ paddingBottom: '16px', fontWeight: '500' }}>Central URL</th>
-                  <th style={{ paddingBottom: '16px', fontWeight: '500', textAlign: 'right' }}>Actions</th>
+                <tr>
+                  <th>Tenant ID</th>
+                  <th>Company Name</th>
+                  <th>Status</th>
+                  <th>Central URL</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {companies.map((company) => (
-                  <tr key={company.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                    <td style={{ padding: '16px 0', color: '#fff', fontFamily: 'monospace' }}>{company.company_id}</td>
-                    <td style={{ padding: '16px 0', color: '#fff', fontWeight: '500' }}>{company.company_name}</td>
-                    <td style={{ padding: '16px 0' }}>
+                  <tr key={company.id}>
+                    <td style={{ fontFamily: 'monospace', color: 'var(--text-heading)' }}>{company.company_id}</td>
+                    <td style={{ fontWeight: '500', color: 'var(--text-heading)' }}>{company.company_name}</td>
+                    <td>
                       <span className={`badge ${company.status === 'active' ? 'badge-info' : 'badge-warning'}`}>
                         {company.status.toUpperCase()}
                       </span>
                     </td>
-                    <td style={{ padding: '16px 0' }}>
-                      <a href={company.central_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'none' }}>
+                    <td>
+                      <a href={company.central_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-main)', textDecoration: 'none', borderBottom: '1px solid var(--border-color)' }}>
                         {company.central_url}
                       </a>
                     </td>
-                    <td style={{ padding: '16px 0', textAlign: 'right' }}>
+                    <td style={{ textAlign: 'right' }}>
                       <button 
                         className="btn-danger" 
-                        style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: '4px 8px', borderRadius: '4px' }}
                         onClick={() => setDeleteConfirm({ isOpen: true, companyId: company.company_id, companyName: company.company_name, isDeleting: false, error: '' })}
                         title="Delete Tenant"
                       >
-                        <Trash2 size={18} />
+                        <Trash2 size={16} />
                       </button>
                     </td>
                   </tr>

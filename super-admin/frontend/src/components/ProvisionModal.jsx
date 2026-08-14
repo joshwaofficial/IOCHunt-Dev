@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { X, Server, Building, Activity, ShieldPlus } from 'lucide-react';
 import axios from 'axios';
 
@@ -61,24 +60,18 @@ export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
   if (!isOpen) return null;
 
   return (
-    <AnimatePresence>
-      <motion.div 
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          zIndex: 1000
-        }}
+    <div 
+      style={{
+        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+        background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(2px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 1000
+      }}
+    >
+      <div 
+        className="glass-panel"
+        style={{ width: '100%', maxWidth: '500px', padding: '2rem', position: 'relative', background: '#000' }}
       >
-        <motion.div 
-          initial={{ y: 50, scale: 0.9 }}
-          animate={{ y: 0, scale: 1 }}
-          className="glass-panel"
-          style={{ width: '100%', maxWidth: '500px', padding: '2rem', position: 'relative' }}
-        >
           <button 
             onClick={!isLoading ? handleClose : null}
             style={{ position: 'absolute', top: '1rem', right: '1rem', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: isLoading ? 'not-allowed' : 'pointer' }}
@@ -216,8 +209,7 @@ export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
               </button>
             </form>
           )}
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+        </div>
+      </div>
   );
 }

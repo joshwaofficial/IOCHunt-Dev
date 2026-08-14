@@ -24,11 +24,11 @@ function Sidebar() {
   return (
     <div className="sidebar">
       <div className="flex items-center gap-3 mb-8 px-2" style={{ marginTop: '8px' }}>
-        <Shield size={28} color="#fff" />
-        <span style={{ fontSize: '18px', fontWeight: '600', color: '#fff', letterSpacing: '0.5px' }}>SecureHub</span>
+        <Shield size={24} color="#fafafa" />
+        <span style={{ fontSize: '16px', fontWeight: '600', color: '#fafafa', letterSpacing: '0.02em' }}>SecureHub</span>
       </div>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
         {menuItems.map((item) => {
           const isActive = location.pathname === item.path;
           return (
@@ -38,13 +38,12 @@ function Sidebar() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '12px',
-                padding: '10px 14px',
-                borderRadius: '8px',
+                padding: '8px 12px',
+                borderRadius: '6px',
                 cursor: 'pointer',
-                background: isActive ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
-                color: isActive ? '#60a5fa' : 'var(--text-muted)',
+                background: isActive ? '#111' : 'transparent',
+                color: isActive ? '#fafafa' : 'var(--text-muted)',
                 fontWeight: isActive ? '500' : '400',
-                transition: 'all 0.2s'
               }}
             >
               {item.icon}
@@ -61,17 +60,17 @@ function Sidebar() {
             display: 'flex',
             alignItems: 'center',
             gap: '12px',
-            padding: '10px 14px',
-            borderRadius: '8px',
+            padding: '8px 12px',
+            borderRadius: '6px',
             cursor: 'pointer',
             color: 'var(--text-muted)',
           }}
         >
-          <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Shield size={16} />
+          <div style={{ width: '32px', height: '32px', borderRadius: '6px', background: '#111', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fafafa' }}>
+            <Shield size={14} />
           </div>
           <div>
-            <div style={{ fontSize: '13px', fontWeight: '500', color: '#fff' }}>SecOps Team</div>
+            <div style={{ fontSize: '13px', fontWeight: '500', color: '#fafafa' }}>SecOps Team</div>
             <div style={{ fontSize: '12px' }}>Administrator</div>
           </div>
         </div>
