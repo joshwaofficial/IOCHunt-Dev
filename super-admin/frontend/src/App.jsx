@@ -17,8 +17,8 @@ function Sidebar() {
 
   const menuItems = [
     { name: 'Overview', icon: <Grid size={18} />, path: '/' },
-    { name: 'Tenants', icon: <Server size={18} />, path: '#' },
-    { name: 'Settings', icon: <Settings size={18} />, path: '#' },
+    { name: 'Tenants', icon: <Server size={18} />, path: '/' },
+    { name: 'Settings', icon: <Settings size={18} />, path: '/' },
   ];
 
   return (
@@ -30,10 +30,11 @@ function Sidebar() {
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '2px' }}>
         {menuItems.map((item) => {
-          const isActive = location.pathname === item.path;
+          const isActive = location.pathname === item.path && item.name === 'Overview';
           return (
             <div 
               key={item.name}
+              onClick={() => navigate(item.path)}
               style={{
                 display: 'flex',
                 alignItems: 'center',

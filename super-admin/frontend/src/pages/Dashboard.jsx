@@ -46,14 +46,9 @@ export default function Dashboard() {
           <div className="text-muted">System security at a glance</div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 text-muted" style={{ background: 'var(--bg-card)', padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-            <Calendar size={16} />
-            <span style={{ fontSize: '13px' }}>May 12 – May 18, 2024</span>
-          </div>
           <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
             <Plus size={16} /> Provision Tenant
           </button>
-          <Bell size={20} color="var(--text-muted)" style={{ cursor: 'pointer', marginLeft: '8px' }} />
         </div>
       </div>
 
