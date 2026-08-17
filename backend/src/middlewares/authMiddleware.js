@@ -103,18 +103,11 @@ async function requireKey(req, res, next) {
     key = req.headers.authorization.split(' ')[1];
   }
 
-  console.log(`\n[AUTH DEBUG] ----------------------------------------`);
-  console.log(`[AUTH DEBUG] Request to: ${req.method} ${req.originalUrl}`);
-  console.log(`[AUTH DEBUG] Received Key: '${key}'`);
-  
   if (!key) {
-    console.log(`[AUTH DEBUG] Rejected: Missing API key`);
     return res.status(401).json({ error: 'Unauthorized: Missing API key' });
   }
 
   const cleanKey = key.trim();
-  console.log(`[AUTH DEBUG] Cleaned Key: '${cleanKey}'`);
-  console.log(`[AUTH DEBUG] Computed Hash: '${hash(cleanKey)}'`);
 
   try {
     const tenantRes = await db.query(
@@ -131,8 +124,6 @@ async function requireKey(req, res, next) {
     console.error('[AUTH] Error checking tenant API key in requireKey:', e.message);
   }
 
-  console.log(`[AUTH DEBUG] Rejected: Invalid API key (Hash not found in DB)`);
-  console.log(`[AUTH DEBUG] ----------------------------------------\n`);
   return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
 }
 
@@ -147,13 +138,7 @@ async function requireSessionOrKey(req, res, next) {
   }
 
   if (key) {
-    console.log(`\n[AUTH DEBUG] ----------------------------------------`);
-    console.log(`[AUTH DEBUG] requireSessionOrKey: ${req.method} ${req.originalUrl}`);
-    console.log(`[AUTH DEBUG] Received Key: '${key}'`);
-    
     const cleanKey = key.trim();
-    console.log(`[AUTH DEBUG] Cleaned Key: '${cleanKey}'`);
-    console.log(`[AUTH DEBUG] Computed Hash: '${hash(cleanKey)}'`);
     try {
       const tenantRes = await db.query(
         'SELECT id, tenant_id, company_name, status FROM tenants WHERE api_key_hash = $1 AND status = $2',
@@ -168,13 +153,6 @@ async function requireSessionOrKey(req, res, next) {
     } catch (e) {
       console.error('[AUTH] Error checking tenant API key in requireSessionOrKey:', e.message);
     }
-    console.log(`[AUTH DEBUG] Key provided but invalid, falling back to session check.`);
-    console.log(`[AUTH DEBUG] ----------------------------------------\n`);
-  } else {
-    console.log(`\n[AUTH DEBUG] ----------------------------------------`);
-    console.log(`[AUTH DEBUG] requireSessionOrKey: ${req.method} ${req.originalUrl}`);
-    console.log(`[AUTH DEBUG] No API key detected in headers or query. Falling back to session check.`);
-    console.log(`[AUTH DEBUG] ----------------------------------------\n`);
   }
   return requireSession(req, res, next);
 }
