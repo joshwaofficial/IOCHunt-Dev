@@ -19,8 +19,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: iochunt_password
       POSTGRES_DB: iochunt_db
-    ports:
-      - "5434:5432" # Exposed on 5434 to avoid conflicting with central server (5433)
     volumes:
       - pgdata-aggregator:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
@@ -57,8 +55,7 @@ services:
       DISPLAY_TZ: Asia/Kolkata
       APP_VERSION: 2.0.0
     ports:
-      - "4002:4001" # Exposed on 4002 to avoid conflicting with central server (4001)
-      - "5515:5514/udp" # Syslog receiver
+      - "5516:5514/udp" # Syslog receiver
     volumes:
       - ./nginx/ssl:/app/nginx/ssl
     depends_on:
@@ -81,7 +78,7 @@ services:
     image: nginx:alpine
     container_name: iochunt-nginx-aggregator
     ports:
-      - "8085:80"   # Exposed on 8085 to avoid conflict with 8080
+      - "8086:80"   # Exposed on 8086 to avoid any zombie port conflicts
       - "8084:443"  # Aggregator UI/API fixed to port 8084
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
