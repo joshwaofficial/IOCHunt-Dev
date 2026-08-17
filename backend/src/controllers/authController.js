@@ -54,12 +54,6 @@ function decryptData(encryptedString) {
     return null;
   }
 }
-  }
-  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
-    return 'Password must contain at least one special character';
-  }
-  return null;
-}
 
 async function login(req, res) {
   try {
