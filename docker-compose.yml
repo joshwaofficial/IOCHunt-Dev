@@ -127,36 +127,6 @@ services:
         max-size: "10m"
         max-file: "5"
 
-  # ── Super Admin Control Plane ─────────────────────────────────
-  super_admin:
-    image: iochunt-superadmin:latest
-    build:
-      context: .
-      dockerfile: super-admin/Dockerfile
-    container_name: iochunt-super-admin
-    environment:
-      NODE_ENV: production
-      SUPER_ADMIN_PORT: 4002
-      SUPER_ADMIN_DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-iochunt_password}@db:5432/${POSTGRES_DB:-iochunt_db}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iochunt_password}
-    ports:
-      - "8083:4002"
-    volumes:
-      - ./nginx/ssl:/app/nginx/ssl
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - db-net
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "5"
-
 # ── Volumes ────────────────────────────────────────────────────
 volumes:
   pgdata:
