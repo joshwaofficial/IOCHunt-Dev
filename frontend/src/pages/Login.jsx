@@ -17,7 +17,7 @@ export default function Login() {
   const { login } = useAuth();
   const { instanceInfo, refreshInstanceInfo } = useInstance();
 
-  const serverMode = instanceInfo?.instance_mode || 'central_server';
+  const serverMode = instanceInfo?.mode || 'central_server';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
