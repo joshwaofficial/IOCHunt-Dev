@@ -38,7 +38,7 @@ const db = require('./config/db');
 const appMode = require('./config/appMode');
 const { databaseContext } = require('./middlewares/tenantMiddleware');
 const { requireCentralServer, requireAggregator } = require('./middlewares/modeGuard');
-const { requireSession } = require('./middlewares/authMiddleware');
+const { requireSession, requireKey } = require('./middlewares/authMiddleware');
 const sseBroadcaster = require('./services/sseBroadcaster');
 
 const app = express();
