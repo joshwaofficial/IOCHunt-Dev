@@ -569,8 +569,6 @@ async function setupBranchNode(req, res) {
   }
 }
 
-}
-
 /**
  * Get tenant's raw API key
  */
