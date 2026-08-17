@@ -326,18 +326,21 @@ if (process.env.SERVE_STATIC === 'true' || fs.existsSync(staticPath)) {
 initSuperAdminDB().then(() => {
   const sslDir = path.resolve(__dirname, '../../nginx/ssl');
   let server;
+  let protocol = 'HTTP';
+  
   if (fs.existsSync(path.join(sslDir, 'iochunt.key')) && fs.existsSync(path.join(sslDir, 'iochunt.crt'))) {
     const sslOptions = {
       key: fs.readFileSync(path.join(sslDir, 'iochunt.key')),
       cert: fs.readFileSync(path.join(sslDir, 'iochunt.crt'))
     };
     server = https.createServer(sslOptions, app);
+    protocol = 'HTTPS';
   } else {
     server = app;
   }
 
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`[SuperAdmin] Isolated Super Admin Control Plane running on port ${PORT}`);
+    console.log(`[SuperAdmin] Isolated Super Admin Control Plane running securely via ${protocol} on port ${PORT}`);
     console.log(`[SuperAdmin] SaaS Mode: All tenants share port 8080 via NGINX`);
   });
 }).catch(err => {
