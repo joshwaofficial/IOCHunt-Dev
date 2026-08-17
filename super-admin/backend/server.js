@@ -116,6 +116,13 @@ async function initSuperAdminDB() {
     } catch (e) {
       // Column already exists, ignore
     }
+    
+    try {
+      await client.query('ALTER TABLE tenants ADD COLUMN api_key_encrypted TEXT');
+      console.log('[SuperAdmin] Auto-migrated: Added api_key_encrypted to tenants table');
+    } catch (e) {
+      // Column already exists, ignore
+    }
 
     // Seed default superadmin / superadmin with mandatory password change
     const checkRes = await client.query('SELECT * FROM super_admins WHERE username = $1', ['superadmin']);
