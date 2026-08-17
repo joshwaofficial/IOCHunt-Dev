@@ -81,6 +81,23 @@ app.use('/api/instance', express.json(), instanceRoutes);
 app.use('/api/auth', express.json(), authRoutes);
 app.use('/api/users', express.json(), userRoutes);
 
+// Agent Connection Verification Challenge
+app.get('/api/challenge', requireKey, (req, res) => {
+  const crypto = require('crypto');
+  const nonce = req.query.nonce;
+  if (!nonce) return res.status(400).json({ error: 'nonce required' });
+  
+  // Use the raw key provided by the agent in the request to compute the HMAC
+  const rawKey = req.headers['x-api-key'] || req.headers['x-aggregator-key'] || req.query.key;
+  if (!rawKey) return res.status(401).json({ error: 'missing key' });
+
+  const signature = crypto
+    .createHmac('sha256', rawKey)
+    .update(nonce)
+    .digest('hex');
+  res.json({ signature });
+});
+
 // Direct Agent Ingestion Endpoint (Scenario 2 or local branch agents)
 app.use('/api/logs', express.json({ limit: '50mb' }), logRoutes);
 
