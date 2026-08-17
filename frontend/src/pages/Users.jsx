@@ -19,6 +19,8 @@ const formatLocalTime = (unixSeconds) => {
 export default function Users() {
   const { user: currentUser, setUser } = useAuth();
   const [data, setData] = useState([]);
+  const [apiKey, setApiKey] = useState(null);
+  const [apiKeyCopied, setApiKeyCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
@@ -47,8 +49,12 @@ export default function Users() {
     setLoading(true);
     setError(null);
     try {
-      const res = await axios.get('/api/users');
-      setData(res.data.users || []);
+      const [usersRes, keyRes] = await Promise.all([
+        axios.get('/api/users'),
+        axios.get('/api/auth/api-key').catch(() => ({ data: { api_key: null } }))
+      ]);
+      setData(usersRes.data.users || []);
+      setApiKey(keyRes.data.api_key);
     } catch (e) {
       console.error(e);
       setError(e.response?.data?.error || e.message);
@@ -265,6 +271,25 @@ export default function Users() {
           <h2 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.5px', color: 'var(--text)', margin: 0 }}>User Management</h2>
           <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '6px 0 0', fontFamily: 'var(--mono)' }}>Manage dashboard users, roles, and access control.</p>
         </div>
+        {currentUser?.role === 'ADMIN' && apiKey && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--surface)', padding: '10px 16px', borderRadius: '8px', border: '1px solid var(--border)', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--muted)' }}>AGENT API KEY</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(0,0,0,0.02)', padding: '4px 10px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+              <span style={{ fontFamily: 'monospace', fontSize: '13px', color: 'var(--text)', letterSpacing: '1px' }}>iochunt-••••••••</span>
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(apiKey);
+                  setApiKeyCopied(true);
+                  setTimeout(() => setApiKeyCopied(false), 2000);
+                }}
+                style={{ background: 'transparent', border: 'none', color: apiKeyCopied ? '#10b981' : 'var(--muted)', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
+                title="Copy full API Key"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>{apiKeyCopied ? 'check' : 'content_copy'}</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {currentUser?.role === 'ADMIN' && (

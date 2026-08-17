@@ -26,4 +26,8 @@ router.post('/logout', requireSession, authController.logout);
 router.get('/me', requireSession, authController.me);
 router.post('/change-password', requireSession, authController.changePassword);
 
+const { requireCentralServer } = require('../middlewares/modeGuard');
+const { requireAdmin } = require('../middlewares/authMiddleware');
+router.get('/api-key', requireSession, requireAdmin, authController.getApiKey);
+
 module.exports = router;

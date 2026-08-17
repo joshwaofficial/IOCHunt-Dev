@@ -1,12 +1,20 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Calendar, Bell, ShieldCheck, AlertCircle, Bug, Monitor, ArrowUpRight, ArrowDownRight, Server, Plus, Trash2 } from 'lucide-react';
+import { Calendar, Bell, ShieldCheck, AlertCircle, Bug, Monitor, ArrowUpRight, ArrowDownRight, Server, Plus, Trash2, Copy, Check } from 'lucide-react';
 import ProvisionModal from '../components/ProvisionModal';
 
 export default function Dashboard() {
   const [companies, setCompanies] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, companyId: null, companyName: '', isDeleting: false, error: '' });
+  const [copiedId, setCopiedId] = useState(null);
+
+  const handleCopyKey = (key, id) => {
+    if (!key) return;
+    navigator.clipboard.writeText(key);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   const fetchCompanies = async () => {
     try {
@@ -73,6 +81,7 @@ export default function Dashboard() {
                   <th>Company Name</th>
                   <th>Status</th>
                   <th>Central URL</th>
+                  <th>API Key</th>
                   <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
@@ -90,6 +99,24 @@ export default function Dashboard() {
                       <a href={company.central_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-main)', textDecoration: 'none', borderBottom: '1px solid var(--border-color)' }}>
                         {company.central_url}
                       </a>
+                    </td>
+                    <td>
+                      {company.api_key ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>
+                            iochunt-••••••••
+                          </span>
+                          <button 
+                            onClick={() => handleCopyKey(company.api_key, company.id)}
+                            style={{ background: 'transparent', border: 'none', color: copiedId === company.id ? '#10b981' : 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
+                            title="Copy API Key"
+                          >
+                            {copiedId === company.id ? <Check size={14} /> : <Copy size={14} />}
+                          </button>
+                        </div>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Unavailable</span>
+                      )}
                     </td>
                     <td style={{ textAlign: 'right' }}>
                       <button 

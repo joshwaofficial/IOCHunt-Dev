@@ -219,6 +219,7 @@ async function provisionTenant({
         db_port INTEGER DEFAULT 5432,
         syslog_port INTEGER,
         api_key_hash VARCHAR(255),
+        api_key_encrypted TEXT,
         status VARCHAR(50) DEFAULT 'active',
         tier VARCHAR(50) DEFAULT 'standard',
         max_eps INTEGER DEFAULT 5000,
@@ -238,13 +239,13 @@ async function provisionTenant({
     `);
 
     await cpPool.query(`
-      INSERT INTO tenants (tenant_id, company_name, db_name, db_user, db_password_encrypted, syslog_port, api_key_hash)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      INSERT INTO tenants (tenant_id, company_name, db_name, db_user, db_password_encrypted, syslog_port, api_key_hash, api_key_encrypted)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       ON CONFLICT (tenant_id) DO UPDATE SET
         company_name = EXCLUDED.company_name,
         db_name = EXCLUDED.db_name,
         updated_at = EXTRACT(EPOCH FROM NOW())
-    `, [safeId, company_name, dbName, dbUser, encryptedPassword, syslog_port, apiKeyHash]);
+    `, [safeId, company_name, dbName, dbUser, encryptedPassword, syslog_port, apiKeyHash, encryptPassword(apiKey)]);
 
     // Register syslog port mapping
     await cpPool.query(`

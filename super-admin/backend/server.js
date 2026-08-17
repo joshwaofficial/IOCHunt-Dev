@@ -77,6 +77,7 @@ async function initSuperAdminDB() {
         db_port INTEGER DEFAULT 5432,
         syslog_port INTEGER,
         api_key_hash VARCHAR(255),
+        api_key_encrypted TEXT,
         status VARCHAR(50) DEFAULT 'active',
         tier VARCHAR(50) DEFAULT 'standard',
         max_eps INTEGER DEFAULT 5000,
@@ -151,6 +152,29 @@ async function superAuthMiddleware(req, res, next) {
   next();
 }
 
+// Helper: Decrypt data using AES-256-CBC
+function decryptData(encryptedString) {
+  if (!encryptedString || typeof encryptedString !== 'string') return null;
+  const parts = encryptedString.split(':');
+  if (parts.length !== 2) return null;
+  
+  const keyHex = process.env.ENCRYPTION_KEY;
+  if (!keyHex) return null;
+  
+  try {
+    const iv = Buffer.from(parts[0], 'hex');
+    const encryptedText = Buffer.from(parts[1], 'hex');
+    const key = Buffer.from(keyHex, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+    let decrypted = decipher.update(encryptedText, undefined, 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err) {
+    console.error('[Decrypt] Error decrypting API key:', err.message);
+    return null;
+  }
+}
+
 // Routes
 app.post('/api/super/login', async (req, res) => {
   try {
@@ -184,6 +208,20 @@ app.post('/api/super/login', async (req, res) => {
   }
 });
 
+app.post('/api/super/logout', superAuthMiddleware, async (req, res) => {
+  try {
+    const token = req.cookies?.super_session || req.headers['authorization']?.replace('Bearer ', '');
+    if (token) {
+      await pool.query('DELETE FROM super_sessions WHERE token = $1', [token]);
+    }
+    res.clearCookie('super_session');
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 app.post('/api/super/change-password', superAuthMiddleware, async (req, res) => {
   try {
     const { new_password, confirm_password } = req.body;
@@ -209,9 +247,20 @@ app.post('/api/super/change-password', superAuthMiddleware, async (req, res) => 
 app.get('/api/super/companies', superAuthMiddleware, async (req, res) => {
   try {
     const companiesRes = await pool.query(
-      'SELECT id, tenant_id AS company_id, company_name, status, central_url, syslog_port, db_name, tier, max_eps, created_at FROM tenants ORDER BY id DESC'
+      'SELECT id, tenant_id AS company_id, company_name, status, central_url, syslog_port, db_name, tier, max_eps, api_key_encrypted, created_at FROM tenants ORDER BY id DESC'
     );
-    res.json(companiesRes.rows);
+    
+    // Decrypt API key for display
+    const mappedCompanies = companiesRes.rows.map(company => {
+      const apiKey = decryptData(company.api_key_encrypted);
+      delete company.api_key_encrypted; // don't send raw encrypted string to frontend
+      return {
+        ...company,
+        api_key: apiKey
+      };
+    });
+    
+    res.json(mappedCompanies);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });

@@ -41,7 +41,7 @@ export default function Login() {
               <Shield size={32} color="var(--text-heading)" />
             </div>
           </div>
-          <h2 style={{ fontSize: '24px', marginBottom: '4px', letterSpacing: '-0.02em', color: 'var(--text-heading)' }}>Cloud Orchestrator</h2>
+          <h2 style={{ fontSize: '24px', marginBottom: '4px', letterSpacing: '-0.02em', color: 'var(--text-heading)' }}>IOCHunt Super Admin</h2>
           <p className="text-muted" style={{ fontSize: '14px' }}>Super Admin Control Plane</p>
         </div>
 

@@ -29,6 +29,32 @@ function validatePasswordStrength(password) {
   if (!/[0-9]/.test(password)) {
     return 'Password must contain at least one number';
   }
+  return null;
+}
+
+// Helper to decrypt AES-256-CBC
+function decryptData(encryptedString) {
+  if (!encryptedString || typeof encryptedString !== 'string') return null;
+  const parts = encryptedString.split(':');
+  if (parts.length !== 2) return null;
+  
+  const keyHex = process.env.ENCRYPTION_KEY;
+  if (!keyHex) return null;
+  
+  try {
+    const iv = Buffer.from(parts[0], 'hex');
+    const encryptedText = Buffer.from(parts[1], 'hex');
+    const key = Buffer.from(keyHex, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+    let decrypted = decipher.update(encryptedText, undefined, 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err) {
+    console.error('[Decrypt] Error decrypting API key:', err.message);
+    return null;
+  }
+}
+  }
   if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
     return 'Password must contain at least one special character';
   }
@@ -549,11 +575,44 @@ async function setupBranchNode(req, res) {
   }
 }
 
+}
+
+/**
+ * Get tenant's raw API key
+ */
+async function getApiKey(req, res) {
+  try {
+    if (!req.tenantId) {
+      return res.status(400).json({ error: 'Tenant context missing' });
+    }
+    const tenantRes = await db.query(
+      'SELECT api_key_encrypted FROM tenants WHERE tenant_id = $1',
+      [req.tenantId]
+    );
+    if (tenantRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+    const encryptedKey = tenantRes.rows[0].api_key_encrypted;
+    if (!encryptedKey) {
+      return res.status(404).json({ error: 'API key not available for viewing (legacy tenant).' });
+    }
+    const plainKey = decryptData(encryptedKey);
+    if (!plainKey) {
+      return res.status(500).json({ error: 'Failed to decrypt API key.' });
+    }
+    res.json({ api_key: plainKey });
+  } catch (err) {
+    console.error('[AUTH] getApiKey error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
 module.exports = {
   login,
   setupBranchNode,
   changePassword,
   mfaVerify,
   logout,
-  me
+  me,
+  getApiKey
 };
