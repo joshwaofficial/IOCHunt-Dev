@@ -8,6 +8,8 @@ services:
     container_name: iochunt-super-admin
     ports:
       - "8083:4001"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - SUPER_ADMIN_PORT=4001

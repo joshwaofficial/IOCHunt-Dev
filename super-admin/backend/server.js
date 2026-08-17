@@ -163,10 +163,10 @@ async function superAuthMiddleware(req, res, next) {
 function decryptData(encryptedString) {
   if (!encryptedString || typeof encryptedString !== 'string') return null;
   const parts = encryptedString.split(':');
-  if (parts.length !== 2) return null;
+  if (parts.length !== 2) return encryptedString;
   
   const keyHex = process.env.ENCRYPTION_KEY;
-  if (!keyHex) return null;
+  if (!keyHex) return encryptedString;
   
   try {
     const iv = Buffer.from(parts[0], 'hex');
