@@ -170,6 +170,11 @@ async function requireSessionOrKey(req, res, next) {
     }
     console.log(`[AUTH DEBUG] Key provided but invalid, falling back to session check.`);
     console.log(`[AUTH DEBUG] ----------------------------------------\n`);
+  } else {
+    console.log(`\n[AUTH DEBUG] ----------------------------------------`);
+    console.log(`[AUTH DEBUG] requireSessionOrKey: ${req.method} ${req.originalUrl}`);
+    console.log(`[AUTH DEBUG] No API key detected in headers or query. Falling back to session check.`);
+    console.log(`[AUTH DEBUG] ----------------------------------------\n`);
   }
   return requireSession(req, res, next);
 }
