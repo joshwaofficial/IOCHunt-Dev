@@ -7,7 +7,7 @@ services:
       dockerfile: super-admin/Dockerfile
     container_name: iochunt-super-admin
     ports:
-      - "8081:4001"
+      - "8083:4001"
     environment:
       - NODE_ENV=production
       - SUPER_ADMIN_PORT=4001
