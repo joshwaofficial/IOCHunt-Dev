@@ -1,86 +1,75 @@
 # ════════════════════════════════════════════════════════════════
-# IOC Hunt — Unified Platform Docker Compose
+# IOC Hunt — Aggregator Docker Compose
 # ════════════════════════════════════════════════════════════════
-# Simple 3-Service Architecture:
-#   1. db:    PostgreSQL 16 Multi-Tenant Database
-#   2. app:   Unified Platform (Central Server or Aggregator)
-#   3. nginx: TLS Reverse Proxy & SSL Termination
+# This spins up an isolated Aggregator instance using the same codebase
+# but a separate database, network, and ports to avoid conflicts with 
+# the central server.
 #
 # Usage:
-#   docker compose up -d          # Start platform
-#   docker compose logs -f        # View live logs
-#   docker compose down           # Stop platform
+#   docker compose -f docker-compose.aggregator.yml up -d --build
 # ════════════════════════════════════════════════════════════════
 
 services:
 
-  # ── PostgreSQL 16 Multi-Tenant Database ───────────────────────
+  # ── PostgreSQL 16 Isolated Database ───────────────────────
   db:
     image: postgres:16-alpine
-    container_name: iochunt-aggregator-db
+    container_name: iochunt-db-aggregator
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iochunt_password}
-      POSTGRES_DB: ${POSTGRES_DB:-iochunt_db}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: iochunt_password
+      POSTGRES_DB: iochunt_db
     ports:
-      - "${POSTGRES_PORT:-5434}:5432"
+      - "5434:5432" # Exposed on 5434 to avoid conflicting with central server (5433)
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata-aggregator:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
     restart: unless-stopped
     networks:
-      - db-net
+      - db-net-aggregator
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "5"
 
-  # ── IOC Hunt Unified Application (Backend + Built Frontend) ──
+  # ── IOC Hunt Aggregator Application ───────────────────────
   app:
+    image: iochunt-app-aggregator:latest
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: iochunt-aggregator-app
+    container_name: iochunt-app-aggregator
     environment:
       NODE_ENV: production
       PORT: 4001
-      INSTANCE_MODE: ${INSTANCE_MODE:-central_server} # central_server OR aggregator
-      TENANT_ID: ${TENANT_ID:-default}
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-iochunt_password}@db:5432/${POSTGRES_DB:-iochunt_db}
+      INSTANCE_MODE: aggregator
+      TENANT_ID: aggregator
+      DATABASE_URL: postgres://postgres:iochunt_password@iochunt-db-aggregator:5432/iochunt_db
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855}
-      API_KEY: ${API_KEY:-iochunt-change-me}
-      AGGREGATOR_NAME: ${AGGREGATOR_NAME:-}
-      INSTANCE_NAME: ${INSTANCE_NAME:-}
-      IS_CENTRAL_SERVER: "false"
-      CENTRAL_URL: ${CENTRAL_URL:-}
-      AGGREGATOR_API_KEY: ${AGGREGATOR_API_KEY:-}
-      FRONTEND_URL: ${FRONTEND_URL:-*}
-      DISPLAY_TZ: ${DISPLAY_TZ:-Asia/Kolkata}
-      APP_VERSION: ${APP_VERSION:-2.0.0}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASS: ${SMTP_PASS:-}
-      SMTP_FROM: ${SMTP_FROM:-noreply@iochunt.local}
+      REDIS_URL: redis://iochunt-redis-aggregator:6379
+      DISPLAY_TZ: Asia/Kolkata
+      APP_VERSION: 2.0.0
     ports:
-      - "${APP_PORT:-4002}:4001"
-      - "${SYSLOG_PORT:-5515}:5514/udp" # Syslog receiver for branch firewalls/switches
+      - "4002:4001" # Exposed on 4002 to avoid conflicting with central server (4001)
+      - "5515:5514/udp" # Syslog receiver
     volumes:
       - ./nginx/ssl:/app/nginx/ssl
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     restart: unless-stopped
     networks:
-      - db-net
-      - app-net
+      - db-net-aggregator
+      - app-net-aggregator
     logging:
       driver: "json-file"
       options:
@@ -90,10 +79,10 @@ services:
   # ── Nginx TLS Reverse Proxy ───────────────────────────────────
   nginx:
     image: nginx:alpine
-    container_name: iochunt-aggregator-nginx
+    container_name: iochunt-nginx-aggregator
     ports:
-      - "${NGINX_HTTP_PORT:-8086}:80"
-      - "${NGINX_HTTPS_PORT:-8084}:443"
+      - "8085:80"   # Exposed on 8085 to avoid conflict with 8080
+      - "8084:443"  # Aggregator UI/API fixed to port 8084
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
@@ -108,7 +97,20 @@ services:
       retries: 3
     restart: unless-stopped
     networks:
-      - app-net
+      - app-net-aggregator
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ── Redis (In-Memory Queue & Cache) ───────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: iochunt-redis-aggregator
+    restart: unless-stopped
+    networks:
+      - db-net-aggregator
     logging:
       driver: "json-file"
       options:
@@ -117,14 +119,14 @@ services:
 
 # ── Volumes ────────────────────────────────────────────────────
 volumes:
-  pgdata:
-    name: iochunt-aggregator-pgdata
+  pgdata-aggregator:
+    name: iochunt-pgdata-aggregator
 
 # ── Networks ───────────────────────────────────────────────────
 networks:
-  app-net:
-    name: iochunt-aggregator-app-net
+  app-net-aggregator:
+    name: iochunt-app-net-aggregator
     driver: bridge
-  db-net:
-    name: iochunt-aggregator-db-net
+  db-net-aggregator:
+    name: iochunt-db-net-aggregator
     driver: bridge
