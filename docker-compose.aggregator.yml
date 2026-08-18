@@ -48,6 +48,7 @@ services:
       NODE_ENV: production
       PORT: 4001
       INSTANCE_MODE: aggregator
+      IS_CENTRAL_SERVER: "false"
       TENANT_ID: aggregator
       DATABASE_URL: postgres://postgres:iochunt_password@iochunt-db-aggregator:5432/iochunt_db
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855}
