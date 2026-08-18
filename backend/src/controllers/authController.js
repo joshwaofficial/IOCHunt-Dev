@@ -284,7 +284,8 @@ async function changePassword(req, res) {
 
     // Support multi-tenancy by selecting the appropriate query function
     let queryFn;
-    if (req.tenantId) {
+    const { isAggregator } = require('../config/appMode');
+    if (req.tenantId && req.tenantId !== 'default' && !isAggregator()) {
       const tenantDbManager = require('../config/tenantDbManager');
       const tenantPool = await tenantDbManager.getTenantPool(req.tenantId);
       queryFn = tenantPool.query.bind(tenantPool);
