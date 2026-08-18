@@ -299,6 +299,13 @@ async function changePassword(req, res) {
       return res.status(404).json({ error: 'User account not found' });
     }
 
+    console.log('[DEBUG changePassword]', {
+      reqUserId: req.session.user_id,
+      userFound: user.username,
+      inputPassword: current_password,
+      hashMatch: verifyPassword(current_password, user.password_hash, user.salt)
+    });
+
     const isCurrentValid = verifyPassword(current_password, user.password_hash, user.salt);
     if (!isCurrentValid) {
       return res.status(400).json({ error: 'Current password is incorrect' });
