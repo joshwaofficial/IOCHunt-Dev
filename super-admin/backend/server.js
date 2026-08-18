@@ -283,9 +283,13 @@ app.post('/api/super/companies', superAuthMiddleware, async (req, res) => {
 
     const safeId = company_id.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
 
-    // Check if tenant already exists
-    const checkRes = await pool.query('SELECT id FROM tenants WHERE tenant_id = $1', [safeId]);
-    if (checkRes.rows.length > 0) return res.status(400).json({ error: 'Tenant ID already exists' });
+    // Check if tenant ID already exists
+    const checkIdRes = await pool.query('SELECT id FROM tenants WHERE tenant_id = $1', [safeId]);
+    if (checkIdRes.rows.length > 0) return res.status(400).json({ error: 'Tenant ID already exists. Please choose a different subdomain.' });
+
+    // Check if company name already exists
+    const checkNameRes = await pool.query('SELECT id FROM tenants WHERE company_name ILIKE $1', [company_name.trim()]);
+    if (checkNameRes.rows.length > 0) return res.status(400).json({ error: 'Company Name already exists. Please choose a different name.' });
 
     // Find the next available syslog port
     const portRes = await pool.query('SELECT MAX(syslog_port) as max_syslog FROM tenants');
