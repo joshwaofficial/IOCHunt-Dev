@@ -238,6 +238,63 @@ export default function AggregatorSettings() {
           )}
         </div>
 
+        {/* Agent API Key Card */}
+        <div style={{
+          background: 'var(--surface)',
+          borderRadius: '8px',
+          border: '1px solid var(--border)',
+          padding: '24px'
+        }}>
+          <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
+            Local Agent API Key
+          </h3>
+          <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '20px' }}>
+            Use this key to authenticate endpoint agents connecting to this Aggregator.
+          </p>
+
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginBottom: '6px' }}>
+              Agent Access Key
+            </label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input 
+                type="text" 
+                readOnly
+                value={settings?.agent_api_key || 'Loading...'}
+                style={{
+                  flex: 1, padding: '10px 14px', background: 'var(--background)',
+                  border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--primary)', fontSize: '13px',
+                  fontFamily: 'monospace'
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (settings?.agent_api_key) {
+                    navigator.clipboard.writeText(settings.agent_api_key);
+                    toast.success('Agent API Key copied!');
+                  }
+                }}
+                style={{
+                  background: 'var(--background)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  padding: '0 16px',
+                  color: 'var(--text)',
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  cursor: 'pointer'
+                }}
+              >
+                Copy
+              </button>
+            </div>
+            <span style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginTop: '8px' }}>
+              Agents should configure their <code>API_KEY</code> property to match this value exactly.
+            </span>
+          </div>
+        </div>
+
         {/* Local Retention Policy Card */}
         <div style={{
           background: 'var(--surface)',

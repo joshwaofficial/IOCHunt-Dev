@@ -5,6 +5,7 @@
 const crypto = require('crypto');
 const db = require('../config/db');
 const { normalizeRole, isRoleAboveOrEqual } = require('../config/roles');
+const appMode = require('../config/appMode');
 
 const hash = (text) => crypto.createHash('sha256').update(text).digest('hex');
 
@@ -110,18 +111,33 @@ async function requireKey(req, res, next) {
   const cleanKey = key.trim();
 
   try {
-    const tenantRes = await db.query(
-      'SELECT id, tenant_id, company_name, status FROM tenants WHERE api_key_hash = $1 AND status = $2',
-      [hash(cleanKey), 'active']
-    );
-    if (tenantRes.rows.length > 0) {
-      const tenant = tenantRes.rows[0];
-      req.tenantId = tenant.tenant_id;
-      req.authType = 'tenant_agent';
-      return next();
+    if (appMode.isAggregator()) {
+      // Aggregator local validation
+      const settingsRes = await db.query('SELECT agent_api_key_hash FROM settings WHERE id = 1');
+      const localHash = settingsRes.rows[0]?.agent_api_key_hash;
+      
+      // Allow the new auto-generated key or the legacy test key
+      if (localHash === hash(cleanKey) || cleanKey === 'iochunt-change-me') {
+        req.authType = 'aggregator_agent';
+        // Aggregators only manage a single database
+        req.tenantId = 'aggregator'; 
+        return next();
+      }
+    } else {
+      // Central Server multi-tenant validation
+      const tenantRes = await db.query(
+        'SELECT id, tenant_id, company_name, status FROM tenants WHERE api_key_hash = $1 AND status = $2',
+        [hash(cleanKey), 'active']
+      );
+      if (tenantRes.rows.length > 0) {
+        const tenant = tenantRes.rows[0];
+        req.tenantId = tenant.tenant_id;
+        req.authType = 'tenant_agent';
+        return next();
+      }
     }
   } catch (e) {
-    console.error('[AUTH] Error checking tenant API key in requireKey:', e.message);
+    console.error('[AUTH] Error checking API key in requireKey:', e.message);
   }
 
   return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
@@ -140,18 +156,28 @@ async function requireSessionOrKey(req, res, next) {
   if (key) {
     const cleanKey = key.trim();
     try {
-      const tenantRes = await db.query(
-        'SELECT id, tenant_id, company_name, status FROM tenants WHERE api_key_hash = $1 AND status = $2',
-        [hash(cleanKey), 'active']
-      );
-      if (tenantRes.rows.length > 0) {
-        const tenant = tenantRes.rows[0];
-        req.tenantId = tenant.tenant_id;
-        req.authType = 'tenant_agent';
-        return next();
+      if (appMode.isAggregator()) {
+        const settingsRes = await db.query('SELECT agent_api_key_hash FROM settings WHERE id = 1');
+        const localHash = settingsRes.rows[0]?.agent_api_key_hash;
+        if (localHash === hash(cleanKey) || cleanKey === 'iochunt-change-me') {
+          req.authType = 'aggregator_agent';
+          req.tenantId = 'aggregator';
+          return next();
+        }
+      } else {
+        const tenantRes = await db.query(
+          'SELECT id, tenant_id, company_name, status FROM tenants WHERE api_key_hash = $1 AND status = $2',
+          [hash(cleanKey), 'active']
+        );
+        if (tenantRes.rows.length > 0) {
+          const tenant = tenantRes.rows[0];
+          req.tenantId = tenant.tenant_id;
+          req.authType = 'tenant_agent';
+          return next();
+        }
       }
     } catch (e) {
-      console.error('[AUTH] Error checking tenant API key in requireSessionOrKey:', e.message);
+      console.error('[AUTH] Error checking API key in requireSessionOrKey:', e.message);
     }
   }
   return requireSession(req, res, next);

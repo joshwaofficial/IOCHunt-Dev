@@ -275,6 +275,8 @@ function getTableSchemaSQL() {
       central_server_url VARCHAR(255),
       central_api_key VARCHAR(255),
       aggregator_name VARCHAR(255) DEFAULT '',
+      agent_api_key_hash VARCHAR(255),
+      agent_api_key_plain VARCHAR(255),
       local_retention_days INTEGER DEFAULT 30,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -309,6 +311,8 @@ const initDB = async (retries = 10, delay = 3000) => {
           ALTER TABLE users ADD COLUMN IF NOT EXISTS aggregator_name TEXT DEFAULT NULL;
           ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT DEFAULT NULL;
           ALTER TABLE settings ADD COLUMN IF NOT EXISTS aggregator_name VARCHAR(255) DEFAULT '';
+          ALTER TABLE settings ADD COLUMN IF NOT EXISTS agent_api_key_hash VARCHAR(255);
+          ALTER TABLE settings ADD COLUMN IF NOT EXISTS agent_api_key_plain VARCHAR(255);
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT '';
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 0;
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS aggregator_name VARCHAR(255) DEFAULT NULL;
@@ -364,6 +368,21 @@ const initDB = async (retries = 10, delay = 3000) => {
         }
 
         console.log('[DB] Control Plane Database Tables Initialized Successfully.');
+
+        // Generate Aggregator Agent API Key if in Aggregator mode
+        if (!isCentral) {
+          const crypto = require('crypto');
+          const settingsRes = await client.query('SELECT agent_api_key_hash FROM settings WHERE id = 1');
+          if (!settingsRes.rows[0]?.agent_api_key_hash) {
+            const plainKey = 'agg_' + crypto.randomBytes(32).toString('hex');
+            const keyHash = crypto.createHash('sha256').update(plainKey).digest('hex');
+            await client.query(
+              'UPDATE settings SET agent_api_key_hash = $1, agent_api_key_plain = $2 WHERE id = 1',
+              [keyHash, plainKey]
+            );
+            console.log(`[Bootstrap] Generated new Aggregator Agent API Key.`);
+          }
+        }
 
         // Initialize the Tenant DB Manager with this control plane pool
         const tenantDbManager = require('./tenantDbManager');

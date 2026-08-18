@@ -9,7 +9,7 @@ const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 const getSettings = async (req, res) => {
   try {
     const pool = getDbForRequest(req);
-    const result = await pool.query('SELECT central_server_url, updated_at, local_retention_days FROM settings LIMIT 1');
+    const result = await pool.query('SELECT central_server_url, agent_api_key_plain, updated_at, local_retention_days FROM settings LIMIT 1');
     const settings = result.rows.length > 0 ? result.rows[0] : null;
     
     let stats = {
@@ -28,6 +28,7 @@ const getSettings = async (req, res) => {
 
     res.json({ 
       central_server_url: settings?.central_server_url || '',
+      agent_api_key: settings?.agent_api_key_plain || '',
       local_retention_days: settings?.local_retention_days || 30,
       stats
     });
