@@ -47,15 +47,25 @@ async function loadInstanceConfig(db) {
     if (res.rows.length > 0) {
       const row = res.rows[0];
       const dbSetupComplete = (row.setup_complete === true || row.setup_complete === 1) && hasUsers;
+      
+      // Environment variables should always override stale database state for instances running via docker-compose with hardcoded roles
+      const resolvedMode = envMode || row.instance_mode || MODES.UNCONFIGURED;
+      
       cachedConfig = {
-        mode: row.instance_mode || envMode || MODES.UNCONFIGURED,
-        deploymentMode: row.deployment_mode || envDeployment || DEPLOYMENT_MODES.ONPREM,
+        mode: resolvedMode,
+        deploymentMode: envDeployment || row.deployment_mode || DEPLOYMENT_MODES.ONPREM,
         companyId: envCompanyId || row.company_id || '',
         companyName: envCompanyName || row.company_name || '',
-        instanceName: row.instance_name || envName,
-        setupComplete: dbSetupComplete,
-        source: 'database'
+        instanceName: envName || row.instance_name,
+        setupComplete: dbSetupComplete || !!envMode,
+        source: envMode ? 'environment_override' : 'database'
       };
+      
+      // If the DB has stale data, update it async
+      if (row.instance_mode !== resolvedMode) {
+        db.query('UPDATE instance_config SET instance_mode = $1 WHERE id = 1', [resolvedMode]).catch(() => {});
+      }
+      
       return cachedConfig;
     }
   } catch (err) {
