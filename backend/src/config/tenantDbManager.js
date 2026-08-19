@@ -109,11 +109,18 @@ async function getTenantPool(tenantId) {
     return entry.pool;
   }
 
-  // Look up tenant credentials from control plane
-  const res = await controlPlanePool.query(
+  // Look up credentials from control plane (check tenants first, then aggregators)
+  let res = await controlPlanePool.query(
     'SELECT db_name, db_user, db_password_encrypted, db_host, db_port FROM tenants WHERE tenant_id = $1 AND status = $2',
     [tenantId, 'active']
   );
+
+  if (res.rows.length === 0) {
+    res = await controlPlanePool.query(
+      'SELECT database_name as db_name, database_user as db_user, database_password_encrypted as db_password_encrypted, database_host as db_host, database_port as db_port FROM aggregators WHERE name = $1 AND status = $2',
+      [tenantId, 'active']
+    );
+  }
 
   if (res.rows.length === 0) {
     throw new Error(`[TenantDB] Tenant not found or inactive: ${tenantId}`);

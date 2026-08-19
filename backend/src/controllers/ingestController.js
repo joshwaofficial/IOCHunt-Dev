@@ -19,10 +19,17 @@ const batchIngest = async (req, res) => {
     const apiKey = req.headers['x-aggregator-key'] || req.headers['x-api-key'];
     if (!apiKey) return res.status(401).json({ error: 'Missing API key header' });
 
-    const aggResult = await req.queryControlPlane(
-      'SELECT * FROM tenants WHERE api_key_hash = $1',
+    let aggResult = await req.queryControlPlane(
+      'SELECT tenant_id as id, status FROM tenants WHERE api_key_hash = $1',
       [hash(apiKey.trim())]
     );
+
+    if (aggResult.rows.length === 0) {
+      aggResult = await req.queryControlPlane(
+        'SELECT name as id, status FROM aggregators WHERE api_key_hash = $1',
+        [hash(apiKey.trim())]
+      );
+    }
 
     if (aggResult.rows.length === 0) {
       return res.status(401).json({ error: 'Invalid API key' });
@@ -30,11 +37,11 @@ const batchIngest = async (req, res) => {
 
     const tenant = aggResult.rows[0];
     if (tenant.status !== 'active') {
-      return res.status(403).json({ error: 'Tenant is not active' });
+      return res.status(403).json({ error: 'Account is not active' });
     }
     
-    // Set tenantId on request so getTenantPool works
-    req.tenantId = tenant.tenant_id;
+    // Set tenantId on request so getTenantPool works (tenant_id for tenants, name for aggregators)
+    req.tenantId = tenant.id;
 
     // 2. Decompress gzip
     let raw;
