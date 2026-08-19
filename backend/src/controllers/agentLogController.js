@@ -37,27 +37,33 @@ async function ingestAgentLogs(req, res) {
       };
     });
 
-    const uniqueRows = [];
-    for (const r of rows) {
-      const dupRes = await req.queryTenant(
-        'SELECT 1 FROM events WHERE machine=$1 AND ts=$2 AND tag=$3 AND message=$4 LIMIT 1',
-        [r.machine, r.ts, r.tag, r.message]
-      );
-      if (dupRes.rowCount === 0) {
-        uniqueRows.push(r);
+    const tenantPool = await req.getTenantPool();
+    const client = await tenantPool.connect();
+    
+    let uniqueRows = [];
+    try {
+      // 1. Perform duplicate checking using a single connection to avoid pool exhaustion
+      for (const r of rows) {
+        const dupRes = await client.query(
+          'SELECT 1 FROM events WHERE machine=$1 AND ts=$2 AND tag=$3 AND message=$4 LIMIT 1',
+          [r.machine, r.ts, r.tag, r.message]
+        );
+        if (dupRes.rowCount === 0) {
+          uniqueRows.push(r);
+        }
       }
-    }
 
-    if (uniqueRows.length) {
-      const tenantPool = await req.getTenantPool();
-      const client = await tenantPool.connect();
-      try {
+      if (uniqueRows.length > 0) {
         await client.query('BEGIN');
+        
+        // 2. Bulk insert events
+        const insertValues = [];
+        const insertParams = [];
+        let pIdx = 1;
+        
         for (const e of uniqueRows) {
-          await client.query(`
-            INSERT INTO events (aggregator_name, machine, label, ts, tag, severity, category, message, is_noise, received, is_forwarded)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, (EXTRACT(EPOCH FROM NOW())::INTEGER), $10)
-          `, [
+          insertValues.push(`($${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, (EXTRACT(EPOCH FROM NOW())::INTEGER), $${pIdx++})`);
+          insertParams.push(
             aggregatorName,
             e.machine,
             label || e.machine,
@@ -67,9 +73,15 @@ async function ingestAgentLogs(req, res) {
             e.category,
             e.message,
             e.is_noise,
-            !isAggNode // If on Central Server, it's already at central (is_forwarded=true); if on Aggregator, needs sync (is_forwarded=false)
-          ]);
+            !isAggNode
+          );
         }
+
+        // Postgres parameter limit is 65535, so chunk if necessary (unlikely to hit 65535 with 800 events * 10 params = 8000)
+        await client.query(`
+          INSERT INTO events (aggregator_name, machine, label, ts, tag, severity, category, message, is_noise, received, is_forwarded)
+          VALUES ${insertValues.join(', ')}
+        `, insertParams);
 
         await client.query(`
           INSERT INTO machines (id, aggregator_name, name, label, last_seen, event_count, ip)
@@ -78,17 +90,19 @@ async function ingestAgentLogs(req, res) {
             label       = EXCLUDED.label,
             last_seen   = NOW(),
             event_count = machines.event_count + EXCLUDED.event_count,
-            ip          = CASE WHEN EXCLUDED.ip != '' THEN EXCLUDED.ip ELSE machines.ip END
+            ip          = EXCLUDED.ip
         `, [machine, aggregatorName, machine, label || machine, uniqueRows.length, clientIp]);
 
         await client.query('COMMIT');
-      } catch (err) {
-        await client.query('ROLLBACK');
-        throw err;
-      } finally {
-        client.release();
       }
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
 
+    if (uniqueRows.length > 0) {
       // Realtime SSE broadcast for analysts
       for (const e of uniqueRows) {
         if (!e.is_noise) {
@@ -100,7 +114,7 @@ async function ingestAgentLogs(req, res) {
       syncService.triggerSync();
     }
 
-    res.status(200).json({ success: true, ingested: uniqueRows.length });
+    return res.json({ success: true, processed: uniqueRows.length });
   } catch (error) {
     console.error('[Agent Ingest Error]', error);
     res.status(500).json({ error: 'Internal server error' });
