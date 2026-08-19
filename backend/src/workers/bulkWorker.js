@@ -56,14 +56,21 @@ async function processBatch(streamKey, messages) {
     }
   }
 
+  const { isOnPrem } = require('../config/appMode');
+  const db = require('../config/db');
+
   // Insert into tenant databases
   for (const [tenantId, data] of Object.entries(tenantGroups)) {
     let pool;
-    try {
-      pool = await tenantDbManager.getTenantPool(tenantId);
-    } catch (err) {
-      console.error(`[BulkWorker] Could not get pool for tenant ${tenantId}:`, err.message);
-      continue;
+    if (isOnPrem()) {
+      pool = db;
+    } else {
+      try {
+        pool = await tenantDbManager.getTenantPool(tenantId);
+      } catch (err) {
+        console.error(`[BulkWorker] Could not get pool for tenant ${tenantId}:`, err.message);
+        continue;
+      }
     }
 
     const client = await pool.connect();

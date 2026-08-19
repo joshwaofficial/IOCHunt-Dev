@@ -141,8 +141,8 @@ const batchIngest = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('[Ingest Batch Error]', error.message);
-    res.status(500).json({ error: 'Server error: ' + error.message });
+    console.error('[Ingest Batch Error]', error);
+    res.status(500).json({ error: 'Server error: ' + (error.stack || error.message || String(error)) });
   }
 };
 
