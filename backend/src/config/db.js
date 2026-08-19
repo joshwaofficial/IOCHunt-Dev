@@ -374,7 +374,7 @@ const initDB = async (retries = 10, delay = 3000) => {
           const crypto = require('crypto');
           const settingsRes = await client.query('SELECT agent_api_key_hash FROM settings WHERE id = 1');
           if (!settingsRes.rows[0]?.agent_api_key_hash) {
-            const plainKey = 'agg_' + crypto.randomBytes(32).toString('hex');
+            const plainKey = 'iochunt-' + crypto.randomBytes(4).toString('hex');
             const keyHash = crypto.createHash('sha256').update(plainKey).digest('hex');
             await client.query(
               'UPDATE settings SET agent_api_key_hash = $1, agent_api_key_plain = $2 WHERE id = 1',
