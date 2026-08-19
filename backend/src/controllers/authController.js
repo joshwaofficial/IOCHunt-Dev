@@ -582,6 +582,18 @@ async function setupBranchNode(req, res) {
  */
 async function getApiKey(req, res) {
   try {
+    const { isAggregator, isOnPrem } = require('../config/appMode');
+    
+    // For Aggregators or On-Premise deployments, the API key is stored locally in the settings table
+    if (isAggregator() || isOnPrem()) {
+      const settingsRes = await db.query('SELECT agent_api_key_plain FROM settings WHERE id = 1');
+      if (settingsRes.rows.length === 0 || !settingsRes.rows[0].agent_api_key_plain) {
+        return res.status(404).json({ error: 'API key not configured.' });
+      }
+      return res.json({ api_key: settingsRes.rows[0].agent_api_key_plain });
+    }
+
+    // For multi-tenant Cloud deployments, fetch from the tenants table
     if (!req.tenantId) {
       return res.status(400).json({ error: 'Tenant context missing' });
     }
