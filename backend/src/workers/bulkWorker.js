@@ -71,11 +71,12 @@ async function processBatch(streamKey, messages) {
       await client.query('BEGIN');
       
       if (data.events.length > 0) {
+        const eventValues = [];
+        const eventParams = [];
+        let pIdx = 1;
         for (const event of data.events) {
-          await client.query(`
-            INSERT INTO events (aggregator_name, machine, label, tag, severity, category, message, ts, is_noise, is_alert)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-          `, [
+          eventValues.push(`($${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++})`);
+          eventParams.push(
             event.aggregator_name || 'syslog',
             event.machine || 'unknown',
             event.label || event.machine || 'unknown',
@@ -86,20 +87,21 @@ async function processBatch(streamKey, messages) {
             event.ts || new Date(),
             Boolean(event.is_noise),
             Boolean(event.is_alert)
-          ]);
+          );
         }
+        await client.query(`
+          INSERT INTO events (aggregator_name, machine, label, tag, severity, category, message, ts, is_noise, is_alert)
+          VALUES ${eventValues.join(', ')}
+        `, eventParams);
       }
 
-      if (data.fw_events.length > 0) {
+      if (data.fw_events && data.fw_events.length > 0) {
+        const fwValues = [];
+        const fwParams = [];
+        let pIdx = 1;
         for (const event of data.fw_events) {
-          await client.query(`
-            INSERT INTO fw_events (
-              aggregator_name, ts, devname, src_ip, src_port, dst_ip, dst_port, 
-              action, service, policy, proto, src_country, dst_country, 
-              sent_bytes, rcv_bytes, duration, session_id, severity, raw
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-          `, [
+          fwValues.push(`($${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++})`);
+          fwParams.push(
             event.aggregator_name || 'syslog',
             event.ts || new Date(),
             event.devname || '',
@@ -119,11 +121,19 @@ async function processBatch(streamKey, messages) {
             event.session_id || '',
             event.severity || 'info',
             event.raw || ''
-          ]);
+          );
         }
+        await client.query(`
+          INSERT INTO fw_events (
+            aggregator_name, ts, devname, src_ip, src_port, dst_ip, dst_port, 
+            action, service, policy, proto, src_country, dst_country, 
+            sent_bytes, rcv_bytes, duration, session_id, severity, raw
+          )
+          VALUES ${fwValues.join(', ')}
+        `, fwParams);
       }
 
-      if (data.machines.length > 0) {
+      if (data.machines && data.machines.length > 0) {
         for (const m of data.machines) {
           const firstSeenDt = m.first_seen ? new Date(m.first_seen) : new Date();
           const lastSeenDt = m.last_seen ? new Date(m.last_seen) : new Date();
