@@ -32,11 +32,54 @@ const createAggregator = async (req, res) => {
     const expires = new Date();
     expires.setHours(expires.getHours() + 48);
 
-    // 3. Save record in Central Server aggregators registry with status 'pending_provisioning'
+    const dbPassword = crypto.randomBytes(24).toString('hex');
+    const dbUser = `agg_${safeName}`;
     const defaultDbHost = process.env.DB_HOST || 'db';
+
+    // 3. Update the created tenant record in the DB to reflect that it is an aggregator, or just keep it as a tenant.
+    // Let's manually provision the DB here so we can insert into aggregators.
+
+    const { encryptText } = require('../utils/cryptoHelper');
+    
+    // Provision DB Manually
+    const { Pool } = require('pg');
+    const adminUrl = process.env.PROVISIONING_DB_URL || `postgres://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || 'iochunt_password'}@${process.env.DB_HOST || 'db'}:5432/postgres`;
+    const adminPool = new Pool({ connectionString: adminUrl, max: 2 });
+    const adminClient = await adminPool.connect();
+    
+    try {
+      const dbCheck = await adminClient.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName]);
+      if (dbCheck.rows.length === 0) {
+        await adminClient.query(`CREATE DATABASE "${dbName}"`);
+      }
+      
+      const roleCheck = await adminClient.query('SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = $1', [dbUser]);
+      if (roleCheck.rows.length === 0) {
+        await adminClient.query(`CREATE ROLE "${dbUser}" WITH LOGIN PASSWORD '${dbPassword}'`);
+      }
+      
+      await adminClient.query(`GRANT ALL PRIVILEGES ON DATABASE "${dbName}" TO "${dbUser}"`);
+    } finally {
+      adminClient.release();
+      await adminPool.end();
+    }
+
+    const { encryptPassword } = require('../config/tenantDbManager'); // wait, it's not exported.
+    // We will use crypto to encrypt
+    const encryptDbPassword = (plain) => {
+      const keyHex = process.env.ENCRYPTION_KEY;
+      if (!keyHex) return plain;
+      const key = Buffer.from(keyHex, 'hex');
+      const iv = crypto.randomBytes(16);
+      const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+      let encrypted = cipher.update(plain, 'utf8', 'hex');
+      encrypted += cipher.final('hex');
+      return iv.toString('hex') + ':' + encrypted;
+    };
+
     await db.query(`
-      INSERT INTO aggregators (name, display_name, pairing_code_hash, pairing_expires, status, database_name, database_host, database_port)
-      VALUES ($1, $2, $3, $4, 'pending_provisioning', $5, $6, $7)
+      INSERT INTO aggregators (name, display_name, pairing_code_hash, pairing_expires, status, database_name, database_host, database_port, database_user, database_password_encrypted)
+      VALUES ($1, $2, $3, $4, 'pending_provisioning', $5, $6, $7, $8, $9)
       ON CONFLICT (name) DO UPDATE SET
         display_name = EXCLUDED.display_name,
         pairing_code_hash = EXCLUDED.pairing_code_hash,
@@ -44,6 +87,8 @@ const createAggregator = async (req, res) => {
         database_name = EXCLUDED.database_name,
         database_host = EXCLUDED.database_host,
         database_port = EXCLUDED.database_port,
+        database_user = EXCLUDED.database_user,
+        database_password_encrypted = EXCLUDED.database_password_encrypted,
         status = 'pending_provisioning'
     `, [
       safeName,
@@ -52,8 +97,25 @@ const createAggregator = async (req, res) => {
       expires,
       dbName,
       defaultDbHost,
-      5432
+      5432,
+      dbUser,
+      encryptDbPassword(dbPassword)
     ]);
+    
+    // Initialize schema
+    const initUrl = `postgres://${dbUser}:${dbPassword}@${defaultDbHost}:5432/${dbName}`;
+    const initPool = new Pool({ connectionString: initUrl, max: 1 });
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const schemaPath = path.join(__dirname, '../config/schema.sql');
+      const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+      await initPool.query(schemaSql);
+    } catch (e) {
+      console.error('[Create Aggregator] Failed to init schema:', e);
+    } finally {
+      await initPool.end();
+    }
 
     const { getNetworkUrl } = require('../utils/networkHelper');
     const port = process.env.PORT || 4001;
