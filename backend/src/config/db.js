@@ -369,18 +369,23 @@ const initDB = async (retries = 10, delay = 3000) => {
 
         console.log('[DB] Control Plane Database Tables Initialized Successfully.');
 
-        // Generate Aggregator Agent API Key if in Aggregator mode
-        if (!isCentral) {
+        // Generate Aggregator Agent API Key if in Aggregator mode or On-Premise Central Server
+        if (!isCentral || envDeployment === 'onprem') {
           const crypto = require('crypto');
-          const settingsRes = await client.query('SELECT agent_api_key_hash FROM settings WHERE id = 1');
-          if (!settingsRes.rows[0]?.agent_api_key_hash) {
-            const plainKey = 'iochunt-' + crypto.randomBytes(4).toString('hex');
-            const keyHash = crypto.createHash('sha256').update(plainKey).digest('hex');
-            await client.query(
-              'UPDATE settings SET agent_api_key_hash = $1, agent_api_key_plain = $2 WHERE id = 1',
-              [keyHash, plainKey]
-            );
-            console.log(`[Bootstrap] Generated new Aggregator Agent API Key.`);
+          const hash = (data) => crypto.createHash('sha256').update(data).digest('hex');
+          // Initialize Global Settings
+          const settingsRes = await client.query('SELECT agent_api_key_hash, agent_api_key_plain FROM settings WHERE id = 1');
+          if (settingsRes.rows.length > 0) {
+            if (!settingsRes.rows[0].agent_api_key_hash || !settingsRes.rows[0].agent_api_key_plain) {
+              // Generate default API key on first run or if plain key is missing from a migration
+              const defaultPlain = 'iochunt-' + crypto.randomBytes(4).toString('hex');
+              const defaultHash = hash(defaultPlain);
+              await client.query(
+                'UPDATE settings SET agent_api_key_hash = $1, agent_api_key_plain = $2 WHERE id = 1',
+                [defaultHash, defaultPlain]
+              );
+              console.log(`[Bootstrap] Generated new Aggregator Agent API Key.`);
+            }
           }
         }
 
