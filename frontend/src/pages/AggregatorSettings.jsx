@@ -341,26 +341,46 @@ export default function AggregatorSettings() {
       </div>
 
       {showConfirmModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
-          <div className="animate-fade-in" style={{ background: 'var(--surface)', borderRadius: '12px', width: '90%', maxWidth: '420px', padding: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.4)', border: '1px solid var(--border)' }}>
-            <h3 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: 800, color: 'var(--text)' }}>Disconnect Node?</h3>
-            <p style={{ margin: '0 0 24px 0', fontSize: '13px', color: 'var(--muted)', lineHeight: '1.5' }}>
-              Are you sure you want to disconnect? Events will no longer be forwarded to the Central Server, and this aggregator will operate in complete isolation.
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+        <div className="modal-overlay" style={{ alignItems: 'flex-start', paddingTop: '20vh' }}>
+          <div className="modal-dialog animate-fade-in" style={{ width: '100%', maxWidth: '500px', background: 'var(--surface-solid)', border: '1px solid var(--border)', borderRadius: '12px', boxShadow: '0 24px 48px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
+            
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', background: 'linear-gradient(180deg, rgba(255,255,255,0.03) 0%, transparent 100%)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>link_off</span>
+                </div>
+                <h2 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text)', margin: 0, letterSpacing: '0.5px' }}>DISCONNECT NODE</h2>
+              </div>
               <button 
-                onClick={() => setShowConfirmModal(false)}
-                style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 16px', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+                onClick={() => setShowConfirmModal(false)} 
+                style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px', borderRadius: '6px', transition: 'all 0.2s' }} 
+                onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = 'var(--text)'; }} 
+                onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--muted)'; }}
               >
-                Cancel
-              </button>
-              <button 
-                onClick={confirmDisconnect}
-                style={{ background: '#ef4444', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
-              >
-                Disconnect
+                <span className="material-symbols-outlined">close</span>
               </button>
             </div>
+
+            <div style={{ padding: '24px' }}>
+              <p style={{ margin: '0 0 24px 0', fontSize: '13px', color: 'var(--muted)', lineHeight: '1.6' }}>
+                Are you sure you want to disconnect? Events will no longer be forwarded to the Central Server, and this aggregator will operate in complete isolation.
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button 
+                  onClick={() => setShowConfirmModal(false)}
+                  style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px 20px', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={confirmDisconnect}
+                  style={{ background: '#ef4444', border: 'none', color: '#fff', padding: '10px 20px', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Disconnect Node
+                </button>
+              </div>
+            </div>
+
           </div>
         </div>
       )}
