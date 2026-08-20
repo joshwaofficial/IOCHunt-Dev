@@ -53,6 +53,7 @@ services:
       NODE_ENV: production
       PORT: 4001
       INSTANCE_MODE: ${INSTANCE_MODE:-central_server} # central_server OR aggregator
+      DEPLOYMENT_MODE: cloud # Force cloud SaaS mode to ensure tenant isolation
       TENANT_ID: ${TENANT_ID:-default}
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-iochunt_password}@iochunt-db-${TENANT_ID:-default}:5432/${POSTGRES_DB:-iochunt_db}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855}
