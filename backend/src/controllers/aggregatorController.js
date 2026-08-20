@@ -23,33 +23,34 @@ const createAggregator = async (req, res) => {
     const { name, display_name } = req.body;
     if (!name) return res.status(400).json({ error: 'Aggregator name is required' });
 
+    // Auto-assign tenant_id from the logged-in user's session
+    const tenantId = req.session?.tenant_id || req.tenantId || 'default';
+
     const safeName = name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
     const dbName = `iochunt_agg_${safeName}`;
 
-    // User seeding logic removed as requested
-    // 2. Generate pairing code (valid for 48 hours)
+    // Generate pairing code (valid for 48 hours)
     const pairingCode = 'PAIR-' + crypto.randomBytes(6).toString('hex').toUpperCase().match(/.{4}/g).join('-');
-    // 3. Save record in Central Server aggregators registry with status 'pending'
-    const defaultDbHost = process.env.DB_HOST || 'db';
+    const expires = new Date();
+    expires.setHours(expires.getHours() + 48);
+
     await db.query(`
-      INSERT INTO aggregators (name, display_name, pairing_code_hash, pairing_expires, status, database_name, database_host, database_port)
-      VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7)
+      INSERT INTO aggregators (name, display_name, tenant_id, pairing_code_hash, pairing_expires, status, database_name)
+      VALUES ($1, $2, $3, $4, $5, 'pending', $6)
       ON CONFLICT (name) DO UPDATE SET 
         display_name = COALESCE(EXCLUDED.display_name, aggregators.display_name),
+        tenant_id = EXCLUDED.tenant_id,
         pairing_code_hash = EXCLUDED.pairing_code_hash,
         pairing_expires = EXCLUDED.pairing_expires,
         database_name = EXCLUDED.database_name,
-        database_host = EXCLUDED.database_host,
-        database_port = EXCLUDED.database_port,
         status = 'pending'
     `, [
       safeName,
       display_name || safeName,
+      tenantId,
       hash(pairingCode),
       expires,
-      dbName,
-      defaultDbHost,
-      5432
+      dbName
     ]);
 
     const { getNetworkUrl } = require('../utils/networkHelper');
@@ -59,11 +60,12 @@ const createAggregator = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: `Aggregator '${safeName}' registered. Ready to be provisioned on remote Branch server.`,
+      message: `Aggregator '${safeName}' registered for tenant '${tenantId}'. Ready to be provisioned on remote Branch server.`,
       name: safeName,
       display_name: display_name || name,
+      tenant_id: tenantId,
       database_name: dbName,
-      status: 'pending_provisioning',
+      status: 'pending',
       pairing_code: pairingCode,
       central_server_url: centralServerUrl,
       expires_at: expires
@@ -189,6 +191,7 @@ const pair = async (req, res) => {
 
 /**
  * List all registered aggregators with sync health & stats
+ * Filtered by the logged-in user's tenant — each tenant sees only their own aggregators.
  */
 const getAggregators = async (req, res) => {
   try {
@@ -196,18 +199,22 @@ const getAggregators = async (req, res) => {
     
     let result;
     if (isAggAdmin && req.session?.aggregator_name) {
+      // Aggregator admin can only see their own aggregator
       result = await db.query(`
-        SELECT id, name, display_name, status, database_name, last_sync, agent_count, created_at 
+        SELECT id, name, display_name, tenant_id, status, database_name, last_sync, agent_count, created_at 
         FROM aggregators 
         WHERE name = $1
         ORDER BY created_at DESC
       `, [req.session.aggregator_name]);
     } else {
+      // Filter by tenant — each company only sees their own aggregators
+      const tenantId = req.session?.tenant_id || req.tenantId || 'default';
       result = await db.query(`
-        SELECT id, name, display_name, status, database_name, last_sync, agent_count, created_at 
+        SELECT id, name, display_name, tenant_id, status, database_name, last_sync, agent_count, created_at 
         FROM aggregators 
+        WHERE tenant_id = $1
         ORDER BY created_at DESC
-      `);
+      `, [tenantId]);
     }
     res.json(result.rows);
   } catch (error) {
@@ -217,21 +224,34 @@ const getAggregators = async (req, res) => {
 };
 
 /**
- * View live logs from a specific aggregator's separate database
+ * View logs from a specific aggregator.
+ * Queries the owning tenant's isolated database (NOT the control plane).
  */
 const getAggregatorLogs = async (req, res) => {
   try {
     const { id } = req.params;
     const { limit = 100, severity, machine } = req.query;
 
-    const aggRes = await db.query('SELECT name, database_name FROM aggregators WHERE id = $1', [id]);
+    // Verify the aggregator exists AND belongs to this user's tenant
+    const tenantId = req.session?.tenant_id || req.tenantId || 'default';
+    const aggRes = await db.query(
+      'SELECT name, database_name, tenant_id FROM aggregators WHERE id = $1',
+      [id]
+    );
     if (aggRes.rows.length === 0) {
       return res.status(404).json({ error: 'Aggregator not found' });
     }
 
-    const aggName = aggRes.rows[0].name;
+    const agg = aggRes.rows[0];
+    
+    // Security check: only allow viewing logs for aggregators belonging to this tenant
+    if (agg.tenant_id && agg.tenant_id !== tenantId && tenantId !== 'default') {
+      return res.status(403).json({ error: 'Access denied: aggregator belongs to another tenant' });
+    }
 
-    // Query events either from Central Server's ingested table or directly from aggregator database
+    const aggName = agg.name;
+
+    // Query events from the owning tenant's isolated database
     let queryText = 'SELECT * FROM events WHERE aggregator_name = $1';
     const params = [aggName];
     let pIdx = 2;
@@ -248,7 +268,8 @@ const getAggregatorLogs = async (req, res) => {
     queryText += ` ORDER BY ts DESC LIMIT $${pIdx}`;
     params.push(parseInt(limit, 10));
 
-    const eventsRes = await db.query(queryText, params);
+    // Use req.queryTenant to route to the correct tenant's isolated DB
+    const eventsRes = await req.queryTenant(queryText, params);
     res.json({
       aggregator: aggName,
       total: eventsRes.rows.length,

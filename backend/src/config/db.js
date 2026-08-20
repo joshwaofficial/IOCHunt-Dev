@@ -102,6 +102,7 @@ function getTableSchemaSQL() {
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) UNIQUE NOT NULL,
       display_name VARCHAR(255) DEFAULT '',
+      tenant_id VARCHAR(64),
       api_key_hash VARCHAR(255),
       pairing_code_hash VARCHAR(255),
       pairing_expires TIMESTAMP,
@@ -115,6 +116,7 @@ function getTableSchemaSQL() {
       agent_count INTEGER DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+    ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64);
 
     CREATE TABLE IF NOT EXISTS events (
       id BIGSERIAL PRIMARY KEY,
