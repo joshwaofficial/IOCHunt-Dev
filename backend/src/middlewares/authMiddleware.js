@@ -179,8 +179,9 @@ async function requireSessionOrKey(req, res, next) {
     } catch (e) {
       console.error('[AUTH] Error checking API key in requireSessionOrKey:', e.message);
     }
-    // If a key was provided but we didn't return next(), it means the key is invalid.
-    return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
+    // If a key was provided but we didn't return next(), it means the key is invalid as an API key.
+    // However, it might be a valid session token (e.g., from the browser frontend sending a Bearer token).
+    // We fall back to requireSession instead of immediately failing.
   }
   return requireSession(req, res, next);
 }
