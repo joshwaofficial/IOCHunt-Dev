@@ -33,21 +33,26 @@ const createAggregator = async (req, res) => {
     expires.setHours(expires.getHours() + 48);
 
     // 3. Save record in Central Server aggregators registry with status 'pending_provisioning'
+    const defaultDbHost = process.env.DB_HOST || 'db';
     await db.query(`
-      INSERT INTO aggregators (name, display_name, pairing_code_hash, pairing_expires, status, database_name)
-      VALUES ($1, $2, $3, $4, 'pending_provisioning', $5)
+      INSERT INTO aggregators (name, display_name, pairing_code_hash, pairing_expires, status, database_name, database_host, database_port)
+      VALUES ($1, $2, $3, $4, 'pending_provisioning', $5, $6, $7)
       ON CONFLICT (name) DO UPDATE SET
         display_name = EXCLUDED.display_name,
         pairing_code_hash = EXCLUDED.pairing_code_hash,
         pairing_expires = EXCLUDED.pairing_expires,
         database_name = EXCLUDED.database_name,
+        database_host = EXCLUDED.database_host,
+        database_port = EXCLUDED.database_port,
         status = 'pending_provisioning'
     `, [
       safeName,
       display_name || name,
       hash(pairingCode),
       expires,
-      dbName
+      dbName,
+      defaultDbHost,
+      5432
     ]);
 
     const { getNetworkUrl } = require('../utils/networkHelper');
@@ -94,21 +99,26 @@ const generateCode = async (req, res) => {
     const expires = new Date();
     expires.setHours(expires.getHours() + 24);
 
+    const defaultDbHost = process.env.DB_HOST || 'db';
     await db.query(`
-      INSERT INTO aggregators (name, display_name, pairing_code_hash, pairing_expires, status, database_name)
-      VALUES ($1, $2, $3, $4, 'pending', $5)
+      INSERT INTO aggregators (name, display_name, pairing_code_hash, pairing_expires, status, database_name, database_host, database_port)
+      VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7)
       ON CONFLICT (name) DO UPDATE SET 
         display_name = COALESCE(EXCLUDED.display_name, aggregators.display_name),
         pairing_code_hash = EXCLUDED.pairing_code_hash,
         pairing_expires = EXCLUDED.pairing_expires,
         database_name = EXCLUDED.database_name,
+        database_host = EXCLUDED.database_host,
+        database_port = EXCLUDED.database_port,
         status = 'pending'
     `, [
       safeName,
       display_name || safeName,
       hash(pairingCode),
       expires,
-      dbInfo.databaseName
+      dbInfo.databaseName,
+      defaultDbHost,
+      5432
     ]);
 
     const { getNetworkUrl } = require('../utils/networkHelper');
