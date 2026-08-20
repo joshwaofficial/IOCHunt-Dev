@@ -19,6 +19,7 @@ const batchIngest = async (req, res) => {
     const apiKey = req.headers['x-aggregator-key'] || req.headers['x-api-key'];
     if (!apiKey) return res.status(401).json({ error: 'Missing API key header' });
 
+    let isAggregatorClient = false;
     let aggResult = await req.queryControlPlane(
       'SELECT tenant_id as id, status FROM tenants WHERE api_key_hash = $1',
       [hash(apiKey.trim())]
@@ -29,6 +30,9 @@ const batchIngest = async (req, res) => {
         'SELECT name as id, status FROM aggregators WHERE api_key_hash = $1',
         [hash(apiKey.trim())]
       );
+      if (aggResult.rows.length > 0) {
+        isAggregatorClient = true;
+      }
     }
 
     if (aggResult.rows.length === 0) {
@@ -58,27 +62,27 @@ const batchIngest = async (req, res) => {
 
     // 3. Bulk insert events
     if (data.events.length > 0) {
-      await publishToStream('ingest:agent', tenant.tenant_id, data.events.map(e => ({
+      await publishToStream('ingest:agent', tenant.id, data.events.map(e => ({
         ...e,
-        aggregator_name: e.aggregator_name || 'direct',
+        aggregator_name: isAggregatorClient ? tenant.id : (e.aggregator_name || 'direct'),
         ts: e.ts || new Date()
       })));
     }
 
     // 4. Ingest firewall events
     if (data.fw_events && data.fw_events.length > 0) {
-      await publishToStream('ingest:agent', tenant.tenant_id, data.fw_events.map(e => ({
+      await publishToStream('ingest:agent', tenant.id, data.fw_events.map(e => ({
         ...e,
-        aggregator_name: e.aggregator_name || 'direct',
+        aggregator_name: isAggregatorClient ? tenant.id : (e.aggregator_name || 'direct'),
         ts: e.ts || new Date()
       })));
     }
 
     // 5. Ingest machines
     if (data.machines && data.machines.length > 0) {
-      await publishToStream('ingest:agent', tenant.tenant_id, data.machines.map(m => ({
+      await publishToStream('ingest:agent', tenant.id, data.machines.map(m => ({
         ...m,
-        aggregator_name: m.aggregator_name || 'direct'
+        aggregator_name: isAggregatorClient ? tenant.id : (m.aggregator_name || 'direct')
       })));
     }
 
