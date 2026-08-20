@@ -109,21 +109,30 @@ async function getTenantPool(tenantId) {
     return entry.pool;
   }
 
-  // Look up credentials from control plane (check tenants first, then aggregators)
   let res = await controlPlanePool.query(
     'SELECT db_name, db_user, db_password_encrypted, db_host, db_port FROM tenants WHERE tenant_id = $1 AND status = $2',
     [tenantId, 'active']
   );
 
+  let isAggregator = false;
   if (res.rows.length === 0) {
     res = await controlPlanePool.query(
       'SELECT database_name as db_name, database_user as db_user, database_password_encrypted as db_password_encrypted, database_host as db_host, database_port as db_port FROM aggregators WHERE name = $1 AND status = $2',
       [tenantId, 'active']
     );
+    if (res.rows.length > 0) {
+      isAggregator = true;
+    }
   }
 
   if (res.rows.length === 0) {
     throw new Error(`[TenantDB] Tenant not found or inactive: ${tenantId}`);
+  }
+
+  // If this is an aggregator, do not use a separate isolated database on the Central Server.
+  // Instead, use the main control plane database.
+  if (isAggregator) {
+    return controlPlanePool;
   }
 
   const tenant = res.rows[0];
