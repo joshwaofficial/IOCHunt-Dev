@@ -11,6 +11,7 @@ export default function AggregatorSettings() {
   const [isPairing, setIsPairing] = useState(false);
   const [sources, setSources] = useState([]);
   const [newSource, setNewSource] = useState({ name: '', type: 'syslog', path: '', port: 5514 });
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   useEffect(() => {
     fetchSettings();
@@ -56,8 +57,12 @@ export default function AggregatorSettings() {
     }
   };
 
-  const handleDisconnect = async () => {
-    if (!window.confirm('Are you sure? Events will no longer be forwarded to Central Server.')) return;
+  const handleDisconnect = () => {
+    setShowConfirmModal(true);
+  };
+
+  const confirmDisconnect = async () => {
+    setShowConfirmModal(false);
     try {
       await axios.post('/api/settings/disconnect');
       toast.success('Disconnected from Central Server');
@@ -334,6 +339,32 @@ export default function AggregatorSettings() {
         </div>
 
       </div>
+
+      {showConfirmModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
+          <div className="animate-fade-in" style={{ background: 'var(--surface)', borderRadius: '12px', width: '90%', maxWidth: '420px', padding: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.4)', border: '1px solid var(--border)' }}>
+            <h3 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: 800, color: 'var(--text)' }}>Disconnect Node?</h3>
+            <p style={{ margin: '0 0 24px 0', fontSize: '13px', color: 'var(--muted)', lineHeight: '1.5' }}>
+              Are you sure you want to disconnect? Events will no longer be forwarded to the Central Server, and this aggregator will operate in complete isolation.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button 
+                onClick={() => setShowConfirmModal(false)}
+                style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 16px', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={confirmDisconnect}
+                style={{ background: '#ef4444', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Disconnect
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
