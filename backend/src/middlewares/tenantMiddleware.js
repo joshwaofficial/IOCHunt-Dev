@@ -35,10 +35,10 @@ function databaseContext(req, res, next) {
   // For: events, fw_events, machines, incidents, policies, groups, etc.
   // Uses the tenant_id from the authenticated session to route to the correct DB.
   req.queryTenant = async (text, params = []) => {
-    if (isAggregator() || isOnPrem()) {
+    const tenantId = req.tenantId;
+    if (isAggregator() || isOnPrem() || tenantId === 'default' || tenantId === 'iochunt-default') {
       return db.query(text, params);
     }
-    const tenantId = req.tenantId;
     if (!tenantId) {
       throw new Error('No tenant context available. User must be authenticated with a workspace.');
     }
@@ -48,10 +48,10 @@ function databaseContext(req, res, next) {
   // ── Get Tenant Pool (for advanced use cases) ────────────────
   // For: transactions, COPY, streaming queries
   req.getTenantPool = async () => {
-    if (isAggregator() || isOnPrem()) {
+    const tenantId = req.tenantId;
+    if (isAggregator() || isOnPrem() || tenantId === 'default' || tenantId === 'iochunt-default') {
       return db;
     }
-    const tenantId = req.tenantId;
     if (!tenantId) {
       throw new Error('No tenant context available.');
     }
