@@ -80,11 +80,24 @@ async function getClients(req, res) {
          JOIN incident_events ie ON i.id = ie.incident_id 
          JOIN events e ON ie.event_id = e.id 
          WHERE e.machine = $1 AND i.status != 'resolved'`,
-        [m.name]
+        [m.id]
       );
       const incidentsCount = parseInt(activeIncidentCount.rows[0].count, 10);
 
-      const policyRes = await req.queryTenant('SELECT updated_at FROM policies WHERE machine=$1', [m.name]);
+      const statsRes = await req.queryTenant(
+        `SELECT 
+          COUNT(*) as total_recent,
+          SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) as critical,
+          SUM(CASE WHEN severity = 'HIGH' THEN 1 ELSE 0 END) as high
+         FROM events 
+         WHERE machine = $1 AND ts >= $2`,
+        [m.id, from]
+      );
+      const totalRecent = parseInt(statsRes.rows[0].total_recent || 0, 10);
+      const criticalCount = parseInt(statsRes.rows[0].critical || 0, 10);
+      const highCount = parseInt(statsRes.rows[0].high || 0, 10);
+
+      const policyRes = await req.queryTenant('SELECT updated_at FROM policies WHERE machine=$1', [m.id]);
       const lastPolicyUpdate = policyRes.rows.length ? policyRes.rows[0].updated_at : 0;
       
       let pendingUpdates = false;
@@ -94,21 +107,30 @@ async function getClients(req, res) {
 
       let riskScore = 0;
       if (incidentsCount > 0) riskScore += 50;
-      if (m.os_type && m.os_type.toLowerCase().includes('windows 7')) riskScore += 20; 
+      if (criticalCount > 0) riskScore += 30;
+      if (highCount > 0) riskScore += 15;
+      if (m.os && m.os.toLowerCase().includes('windows 7')) riskScore += 20; 
       if (!isOnline && (now - lastSeenEpoch) > 86400 * 7) riskScore += 10; 
+      
+      const finalRisk = Math.min(riskScore, 100);
+      const riskLabel = finalRisk >= 75 ? 'Critical' : finalRisk >= 50 ? 'High' : finalRisk >= 25 ? 'Medium' : 'Low';
+      const statusCol = isOnline ? '#22c55e' : '#64748b';
 
       clients.push({
-        id: m.name,
-        hostname: m.name,
-        ip: m.ip_address,
-        os: m.os_type,
-        agent_version: m.agent_version,
+        id: m.id,
+        label: m.label || m.name || m.id,
+        ip: m.ip || '-',
+        os: m.os || 'unknown',
         status: isOnline ? 'Online' : 'Offline',
-        last_seen: m.last_seen,
-        active_incidents: incidentsCount,
-        risk_score: Math.min(riskScore, 100),
+        statusCol: statusCol,
+        last_seen_str: m.last_seen,
+        total_recent: totalRecent,
+        critical: criticalCount,
+        high: highCount,
+        risk: finalRisk,
+        riskLabel: riskLabel,
         pending_updates: pendingUpdates,
-        aggregator_name: m.aggregator_name
+        aggregator: m.aggregator_name || 'direct'
       });
     }
 
