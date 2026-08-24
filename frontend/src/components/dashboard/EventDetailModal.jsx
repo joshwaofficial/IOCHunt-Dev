@@ -36,6 +36,12 @@ export default function EventDetailModal({ event, onClose }) {
                else if (sev === 'medium') color = '#eab308';
                else if (sev === 'low') color = '#3b82f6';
                val = String(val).toUpperCase();
+            } else if (key === 'ts' && val) {
+               const d = new Date(val);
+               if (!isNaN(d.getTime())) val = d.toLocaleString();
+            } else if (key === 'received' && val) {
+               const d = new Date(Number(val) * 1000);
+               if (!isNaN(d.getTime())) val = d.toLocaleString();
             }
             
             return (

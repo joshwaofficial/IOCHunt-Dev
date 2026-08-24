@@ -100,6 +100,7 @@ class Event {
         OR tag LIKE '%GROUP-MEMBER%' OR tag LIKE '%GROUP-CHANGED%'
         OR tag LIKE '%AUDIT-POLICY%' OR tag LIKE '%LOG-CLEARED%'
         OR tag LIKE '%PASSWORD-CHANGE%' OR tag LIKE '%PASSWORD-RESET%'
+        OR tag LIKE '%USER-BURST%' OR tag LIKE '%ENUM%'
         OR (tag LIKE '%CONFIG-CHANGE%' AND (message LIKE '%user%' OR message LIKE '%group%' OR message LIKE '%password%')))`;
 
     const params = [from, to];

@@ -575,76 +575,8 @@ const getNetworkTopology = async (req, res) => {
     const lateral = [];
     const ad_attacks = [];
     
-    const pseudoRandom = (seed) => {
-      let x = Math.sin(seed++) * 10000;
-      return x - Math.floor(x);
-    };
-    
-    let seed = new Date().getHours() + machines.length;
-
-    const getRandom = (arr) => arr[Math.floor(pseudoRandom(seed++) * arr.length)];
-    const getRandomIp = () => `${Math.floor(pseudoRandom(seed++)*200)+10}.${Math.floor(pseudoRandom(seed++)*254)}.${Math.floor(pseudoRandom(seed++)*254)}.${Math.floor(pseudoRandom(seed++)*254)}`;
-    const adAttackTypes = ['Kerberoasting', 'DCSync', 'PassTheHash', 'NTLM-Brute', 'PasswordSpray'];
-    
-    machines.forEach((m) => {
-      const outCount = Math.floor(pseudoRandom(seed++) * 3);
-      for(let i=0; i<outCount; i++) {
-        outbound.push({
-          from_machine: m.name,
-          to_ip: getRandomIp(),
-          protocol: getRandom(['https', 'http', 'dns']),
-          port: getRandom(['443', '80', '53']),
-          count: Math.floor(pseudoRandom(seed++) * 50) + 1,
-          severity: getRandom(['info', 'medium']),
-          first_seen: new Date(Date.now() - 3600000).toISOString(),
-          last_seen: new Date().toISOString()
-        });
-      }
-      
-      const inCount = Math.floor(pseudoRandom(seed++) * 2);
-      for(let i=0; i<inCount; i++) {
-        inbound.push({
-          from_ip: getRandomIp(),
-          to_machine: m.name,
-          protocol: getRandom(['ssh', 'rdp', 'https']),
-          port: getRandom(['22', '3389', '443']),
-          count: Math.floor(pseudoRandom(seed++) * 10) + 1,
-          severity: getRandom(['low', 'medium']),
-          first_seen: new Date(Date.now() - 3600000).toISOString(),
-          last_seen: new Date().toISOString()
-        });
-      }
-
-      if (machines.length > 1) {
-        const latCount = Math.floor(pseudoRandom(seed++) * 2);
-        for(let i=0; i<latCount; i++) {
-          let target = getRandom(machines);
-          let attempts = 0;
-          while(target.name === m.name && attempts < 5) { target = getRandom(machines); attempts++; }
-          if (target.name !== m.name) {
-            lateral.push({
-              source: m.name,
-              target: target.name,
-              protocol: getRandom(['smb', 'rpc', 'rdp']),
-              port: getRandom(['445', '135', '3389']),
-              count: Math.floor(pseudoRandom(seed++) * 20) + 1,
-              severity: getRandom(['medium', 'high']),
-              blocked: pseudoRandom(seed++) > 0.5 ? 1 : 0
-            });
-          }
-        }
-      }
-      
-      if (pseudoRandom(seed++) > 0.7) {
-        ad_attacks.push({
-          actor: `User-${Math.floor(pseudoRandom(seed++)*100)}`,
-          target_machine: m.name,
-          attack_type: getRandom(adAttackTypes),
-          count: Math.floor(pseudoRandom(seed++) * 500) + 10,
-          severity: 'critical'
-        });
-      }
-    });
+    // Cleaned up mock network simulation. 
+    // Return real machines with empty connection arrays until real network tracking is implemented.
     
     res.json({
       inbound,
