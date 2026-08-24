@@ -318,7 +318,7 @@ const getADAttacks = async (req, res) => {
     const protocol = (req.query.protocol || '').toLowerCase();
     const tactic = (req.query.tactic || '').toLowerCase();
 
-    const rows = await Event.getAdAttacks(aggregator, machine, 3000, from, to);
+    const rows = await Event.getAdAttacks(req, aggregator, machine, 3000, from, to);
     let events = rows.map(r => {
       const ad = parseAdEvent(r.machine, r.tag, r.message, r.severity);
       if (!ad) return null;
@@ -406,7 +406,7 @@ const getMaliciousEvents = async (req, res) => {
       from = hoursAgoUTC(hours);
     }
 
-    const rows = await Event.getMaliciousEvents(aggregator, machine, 3000, from, to);
+    const rows = await Event.getMaliciousEvents(req, aggregator, machine, 3000, from, to);
     let events = rows.map(r => {
       const parsed = parseMaliciousEvent(r);
       if (!parsed) return null;
@@ -447,7 +447,7 @@ const getUsbEvents = async (req, res) => {
       to = nowUTC();
       from = hoursAgoUTC(hours);
     }
-    const rows = await Event.getUsbEvents(aggregator, machine, 500, from, to);
+    const rows = await Event.getUsbEvents(req, aggregator, machine, 500, from, to);
     const out = rows.map(r => ({ ...parseUsbEvent(r), aggregator_name: r.aggregator_name })).filter(Boolean);
     return res.status(200).json({ events: out, stats: { total: out.length } });
   } catch (error) {
@@ -469,7 +469,7 @@ const getUserEvents = async (req, res) => {
       to = nowUTC();
       from = hoursAgoUTC(hours);
     }
-    const rows = await Event.getUserEvents(aggregator, machine, 500, from, to);
+    const rows = await Event.getUserEvents(req, aggregator, machine, 500, from, to);
     let out = rows.map(r => ({ ...parseUserEvent(r), aggregator_name: r.aggregator_name }));
     
     const search = (req.query.search || '').toLowerCase();

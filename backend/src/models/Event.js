@@ -1,19 +1,5 @@
-const { getAggregatorPool } = require('../config/aggregatorDbManager');
-const db = require('../config/db');
-
-function getDb(aggregator) {
-  if (aggregator && aggregator !== 'All Aggregators' && aggregator !== 'All Branches' && aggregator !== 'default' && aggregator !== 'direct') {
-    try {
-      return getAggregatorPool(aggregator);
-    } catch(e) {
-      return db.pool;
-    }
-  }
-  return db.pool;
-}
-
 class Event {
-  static async getAdAttacks(aggregator = '', machine = '', limit = 3000, from, to) {
+  static async getAdAttacks(req, aggregator = '', machine = '', limit = 3000, from, to) {
     let sql = `SELECT e.id, e.machine, e.ts, e.tag, e.severity, e.message, e.aggregator_name,
                       i.id as incident_id, i.assigned_to as incident_assigned_to, i.status as incident_status
       FROM events e
@@ -45,12 +31,11 @@ class Event {
     sql += ` ORDER BY e.ts DESC LIMIT $${pIdx}`;
     params.push(limit);
 
-    const pool = getDb(aggregator);
-    const res = await pool.query(sql, params);
+    const res = await req.queryTenant(sql, params);
     return res.rows;
   }
 
-  static async getMaliciousEvents(aggregator = '', machine = '', limit = 3000, from, to) {
+  static async getMaliciousEvents(req, aggregator = '', machine = '', limit = 3000, from, to) {
     let sql = `SELECT e.id, e.machine, e.ts, e.tag, e.severity, e.category, e.message, e.aggregator_name,
                       i.id as incident_id, i.assigned_to as incident_assigned_to, i.status as incident_status
       FROM events e
@@ -73,12 +58,11 @@ class Event {
     sql += ` ORDER BY e.ts DESC LIMIT $${pIdx}`;
     params.push(limit);
 
-    const pool = getDb(aggregator);
-    const res = await pool.query(sql, params);
+    const res = await req.queryTenant(sql, params);
     return res.rows;
   }
 
-  static async getUsbEvents(aggregator = '', machine = '', limit = 500, from, to) {
+  static async getUsbEvents(req, aggregator = '', machine = '', limit = 500, from, to) {
     let sql = `SELECT machine,ts,tag,severity,message,aggregator_name FROM events
       WHERE ts>=$1 AND ts<=$2 AND (category='USB' OR tag LIKE '%USB%')`;
     const params = [from, to];
@@ -88,12 +72,11 @@ class Event {
     sql += ` ORDER BY ts DESC LIMIT $${pIdx}`;
     params.push(limit);
 
-    const pool = getDb(aggregator);
-    const res = await pool.query(sql, params);
+    const res = await req.queryTenant(sql, params);
     return res.rows;
   }
 
-  static async getUserEvents(aggregator = '', machine = '', limit = 500, from, to) {
+  static async getUserEvents(req, aggregator = '', machine = '', limit = 500, from, to) {
     let sql = `SELECT machine,ts,tag,severity,message,aggregator_name FROM events WHERE ts>=$1 AND ts<=$2 AND is_noise=false
       AND (tag LIKE '%USER-CREATED%' OR tag LIKE '%USER-DELETED%'
         OR tag LIKE '%USER-ENABLED%' OR tag LIKE '%USER-DISABLED%'
@@ -110,14 +93,12 @@ class Event {
     sql += ` ORDER BY ts DESC LIMIT $${pIdx}`;
     params.push(limit);
 
-    const pool = getDb(aggregator);
-    const res = await pool.query(sql, params);
+    const res = await req.queryTenant(sql, params);
     return res.rows;
   }
 
-  static async getFirewallEvents(aggregator = '', limit = 100, offset = 0) {
-    const pool = getDb(aggregator);
-    const res = await pool.query(`
+  static async getFirewallEvents(req, aggregator = '', limit = 100, offset = 0) {
+    const res = await req.queryTenant(`
       SELECT * FROM fw_events
       ORDER BY ts DESC
       LIMIT $1 OFFSET $2
