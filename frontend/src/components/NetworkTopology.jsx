@@ -237,7 +237,7 @@ export default function NetworkTopology() {
       pairCount[pk]++;
     });
 
-    allE.forEach(d => {
+    allE.forEach((d, index) => {
       const conn = d.conn;
       let col, proto, title, dashes = false;
       let detailRow;
@@ -282,7 +282,7 @@ export default function NetworkTopology() {
       }
 
       edgesData.add({
-        id: `edge_${d.fromId}_${d.toId}_${proto}_${d.dir}`,
+        id: `edge_${d.fromId}_${d.toId}_${proto}_${d.dir}_${index}`,
         from: d.fromId, to: d.toId,
         label: proto,
         width: d.dir === 'ad' ? Math.min(2 + Math.log(conn.count + 1), 6) : Math.min(1 + Math.log(conn.count + 1), 5),
