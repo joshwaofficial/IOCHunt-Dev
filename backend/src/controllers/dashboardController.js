@@ -511,10 +511,8 @@ const getUserEvents = async (req, res) => {
     }
 
     const total = out.length;
-    const offset = (page - 1) * limit;
-    const paginatedEvents = out.slice(offset, offset + limit);
 
-    return res.status(200).json({ events: paginatedEvents, stats: { total, critical: 0, high: 0 } });
+    return res.status(200).json({ events: out, stats: { total, critical: 0, high: 0 } });
   } catch (error) {
     console.error('[Dashboard] Failed to get user events:', error);
     return res.status(500).json({ error: 'Internal server error' });
