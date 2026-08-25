@@ -31,7 +31,7 @@ const LiveThreatFeed = ({ events }) => {
       sevColor = '#eab308';
     }
 
-    const timeStr = ev.ts ? new Date(ev.ts + 'Z').toLocaleTimeString('en-GB') : '';
+    const timeStr = ev.ts ? new Date(ev.ts).toLocaleTimeString('en-GB') : '';
     const machineStr = ev.machine || ev.target_machine || 'Unknown';
     const msgStr = ev.message || ev.description || ev.tag || 'Event logged';
 
