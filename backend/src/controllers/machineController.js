@@ -87,8 +87,9 @@ async function getClients(req, res) {
       const statsRes = await req.queryTenant(
         `SELECT 
           COUNT(*) as total_recent,
-          SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) as critical,
-          SUM(CASE WHEN severity = 'HIGH' THEN 1 ELSE 0 END) as high
+          SUM(CASE WHEN LOWER(severity) = 'critical' THEN 1 ELSE 0 END) as critical,
+          SUM(CASE WHEN LOWER(severity) = 'high' THEN 1 ELSE 0 END) as high,
+          SUM(CASE WHEN category IN ('DOMAIN','ADCS') OR tag ILIKE '%DCSYNC%' OR tag ILIKE '%KERBEROAST%' OR tag ILIKE '%SPRAY%' OR tag ILIKE '%NTLM-BRUTE%' THEN 1 ELSE 0 END) as ad_events
          FROM events 
          WHERE machine = $1 AND ts >= $2`,
         [m.id, from]
@@ -96,6 +97,7 @@ async function getClients(req, res) {
       const totalRecent = parseInt(statsRes.rows[0].total_recent || 0, 10);
       const criticalCount = parseInt(statsRes.rows[0].critical || 0, 10);
       const highCount = parseInt(statsRes.rows[0].high || 0, 10);
+      const adEventsCount = parseInt(statsRes.rows[0].ad_events || 0, 10);
 
       const policyRes = await req.queryTenant('SELECT updated_at FROM policies WHERE machine=$1', [m.id]);
       const lastPolicyUpdate = policyRes.rows.length ? policyRes.rows[0].updated_at : 0;
@@ -109,6 +111,7 @@ async function getClients(req, res) {
       if (incidentsCount > 0) riskScore += 50;
       if (criticalCount > 0) riskScore += 30;
       if (highCount > 0) riskScore += 15;
+      if (adEventsCount > 0) riskScore += 10;
       if (m.os && m.os.toLowerCase().includes('windows 7')) riskScore += 20; 
       if (!isOnline && (now - lastSeenEpoch) > 86400 * 7) riskScore += 10; 
       
@@ -127,6 +130,7 @@ async function getClients(req, res) {
         total_recent: totalRecent,
         critical: criticalCount,
         high: highCount,
+        ad_events: adEventsCount,
         risk: finalRisk,
         riskLabel: riskLabel,
         pending_updates: pendingUpdates,
