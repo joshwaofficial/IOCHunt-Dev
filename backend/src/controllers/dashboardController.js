@@ -586,9 +586,16 @@ const getNetworkTopology = async (req, res) => {
       
       const t = (r.tag || '').toUpperCase();
       if (net.direction === 'inbound') {
+        net.from_ip = net.remote_ip;
+        net.to_machine = net.machine;
         inbound.push(net);
       } else if (net.direction === 'outbound') {
+        net.from_machine = net.machine;
+        net.to_ip = net.remote_ip;
+        
         if (t.includes('LATERAL') || (net.remote_ip && (net.remote_ip.startsWith('10.') || net.remote_ip.startsWith('192.168.') || net.remote_ip.startsWith('172.')))) {
+          net.source = net.machine;
+          net.target = net.remote_ip;
           lateral.push(net);
         } else {
           outbound.push(net);
