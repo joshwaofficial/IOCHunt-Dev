@@ -11,7 +11,9 @@ const ThreatSummaryCards = ({ stats }) => {
   const high = stats.bySev?.find(s => s.severity === 'high')?.n || 0;
   const medium = stats.bySev?.find(s => s.severity === 'medium')?.n || 0;
   
-  const idThreats = stats.byCat?.find(c => c.category === 'DOMAIN' || c.category === 'ADCS' || c.category === 'LOGON')?.n || 0;
+  const idThreats = stats.byCat
+    ?.filter(c => c.category === 'DOMAIN' || c.category === 'ADCS')
+    .reduce((sum, c) => sum + parseInt(c.n, 10), 0) || 0;
   const netDrops = stats.byCat?.find(c => c.category === 'NETWORK')?.n || 0;
   
   const activeMachines = stats.machines?.length || 0;

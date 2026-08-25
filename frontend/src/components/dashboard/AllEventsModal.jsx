@@ -63,7 +63,7 @@ export default function AllEventsModal({ isOpen, onClose, filterType, filterHour
         else if (fType === 'low') url += '&severity=low';
         else if (fType === 'info') url += '&severity=info';
         else if (fType === 'blocked') url += '&category=NETWORK';
-        else if (fType === 'ad') url += '&category=DOMAIN';
+        else if (fType === 'ad') url = `/api/events/ad-attacks?page=${currentPage}&limit=${perPage}&machine=${encodeURIComponent(machine || '')}&from=${encodeURIComponent(fromStr)}`;
         else if (fType === 'machines' || fType === 'incidents') {
           url = `/api/events/stats?range=${range}&machine=${encodeURIComponent(machine || '')}`;
           isStats = true;
@@ -79,9 +79,9 @@ export default function AllEventsModal({ isOpen, onClose, filterType, filterHour
           setEvents(arr.slice((currentPage - 1) * perPage, currentPage * perPage));
         }
         // Handle server-side paginated response
-        else if (res.data && res.data.events && res.data.total !== undefined) {
+        else if (res.data && res.data.events && (res.data.total !== undefined || res.data.stats?.total !== undefined)) {
           setEvents(res.data.events);
-          setTotalItems(res.data.total);
+          setTotalItems(res.data.total !== undefined ? res.data.total : res.data.stats.total);
         } 
         // Handle flat array response (e.g. AD attacks fallback)
         else if (Array.isArray(res.data)) {
