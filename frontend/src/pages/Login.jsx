@@ -387,15 +387,15 @@ export default function Login() {
 
         <form onSubmit={handleSubmit}>
 
-          {serverMode === 'central_server' && (
+          {serverMode !== 'aggregator' && (
             <div className="field">
-              <label>WORKSPACE ID</label>
+              <label>TENANT ID</label>
               <div className="input-wrap">
                 <span className="input-icon material-symbols-outlined">domain</span>
                 <input
                   id="login-workspace"
                   type="text"
-                  placeholder="Workspace ID (e.g., mycompany)"
+                  placeholder="Tenant ID (e.g., mycompany)"
                   required
                   value={workspaceId}
                   onChange={(e) => setWorkspaceId(e.target.value)}
