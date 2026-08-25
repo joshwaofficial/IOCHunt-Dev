@@ -11,7 +11,7 @@ const SENSITIVE_TOOLS = new Set([
 
 const HIGH_RISK_CHILDREN = new Set([
   'cmd.exe', 'powershell.exe', 'conhost.exe', 'wscript.exe', 'cscript.exe',
-  'mshta.exe', 'msiexec.exe', 'regsvr32.exe', 'rundll32.exe', 'schtasks.exe',
+  'mshta.exe', 'msiexec.exe', 'regsvr32.exe', 'rundll32.exe',
   'sc.exe', 'net.exe', 'tasklist.exe', 'taskkill.exe', 'wmic.exe',
 ]);
 
@@ -159,6 +159,10 @@ function classifySeverity(tag, message) {
   if (t.includes('IOCHUNT-BLOCK') || m.includes('IOCHUNT-BLOCK') ||
     t.includes('IOCHUNT-ALLOW') || m.includes('IOCHUNT-ALLOW'))
     return 'info';
+
+  if (m.includes('SCHTASKS.EXE')) {
+    return 'medium';
+  }
 
   if (t.includes('[DEFENDER]') || t.includes('DEFENDER')) {
     if (m.includes('[RTP-DISABLED]') || m.includes('RTP-DISABLED') ||
