@@ -97,6 +97,24 @@ class Event {
     return res.rows;
   }
 
+  static async getNetworkEvents(req, aggregator = '', machine = '', limit = 3000, from, to) {
+    let sql = `SELECT machine,ts,tag,severity,message,aggregator_name FROM events 
+      WHERE ts>=$1 AND ts<=$2 AND is_noise=false 
+      AND (category='NETWORK' OR category='DOMAIN' OR category='ADCS' 
+           OR tag LIKE '%NETWORK%' OR tag LIKE '%OUTBOUND%' OR tag LIKE '%INBOUND%' 
+           OR tag LIKE '%CONN%' OR tag LIKE '%BLOCKED%' OR tag LIKE '%SHARE%'
+           OR tag LIKE '%DETECTED%' OR tag LIKE '%FAILED-LOGON%')`;
+    const params = [from, to];
+    let pIdx = 3;
+    if (aggregator) { sql += ` AND aggregator_name=$${pIdx++}`; params.push(aggregator); }
+    if (machine) { sql += ` AND machine=$${pIdx++}`; params.push(machine); }
+    sql += ` ORDER BY ts DESC LIMIT $${pIdx}`;
+    params.push(limit);
+
+    const res = await req.queryTenant(sql, params);
+    return res.rows;
+  }
+
   static async getFirewallEvents(req, aggregator = '', limit = 100, offset = 0) {
     const res = await req.queryTenant(`
       SELECT * FROM fw_events

@@ -1,5 +1,5 @@
 const Event = require('../models/Event');
-const { parseAdEvent, parseMaliciousEvent, parseUsbEvent, parseUserEvent } = require('../utils/eventParsers');
+const { parseAdEvent, parseMaliciousEvent, parseUsbEvent, parseUserEvent, parseNetworkEvent } = require('../utils/eventParsers');
 const appMode = require('../config/appMode');
 
 /**
@@ -573,8 +573,30 @@ const getNetworkTopology = async (req, res) => {
     const lateral = [];
     const ad_attacks = [];
     
-    // Cleaned up mock network simulation. 
-    // Return real machines with empty connection arrays until real network tracking is implemented.
+    const from = hoursAgoUTC(Number(hours));
+    const to = nowUTC();
+    const rows = await Event.getNetworkEvents(req, aggregator, machine, 5000, from, to);
+    
+    rows.forEach(r => {
+      const net = parseNetworkEvent(r.machine, r.tag, r.message, r.severity);
+      if (!net) return;
+      net.ts = r.ts;
+      net.machine = r.machine;
+      net.aggregator_name = r.aggregator_name;
+      
+      const t = (r.tag || '').toUpperCase();
+      if (net.direction === 'inbound') {
+        inbound.push(net);
+      } else if (net.direction === 'outbound') {
+        if (t.includes('LATERAL') || (net.remote_ip && (net.remote_ip.startsWith('10.') || net.remote_ip.startsWith('192.168.') || net.remote_ip.startsWith('172.')))) {
+          lateral.push(net);
+        } else {
+          outbound.push(net);
+        }
+      } else if (net.direction === 'ad_attack') {
+        ad_attacks.push(net);
+      }
+    });
     
     res.json({
       inbound,
