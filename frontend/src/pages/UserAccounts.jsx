@@ -118,7 +118,19 @@ export default function UserAccounts() {
     fetchData();
   }, [range, machine, customFrom, customTo, branchFilter, aggregator]);
 
-  const filteredData = data;
+  const filteredData = data.filter(a => {
+    if (severityFilter !== 'all' && (a.severity || 'info').toLowerCase() !== severityFilter) {
+      return false;
+    }
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      const matches = Object.values(a).some(v => 
+        v !== null && v !== undefined && String(v).toLowerCase().includes(term)
+      );
+      if (!matches) return false;
+    }
+    return true;
+  });
 
   const total = filteredData.length;
   const usersCreated = filteredData.filter(a => a.action === 'User Created').length;
