@@ -156,28 +156,43 @@ function IncidentDetailPanel({ incidentId, onClose, onUpdated, initialClosingTar
         </div>
       )}
       {closingTargetStatus && (
-        <div style={{ background: 'var(--bg)', border: '1px solid var(--accent)', borderRadius: '8px', padding: '16px 20px', marginBottom: '24px' }}>
-          <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', marginBottom: '12px', textTransform: 'uppercase' }}>Confirm {closingTargetStatus}</div>
-          <div style={{ marginBottom: '12px' }}>
-            <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>Resolution Reason</label>
-            <select value={resReason} onChange={e => setResReason(e.target.value)} style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 12px', borderRadius: '6px', outline: 'none' }}>
-              <option value="">Select a reason...</option>
-              <option value="False Positive">False Positive</option>
-              <option value="True Positive - Remediated">True Positive - Remediated</option>
-              <option value="Duplicate">Duplicate</option>
-              <option value="Other">Other (Specify in note)</option>
-            </select>
+        <div style={{ 
+          background: 'var(--surface)', 
+          border: '1px solid var(--border)',
+          borderLeft: closingTargetStatus === 'resolved' ? '4px solid #22c55e' : '4px solid #4a5578', 
+          borderRadius: '8px', 
+          padding: '20px 24px', 
+          marginBottom: '24px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.05)'
+        }}>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: closingTargetStatus === 'resolved' ? '#22c55e' : 'var(--text)', marginBottom: '20px', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '8px' }}>
+             <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
+                {closingTargetStatus === 'resolved' ? 'check_circle' : 'lock'}
+             </span>
+             Confirm {closingTargetStatus}
           </div>
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>Resolution Note (Optional)</label>
-            <textarea value={resNote} onChange={e => setResNote(e.target.value)} rows="2" style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 12px', borderRadius: '6px', resize: 'vertical', outline: 'none' }} placeholder="Add context..."></textarea>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '24px', marginBottom: '20px' }}>
+             <div>
+                <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 700 }}>Resolution Reason</label>
+                <select className="input-field" value={resReason} onChange={e => setResReason(e.target.value)} style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px 14px', borderRadius: '6px', outline: 'none', fontSize: '13px' }}>
+                  <option value="">Select a reason...</option>
+                  <option value="False Positive">False Positive</option>
+                  <option value="True Positive - Remediated">True Positive - Remediated</option>
+                  <option value="Duplicate">Duplicate</option>
+                  <option value="Other">Other (Specify in note)</option>
+                </select>
+             </div>
+             <div>
+                <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 700 }}>Resolution Note (Optional)</label>
+                <textarea className="input-field" value={resNote} onChange={e => setResNote(e.target.value)} rows="2" style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px 14px', borderRadius: '6px', resize: 'vertical', outline: 'none', fontSize: '13px' }} placeholder="Add context..."></textarea>
+             </div>
           </div>
-          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-            <button onClick={() => setClosingTargetStatus(null)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 700 }}>Cancel</button>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+            <button onClick={() => setClosingTargetStatus(null)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, transition: 'all 0.2s' }}>Cancel</button>
             <button 
               onClick={() => { updateStatusMutation.mutate({newStatus: closingTargetStatus, reason: resReason, note: resNote}); setClosingTargetStatus(null); }}
               disabled={!resReason || updateStatusMutation.isPending}
-              style={{ background: 'var(--accent)', border: 'none', color: '#fff', padding: '6px 16px', borderRadius: '6px', cursor: !resReason ? 'not-allowed' : 'pointer', fontSize: '11px', fontWeight: 700, opacity: !resReason ? 0.5 : 1 }}
+              style={{ background: closingTargetStatus === 'resolved' ? '#22c55e' : '#4a5578', border: 'none', color: '#fff', padding: '8px 24px', borderRadius: '6px', cursor: !resReason ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 600, opacity: !resReason ? 0.5 : 1, transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
             >
               Confirm {closingTargetStatus}
             </button>
