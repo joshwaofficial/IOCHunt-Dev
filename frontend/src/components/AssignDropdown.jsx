@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import axios from 'axios';
 import { toast } from 'react-hot-toast';
 
@@ -10,6 +10,14 @@ export default function AssignDropdown({ incidentId, currentAssignee, allowedAss
   React.useEffect(() => {
     setSelected(currentAssignee || '');
   }, [currentAssignee]);
+
+  // Ensure the current assignee always appears in the dropdown so the value is never misleading
+  const options = useMemo(() => {
+    if (!currentAssignee) return allowedAssignees;
+    const exists = allowedAssignees.some(u => u.username === currentAssignee);
+    if (exists) return allowedAssignees;
+    return [{ username: currentAssignee, role: '—' }, ...allowedAssignees];
+  }, [allowedAssignees, currentAssignee]);
 
   const handleChange = async (e) => {
     e.stopPropagation();
@@ -51,7 +59,7 @@ export default function AssignDropdown({ incidentId, currentAssignee, allowedAss
         }}
       >
         <option value="" disabled>Unassigned</option>
-        {allowedAssignees.map(u => (
+        {options.map(u => (
           <option key={u.username} value={u.username}>
             {`${u.username} (${u.role})`}
           </option>

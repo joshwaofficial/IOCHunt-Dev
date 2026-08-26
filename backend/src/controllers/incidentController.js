@@ -330,7 +330,7 @@ async function assignIncident(req, res) {
     if (!inc) return res.status(404).json({ error: 'Not found' });
 
     const User = require('../models/User');
-    const targetUser = await User.findByUsername(assignee);
+    const targetUser = await User.findByUsername(assignee, req.queryTenant);
     if (!targetUser) return res.status(404).json({ error: 'Target user not found' });
 
     const callerRole = req.session.role;
@@ -338,8 +338,8 @@ async function assignIncident(req, res) {
 
     let allowed = false;
     if (callerRole === 'ADMIN') allowed = true;
-    else if (callerRole === 'L3_ANALYST' && ['L2_ANALYST', 'L3_ANALYST'].includes(targetRole)) allowed = true;
-    else if (callerRole === 'L2_ANALYST' && ['L2_ANALYST', 'L3_ANALYST'].includes(targetRole)) allowed = true;
+    else if (callerRole === 'L3_ANALYST' && ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST'].includes(targetRole)) allowed = true;
+    else if (callerRole === 'L2_ANALYST' && ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST'].includes(targetRole)) allowed = true;
     else if (callerRole === 'L1_ANALYST' && targetRole === 'L2_ANALYST') allowed = true;
 
     if (!allowed) {

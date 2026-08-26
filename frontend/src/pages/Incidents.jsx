@@ -307,10 +307,9 @@ export default function Incidents() {
   
   const role = user?.role;
   const allowedAssignees = usersList.filter(u => {
-    const isAnalyst = ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST'].includes(u.role);
-    if (role === 'ADMIN' || role === 'AGGREGATOR_ADMIN') return isAnalyst;
-    if (role === 'L3_ANALYST') return u.role === 'L3_ANALYST' || u.role === 'L2_ANALYST';
-    if (role === 'L2_ANALYST') return u.role === 'L2_ANALYST' || u.role === 'L3_ANALYST';
+    if (role === 'ADMIN' || role === 'AGGREGATOR_ADMIN') return ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST', 'ADMIN'].includes(u.role);
+    if (role === 'L3_ANALYST') return ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST'].includes(u.role);
+    if (role === 'L2_ANALYST') return ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST'].includes(u.role);
     if (role === 'L1_ANALYST') return u.role === 'L2_ANALYST';
     return false;
   });
