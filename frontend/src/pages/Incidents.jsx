@@ -23,10 +23,10 @@ const INC_PRIORITY_META = {
 };
 
 const INC_TRANSITIONS = {
-  new:           ['investigating', 'closed'],
-  investigating: ['contained', 'resolved', 'closed'],
-  contained:     ['investigating', 'resolved', 'closed'],
-  resolved:      ['closed', 'investigating'],
+  new:           ['investigating'],
+  investigating: ['contained', 'resolved'],
+  contained:     ['investigating', 'resolved'],
+  resolved:      ['closed'],
   closed:        ['investigating'],
 };
 
@@ -307,7 +307,7 @@ export default function Incidents() {
   
   const role = user?.role;
   const allowedAssignees = usersList.filter(u => {
-    if (role === 'ADMIN' || role === 'AGGREGATOR_ADMIN') return ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST', 'ADMIN'].includes(u.role);
+    if (role === 'ADMIN' || role === 'AGGREGATOR_ADMIN') return ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST'].includes(u.role);
     if (role === 'L3_ANALYST') return ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST'].includes(u.role);
     if (role === 'L2_ANALYST') return ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST'].includes(u.role);
     if (role === 'L1_ANALYST') return u.role === 'L2_ANALYST';
