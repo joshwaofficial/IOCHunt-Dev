@@ -470,7 +470,8 @@ const getUserEvents = async (req, res) => {
       from = hoursAgoUTC(hours);
     }
     const rows = await Event.getUserEvents(req, aggregator, machine, 500, from, to);
-    let out = rows.map(r => ({ ...parseUserEvent(r), aggregator_name: r.aggregator_name }));
+    let out = rows.map(r => ({ ...parseUserEvent(r), aggregator_name: r.aggregator_name }))
+                  .filter(e => e.action !== 'Modified');
     
     const search = (req.query.search || '').toLowerCase();
     const actor = (req.query.actor || '').toLowerCase();
