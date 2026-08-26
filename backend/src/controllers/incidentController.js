@@ -180,7 +180,7 @@ async function updateIncident(req, res) {
       return res.status(403).json({ error: 'Forbidden: You are not assigned to this incident' });
     }
 
-    const { title, description, status, priority, assigned_to, machine } = req.body;
+    const { title, description, status, priority, assigned_to, machine, resolution_reason, resolution_note } = req.body;
     const updated_by = req.session && req.session.username ? req.session.username : 'dashboard';
     const changes = [];
     const auditLines = [];
@@ -199,6 +199,12 @@ async function updateIncident(req, res) {
     }
 
     if (status !== undefined && status !== inc.status) {
+      if ((inc.status === 'closed' || inc.status === 'resolved') && status === 'investigating') {
+        if (req.session.role !== 'ADMIN' && req.session.role !== 'L3_ANALYST') {
+          return res.status(403).json({ error: 'Only L3 Analyst and Admin can reopen a closed or resolved incident.' });
+        }
+      }
+
       const validTransitions = {
         new: ['investigating', 'closed'],
         investigating: ['contained', 'resolved', 'closed'],
@@ -211,8 +217,14 @@ async function updateIncident(req, res) {
       }
       changes.push(['status', status]);
       auditLines.push(`Status changed to ${status.toUpperCase()}.`);
-      if (status === 'resolved') changes.push(['resolved_at', Math.floor(Date.now() / 1000)]);
-      if (status === 'closed') changes.push(['closed_at', Math.floor(Date.now() / 1000)]);
+      if (status === 'resolved') {
+        changes.push(['resolved_at', Math.floor(Date.now() / 1000)]);
+        if (resolution_reason) auditLines.push(`Reason: ${resolution_reason}. Note: ${resolution_note || 'None'}`);
+      }
+      if (status === 'closed') {
+        changes.push(['closed_at', Math.floor(Date.now() / 1000)]);
+        if (resolution_reason) auditLines.push(`Reason: ${resolution_reason}. Note: ${resolution_note || 'None'}`);
+      }
     }
 
     if (changes.length) {

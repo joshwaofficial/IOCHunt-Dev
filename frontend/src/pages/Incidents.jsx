@@ -38,10 +38,14 @@ const sevColor = {
   info: '#4f8ef7'
 };
 
-function IncidentDetailPanel({ incidentId, onClose, onUpdated }) {
+function IncidentDetailPanel({ incidentId, onClose, onUpdated, initialClosingTarget }) {
+  React.useEffect(() => { if (initialClosingTarget) setClosingTargetStatus(initialClosingTarget); }, [initialClosingTarget]);
   const { user, role } = useAuth();
   const queryClient = useQueryClient();
   const [newNote, setNewNote] = useState("");
+  const [closingTargetStatus, setClosingTargetStatus] = useState(null);
+  const [resReason, setResReason] = useState("");
+  const [resNote, setResNote] = useState("");
 
   const { data: incident, isLoading, error } = useQuery({
     queryKey: ['incidentDetail', incidentId],
@@ -52,7 +56,7 @@ function IncidentDetailPanel({ incidentId, onClose, onUpdated }) {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: (newStatus) => axios.patch(`/api/incidents/${incidentId}`, { status: newStatus }),
+    mutationFn: ({newStatus, reason, note}) => axios.patch(`/api/incidents/${incidentId}`, { status: newStatus, resolution_reason: reason, resolution_note: note }),
     onSuccess: () => {
       queryClient.invalidateQueries(['incidentDetail', incidentId]);
       onUpdated();
@@ -74,6 +78,7 @@ function IncidentDetailPanel({ incidentId, onClose, onUpdated }) {
   const sm = INC_STATUS_META[incident.status?.toLowerCase()] || INC_STATUS_META.new;
   const pm = INC_PRIORITY_META[incident.priority] || INC_PRIORITY_META.P2;
   const isOpen = !['resolved','closed'].includes(incident.status?.toLowerCase());
+  const canTransition = (isOpen && (role === 'ADMIN' || incident.assigned_to === user?.username)) || (!isOpen && (role === 'ADMIN' || role === 'L3_ANALYST'));
 
   const age = Math.floor((Date.now()/1000) - incident.created_at);
   const ageStr = age < 3600 ? Math.floor(age/60)+'m'
@@ -124,7 +129,7 @@ function IncidentDetailPanel({ incidentId, onClose, onUpdated }) {
       </div>
 
       {/* Status transition buttons */}
-      {isOpen && (role === 'ADMIN' || incident.assigned_to === user?.username) && INC_TRANSITIONS[incident.status?.toLowerCase()] && (
+      {canTransition && INC_TRANSITIONS[incident.status?.toLowerCase()] && (
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '24px', padding: '12px 16px', background: 'var(--surface2)', border: '1px dashed var(--border)', borderRadius: '8px' }}>
           <span style={{ fontSize: '11px', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', fontWeight: 700, marginRight: '4px' }}>Change Status:</span>
           {INC_TRANSITIONS[incident.status?.toLowerCase()].map(ns => {
@@ -132,7 +137,13 @@ function IncidentDetailPanel({ incidentId, onClose, onUpdated }) {
             return (
               <button 
                 key={ns}
-                onClick={() => updateStatusMutation.mutate(ns)}
+                onClick={() => {
+                  if (ns === 'closed' || ns === 'resolved') {
+                    setClosingTargetStatus(ns);
+                  } else {
+                    updateStatusMutation.mutate({newStatus: ns});
+                  }
+                }}
                 disabled={updateStatusMutation.isPending}
                 style={{ background: `${tm.col}1a`, border: `1px solid ${tm.col}44`, color: tm.col, padding: '6px 14px', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 700, fontFamily: 'var(--mono)', transition: 'all 0.2s', textTransform: 'uppercase', letterSpacing: '0.5px' }}
                 onMouseOver={e => { e.target.style.background = `${tm.col}33`; e.target.style.boxShadow = `0 0 10px ${tm.col}33`; }}
@@ -142,6 +153,35 @@ function IncidentDetailPanel({ incidentId, onClose, onUpdated }) {
               </button>
             );
           })}
+        </div>
+      )}
+      {closingTargetStatus && (
+        <div style={{ background: 'var(--bg)', border: '1px solid var(--accent)', borderRadius: '8px', padding: '16px 20px', marginBottom: '24px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', marginBottom: '12px', textTransform: 'uppercase' }}>Confirm {closingTargetStatus}</div>
+          <div style={{ marginBottom: '12px' }}>
+            <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>Resolution Reason</label>
+            <select value={resReason} onChange={e => setResReason(e.target.value)} style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 12px', borderRadius: '6px', outline: 'none' }}>
+              <option value="">Select a reason...</option>
+              <option value="False Positive">False Positive</option>
+              <option value="True Positive - Remediated">True Positive - Remediated</option>
+              <option value="Duplicate">Duplicate</option>
+              <option value="Other">Other (Specify in note)</option>
+            </select>
+          </div>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>Resolution Note (Optional)</label>
+            <textarea value={resNote} onChange={e => setResNote(e.target.value)} rows="2" style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 12px', borderRadius: '6px', resize: 'vertical', outline: 'none' }} placeholder="Add context..."></textarea>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            <button onClick={() => setClosingTargetStatus(null)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 700 }}>Cancel</button>
+            <button 
+              onClick={() => { updateStatusMutation.mutate({newStatus: closingTargetStatus, reason: resReason, note: resNote}); setClosingTargetStatus(null); }}
+              disabled={!resReason || updateStatusMutation.isPending}
+              style={{ background: 'var(--accent)', border: 'none', color: '#fff', padding: '6px 16px', borderRadius: '6px', cursor: !resReason ? 'not-allowed' : 'pointer', fontSize: '11px', fontWeight: 700, opacity: !resReason ? 0.5 : 1 }}
+            >
+              Confirm {closingTargetStatus}
+            </button>
+          </div>
         </div>
       )}
 
@@ -251,6 +291,7 @@ export default function Incidents() {
   const [filterStatus, setFilterStatus] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
   const [expandedId, setExpandedId] = useState(null);
+  const [closingTargetFromRow, setClosingTargetFromRow] = useState(null);
   
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -305,7 +346,7 @@ export default function Incidents() {
   });
 
   const quickUpdateMutation = useMutation({
-    mutationFn: ({ id, status }) => axios.patch(`/api/incidents/${id}`, { status }),
+    mutationFn: ({ id, status, reason, note }) => axios.patch(`/api/incidents/${id}`, { status, resolution_reason: reason, resolution_note: note }),
     onSuccess: () => {
       refetch();
       queryClient.invalidateQueries(['incidentsSummary']);
@@ -326,6 +367,7 @@ export default function Incidents() {
 
   const handleRowClick = (id) => {
     setExpandedId(expandedId === id ? null : id);
+    setClosingTargetFromRow(null);
   };
 
   return (
@@ -460,21 +502,35 @@ export default function Incidents() {
                           />
                         </div>
                       )}
-                      {isOpen && (role === 'ADMIN' || inc.assigned_to === user?.username) && INC_TRANSITIONS[inc.status?.toLowerCase()] && INC_TRANSITIONS[inc.status?.toLowerCase()].map(ns => {
-                        const tm = INC_STATUS_META[ns];
-                        return (
-                          <button 
-                            key={ns}
-                            onClick={(e) => { e.stopPropagation(); quickUpdateMutation.mutate({ id: inc.id, status: ns }); }}
-                            disabled={quickUpdateMutation.isPending}
-                            style={{ background: tm.bg, border: `1px solid ${tm.col}44`, color: tm.col, padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 700, fontFamily: 'var(--mono)', transition: 'all 0.2s' }}
-                            onMouseOver={e => e.currentTarget.style.background = `${tm.col}22`}
-                            onMouseOut={e => e.currentTarget.style.background = tm.bg}
-                          >
-                            → {tm.label}
-                          </button>
-                        );
-                      })}
+                      {(() => {
+                        const canRowTransition = (isOpen && (role === 'ADMIN' || inc.assigned_to === user?.username)) || (!isOpen && (role === 'ADMIN' || role === 'L3_ANALYST'));
+                        if (canRowTransition && INC_TRANSITIONS[inc.status?.toLowerCase()]) {
+                          return INC_TRANSITIONS[inc.status?.toLowerCase()].map(ns => {
+                            const tm = INC_STATUS_META[ns];
+                            return (
+                              <button 
+                                key={ns}
+                                onClick={(e) => { 
+                                  e.stopPropagation(); 
+                                  if (ns === 'closed' || ns === 'resolved') {
+                                    setClosingTargetFromRow(ns);
+                                    setExpandedId(inc.id);
+                                  } else {
+                                    quickUpdateMutation.mutate({ id: inc.id, status: ns }); 
+                                  }
+                                }}
+                                disabled={quickUpdateMutation.isPending}
+                                style={{ background: tm.bg, border: `1px solid ${tm.col}44`, color: tm.col, padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 700, fontFamily: 'var(--mono)', transition: 'all 0.2s' }}
+                                onMouseOver={e => e.currentTarget.style.background = `${tm.col}22`}
+                                onMouseOut={e => e.currentTarget.style.background = tm.bg}
+                              >
+                                → {tm.label}
+                              </button>
+                            );
+                          });
+                        }
+                        return null;
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -483,7 +539,8 @@ export default function Incidents() {
                   <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderTop: 'none', borderRadius: '0 0 8px 8px', overflow: 'hidden', position: 'relative' }}>
                     <IncidentDetailPanel 
                       incidentId={inc.id} 
-                      onClose={() => setExpandedId(null)}
+                      initialClosingTarget={isExpanded && closingTargetFromRow ? closingTargetFromRow : null}
+                      onClose={() => { setExpandedId(null); setClosingTargetFromRow(null); }}
                       onUpdated={() => {
                         refetch();
                         queryClient.invalidateQueries(['incidentsSummary']);
