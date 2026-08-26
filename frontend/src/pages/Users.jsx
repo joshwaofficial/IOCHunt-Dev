@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 
-const esc = (s) => (s || '').toString();
+const esc = (s) => (s || '').toString().replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'");
 
 const formatLocalDate = (unixSeconds) => {
   const d = new Date(unixSeconds * 1000);

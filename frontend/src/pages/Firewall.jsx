@@ -14,7 +14,7 @@ const sevColor = {
   info: '#4f8ef7'
 };
 
-const esc = (s) => (s || '').toString();
+const esc = (s) => (s || '').toString().replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'");
 
 function formatTime(isoStr) {
   if (!isoStr) return '';
@@ -187,7 +187,7 @@ export default function Firewall() {
                   <div key={key} style={{ display: 'flex', gap: '24px', borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>
                     <div style={{ flex: '0 0 160px', fontSize: '11px', fontWeight: 800, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)' }}>{key}</div>
                     <div style={{ flex: 1, fontSize: '13px', color: key === 'severity' ? (sevColor[(val||'').toLowerCase()] || 'var(--text)') : 'var(--text)', fontFamily: 'var(--sans)', wordBreak: 'break-word', fontWeight: key === 'severity' ? 700 : 500, textTransform: key === 'severity' ? 'uppercase' : 'none' }}>
-                      {val !== null && val !== undefined ? String(val) : '-'}
+                      {val !== null && val !== undefined ? esc(val) : '-'}
                     </div>
                   </div>
                 ))}

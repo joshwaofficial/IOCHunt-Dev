@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const esc = (s) => (s || '').toString();
+const esc = (s) => (s || '').toString().replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'");
 
 export default function Clients() {
   const [data, setData] = useState([]);
@@ -175,7 +175,7 @@ export default function Clients() {
                         {key}
                       </div>
                       <div style={{ flex: 1, fontSize: '13px', color: 'var(--text)', fontFamily: 'var(--sans)', wordBreak: 'break-word', fontWeight: 500 }}>
-                        {val !== null && val !== undefined ? String(val) : '-'}
+                        {val !== null && val !== undefined ? esc(val) : '-'}
                       </div>
                     </div>
                   );

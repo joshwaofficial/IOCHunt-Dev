@@ -24,7 +24,7 @@ const adCol = (type) => {
   return '#f5c518';
 };
 
-const esc = (s) => (s || '').toString();
+const esc = (s) => (s || '').toString().replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'");
 
 const formatTime = (ts) => {
   if (!ts) return '';
@@ -224,7 +224,7 @@ export default function MaliciousActivity() {
                       {key}
                     </div>
                     <div style={{ flex: 1, fontSize: '13px', color: key === 'severity' ? (sevColor[(val||'').toLowerCase()] || 'var(--text)') : 'var(--text)', fontFamily: 'var(--sans)', wordBreak: 'break-word', fontWeight: key === 'severity' ? 700 : 500, textTransform: key === 'severity' ? 'uppercase' : 'none' }}>
-                      {val !== null && val !== undefined ? String(val) : '-'}
+                      {val !== null && val !== undefined ? esc(val) : '-'}
                     </div>
                   </div>
                 ))}
