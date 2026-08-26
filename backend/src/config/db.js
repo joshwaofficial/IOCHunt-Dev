@@ -11,7 +11,12 @@
 // to initialize each new tenant's database with the full IOCHunt schema.
 // ════════════════════════════════════════════════════════════════
 
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
+
+// Override PostgreSQL TIMESTAMP (without timezone) to always parse as UTC
+types.setTypeParser(1114, function(stringValue) {
+  return new Date(stringValue + 'Z');
+});
 const path = require('path');
 const fs = require('fs');
 
