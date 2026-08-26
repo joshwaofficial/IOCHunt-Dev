@@ -23,6 +23,7 @@ import Clients from './pages/Clients';
 import AllLogs from './pages/AllLogs';
 import Policy from './pages/Policy';
 import Incidents from './pages/Incidents';
+import IncidentDetail from './pages/IncidentDetail';
 import Reports from './pages/Reports';
 import EmailReports from './pages/EmailReports';
 import Firewall from './pages/Firewall';
@@ -118,6 +119,7 @@ function App() {
                       </ProtectedRoute>
                     } />
                     <Route path="incidents" element={<Incidents />} />
+                    <Route path="incidents/:id" element={<IncidentDetail />} />
                     <Route path="reports" element={<Reports />} />
                     <Route path="email-reports" element={<EmailReports />} />
                   </Route>
