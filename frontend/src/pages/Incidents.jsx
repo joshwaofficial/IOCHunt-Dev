@@ -82,12 +82,12 @@ export default function Incidents() {
       {summaryData && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '32px' }}>
           {[
-            { label: 'Open', val: summaryData.open, icon: 'warning', col: '#eab308' },
-            { label: 'P1 Open', val: summaryData.critical_open, icon: 'error', col: '#ef4444' },
-            { label: 'New', val: summaryData.by_status.new || 0, icon: 'fiber_new', col: '#6b7280' },
-            { label: 'Investigating', val: summaryData.by_status.investigating || 0, icon: 'search', col: '#f97316' },
-            { label: 'Contained', val: summaryData.by_status.contained || 0, icon: 'shield', col: '#eab308' },
-            { label: 'Resolved', val: (summaryData.by_status.resolved || 0) + (summaryData.by_status.closed || 0), icon: 'check_circle', col: '#22c55e' },
+            { label: 'Open', val: summaryData.open || 0, icon: 'warning', col: '#eab308' },
+            { label: 'P1 Open', val: summaryData.p1Open || 0, icon: 'error', col: '#ef4444' },
+            { label: 'New', val: summaryData.byStatus?.find(s => s.status === 'new')?.n || 0, icon: 'fiber_new', col: '#6b7280' },
+            { label: 'Investigating', val: summaryData.byStatus?.find(s => s.status === 'investigating')?.n || 0, icon: 'search', col: '#f97316' },
+            { label: 'Contained', val: summaryData.byStatus?.find(s => s.status === 'contained')?.n || 0, icon: 'shield', col: '#eab308' },
+            { label: 'Resolved', val: (parseInt(summaryData.byStatus?.find(s => s.status === 'resolved')?.n || 0, 10)) + (parseInt(summaryData.byStatus?.find(s => s.status === 'closed')?.n || 0, 10)), icon: 'check_circle', col: '#22c55e' },
           ].map(s => (
             <div key={s.label} className="card" style={{ padding: '20px', position: 'relative', overflow: 'hidden' }}>
               <div style={{ position: 'absolute', top: '-10px', right: '-10px', opacity: 0.05, transform: 'scale(3)' }}>
