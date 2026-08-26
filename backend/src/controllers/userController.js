@@ -12,7 +12,13 @@ const { getValidRoles } = require('../config/roles');
 async function getUsers(req, res) {
   try {
     if (!req.session || !req.session.user_id) return res.status(401).json({ error: 'Unauthenticated' });
-    const users = await User.getAllUsers(req.queryTenant);
+    let users;
+    if (req.session.role === 'ADMIN' || req.session.role === 'AGGREGATOR_ADMIN') {
+      users = await User.getAllUsers(req.queryTenant);
+    } else {
+      const u = await User.findById(req.session.user_id, req.queryTenant);
+      users = u ? [u] : [];
+    }
     const safeUsers = users.map(u => ({
       id: u.id,
       username: u.username,
@@ -22,6 +28,31 @@ async function getUsers(req, res) {
       created_at: u.created_at,
       last_login: u.last_login,
       mfa_enabled: u.mfa_enabled
+    }));
+    return res.status(200).json({ users: safeUsers });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+async function getAssignableUsers(req, res) {
+  try {
+    if (!req.session || !req.session.user_id) return res.status(401).json({ error: 'Unauthenticated' });
+    const users = await User.getAllUsers(req.queryTenant);
+    
+    const role = req.session.role;
+    const allowedAssignees = users.filter(u => {
+      if (role === 'ADMIN' || role === 'AGGREGATOR_ADMIN') return ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST'].includes(u.role);
+      if (role === 'L3_ANALYST') return ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST'].includes(u.role);
+      if (role === 'L2_ANALYST') return ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST'].includes(u.role);
+      if (role === 'L1_ANALYST') return u.role === 'L2_ANALYST';
+      return false;
+    });
+
+    const safeUsers = allowedAssignees.map(u => ({
+      id: u.id,
+      username: u.username,
+      role: u.role
     }));
     return res.status(200).json({ users: safeUsers });
   } catch (error) {
@@ -156,6 +187,7 @@ async function verifyMfa(req, res) {
 
 module.exports = {
   getUsers,
+  getAssignableUsers,
   createUser,
   updateUser,
   deleteUser,

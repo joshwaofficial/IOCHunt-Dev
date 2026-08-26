@@ -99,12 +99,12 @@ export default function Sidebar({ collapsed, toggle }) {
           <NavLink to="/incidents" className={navClass}><span className="icon material-symbols-outlined">emergency</span> Incidents</NavLink>
           <NavLink to="/reports" className={navClass}><span className="icon material-symbols-outlined">bar_chart</span> Reports</NavLink>
           <NavLink to="/email-reports" className={navClass}><span className="icon material-symbols-outlined">mail</span> Email Reports</NavLink>
+          <NavLink to="/users" className={navClass}><span className="icon material-symbols-outlined">group</span> User Accounts</NavLink>
           
           {/* Admin only routes */}
           {isAdmin && (
             <>
               <NavLink to="/policy" className={navClass}><span className="icon material-symbols-outlined">settings</span> Policy</NavLink>
-              <NavLink to="/users" className={navClass}><span className="icon material-symbols-outlined">group</span> Users</NavLink>
             </>
           )}
         </div>

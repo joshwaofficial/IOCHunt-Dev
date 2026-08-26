@@ -299,7 +299,7 @@ export default function Incidents() {
   const { data: usersData } = useQuery({
     queryKey: ['users'],
     queryFn: async () => {
-      const res = await axios.get('/api/users');
+      const res = await axios.get('/api/users/assignable');
       return res.data;
     }
   });

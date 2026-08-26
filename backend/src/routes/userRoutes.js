@@ -8,6 +8,7 @@ const requireAdmin = requireRole(['ADMIN']);
 
 router.use(requireSession);
 router.get('/', userController.getUsers);
+router.get('/assignable', userController.getAssignableUsers);
 router.post('/', requireAdmin, userController.createUser);
 router.patch('/:id', userController.updateUser);
 router.delete('/:id', requireAdmin, userController.deleteUser);
