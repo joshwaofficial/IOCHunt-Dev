@@ -70,11 +70,11 @@ export default function Incidents() {
   };
 
   return (
-    <div className="page-container">
-      <div className="page-header" style={{ marginBottom: '24px' }}>
+    <div style={{ width: '100%', paddingBottom: '40px', position: 'relative' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
         <div>
-          <h2>Incident Management</h2>
-          <p>Track, assign, and resolve security incidents and ongoing investigations.</p>
+          <h2 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.5px', color: 'var(--text)', margin: 0 }}>Incident Management</h2>
+          <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '6px 0 0', fontFamily: 'var(--mono)' }}>Track, assign, and resolve security incidents and ongoing investigations.</p>
         </div>
       </div>
 
@@ -89,7 +89,7 @@ export default function Incidents() {
             { label: 'Contained', val: summaryData.byStatus?.find(s => s.status === 'contained')?.n || 0, icon: 'shield', col: '#eab308' },
             { label: 'Resolved', val: (parseInt(summaryData.byStatus?.find(s => s.status === 'resolved')?.n || 0, 10)) + (parseInt(summaryData.byStatus?.find(s => s.status === 'closed')?.n || 0, 10)), icon: 'check_circle', col: '#22c55e' },
           ].map(s => (
-            <div key={s.label} className="card" style={{ padding: '20px', position: 'relative', overflow: 'hidden' }}>
+            <div key={s.label} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', position: 'relative', overflow: 'hidden', boxShadow: '0 8px 30px rgba(0,0,0,0.05)' }}>
               <div style={{ position: 'absolute', top: '-10px', right: '-10px', opacity: 0.05, transform: 'scale(3)' }}>
                 <span className="material-symbols-outlined" style={{ color: s.col }}>{s.icon}</span>
               </div>
@@ -108,14 +108,17 @@ export default function Incidents() {
 
       {/* Controls */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
-        <button className="btn-primary" onClick={() => setShowNewModal(true)}>
+        <button 
+          style={{ background: 'var(--accent)', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '1px', boxShadow: '0 4px 12px rgba(37,99,235,0.2)' }} 
+          onClick={() => setShowNewModal(true)}
+        >
           <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>add</span>
           New Incident
         </button>
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '1px' }}>Status:</span>
-            <select className="input-field" value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ padding: '6px 12px', fontSize: '12px' }}>
+            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 12px', fontSize: '12px', borderRadius: '6px', outline: 'none' }}>
               <option value="">All Statuses</option>
               <option value="new">New</option>
               <option value="investigating">Investigating</option>
@@ -126,7 +129,7 @@ export default function Incidents() {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '1px' }}>Priority:</span>
-            <select className="input-field" value={filterPriority} onChange={e => setFilterPriority(e.target.value)} style={{ padding: '6px 12px', fontSize: '12px' }}>
+            <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 12px', fontSize: '12px', borderRadius: '6px', outline: 'none' }}>
               <option value="">All Priorities</option>
               <option value="P1">P1 Critical</option>
               <option value="P2">P2 High</option>
@@ -138,11 +141,11 @@ export default function Incidents() {
       </div>
 
       {/* Main List */}
-      <div className="card" style={{ padding: '0', overflowX: 'auto' }}>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', overflowX: 'auto', boxShadow: '0 8px 30px rgba(0,0,0,0.05)' }}>
         {isLoading ? (
-          <div className="empty" style={{ padding: '40px' }}>Loading incidents...</div>
+          <div style={{ padding: '40px', color: 'var(--muted)', textAlign: 'center' }}>Loading incidents...</div>
         ) : data?.incidents?.length === 0 ? (
-          <div className="empty" style={{ padding: '40px' }}>No incidents match your criteria.</div>
+          <div style={{ padding: '40px', color: 'var(--muted)', textAlign: 'center' }}>No incidents match your criteria.</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--mono)' }}>
             <thead>
