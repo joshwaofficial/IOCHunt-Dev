@@ -31,7 +31,11 @@ const LiveThreatFeed = ({ events }) => {
       sevColor = '#eab308';
     }
 
-    const timeStr = ev.ts ? new Date(ev.ts).toLocaleTimeString('en-GB') : '';
+    let rawTs = ev.ts || '';
+    if (rawTs && typeof rawTs === 'string' && !rawTs.endsWith('Z') && !rawTs.includes('+')) {
+      rawTs = rawTs.trim().replace(' ', 'T') + 'Z';
+    }
+    const timeStr = rawTs ? new Date(rawTs).toLocaleTimeString('en-GB') : '';
     const machineStr = ev.machine || ev.target_machine || 'Unknown';
     const msgStr = ev.message || ev.description || ev.tag || 'Event logged';
 

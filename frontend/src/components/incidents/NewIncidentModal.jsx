@@ -394,7 +394,7 @@ export default function NewIncidentModal({ onClose, onCreated, prefillChain }) {
                               {chain.events.map((ev, idx) => (
                                 <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
                                   <td style={{ padding: '8px 12px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                                    {ev.ts ? new Date(ev.ts).toISOString().slice(11, 19) : ''}
+                                    {ev.ts ? new Date(ev.ts + (!ev.ts.endsWith('Z') && !ev.ts.includes('+') ? 'Z' : '')).toISOString().slice(11, 19) : ''}
                                   </td>
                                   <td style={{ padding: '8px 12px' }}>
                                     <span style={{ color: ev.severity === 'critical' ? '#ef4444' : ev.severity === 'high' ? '#f97316' : ev.severity === 'medium' ? '#f5c518' : '#22d47a', textTransform: 'uppercase', fontSize: '9px', fontWeight: 700 }}>

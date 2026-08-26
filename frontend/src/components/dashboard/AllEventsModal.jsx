@@ -5,8 +5,11 @@ import { useFilter } from '../../context/FilterContext';
 
 const formatTime = (ts) => {
   if (!ts) return '';
-  const utc = ts.endsWith('Z') ? ts : ts;
-  const d = new Date(utc);
+  let rawTs = ts;
+  if (typeof rawTs === 'string' && !rawTs.endsWith('Z') && !rawTs.includes('+')) {
+    rawTs = rawTs.trim().replace(' ', 'T') + 'Z';
+  }
+  const d = new Date(rawTs);
   if (isNaN(d)) return ts.slice(0, 16);
   const pad = n => n.toString().padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
