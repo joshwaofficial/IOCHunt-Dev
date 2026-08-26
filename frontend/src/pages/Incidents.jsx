@@ -26,7 +26,7 @@ const INC_TRANSITIONS = {
   new:           ['investigating'],
   investigating: ['contained', 'resolved'],
   contained:     ['investigating', 'resolved'],
-  resolved:      ['closed'],
+  resolved:      ['closed', 'investigating'],
   closed:        ['investigating'],
 };
 
@@ -523,7 +523,7 @@ export default function Incidents() {
                                 onMouseOver={e => e.currentTarget.style.background = `${tm.col}22`}
                                 onMouseOut={e => e.currentTarget.style.background = tm.bg}
                               >
-                                → {tm.label}
+                                → {(ns === 'investigating' && (inc.status?.toLowerCase() === 'closed' || inc.status?.toLowerCase() === 'resolved')) ? 'Reopen' : tm.label}
                               </button>
                             );
                           });

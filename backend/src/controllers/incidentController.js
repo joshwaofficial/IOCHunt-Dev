@@ -206,9 +206,9 @@ async function updateIncident(req, res) {
       }
 
       const validTransitions = {
-        new: ['investigating', 'closed'],
-        investigating: ['contained', 'resolved', 'closed'],
-        contained: ['investigating', 'resolved', 'closed'],
+        new: ['investigating'],
+        investigating: ['contained', 'resolved'],
+        contained: ['investigating', 'resolved'],
         resolved: ['closed', 'investigating'],
         closed: ['investigating'],
       };
