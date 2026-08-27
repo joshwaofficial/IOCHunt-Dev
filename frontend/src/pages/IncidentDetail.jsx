@@ -325,7 +325,7 @@ export default function IncidentDetail() {
               <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--accent)' }}>info</span> Properties
             </div>
             
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '12px', fontFamily: 'var(--mono)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '12px', fontFamily: 'var(--mono)' }}>
               <div><span style={{ color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Machine</span> <span style={{ color: 'var(--text)', fontWeight: 600 }}>{incident.machine || '—'}</span></div>
               <div><span style={{ color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Assigned</span> <span style={{ color: 'var(--text)', fontWeight: 600 }}>{incident.assigned_to || 'Unassigned'}</span></div>
               <div><span style={{ color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Created</span> <span style={{ color: 'var(--text)', fontWeight: 600 }}>{new Date(incident.created_at * 1000).toLocaleString()}</span></div>
