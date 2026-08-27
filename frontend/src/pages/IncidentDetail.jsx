@@ -86,7 +86,7 @@ export default function IncidentDetail() {
              : Math.floor(age/86400)+'d';
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '30px 40px' }}>
+    <div style={{ width: '100%', paddingBottom: '40px', position: 'relative' }}>
       <button 
         onClick={() => navigate('/incidents')}
         style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: '13px', cursor: 'pointer', marginBottom: '24px', fontWeight: 600, transition: 'color 0.2s' }}
