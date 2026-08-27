@@ -39,7 +39,8 @@ const sevColor = {
 export default function IncidentDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, role } = useAuth();
+  const { user } = useAuth();
+  const role = user?.role;
   const queryClient = useQueryClient();
   
   const [newNote, setNewNote] = useState("");
