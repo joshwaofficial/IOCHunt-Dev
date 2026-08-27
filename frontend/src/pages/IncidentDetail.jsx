@@ -56,6 +56,23 @@ export default function IncidentDetail() {
     }
   });
 
+  const { data: assignableData } = useQuery({
+    queryKey: ['assignableUsers'],
+    queryFn: async () => {
+      const res = await axios.get('/api/users/assignable');
+      return res.data;
+    }
+  });
+  const allowedAssignees = assignableData?.users || [];
+
+  const updateAssigneeMutation = useMutation({
+    mutationFn: (newAssignee) => axios.patch(`/api/incidents/${id}`, { assigned_to: newAssignee }),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['incidentDetail', id]);
+      toast.success('Assignee updated');
+    }
+  });
+
   const updateStatusMutation = useMutation({
     mutationFn: ({newStatus, reason, note}) => axios.patch(`/api/incidents/${id}`, { status: newStatus, resolution_reason: reason, resolution_note: note }),
     onSuccess: () => {
@@ -247,6 +264,9 @@ export default function IncidentDetail() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {INC_TRANSITIONS[incident.status?.toLowerCase()].map(ns => {
                   const tm = INC_STATUS_META[ns];
+                  const isReopen = ['resolved', 'closed'].includes(incident.status?.toLowerCase()) && ns === 'investigating';
+                  const label = isReopen ? 'Reopen Incident' : `Mark as ${tm.label}`;
+                  
                   return (
                     <button 
                       key={ns}
@@ -262,8 +282,8 @@ export default function IncidentDetail() {
                       onMouseOver={e => { e.currentTarget.style.background = `${tm.col}33`; e.currentTarget.style.boxShadow = `0 0 10px ${tm.col}33`; }}
                       onMouseOut={e => { e.currentTarget.style.background = `${tm.col}1a`; e.currentTarget.style.boxShadow = 'none'; }}
                     >
-                      <span>Mark as {tm.label}</span>
-                      <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>arrow_forward</span>
+                      <span>{label}</span>
+                      <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>{isReopen ? 'replay' : 'arrow_forward'}</span>
                     </button>
                   );
                 })}
@@ -328,7 +348,26 @@ export default function IncidentDetail() {
             
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '12px', fontFamily: 'var(--mono)' }}>
               <div><span style={{ color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Machine</span> <span style={{ color: 'var(--text)', fontWeight: 600 }}>{incident.machine || '—'}</span></div>
-              <div><span style={{ color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Assigned</span> <span style={{ color: 'var(--text)', fontWeight: 600 }}>{incident.assigned_to || 'Unassigned'}</span></div>
+              
+              <div>
+                <span style={{ color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Assigned</span>
+                {canTransition ? (
+                  <select
+                    value={incident.assigned_to || ''}
+                    onChange={(e) => updateAssigneeMutation.mutate(e.target.value)}
+                    disabled={updateAssigneeMutation.isPending}
+                    style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 8px', fontSize: '11px', borderRadius: '4px', outline: 'none', width: '100%', fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)' }}
+                  >
+                    <option value="">Unassigned</option>
+                    {allowedAssignees.map(u => (
+                      <option key={u.username} value={u.username}>{u.username}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span style={{ color: 'var(--text)', fontWeight: 600 }}>{incident.assigned_to || 'Unassigned'}</span>
+                )}
+              </div>
+
               <div><span style={{ color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Created</span> <span style={{ color: 'var(--text)', fontWeight: 600 }}>{new Date(incident.created_at * 1000).toLocaleString()}</span></div>
               <div><span style={{ color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Created by</span> <span style={{ color: 'var(--text)', fontWeight: 600 }}>{incident.created_by || 'system'}</span></div>
               <div><span style={{ color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Updated</span> <span style={{ color: 'var(--text)', fontWeight: 600 }}>{new Date(incident.updated_at * 1000).toLocaleString()}</span></div>
