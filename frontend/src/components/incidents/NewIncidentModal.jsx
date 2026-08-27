@@ -41,23 +41,15 @@ export default function NewIncidentModal({ onClose, onCreated, prefillChain }) {
   const { user } = useAuth();
   
   // Fetch users for assignee dropdown
-  const { data: usersData } = useQuery({
-    queryKey: ['users'],
+  const { data: assignableData } = useQuery({
+    queryKey: ['assignableUsers'],
     queryFn: async () => {
-      const res = await axios.get('/api/users');
+      const res = await axios.get('/api/users/assignable');
       return res.data;
     }
   });
 
-  const usersList = usersData?.users || [];
-  const role = user?.role;
-  const allowedAssignees = usersList.filter(u => {
-    if (role === 'ADMIN') return true;
-    if (role === 'L3_ANALYST') return u.role === 'L3_ANALYST' || u.role === 'L2_ANALYST';
-    if (role === 'L2_ANALYST') return u.role === 'L2_ANALYST' || u.role === 'L3_ANALYST';
-    if (role === 'L1_ANALYST') return u.role === 'L2_ANALYST';
-    return false;
-  });
+  const allowedAssignees = assignableData?.users || [];
 
   // Fetch clients for autocomplete
   const { data: clientsData } = useQuery({
