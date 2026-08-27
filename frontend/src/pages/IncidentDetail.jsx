@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
@@ -47,6 +47,8 @@ export default function IncidentDetail() {
   const [closingTargetStatus, setClosingTargetStatus] = useState(null);
   const [resReason, setResReason] = useState("");
   const [resNote, setResNote] = useState("");
+  
+  const notesEndRef = useRef(null);
 
   const { data: incident, isLoading, error } = useQuery({
     queryKey: ['incidentDetail', id],
@@ -115,6 +117,12 @@ export default function IncidentDetail() {
       processes: Array.from(processes)
     };
   }, [incident]);
+
+  useEffect(() => {
+    if (notesEndRef.current) {
+      notesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [incident?.notes]);
 
   if (isLoading) return <div style={{ padding: '40px', color: 'var(--muted)' }}>Loading incident...</div>;
   if (error || !incident) return <div style={{ padding: '40px', color: '#ef4444' }}>Error loading incident details.</div>;
@@ -403,6 +411,7 @@ export default function IncidentDetail() {
                       </div>
                     );
                   })}
+                  <div ref={notesEndRef} />
                 </div>
               ) : (
                 <div style={{ fontSize: '12px', color: 'var(--muted)', fontStyle: 'italic' }}>No notes yet.</div>
