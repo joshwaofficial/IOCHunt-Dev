@@ -48,7 +48,7 @@ export default function IncidentDetail() {
   const [resReason, setResReason] = useState("");
   const [resNote, setResNote] = useState("");
   
-  const notesEndRef = useRef(null);
+  const notesContainerRef = useRef(null);
 
   const { data: incident, isLoading, error } = useQuery({
     queryKey: ['incidentDetail', id],
@@ -119,8 +119,8 @@ export default function IncidentDetail() {
   }, [incident]);
 
   useEffect(() => {
-    if (notesEndRef.current) {
-      notesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (notesContainerRef.current) {
+      notesContainerRef.current.scrollTop = notesContainerRef.current.scrollHeight;
     }
   }, [incident?.notes]);
 
@@ -394,7 +394,7 @@ export default function IncidentDetail() {
               <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--accent)' }}>forum</span> Notes & Activity <span style={{ background: 'var(--surface2)', border: '1px solid var(--border)', padding: '2px 8px', borderRadius: '4px', fontSize: '10px' }}>{incident.notes?.length || 0}</span>
             </div>
             
-            <div style={{ maxHeight: '400px', overflowY: 'auto', paddingRight: '8px', marginBottom: '20px' }}>
+            <div ref={notesContainerRef} style={{ maxHeight: '400px', overflowY: 'auto', paddingRight: '8px', marginBottom: '20px' }}>
               {incident.notes?.length > 0 ? (
                 <div style={{ borderLeft: '2px solid var(--border)', marginLeft: '12px', paddingLeft: '24px' }}>
                   {incident.notes.map(n => {
@@ -411,7 +411,6 @@ export default function IncidentDetail() {
                       </div>
                     );
                   })}
-                  <div ref={notesEndRef} />
                 </div>
               ) : (
                 <div style={{ fontSize: '12px', color: 'var(--muted)', fontStyle: 'italic' }}>No notes yet.</div>
