@@ -122,7 +122,7 @@ export default function IncidentDetail() {
   const sm = INC_STATUS_META[incident.status?.toLowerCase()] || INC_STATUS_META.new;
   const pm = INC_PRIORITY_META[incident.priority] || INC_PRIORITY_META.P2;
   const isOpen = !['resolved','closed'].includes(incident.status?.toLowerCase());
-  const canTransition = (isOpen && (role === 'ADMIN' || incident.assigned_to === user?.username)) || (!isOpen && (role === 'ADMIN' || role === 'L3_ANALYST'));
+  const canTransition = role === 'ADMIN' || role === 'L3_ANALYST' || (isOpen && incident.assigned_to === user?.username);
 
   const age = Math.floor((Date.now()/1000) - incident.created_at);
   const ageStr = age < 3600 ? Math.floor(age/60)+'m'
