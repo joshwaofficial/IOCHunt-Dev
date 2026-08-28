@@ -31,6 +31,7 @@ export default function Incidents() {
   const [filterStatus, setFilterStatus] = useState("");
   const [filterPriority, setFilterPriority] = useState("");
   
+  const [searchTerm, setSearchTerm] = useState("");
   const queryClient = useQueryClient();
   const { user } = useAuth();
 
@@ -47,10 +48,10 @@ export default function Incidents() {
   }, [location, navigate]);
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['incidents', filterStatus, filterPriority],
+    queryKey: ['incidents', filterStatus, filterPriority, searchTerm],
     queryFn: async () => {
       const res = await axios.get('/api/incidents', {
-        params: { status: filterStatus, priority: filterPriority }
+        params: { status: filterStatus, priority: filterPriority, search: searchTerm }
       });
       return res.data;
     }
@@ -69,6 +70,50 @@ export default function Incidents() {
     navigate(`/incidents/${id}`);
   };
 
+  const PremiumCard = ({ value, label, color, icon, subtitle }) => {
+    return (
+      <div 
+        style={{ 
+          background: 'var(--surface)', 
+          border: '1px solid var(--border)', 
+          borderRadius: '12px', 
+          padding: '16px 20px', 
+          display: 'flex', 
+          flexDirection: 'column', 
+          gap: '12px', 
+          boxShadow: '0 4px 6px rgba(0,0,0,0.02)',
+          position: 'relative',
+          overflow: 'hidden',
+          cursor: 'default'
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div style={{ 
+            width: '32px', height: '32px', 
+            borderRadius: '8px', 
+            background: `${color}1A`, 
+            display: 'flex', alignItems: 'center', justifyContent: 'center', 
+            color: color
+          }}>
+            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>{icon}</span>
+          </div>
+          <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', marginTop: '4px' }}>{label}</span>
+        </div>
+        
+        <div style={{ fontSize: '30px', fontWeight: 900, color: 'var(--text)', lineHeight: 1, letterSpacing: '-0.5px' }}>{value}</div>
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: 'auto' }}>
+          <span style={{ 
+            width: '6px', height: '6px', 
+            borderRadius: '50%', 
+            background: color
+          }}></span>
+          <span style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 600, letterSpacing: '0.2px' }}>{subtitle}</span>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={{ width: '100%', paddingBottom: '40px', position: 'relative' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
@@ -76,11 +121,67 @@ export default function Incidents() {
           <h2 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.5px', color: 'var(--text)', margin: 0 }}>Incident Management</h2>
           <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '6px 0 0', fontFamily: 'var(--mono)' }}>Track, assign, and resolve security incidents and ongoing investigations.</p>
         </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <span style={{ background: 'var(--surface2)', border: '1px solid var(--border)', fontSize: '11px', padding: '6px 14px', borderRadius: '6px', fontFamily: 'var(--mono)', color: 'var(--muted)' }}>
+            {data?.total || 0} {(data?.total === 1) ? 'incident' : 'incidents'}
+          </span>
+        </div>
+      </div>
+
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '14px 20px', display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: '12px', marginBottom: '24px', justifyContent: 'space-between', overflowX: 'auto' }}>
+        <div className="tb-search-wrap" style={{ flex: 1, minWidth: '160px' }}>
+          <span className="material-symbols-outlined tb-search-icon">search</span>
+          <input 
+            type="text" 
+            className="tb-search"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search incident title, description, or assignee..." 
+            style={{ width: '100%' }}
+          />
+        </div>
+        
+        <div style={{ width: '1px', height: '24px', background: 'var(--border)', flexShrink: 0 }}></div>
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '1px', fontFamily: 'var(--mono)' }}>Status:</span>
+          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px', padding: '6px 10px', fontSize: '11px', color: 'var(--text)', outline: 'none', cursor: 'pointer', fontFamily: 'var(--sans)' }}>
+            <option value="">All Statuses</option>
+            <option value="new">New</option>
+            <option value="investigating">Investigating</option>
+            <option value="contained">Contained</option>
+            <option value="resolved">Resolved</option>
+            <option value="closed">Closed</option>
+          </select>
+        </div>
+
+        <div style={{ width: '1px', height: '24px', background: 'var(--border)', flexShrink: 0 }}></div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '1px', fontFamily: 'var(--mono)' }}>Priority:</span>
+          <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px', padding: '6px 10px', fontSize: '11px', color: 'var(--text)', outline: 'none', cursor: 'pointer', fontFamily: 'var(--sans)' }}>
+            <option value="">All Priorities</option>
+            <option value="P1">P1 Critical</option>
+            <option value="P2">P2 High</option>
+            <option value="P3">P3 Medium</option>
+            <option value="P4">P4 Low</option>
+          </select>
+        </div>
+
+        <div style={{ width: '1px', height: '24px', background: 'var(--border)', flexShrink: 0 }}></div>
+        
+        <button 
+          style={{ background: 'var(--accent)', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '1px', boxShadow: '0 4px 12px rgba(37,99,235,0.2)' }} 
+          onClick={() => setShowNewModal(true)}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>add</span>
+          New Incident
+        </button>
       </div>
 
       {/* Summary Cards */}
       {summaryData && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '32px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', marginBottom: '24px' }}>
           {[
             { label: 'Open', val: summaryData.open || 0, icon: 'warning', col: '#eab308' },
             { label: 'P1 Open', val: summaryData.p1Open || 0, icon: 'error', col: '#ef4444' },
@@ -88,57 +189,18 @@ export default function Incidents() {
             { label: 'Investigating', val: summaryData.byStatus?.find(s => s.status === 'investigating')?.n || 0, icon: 'search', col: '#f97316' },
             { label: 'Contained', val: summaryData.byStatus?.find(s => s.status === 'contained')?.n || 0, icon: 'shield', col: '#eab308' },
             { label: 'Resolved', val: (parseInt(summaryData.byStatus?.find(s => s.status === 'resolved')?.n || 0, 10)) + (parseInt(summaryData.byStatus?.find(s => s.status === 'closed')?.n || 0, 10)), icon: 'check_circle', col: '#22c55e' },
-          ].map(s => (
-            <div key={s.label} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', position: 'relative', overflow: 'hidden', boxShadow: '0 8px 30px rgba(0,0,0,0.05)' }}>
-              <div style={{ position: 'absolute', top: '-10px', right: '-10px', opacity: 0.05, transform: 'scale(3)' }}>
-                <span className="material-symbols-outlined" style={{ color: s.col }}>{s.icon}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                <span className="material-symbols-outlined" style={{ color: s.col, fontSize: '20px', background: `${s.col}1a`, padding: '6px', borderRadius: '8px' }}>{s.icon}</span>
-                <span style={{ fontSize: '10px', fontWeight: 700, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--muted)' }}>{s.label}</span>
-              </div>
-              <div style={{ fontSize: '32px', fontWeight: 800, color: 'var(--text)', marginBottom: '8px', lineHeight: 1 }}>{s.val}</div>
-              <div style={{ fontSize: '11px', color: 'var(--muted2)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ color: s.col }}>●</span> Active
-              </div>
-            </div>
+          ].map((s, i) => (
+            <PremiumCard 
+              key={i} 
+              label={s.label} 
+              value={s.val} 
+              color={s.col} 
+              icon={s.icon} 
+              subtitle="Active" 
+            />
           ))}
         </div>
       )}
-
-      {/* Controls */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
-        <button 
-          style={{ background: 'var(--accent)', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '6px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '1px', boxShadow: '0 4px 12px rgba(37,99,235,0.2)' }} 
-          onClick={() => setShowNewModal(true)}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>add</span>
-          New Incident
-        </button>
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '1px' }}>Status:</span>
-            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 12px', fontSize: '12px', borderRadius: '6px', outline: 'none' }}>
-              <option value="">All Statuses</option>
-              <option value="new">New</option>
-              <option value="investigating">Investigating</option>
-              <option value="contained">Contained</option>
-              <option value="resolved">Resolved</option>
-              <option value="closed">Closed</option>
-            </select>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '1px' }}>Priority:</span>
-            <select value={filterPriority} onChange={e => setFilterPriority(e.target.value)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '6px 12px', fontSize: '12px', borderRadius: '6px', outline: 'none' }}>
-              <option value="">All Priorities</option>
-              <option value="P1">P1 Critical</option>
-              <option value="P2">P2 High</option>
-              <option value="P3">P3 Medium</option>
-              <option value="P4">P4 Low</option>
-            </select>
-          </div>
-        </div>
-      </div>
 
       {/* Main List */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', overflowX: 'auto', boxShadow: '0 8px 30px rgba(0,0,0,0.05)' }}>

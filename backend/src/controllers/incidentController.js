@@ -2,7 +2,7 @@ const { sendAssignmentEmail } = require('../utils/emailHelper');
 async function getIncidents(req, res) {
   try {
 
-    const { status, priority, assigned_to, limit = 100, offset = 0 } = req.query;
+    const { status, priority, assigned_to, search, limit = 100, offset = 0 } = req.query;
     const conds = [];
     const p = [];
     
@@ -11,6 +11,11 @@ async function getIncidents(req, res) {
     if (status) { conds.push(`status=$${paramIndex++}`); p.push(status); }
     if (priority) { conds.push(`priority=$${paramIndex++}`); p.push(priority); }
     if (assigned_to) { conds.push(`assigned_to=$${paramIndex++}`); p.push(assigned_to); }
+    if (search) { 
+      conds.push(`(title ILIKE $${paramIndex} OR description ILIKE $${paramIndex} OR machine ILIKE $${paramIndex} OR assigned_to ILIKE $${paramIndex} OR id::text = $${paramIndex})`); 
+      p.push(`%${search}%`); 
+      paramIndex++; 
+    }
     
     if (req.session && req.session.role !== 'ADMIN' && req.session.role !== 'L3_ANALYST') {
       const username = req.session.username;
