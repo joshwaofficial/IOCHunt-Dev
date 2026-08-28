@@ -333,10 +333,10 @@ function parseUserEvent(r) {
   else if (t.includes('PASSWORD-CHANGE')) action = 'Password Changed';
 
   const actorM = msg.match(/by\s+'([^']+)'/i) || msg.match(/\(by\s+([^)]+)\)/i) || msg.match(/Subject:\s*[\s\S]*?Account Name:\s*([^\s]+)/i) || msg.match(/by\s+(\S+)/i);
-  const actor = actorM ? actorM[1].replace(/\\/g, '').slice(0, 50) : '-';
+  const actor = actorM ? actorM[1].slice(0, 50) : '-';
   
   const qm = msg.match(/'([^']+)'/) || msg.match(/User Account.*?:\s*([^\s|]+)/i) || msg.match(/Target Account:\s*[\s\S]*?Account Name:\s*([^\s]+)/i) || msg.match(/Member:\s*[\s\S]*?Account Name:\s*([^\s]+)/i);
-  const username = qm ? qm[1].replace(/\\/g, '').slice(0, 60) : '-';
+  const username = qm ? qm[1].slice(0, 60) : '-';
   
   const grpM = msg.match(/group\s+'([^']+)'/i) || msg.match(/Group:\s*[\s\S]*?Group Name:\s*([^\s]+)/i) || msg.match(/group\s+([^\s]+)/i);
   const group = grpM ? grpM[1].slice(0, 60) : '';
