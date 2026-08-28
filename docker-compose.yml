@@ -128,6 +128,19 @@ services:
         max-size: "10m"
         max-file: "5"
 
+  # ── Adminer (Web Database GUI) ────────────────────────────────
+  adminer:
+    image: adminer:latest
+    container_name: iochunt-adminer-${TENANT_ID:-default}
+    restart: unless-stopped
+    ports:
+      - "8085:8080"
+    networks:
+      - db-net
+    depends_on:
+      db:
+        condition: service_healthy
+
 # ── Volumes ────────────────────────────────────────────────────
 volumes:
   pgdata:
