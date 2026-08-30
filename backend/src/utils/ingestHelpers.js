@@ -116,7 +116,7 @@ function detectNoise(tag, message, severity) {
 
   if (tu.includes('[INFO]')) return 1;
   if (tu.includes('[SVC-SKIP')) return 1;
-  if (tu.includes('[LOGON-DEBUG') || tu.includes('[LOGON-POLL')) return 1;
+  if (tu.includes('[LOGON-DEBUG') || tu.includes('[LOGON-POLL') || mu.startsWith('[LOGON] USER:') || mu.startsWith('[LOGON]')) return 1;
 
   if (tu.includes('[CONFIG]') &&
     (mu.includes('SAVED.') || mu.includes('LOADED.'))) return 1;
