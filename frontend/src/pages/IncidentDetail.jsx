@@ -48,6 +48,13 @@ export default function IncidentDetail() {
   const [resReason, setResReason] = useState("");
   const [resNote, setResNote] = useState("");
   
+  // Containment Playbook State
+  const [showContainModal, setShowContainModal] = useState(false);
+  const [containIsolateHost, setContainIsolateHost] = useState(true);
+  const [containKilledProcesses, setContainKilledProcesses] = useState({});
+  const [containLockedUsers, setContainLockedUsers] = useState({});
+  const [containNote, setContainNote] = useState("");
+  
   const notesContainerRef = useRef(null);
 
   const { data: incident, isLoading, error } = useQuery({
@@ -76,7 +83,14 @@ export default function IncidentDetail() {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: ({newStatus, reason, note}) => axios.patch(`/api/incidents/${id}`, { status: newStatus, resolution_reason: reason, resolution_note: note }),
+    mutationFn: ({newStatus, reason, note, containment_actions, containment_note}) => 
+      axios.patch(`/api/incidents/${id}`, { 
+        status: newStatus, 
+        resolution_reason: reason, 
+        resolution_note: note,
+        containment_actions,
+        containment_note
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries(['incidentDetail', id]);
       toast.success('Status updated');
@@ -119,10 +133,43 @@ export default function IncidentDetail() {
   }, [incident]);
 
   useEffect(() => {
+    if (entities.processes?.length > 0) {
+      const pMap = {};
+      entities.processes.forEach(p => { pMap[p] = true; });
+      setContainKilledProcesses(pMap);
+    }
+    if (entities.users?.length > 0) {
+      const uMap = {};
+      entities.users.forEach(u => { uMap[u] = true; });
+      setContainLockedUsers(uMap);
+    }
+  }, [entities]);
+
+  useEffect(() => {
     if (notesContainerRef.current) {
       notesContainerRef.current.scrollTop = notesContainerRef.current.scrollHeight;
     }
   }, [incident?.notes]);
+
+  const handleConfirmContainment = () => {
+    const actions = [];
+    if (containIsolateHost) {
+      actions.push(`Isolate Host (${incident?.machine || 'Affected Machine'})`);
+    }
+    Object.entries(containKilledProcesses).forEach(([proc, isSelected]) => {
+      if (isSelected) actions.push(`Terminate Process (${proc})`);
+    });
+    Object.entries(containLockedUsers).forEach(([usr, isSelected]) => {
+      if (isSelected) actions.push(`Lock User Account (${usr})`);
+    });
+
+    updateStatusMutation.mutate({
+      newStatus: 'contained',
+      containment_actions: actions,
+      containment_note: containNote.trim() || undefined
+    });
+    setShowContainModal(false);
+  };
 
   if (isLoading) return <div style={{ padding: '40px', color: 'var(--muted)' }}>Loading incident...</div>;
   if (error || !incident) return <div style={{ padding: '40px', color: '#ef4444' }}>Error loading incident details.</div>;
@@ -130,6 +177,7 @@ export default function IncidentDetail() {
   const sm = INC_STATUS_META[incident.status?.toLowerCase()] || INC_STATUS_META.new;
   const pm = INC_PRIORITY_META[incident.priority] || INC_PRIORITY_META.P2;
   const isOpen = !['resolved','closed'].includes(incident.status?.toLowerCase());
+  const isContained = ['contained', 'resolved', 'closed'].includes(incident.status?.toLowerCase());
   
   // Incident Action buttons logic (Restored to previous)
   const canTransition = (isOpen && (role === 'ADMIN' || incident.assigned_to === user?.username)) || (!isOpen && (role === 'ADMIN' || role === 'L3_ANALYST'));
@@ -162,6 +210,34 @@ export default function IncidentDetail() {
         ============================================================== */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           
+          {/* Active Containment Alert Banner */}
+          {incident.status?.toLowerCase() === 'contained' && (
+            <div style={{
+              background: 'rgba(234, 179, 8, 0.08)',
+              border: '1px solid rgba(234, 179, 8, 0.35)',
+              borderRadius: '10px',
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '16px',
+              boxShadow: '0 4px 16px rgba(234, 179, 8, 0.08)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <div style={{ width: '38px', height: '38px', borderRadius: '8px', background: 'rgba(234,179,8,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#eab308' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '22px' }}>shield</span>
+                </div>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 800, color: '#eab308', letterSpacing: '0.5px' }}>INCIDENT ACTIVELY CONTAINED</div>
+                  <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>Threat propagation halted and endpoint quarantined. Ready for root-cause resolution.</div>
+                </div>
+              </div>
+              <span style={{ background: 'rgba(234, 179, 8, 0.2)', border: '1px solid rgba(234, 179, 8, 0.4)', color: '#eab308', fontSize: '11px', fontWeight: 800, padding: '6px 12px', borderRadius: '6px', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                SHIELD ACTIVE 🛡️
+              </span>
+            </div>
+          )}
+
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '30px', boxShadow: '0 8px 30px rgba(0,0,0,0.05)' }}>
             {/* Header meta */}
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
@@ -188,32 +264,93 @@ export default function IncidentDetail() {
 
           {/* Blast Radius / Entities */}
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', boxShadow: '0 8px 30px rgba(0,0,0,0.05)' }}>
-            <div style={{ fontFamily: 'var(--mono)', fontSize: '12px', fontWeight: 700, color: 'var(--text)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#8b5cf6' }}>radar</span> Entities Involved (Blast Radius)
+            <div style={{ fontFamily: 'var(--mono)', fontSize: '12px', fontWeight: 700, color: 'var(--text)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: isContained ? '#eab308' : '#8b5cf6' }}>
+                  {isContained ? 'shield' : 'radar'}
+                </span> 
+                Entities Involved (Blast Radius)
+              </div>
+              {isContained && (
+                <span style={{ fontSize: '10px', color: '#eab308', background: 'rgba(234,179,8,0.15)', border: '1px solid rgba(234,179,8,0.3)', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                  CONTAINMENT ACTIVE
+                </span>
+              )}
             </div>
             
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
               {/* Users */}
-              <div style={{ background: 'var(--surface2)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <div style={{ background: 'var(--surface2)', padding: '16px', borderRadius: '8px', border: isContained ? '1px solid rgba(234,179,8,0.25)' : '1px solid var(--border)' }}>
                 <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700, marginBottom: '12px', letterSpacing: '1px' }}>Compromised Users</div>
                 {entities.users.length > 0 ? entities.users.map(u => (
-                  <div key={u} style={{ display: 'inline-block', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)', color: '#60a5fa', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', fontFamily: 'var(--mono)', marginRight: '6px', marginBottom: '6px' }}>{u}</div>
+                  <div key={u} style={{ 
+                    display: 'inline-flex', 
+                    alignItems: 'center', 
+                    gap: '6px',
+                    background: isContained ? 'rgba(234,179,8,0.1)' : 'rgba(59,130,246,0.1)', 
+                    border: `1px solid ${isContained ? 'rgba(234,179,8,0.35)' : 'rgba(59,130,246,0.3)'}`, 
+                    color: isContained ? '#facc15' : '#60a5fa', 
+                    padding: '5px 10px', 
+                    borderRadius: '6px', 
+                    fontSize: '11px', 
+                    fontFamily: 'var(--mono)', 
+                    marginRight: '6px', 
+                    marginBottom: '6px' 
+                  }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>{isContained ? 'lock' : 'person'}</span>
+                    {u}
+                    {isContained && <span style={{ fontSize: '9px', fontWeight: 800, background: 'rgba(234,179,8,0.25)', padding: '2px 5px', borderRadius: '3px', letterSpacing: '0.5px' }}>LOCKED</span>}
+                  </div>
                 )) : <div style={{ fontSize: '11px', color: 'var(--muted)' }}>No users extracted.</div>}
               </div>
 
               {/* Machines */}
-              <div style={{ background: 'var(--surface2)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <div style={{ background: 'var(--surface2)', padding: '16px', borderRadius: '8px', border: isContained ? '1px solid rgba(234,179,8,0.25)' : '1px solid var(--border)' }}>
                 <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700, marginBottom: '12px', letterSpacing: '1px' }}>Affected Machines</div>
                 {entities.machines.length > 0 ? entities.machines.map(m => (
-                  <div key={m} style={{ display: 'inline-block', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', color: '#4ade80', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', fontFamily: 'var(--mono)', marginRight: '6px', marginBottom: '6px' }}>{m}</div>
+                  <div key={m} style={{ 
+                    display: 'inline-flex', 
+                    alignItems: 'center', 
+                    gap: '6px',
+                    background: isContained ? 'rgba(234,179,8,0.12)' : 'rgba(34,197,94,0.1)', 
+                    border: `1px solid ${isContained ? 'rgba(234,179,8,0.4)' : 'rgba(34,197,94,0.3)'}`, 
+                    color: isContained ? '#facc15' : '#4ade80', 
+                    padding: '5px 10px', 
+                    borderRadius: '6px', 
+                    fontSize: '11px', 
+                    fontFamily: 'var(--mono)', 
+                    marginRight: '6px', 
+                    marginBottom: '6px' 
+                  }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>{isContained ? 'shield' : 'computer'}</span>
+                    {m}
+                    {isContained && <span style={{ fontSize: '9px', fontWeight: 800, background: 'rgba(234,179,8,0.25)', padding: '2px 5px', borderRadius: '3px', letterSpacing: '0.5px' }}>QUARANTINED</span>}
+                  </div>
                 )) : <div style={{ fontSize: '11px', color: 'var(--muted)' }}>No machines found.</div>}
               </div>
 
               {/* Processes */}
-              <div style={{ background: 'var(--surface2)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <div style={{ background: 'var(--surface2)', padding: '16px', borderRadius: '8px', border: isContained ? '1px solid rgba(234,179,8,0.25)' : '1px solid var(--border)' }}>
                 <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700, marginBottom: '12px', letterSpacing: '1px' }}>Suspicious Processes</div>
                 {entities.processes.length > 0 ? entities.processes.map(p => (
-                  <div key={p} style={{ display: 'inline-block', background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.3)', color: '#fb923c', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', fontFamily: 'var(--mono)', marginRight: '6px', marginBottom: '6px' }}>{p}</div>
+                  <div key={p} style={{ 
+                    display: 'inline-flex', 
+                    alignItems: 'center', 
+                    gap: '6px',
+                    background: isContained ? 'rgba(239,68,68,0.1)' : 'rgba(249,115,22,0.1)', 
+                    border: `1px solid ${isContained ? 'rgba(239,68,68,0.35)' : 'rgba(249,115,22,0.3)'}`, 
+                    color: isContained ? '#f87171' : '#fb923c', 
+                    padding: '5px 10px', 
+                    borderRadius: '6px', 
+                    fontSize: '11px', 
+                    fontFamily: 'var(--mono)', 
+                    marginRight: '6px', 
+                    marginBottom: '6px' 
+                  }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>{isContained ? 'cancel' : 'memory'}</span>
+                    {p}
+                    {isContained && <span style={{ fontSize: '9px', fontWeight: 800, background: 'rgba(239,68,68,0.25)', padding: '2px 5px', borderRadius: '3px', letterSpacing: '0.5px' }}>TERMINATED</span>}
+                  </div>
                 )) : <div style={{ fontSize: '11px', color: 'var(--muted)' }}>No processes found.</div>}
               </div>
             </div>
@@ -284,7 +421,9 @@ export default function IncidentDetail() {
                     <button 
                       key={ns}
                       onClick={() => {
-                        if (ns === 'closed' || ns === 'resolved') {
+                        if (ns === 'contained') {
+                          setShowContainModal(true);
+                        } else if (ns === 'closed' || ns === 'resolved') {
                           setClosingTargetStatus(ns);
                         } else {
                           updateStatusMutation.mutate({newStatus: ns});
@@ -307,6 +446,103 @@ export default function IncidentDetail() {
               </div>
             )}
           </div>
+
+          {/* Containment Playbook Action Modal */}
+          {showContainModal && (
+            <div style={{ 
+              background: 'var(--surface)', 
+              border: '1px solid rgba(234, 179, 8, 0.4)',
+              borderLeft: '4px solid #eab308', 
+              borderRadius: '12px', 
+              padding: '20px', 
+              boxShadow: '0 12px 36px rgba(0,0,0,0.15)'
+            }}>
+              <div style={{ fontSize: '14px', fontWeight: 800, color: '#eab308', marginBottom: '14px', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--sans)' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>shield</span>
+                Execute Containment Playbook
+              </div>
+              <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '0 0 16px', lineHeight: 1.5 }}>
+                Select remediation measures to actively halt threat spread on the endpoint:
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
+                {/* Host Isolation Checkbox */}
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', background: 'var(--surface2)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={containIsolateHost} 
+                    onChange={e => setContainIsolateHost(e.target.checked)} 
+                    style={{ marginTop: '2px', accentColor: '#eab308', cursor: 'pointer' }}
+                  />
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>🛡️ Isolate Endpoint Network</div>
+                    <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Quarantine host <strong>{incident.machine || 'affected machine'}</strong> from corporate network.</div>
+                  </div>
+                </label>
+
+                {/* Kill Processes Checkboxes */}
+                {entities.processes.length > 0 && (
+                  <div style={{ background: 'var(--surface2)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#fb923c', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>⚡ Terminate Suspicious Processes</div>
+                    {entities.processes.map(proc => (
+                      <label key={proc} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '6px', fontSize: '12px', color: 'var(--text)', fontFamily: 'var(--mono)' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={!!containKilledProcesses[proc]} 
+                          onChange={e => setContainKilledProcesses({ ...containKilledProcesses, [proc]: e.target.checked })} 
+                          style={{ accentColor: '#f97316', cursor: 'pointer' }}
+                        />
+                        <span>Kill <strong>{proc}</strong></span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                {/* Lock Accounts Checkboxes */}
+                {entities.users.length > 0 && (
+                  <div style={{ background: 'var(--surface2)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#60a5fa', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🔒 Lock Compromised Accounts</div>
+                    {entities.users.map(usr => (
+                      <label key={usr} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '6px', fontSize: '12px', color: 'var(--text)', fontFamily: 'var(--mono)' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={!!containLockedUsers[usr]} 
+                          onChange={e => setContainLockedUsers({ ...containLockedUsers, [usr]: e.target.checked })} 
+                          style={{ accentColor: '#3b82f6', cursor: 'pointer' }}
+                        />
+                        <span>Disable User <strong>{usr}</strong></span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                {/* Containment Note */}
+                <div>
+                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>Containment Action Note</label>
+                  <textarea 
+                    className="input-field" 
+                    value={containNote} 
+                    onChange={e => setContainNote(e.target.value)} 
+                    rows="2" 
+                    style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px 14px', borderRadius: '6px', resize: 'vertical', outline: 'none', fontSize: '12px', fontFamily: 'var(--sans)' }} 
+                    placeholder="e.g., Host isolated from LAN, process terminated."
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+                <button onClick={() => setShowContainModal(false)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, transition: 'all 0.2s' }}>Cancel</button>
+                <button 
+                  onClick={handleConfirmContainment}
+                  disabled={updateStatusMutation.isPending}
+                  style={{ background: '#eab308', border: 'none', color: '#000', padding: '8px 20px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, transition: 'all 0.2s', boxShadow: '0 2px 10px rgba(234,179,8,0.3)', display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>shield</span>
+                  Execute Containment
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Confirmation panel for resolving/closing */}
           {closingTargetStatus && (

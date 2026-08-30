@@ -32,6 +32,7 @@ export default function Incidents() {
   const [filterPriority, setFilterPriority] = useState("");
   
   const [searchTerm, setSearchTerm] = useState("");
+  const [assigneeTab, setAssigneeTab] = useState("all"); // 'all' | 'me' | 'unassigned'
   const queryClient = useQueryClient();
   const { user } = useAuth();
 
@@ -55,6 +56,16 @@ export default function Incidents() {
       });
       return res.data;
     }
+  });
+
+  const allIncidents = data?.incidents || [];
+  const myIncidentsCount = allIncidents.filter(i => user?.username && i.assigned_to?.toLowerCase() === user.username.toLowerCase()).length;
+  const unassignedCount = allIncidents.filter(i => !i.assigned_to || i.assigned_to.toLowerCase() === 'unassigned').length;
+
+  const displayedIncidents = allIncidents.filter(inc => {
+    if (assigneeTab === 'me') return user?.username && inc.assigned_to?.toLowerCase() === user.username.toLowerCase();
+    if (assigneeTab === 'unassigned') return !inc.assigned_to || inc.assigned_to.toLowerCase() === 'unassigned';
+    return true;
   });
 
   const { data: summaryData } = useQuery({
@@ -123,9 +134,114 @@ export default function Incidents() {
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <span style={{ background: 'var(--surface2)', border: '1px solid var(--border)', fontSize: '11px', padding: '6px 14px', borderRadius: '6px', fontFamily: 'var(--mono)', color: 'var(--muted)' }}>
-            {data?.total || 0} {(data?.total === 1) ? 'incident' : 'incidents'}
+            {displayedIncidents.length} of {allIncidents.length} incidents
           </span>
         </div>
+      </div>
+
+      {/* Assignment Quick Filter Tabs */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <button
+          onClick={() => setAssigneeTab('all')}
+          style={{
+            background: assigneeTab === 'all' ? 'var(--accent)' : 'var(--surface)',
+            color: assigneeTab === 'all' ? '#fff' : 'var(--text)',
+            border: `1px solid ${assigneeTab === 'all' ? 'var(--accent)' : 'var(--border)'}`,
+            padding: '8px 16px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontFamily: 'var(--sans)',
+            boxShadow: assigneeTab === 'all' ? '0 4px 12px rgba(37,99,235,0.3)' : 'none',
+            transition: 'all 0.2s'
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>apps</span>
+          All Incidents
+          <span style={{ 
+            background: assigneeTab === 'all' ? 'rgba(255,255,255,0.25)' : 'var(--surface2)', 
+            color: assigneeTab === 'all' ? '#fff' : 'var(--muted)', 
+            padding: '2px 7px', 
+            borderRadius: '10px', 
+            fontSize: '10px', 
+            fontFamily: 'var(--mono)',
+            fontWeight: 800 
+          }}>
+            {allIncidents.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setAssigneeTab('me')}
+          style={{
+            background: assigneeTab === 'me' ? '#2563eb' : 'var(--surface)',
+            color: assigneeTab === 'me' ? '#fff' : 'var(--text)',
+            border: `1px solid ${assigneeTab === 'me' ? '#2563eb' : 'var(--border)'}`,
+            padding: '8px 16px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontFamily: 'var(--sans)',
+            boxShadow: assigneeTab === 'me' ? '0 4px 12px rgba(37,99,235,0.35)' : 'none',
+            transition: 'all 0.2s'
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '16px', color: assigneeTab === 'me' ? '#fff' : '#60a5fa' }}>assignment_ind</span>
+          Assigned to Me
+          <span style={{ 
+            background: assigneeTab === 'me' ? 'rgba(255,255,255,0.25)' : (myIncidentsCount > 0 ? 'rgba(37,99,235,0.15)' : 'var(--surface2)'), 
+            color: assigneeTab === 'me' ? '#fff' : (myIncidentsCount > 0 ? '#60a5fa' : 'var(--muted)'), 
+            padding: '2px 7px', 
+            borderRadius: '10px', 
+            fontSize: '10px', 
+            fontFamily: 'var(--mono)',
+            fontWeight: 800 
+          }}>
+            {myIncidentsCount}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setAssigneeTab('unassigned')}
+          style={{
+            background: assigneeTab === 'unassigned' ? '#475569' : 'var(--surface)',
+            color: assigneeTab === 'unassigned' ? '#fff' : 'var(--text)',
+            border: `1px solid ${assigneeTab === 'unassigned' ? '#475569' : 'var(--border)'}`,
+            padding: '8px 16px',
+            borderRadius: '8px',
+            fontSize: '12px',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontFamily: 'var(--sans)',
+            boxShadow: assigneeTab === 'unassigned' ? '0 4px 12px rgba(71,85,105,0.35)' : 'none',
+            transition: 'all 0.2s'
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '16px', color: assigneeTab === 'unassigned' ? '#fff' : '#94a3b8' }}>person_cancel</span>
+          Unassigned
+          <span style={{ 
+            background: assigneeTab === 'unassigned' ? 'rgba(255,255,255,0.25)' : 'var(--surface2)', 
+            color: assigneeTab === 'unassigned' ? '#fff' : 'var(--muted)', 
+            padding: '2px 7px', 
+            borderRadius: '10px', 
+            fontSize: '10px', 
+            fontFamily: 'var(--mono)',
+            fontWeight: 800 
+          }}>
+            {unassignedCount}
+          </span>
+        </button>
       </div>
 
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '14px 20px', display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: '12px', marginBottom: '24px', justifyContent: 'space-between', overflowX: 'auto' }}>
@@ -206,8 +322,10 @@ export default function Incidents() {
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', overflowX: 'auto', boxShadow: '0 8px 30px rgba(0,0,0,0.05)' }}>
         {isLoading ? (
           <div style={{ padding: '40px', color: 'var(--muted)', textAlign: 'center' }}>Loading incidents...</div>
-        ) : data?.incidents?.length === 0 ? (
-          <div style={{ padding: '40px', color: 'var(--muted)', textAlign: 'center' }}>No incidents match your criteria.</div>
+        ) : displayedIncidents.length === 0 ? (
+          <div style={{ padding: '40px', color: 'var(--muted)', textAlign: 'center' }}>
+            {assigneeTab === 'me' ? 'No incidents currently assigned to you.' : assigneeTab === 'unassigned' ? 'No unassigned incidents found.' : 'No incidents match your criteria.'}
+          </div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--mono)' }}>
             <thead>
@@ -222,17 +340,24 @@ export default function Incidents() {
               </tr>
             </thead>
             <tbody>
-              {data.incidents.map(inc => {
+              {displayedIncidents.map(inc => {
                 const sm2 = INC_STATUS_META[inc.status?.toLowerCase()] || INC_STATUS_META.new;
                 const pm  = INC_PRIORITY_META[inc.priority] || INC_PRIORITY_META.P2;
+                const isAssignedToMe = user?.username && inc.assigned_to?.toLowerCase() === user.username.toLowerCase();
                 
                 return (
                   <tr 
                     key={inc.id}
                     onClick={() => handleRowClick(inc.id)}
-                    style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background 0.2s' }}
-                    onMouseOver={e => e.currentTarget.style.background = 'var(--surface2)'}
-                    onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                    style={{ 
+                      borderBottom: '1px solid var(--border)', 
+                      borderLeft: isAssignedToMe ? '3px solid #3b82f6' : '3px solid transparent',
+                      background: isAssignedToMe ? 'rgba(37,99,235,0.02)' : 'transparent',
+                      cursor: 'pointer', 
+                      transition: 'all 0.2s' 
+                    }}
+                    onMouseOver={e => e.currentTarget.style.background = isAssignedToMe ? 'rgba(37,99,235,0.06)' : 'var(--surface2)'}
+                    onMouseOut={e => e.currentTarget.style.background = isAssignedToMe ? 'rgba(37,99,235,0.02)' : 'transparent'}
                   >
                     <td style={{ padding: '16px 20px', fontSize: '12px', color: 'var(--text)' }}>
                       #{inc.id}
@@ -258,8 +383,30 @@ export default function Incidents() {
                         {inc.description || 'No description provided.'}
                       </div>
                     </td>
-                    <td style={{ padding: '16px 20px', fontSize: '12px', color: inc.assigned_to ? 'var(--text)' : 'var(--muted)' }}>
-                      {inc.assigned_to || 'Unassigned'}
+                    <td style={{ padding: '16px 20px', fontSize: '12px' }}>
+                      {isAssignedToMe ? (
+                        <span style={{ 
+                          display: 'inline-flex', 
+                          alignItems: 'center', 
+                          gap: '6px', 
+                          background: 'rgba(37,99,235,0.12)', 
+                          color: '#60a5fa', 
+                          border: '1px solid rgba(37,99,235,0.3)', 
+                          padding: '4px 10px', 
+                          borderRadius: '6px', 
+                          fontSize: '11px', 
+                          fontWeight: 700 
+                        }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>person</span>
+                          {inc.assigned_to} (You)
+                        </span>
+                      ) : inc.assigned_to && inc.assigned_to.toLowerCase() !== 'unassigned' ? (
+                        <span style={{ color: 'var(--text)', fontWeight: 600 }}>{inc.assigned_to}</span>
+                      ) : (
+                        <span style={{ color: 'var(--muted)', fontStyle: 'italic', background: 'var(--surface2)', padding: '3px 8px', borderRadius: '4px', border: '1px solid var(--border)', fontSize: '11px' }}>
+                          Unassigned
+                        </span>
+                      )}
                     </td>
                     <td style={{ padding: '16px 20px', fontSize: '12px', color: 'var(--muted)' }}>
                       {new Date(inc.created_at * 1000).toLocaleString()}

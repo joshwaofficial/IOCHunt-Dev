@@ -185,7 +185,7 @@ async function updateIncident(req, res) {
       return res.status(403).json({ error: 'Forbidden: You are not assigned to this incident' });
     }
 
-    const { title, description, status, priority, assigned_to, machine, resolution_reason, resolution_note } = req.body;
+    const { title, description, status, priority, assigned_to, machine, resolution_reason, resolution_note, containment_actions, containment_note } = req.body;
     const updated_by = req.session && req.session.username ? req.session.username : 'dashboard';
     const changes = [];
     const auditLines = [];
@@ -222,6 +222,14 @@ async function updateIncident(req, res) {
       }
       changes.push(['status', status]);
       auditLines.push(`Status changed to ${status.toUpperCase()}.`);
+      if (status === 'contained') {
+        if (Array.isArray(containment_actions) && containment_actions.length > 0) {
+          auditLines.push(`Actions Executed: [${containment_actions.join(' | ')}].`);
+        }
+        if (containment_note) {
+          auditLines.push(`Containment Note: ${containment_note}`);
+        }
+      }
       if (status === 'resolved') {
         changes.push(['resolved_at', Math.floor(Date.now() / 1000)]);
         if (resolution_reason) auditLines.push(`Reason: ${resolution_reason}. Note: ${resolution_note || 'None'}`);
