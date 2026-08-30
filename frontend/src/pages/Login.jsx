@@ -25,7 +25,7 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const result = await login(username, password, serverMode === 'central_server' ? workspaceId : undefined);
+      const result = await login(username, password, workspaceId?.trim() || undefined);
 
       if (result.mfaRequired) {
         navigate('/mfa-challenge', {
