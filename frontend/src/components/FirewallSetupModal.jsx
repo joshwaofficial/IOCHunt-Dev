@@ -25,33 +25,33 @@ export default function FirewallSetupModal({ isOpen, onClose, configInfo }) {
 end`;
 
   const powershellTest = `$client = New-Object System.Net.Sockets.UdpClient
-$msg = '<189>date=${new Date().toISOString().slice(0,10)} time=${new Date().toTimeString().slice(0,8)} devname="FGT-OFFICE" type="traffic" srcip=185.220.101.5 srcport=49152 dstip=10.90.122.247 dstport=3389 action="deny" proto=6 service="RDP"'
+$msg = '<189>date=${new Date().toISOString().slice(0, 10)} time=${new Date().toTimeString().slice(0, 8)} devname="FGT-OFFICE" type="traffic" srcip=185.220.101.5 srcport=49152 dstip=10.90.122.247 dstport=3389 action="deny" proto=6 service="RDP"'
 $bytes = [System.Text.Encoding]::UTF8.GetBytes($msg)
 $client.Send($bytes, $bytes.Length, "${serverHost}", ${syslogPort})
 $client.Close()
 Write-Host "Test Firewall Log Sent to Port ${syslogPort} Successfully!" -ForegroundColor Green`;
 
   return (
-    <div 
+    <div
       onClick={onClose}
-      style={{ 
-        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
-        background: 'rgba(0,0,0,0.7)', zIndex: 10000, 
-        display: 'flex', alignItems: 'center', justifyContent: 'center', 
-        backdropFilter: 'blur(6px)', padding: '20px' 
+      style={{
+        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+        background: 'rgba(0,0,0,0.7)', zIndex: 10000,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        backdropFilter: 'blur(6px)', padding: '20px'
       }}
     >
-      <div 
+      <div
         onClick={(e) => e.stopPropagation()}
-        style={{ 
-          background: 'var(--surface)', 
-          border: '1px solid var(--border)', 
-          borderRadius: '16px', 
-          width: '100%', 
-          maxWidth: '750px', 
-          maxHeight: '90vh', 
-          display: 'flex', 
-          flexDirection: 'column', 
+        style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: '16px',
+          width: '100%',
+          maxWidth: '750px',
+          maxHeight: '90vh',
+          display: 'flex',
+          flexDirection: 'column',
           boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
           overflow: 'hidden'
         }}
@@ -71,8 +71,8 @@ Write-Host "Test Firewall Log Sent to Port ${syslogPort} Successfully!" -Foregro
               </p>
             </div>
           </div>
-          <button 
-            onClick={onClose} 
+          <button
+            onClick={onClose}
             style={{ background: 'transparent', border: 'none', color: 'var(--muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px', borderRadius: '6px', transition: 'color 0.2s' }}
             onMouseOver={e => e.currentTarget.style.color = 'var(--text)'}
             onMouseOut={e => e.currentTarget.style.color = 'var(--muted)'}
@@ -83,7 +83,7 @@ Write-Host "Test Firewall Log Sent to Port ${syslogPort} Successfully!" -Foregro
 
         {/* Content Body */}
         <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          
+
           {/* Key Parameters Cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
             <div style={{ background: 'var(--surface2)', padding: '12px 16px', borderRadius: '10px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -119,7 +119,7 @@ Write-Host "Test Firewall Log Sent to Port ${syslogPort} Successfully!" -Foregro
                 { id: 'fortinet', label: 'Fortinet FortiGate' },
                 { id: 'paloalto', label: 'Palo Alto Networks' },
                 { id: 'pfsense', label: 'pfSense / OPNsense' },
-                { id: 'powershell', label: '⚡ PowerShell Test' }
+                { id: 'powershell', label: 'PowerShell Test' }
               ].map(t => (
                 <button
                   key={t.id}
@@ -152,7 +152,7 @@ Write-Host "Test Firewall Log Sent to Port ${syslogPort} Successfully!" -Foregro
                   <pre style={{ background: '#0b0f19', border: '1px solid var(--border)', borderRadius: '8px', padding: '14px 16px', fontSize: '12px', color: '#38bdf8', fontFamily: 'var(--mono)', overflowX: 'auto', margin: 0 }}>
                     {fortigateCli}
                   </pre>
-                  <button 
+                  <button
                     onClick={() => copyToClipboard(fortigateCli, 'FortiGate CLI config')}
                     style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
                   >
@@ -208,7 +208,7 @@ Write-Host "Test Firewall Log Sent to Port ${syslogPort} Successfully!" -Foregro
                   <pre style={{ background: '#0b0f19', border: '1px solid var(--border)', borderRadius: '8px', padding: '14px 16px', fontSize: '11px', color: '#4ade80', fontFamily: 'var(--mono)', overflowX: 'auto', margin: 0 }}>
                     {powershellTest}
                   </pre>
-                  <button 
+                  <button
                     onClick={() => copyToClipboard(powershellTest, 'PowerShell script')}
                     style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
                   >
@@ -223,7 +223,7 @@ Write-Host "Test Firewall Log Sent to Port ${syslogPort} Successfully!" -Foregro
 
         {/* Footer */}
         <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', background: 'rgba(255,255,255,0.02)' }}>
-          <button 
+          <button
             onClick={onClose}
             style={{ background: 'var(--accent)', color: '#fff', border: 'none', padding: '8px 22px', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(37,99,235,0.3)' }}
           >

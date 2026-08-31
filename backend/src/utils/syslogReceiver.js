@@ -28,7 +28,9 @@ function startListenerOnPort(port, tenantId) {
           parsed.raw = parsed.raw || line;
           rows.push(parsed);
         }
-      } catch (e) { }
+      } catch (e) {
+        console.warn(`[SYSLOG] Parse error on port ${p} from ${rinfo.address}:`, e.message);
+      }
     });
     
     if (rows.length) {
@@ -44,6 +46,8 @@ function startListenerOnPort(port, tenantId) {
           console.error(`[SYSLOG] Direct DB insert failed:`, dbErr.message);
         }
       }
+    } else if (rawText.length > 0) {
+      console.warn(`[SYSLOG] Received ${lines.length} line(s) from ${rinfo.address} on port ${p} but 0 parsed — raw preview: ${rawText.slice(0, 200)}`);
     }
   });
   
@@ -79,6 +83,15 @@ async function initSyslogReceiver() {
   const hasDefaultPort = portMappings.some(m => Number(m.port) === defaultPort);
   if (!hasDefaultPort) {
     portMappings.unshift({ port: defaultPort, tenant_id: defaultTenant });
+  }
+
+  // Also bind any extra ports from env (e.g., SYSLOG_EXTRA_PORTS=9510,9511)
+  const extraPorts = (process.env.SYSLOG_EXTRA_PORTS || '').split(',').filter(Boolean);
+  for (const ep of extraPorts) {
+    const epNum = Number(ep.trim());
+    if (epNum && !portMappings.some(m => Number(m.port) === epNum)) {
+      portMappings.push({ port: epNum, tenant_id: defaultTenant });
+    }
   }
 
   // Start listener for each configured port

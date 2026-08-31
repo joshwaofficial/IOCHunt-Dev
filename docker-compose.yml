@@ -67,10 +67,12 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-noreply@iochunt.local}
+      SYSLOG_EXTRA_PORTS: ${SYSLOG_EXTRA_PORTS:-9510}
     ports:
       - "${APP_PORT:-4001}:4001"
       - "5515:5515/udp" # Tenant 1 syslog receiver
       - "5517-5540:5517-5540/udp" # Multi-tenant isolated syslog receivers (5516 reserved for aggregator)
+      - "9510:9510/udp" # Custom syslog receiver port
     volumes:
       - ./nginx/ssl:/app/nginx/ssl
     depends_on:
