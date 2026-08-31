@@ -26,6 +26,8 @@ export default function NetworkTopology() {
   const { range, machine } = useFilter();
   const [counts, setCounts] = useState({ in: 0, out: 0, lat: 0, ad: 0 });
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [viewMode, setViewMode] = useState('graph'); // 'graph' | 'flow'
+  const [activeFlows, setActiveFlows] = useState([]);
   const [details, setDetails] = useState(null);
   const [infoText, setInfoText] = useState('Click a node or edge to inspect');
 
@@ -237,6 +239,8 @@ export default function NetworkTopology() {
       pairCount[pk]++;
     });
 
+    const flowRows = [];
+
     allE.forEach((d, index) => {
       const conn = d.conn;
       let col, proto, title, dashes = false;
@@ -281,21 +285,37 @@ export default function NetworkTopology() {
         };
       }
 
+      flowRows.push({
+        id: `flow_${index}`,
+        src: detailRow.src,
+        dst: detailRow.dst,
+        proto: proto,
+        port: detailRow.port,
+        count: detailRow.count || 1,
+        blocked: detailRow.blocked || 0,
+        dir: d.dir,
+        severity: detailRow.severity || 'info',
+        color: col,
+        detailRow: detailRow
+      });
+
       edgesData.add({
         id: `edge_${d.fromId}_${d.toId}_${proto}_${d.dir}_${index}`,
         from: d.fromId, to: d.toId,
         label: proto,
         width: d.dir === 'ad' ? Math.min(2 + Math.log(conn.count + 1), 6) : Math.min(1 + Math.log(conn.count + 1), 5),
         dashes: dashes,
-        color: { color: col + 'cc', highlight: col },
+        color: { color: col + 'dd', highlight: col },
         arrows: { to: { enabled: true, scaleFactor: d.dir === 'ad' ? 0.9 : 0.65 } },
         smooth: { type: 'curvedCW', roundness: d.roundness },
-        font: { size: 10, color: '#e2e8f0', strokeWidth: 1, strokeColor: '#0b0e14', align: 'middle' },
+        font: { size: 11, color: '#f8fafc', background: '#0b0f19', strokeWidth: 0, align: 'middle', bold: true },
         title: title,
         _detail: detailRow,
         _dir: d.dir
       });
     });
+
+    setActiveFlows(flowRows);
 
     const options = {
       physics: { solver: 'repulsion', repulsion: { nodeDistance: 300, springLength: 250 }, stabilization: { iterations: 200 } },
@@ -420,11 +440,55 @@ export default function NetworkTopology() {
 
         {/* Header */}
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', flexWrap: 'wrap', gap: '10px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
             <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'linear-gradient(135deg,rgba(59,130,246,0.2),rgba(59,130,246,0.05))', border: '1px solid rgba(59,130,246,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
               <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>hub</span>
             </div>
             <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)', letterSpacing: '0.3px' }}>Network Topology</div>
+
+            {/* View Mode Switcher */}
+            <div style={{ display: 'flex', background: 'var(--surface2)', borderRadius: '6px', border: '1px solid var(--border)', padding: '2px', gap: '2px', marginLeft: '6px' }}>
+              <button
+                onClick={() => { setViewMode('graph'); setTimeout(applyFilter, 50); }}
+                style={{
+                  background: viewMode === 'graph' ? 'var(--accent)' : 'transparent',
+                  color: viewMode === 'graph' ? '#fff' : 'var(--muted)',
+                  border: 'none',
+                  padding: '3px 10px',
+                  borderRadius: '4px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>hub</span>
+                Graph
+              </button>
+              <button
+                onClick={() => setViewMode('flow')}
+                style={{
+                  background: viewMode === 'flow' ? 'var(--accent)' : 'transparent',
+                  color: viewMode === 'flow' ? '#fff' : 'var(--muted)',
+                  border: 'none',
+                  padding: '3px 10px',
+                  borderRadius: '4px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>alt_route</span>
+                Traffic Flow
+              </button>
+            </div>
           </div>
 
           <div style={{ display: 'flex', gap: '8px', fontFamily: 'var(--mono)', fontSize: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -441,9 +505,13 @@ export default function NetworkTopology() {
             <span><span style={{ display: 'inline-block', width: '8px', height: '2px', background: '#ef4444', marginRight: '4px', verticalAlign: 'middle' }}></span>{counts.lat} lateral</span>
             <span style={{ color: '#a855f7' }}><span style={{ display: 'inline-block', width: '8px', height: '2px', background: '#a855f7', marginRight: '4px', verticalAlign: 'middle' }}></span>{counts.ad} AD</span>
 
-            <button onClick={() => topoZoom(0.3)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '4px', padding: '3px 9px', cursor: 'pointer', marginLeft: '10px' }}>+</button>
-            <button onClick={() => topoZoom(-0.3)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '4px', padding: '3px 9px', cursor: 'pointer' }}>-</button>
-            <button onClick={topoFit} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '4px', padding: '3px 9px', cursor: 'pointer', fontSize: '11px' }}>Fit</button>
+            {viewMode === 'graph' && (
+              <>
+                <button onClick={() => topoZoom(0.3)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '4px', padding: '3px 9px', cursor: 'pointer', marginLeft: '10px' }}>+</button>
+                <button onClick={() => topoZoom(-0.3)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '4px', padding: '3px 9px', cursor: 'pointer' }}>-</button>
+                <button onClick={topoFit} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '4px', padding: '3px 9px', cursor: 'pointer', fontSize: '11px' }}>Fit</button>
+              </>
+            )}
             {!isFullscreen && <button onClick={toggleFullscreen} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '4px', padding: '3px 9px', cursor: 'pointer', fontSize: '11px' }}>Full Screen</button>}
             {isFullscreen && <button onClick={toggleFullscreen} style={{ background: 'transparent', border: 'none', color: 'var(--text)', fontSize: '24px', cursor: 'pointer', lineHeight: 1, marginLeft: '8px' }}>&times;</button>}
           </div>
@@ -476,9 +544,137 @@ export default function NetworkTopology() {
             <span style={{ fontFamily: 'var(--mono)', fontSize: '10px', color: 'var(--muted)', marginLeft: 'auto' }}>{filterCountMsg}</span>
           </div>
 
-          {/* Graph Container */}
-          <div style={{ flex: 1, minHeight: isFullscreen ? 0 : '500px', position: 'relative', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', overflow: 'hidden' }}>
-            <div className="tg" ref={containerRef} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}></div>
+          {/* Visualization Container (Graph or Flow) */}
+          <div style={{ flex: 1, minHeight: isFullscreen ? 0 : '500px', position: 'relative', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            
+            {/* Force Graph View */}
+            <div 
+              className="tg" 
+              ref={containerRef} 
+              style={{ 
+                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                display: viewMode === 'graph' ? 'block' : 'none'
+              }}
+            ></div>
+
+            {/* 3-Column Traffic Flow (Sankey) View */}
+            {viewMode === 'flow' && (
+              <div style={{ padding: '20px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.6fr 1.2fr', gap: '16px', padding: '0 10px', fontFamily: 'var(--mono)', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  <div>Source Endpoint</div>
+                  <div style={{ textAlign: 'center' }}>Traffic Stream / Protocol</div>
+                  <div style={{ textAlign: 'right' }}>Destination Machine</div>
+                </div>
+
+                {activeFlows.length > 0 ? (
+                  activeFlows.map(f => {
+                    const isPriv = isPrivate(f.src);
+                    const isAd = f.dir === 'ad';
+                    const isLat = f.dir === 'lat';
+                    const isIn = f.dir === 'in';
+                    
+                    return (
+                      <div 
+                        key={f.id}
+                        onClick={() => {
+                          if (f.detailRow) {
+                            const dirLabel = f.dir === 'ad' ? 'AD ATTACK' : f.dir === 'lat' ? 'LATERAL' : f.dir === 'in' ? 'INBOUND' : 'OUTBOUND';
+                            setDetails({ title: `${dirLabel} — ${f.proto} ${f.src} → ${f.dst}`, rows: [f.detailRow] });
+                            setInfoText(`${dirLabel} | ${f.proto} | ${f.src} → ${f.dst} (x${f.count})`);
+                          }
+                        }}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1.2fr 1.6fr 1.2fr',
+                          alignItems: 'center',
+                          gap: '16px',
+                          background: 'var(--surface2)',
+                          border: `1px solid ${f.color}33`,
+                          borderLeft: `4px solid ${f.color}`,
+                          padding: '12px 16px',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                        onMouseOver={e => {
+                          e.currentTarget.style.background = 'var(--surface)';
+                          e.currentTarget.style.boxShadow = `0 4px 16px ${f.color}22`;
+                          e.currentTarget.style.transform = 'translateY(-1px)';
+                        }}
+                        onMouseOut={e => {
+                          e.currentTarget.style.background = 'var(--surface2)';
+                          e.currentTarget.style.boxShadow = 'none';
+                          e.currentTarget.style.transform = 'none';
+                        }}
+                      >
+                        {/* Source Box */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: '18px', color: isAd ? '#a855f7' : isPriv ? '#84cc16' : '#9aa5c0' }}>
+                            {isAd ? 'person' : isPriv ? 'computer' : 'public'}
+                          </span>
+                          <div>
+                            <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--mono)' }}>{f.src}</div>
+                            <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: isAd ? 'rgba(168,85,247,0.15)' : isPriv ? 'rgba(132,204,22,0.15)' : 'rgba(154,165,192,0.15)', color: isAd ? '#c084fc' : isPriv ? '#a3e635' : '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              {isAd ? 'AD Actor' : isPriv ? 'Private IP' : 'External WAN'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Middle Flow Path */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                          <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ flex: 1, height: '2px', background: `linear-gradient(90deg, ${f.color}22, ${f.color})` }}></div>
+                            <span style={{ 
+                              background: '#0b0f19', 
+                              border: `1px solid ${f.color}`, 
+                              color: f.color, 
+                              fontSize: '11px', 
+                              fontWeight: 800, 
+                              padding: '3px 10px', 
+                              borderRadius: '12px', 
+                              fontFamily: 'var(--mono)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              boxShadow: `0 0 10px ${f.color}33`
+                            }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>
+                                {isIn ? 'arrow_downward' : isLat ? 'swap_horiz' : isAd ? 'security' : 'arrow_upward'}
+                              </span>
+                              {f.proto}
+                              <span style={{ background: `${f.color}33`, padding: '1px 6px', borderRadius: '8px', fontSize: '10px' }}>
+                                x{f.count}
+                              </span>
+                            </span>
+                            <div style={{ flex: 1, height: '2px', background: `linear-gradient(90deg, ${f.color}, ${f.color}22)` }}></div>
+                          </div>
+                          {f.blocked > 0 && (
+                            <span style={{ fontSize: '9px', fontWeight: 800, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                              🛑 BLOCKED
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Destination Box */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px' }}>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '13px', fontWeight: 800, color: '#3b82f6', fontFamily: 'var(--mono)' }}>{f.dst}</div>
+                            <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              Monitored Host
+                            </span>
+                          </div>
+                          <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#3b82f6' }}>computer</span>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: '13px' }}>
+                    No traffic flows match the current filters.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Details Panel */}
