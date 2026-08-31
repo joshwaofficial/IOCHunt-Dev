@@ -4,6 +4,7 @@ import FirewallTopology from '../components/FirewallTopology';
 import FirewallAlerts from '../components/FirewallAlerts';
 import FirewallTopSources from '../components/FirewallTopSources';
 import FirewallSourcesModal from '../components/FirewallSourcesModal';
+import FirewallSetupModal from '../components/FirewallSetupModal';
 import { useFilter } from '../context/FilterContext';
 
 const sevColor = {
@@ -44,6 +45,8 @@ export default function Firewall() {
   const [lastLiveId, setLastLiveId] = useState(0);
 
   const [sourcesModalOpen, setSourcesModalOpen] = useState(false);
+  const [setupModalOpen, setSetupModalOpen] = useState(false);
+  const [configInfo, setConfigInfo] = useState(null);
 
   const [from, setFrom] = useState(() => {
     const d = new Date();
@@ -66,7 +69,17 @@ export default function Firewall() {
 
   useEffect(() => {
     fetchDevices();
+    fetchConfigInfo();
   }, [aggregator]);
+
+  const fetchConfigInfo = async () => {
+    try {
+      const res = await axios.get('/api/firewall/config-info');
+      setConfigInfo(res.data);
+    } catch (e) {
+      console.warn('Failed to load firewall config info', e);
+    }
+  };
 
   useEffect(() => {
     if (!liveMode) {
@@ -204,6 +217,28 @@ export default function Firewall() {
         </div>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           <button 
+            onClick={() => setSetupModalOpen(true)}
+            style={{ 
+              background: 'rgba(37,99,235,0.1)', 
+              border: '1px solid #3b82f6', 
+              color: '#60a5fa', 
+              padding: '6px 14px', 
+              borderRadius: '6px', 
+              fontSize: '12px', 
+              fontWeight: 700, 
+              cursor: 'pointer', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '6px',
+              transition: 'all 0.2s' 
+            }}
+            onMouseOver={e => { e.currentTarget.style.background = 'rgba(37, 99, 235, 0.2)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+            onMouseOut={e => { e.currentTarget.style.background = 'rgba(37, 99, 235, 0.1)'; e.currentTarget.style.transform = 'none'; }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>settings_ethernet</span>
+            Syslog Ingestion Setup
+          </button>
+          <button 
             onClick={() => setSourcesModalOpen(true)}
             style={{ background: 'var(--surface2)', border: '1px solid #06b6d4', color: '#06b6d4', padding: '6px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}
             onMouseOver={e => { e.target.style.background = 'rgba(6, 182, 212, 0.1)'; e.target.style.transform = 'translateY(-1px)'; }}
@@ -220,6 +255,7 @@ export default function Firewall() {
       </div>
 
       <FirewallSourcesModal isOpen={sourcesModalOpen} onClose={() => setSourcesModalOpen(false)} />
+      <FirewallSetupModal isOpen={setupModalOpen} onClose={() => setSetupModalOpen(false)} configInfo={configInfo} />
 
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '14px 20px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px', marginBottom: '20px', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'nowrap', gap: '12px', flex: 1, minWidth: '100%' }}>

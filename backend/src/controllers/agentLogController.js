@@ -17,14 +17,6 @@ async function ingestAgentLogs(req, res) {
       return res.status(400).json({ error: 'machine+events[] required' });
     }
 
-    // --- DEBUG: Print raw [LOGON] events to verify agent timestamp format ---
-    for (const e of events) {
-      if (e.tag === '[LOGON]' || (e.message && e.message.includes('[LOGON]'))) {
-        console.log('\n[DEBUG] Raw agent LOGON event received:');
-        console.log(JSON.stringify(e, null, 2));
-      }
-    }
-    // ------------------------------------------------------------------------
 
     const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '')
       .split(',')[0].trim().replace(/^::ffff:/, '');

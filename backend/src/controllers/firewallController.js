@@ -1,6 +1,7 @@
 
 
 const { DateTime } = require('luxon');
+const appMode = require('../config/appMode');
 const displayTz = process.env.DISPLAY_TZ || 'UTC';
 
 function displayTs(tsStr) {
@@ -398,5 +399,44 @@ exports.getSecurityAlerts = async (req, res) => {
     res.json({ counts, events: outEvents });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+};
+
+exports.getConfigInfo = async (req, res) => {
+  try {
+    const tenantId = req.tenantId || req.session?.tenant_id || req.session?.user?.tenant_id || 'default';
+    const isAgg = appMode.isAggregator();
+    
+    let syslogPort = 5514;
+    let serverHost = req.headers['x-forwarded-host'] || req.headers.host?.split(':')[0] || '72.62.241.39';
+
+    if (isAgg) {
+      syslogPort = Number(process.env.SYSLOG_PORT || 5514);
+    } else {
+      try {
+        const portRes = await req.queryControlPlane(
+          'SELECT port FROM syslog_port_map WHERE tenant_id = $1 AND enabled = TRUE LIMIT 1',
+          [tenantId]
+        );
+        if (portRes.rows.length > 0) {
+          syslogPort = portRes.rows[0].port;
+        } else {
+          syslogPort = 5514;
+        }
+      } catch (err) {
+        console.warn('[Firewall] Could not query syslog_port_map:', err.message);
+      }
+    }
+
+    return res.json({
+      server_host: serverHost,
+      syslog_port: syslogPort,
+      protocol: 'UDP',
+      tenant_id: tenantId,
+      instance_mode: isAgg ? 'aggregator' : 'central_server'
+    });
+  } catch (err) {
+    console.error('[Firewall] Error in getConfigInfo:', err);
+    return res.status(500).json({ error: 'Failed to retrieve syslog config info' });
   }
 };

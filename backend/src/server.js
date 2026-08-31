@@ -120,6 +120,7 @@ app.get('/api/firewall/topology', requireSession, firewallController.getTopology
 app.get('/api/firewall/stats', requireSession, firewallController.getFirewallStats);
 app.get('/api/firewall/alerts', requireSession, firewallController.getSecurityAlerts);
 app.get('/api/firewall/live', requireSession, firewallController.getLiveEvents);
+app.get('/api/firewall/config-info', requireSession, firewallController.getConfigInfo);
 
 // SSE Real-Time Stream
 app.get('/api/stream', sseBroadcaster.subscribe);
