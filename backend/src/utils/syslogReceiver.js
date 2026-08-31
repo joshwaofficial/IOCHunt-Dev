@@ -72,8 +72,8 @@ async function initSyslogReceiver() {
     console.warn('[SYSLOG] No control plane port mappings table or query error:', err.message);
   }
 
-  // Ensure default container port 5514 is ALWAYS bound for default tenant
-  const defaultPort = Number(process.env.SYSLOG_PORT || 5514);
+  // Ensure default port 5515 is ALWAYS bound for default tenant
+  const defaultPort = Number(process.env.SYSLOG_PORT || 5515);
   const defaultTenant = process.env.TENANT_ID || 'default';
   
   const hasDefaultPort = portMappings.some(m => Number(m.port) === defaultPort);
