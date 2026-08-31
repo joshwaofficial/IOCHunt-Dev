@@ -69,7 +69,8 @@ services:
       SMTP_FROM: ${SMTP_FROM:-noreply@iochunt.local}
     ports:
       - "${APP_PORT:-4001}:4001"
-      - "${SYSLOG_PORT:-5514}:5514/udp" # Syslog receiver for branch firewalls/switches
+      - "5514-5515:5514-5515/udp" # Default & Tenant 1 syslog receiver
+      - "5517-5540:5517-5540/udp" # Multi-tenant isolated syslog receivers (5516 reserved for aggregator)
     volumes:
       - ./nginx/ssl:/app/nginx/ssl
     depends_on:

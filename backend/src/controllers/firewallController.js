@@ -402,12 +402,54 @@ exports.getSecurityAlerts = async (req, res) => {
   }
 };
 
+const { startListenerOnPort } = require('../utils/syslogReceiver');
+
 exports.getConfigInfo = async (req, res) => {
   try {
     const tenantId = req.tenantId || req.session?.tenant_id || req.session?.user?.tenant_id || 'default';
     const isAgg = appMode.isAggregator();
     const serverHost = req.headers['x-forwarded-host'] || req.headers.host?.split(':')[0] || '72.62.241.39';
-    const syslogPort = Number(process.env.PUBLIC_SYSLOG_PORT || (isAgg ? 5516 : 5515));
+
+    let syslogPort = 5515;
+
+    if (isAgg) {
+      syslogPort = Number(process.env.SYSLOG_PORT || 5516);
+    } else if (tenantId && tenantId !== 'default') {
+      try {
+        if (typeof req.queryControlPlane === 'function') {
+          // 1. Check if tenant already has an allocated port
+          const portRes = await req.queryControlPlane(
+            'SELECT port FROM syslog_port_map WHERE tenant_id = $1 AND enabled = TRUE LIMIT 1',
+            [tenantId]
+          );
+
+          if (portRes && portRes.rows && portRes.rows.length > 0) {
+            syslogPort = Number(portRes.rows[0].port);
+          } else {
+            // 2. Allocate the next available unique port, skipping 5516 (Aggregator)
+            const allPortsRes = await req.queryControlPlane('SELECT port FROM syslog_port_map');
+            const usedPorts = new Set((allPortsRes.rows || []).map(r => Number(r.port)));
+            usedPorts.add(5516); // reserved for aggregator
+            
+            let candidate = 5515;
+            while (usedPorts.has(candidate)) {
+              candidate++;
+            }
+            syslogPort = candidate;
+
+            await req.queryControlPlane(
+              'INSERT INTO syslog_port_map (port, tenant_id, protocol, enabled) VALUES ($1, $2, $3, TRUE) ON CONFLICT (port) DO UPDATE SET tenant_id = EXCLUDED.tenant_id, enabled = TRUE',
+              [syslogPort, tenantId, 'udp']
+            );
+          }
+
+          // Dynamically start listener for this port if not already listening
+          startListenerOnPort(syslogPort, tenantId);
+        }
+      } catch (err) {
+        console.warn('[Firewall] Could not query/allocate syslog_port_map:', err.message);
+      }
+    }
 
     return res.json({
       server_host: serverHost,

@@ -2,10 +2,63 @@ const dgram = require('dgram');
 const db = require('../config/db'); // Control plane database
 const { parseFwLog, batchIngestFw } = require('./fwWatcher');
 const { publishToStream } = require('../services/redisIngestion');
-const { isOnPrem, isAggregator } = require('../config/appMode');
+
+const activeListeners = new Map(); // port -> socket
+
+function startListenerOnPort(port, tenantId) {
+  const p = Number(port);
+  if (!p || isNaN(p)) return;
+  if (activeListeners.has(p)) return;
+
+  const syslogServer = dgram.createSocket('udp4');
+  
+  syslogServer.on('error', (err) => {
+    console.error(`[SYSLOG-ERR] Port ${p}:`, err.message);
+  });
+  
+  syslogServer.on('message', async (msg, rinfo) => {
+    const rawText = msg.toString('utf8').trim();
+    const lines = rawText.split(/\r?\n/);
+    const rows = [];
+
+    lines.forEach(line => {
+      try { 
+        const parsed = parseFwLog(line, rinfo.address, 'UTC'); 
+        if (parsed) {
+          parsed.raw = parsed.raw || line;
+          rows.push(parsed);
+        }
+      } catch (e) { }
+    });
+    
+    if (rows.length) {
+      console.log(`[SYSLOG] Received ${rows.length} firewall event(s) from ${rinfo.address} on port ${p} (Tenant: ${tenantId})`);
+      
+      try {
+        await publishToStream('ingest:syslog', tenantId, rows);
+      } catch (e) {
+        console.warn(`[SYSLOG] Redis stream publish error on port ${p}, falling back to direct DB insert:`, e.message);
+        try {
+          await batchIngestFw(rows);
+        } catch (dbErr) {
+          console.error(`[SYSLOG] Direct DB insert failed:`, dbErr.message);
+        }
+      }
+    }
+  });
+  
+  try {
+    syslogServer.bind(p, () => {
+      console.log(`[SYSLOG] UDP listener bound on :${p} for tenant: ${tenantId}`);
+      activeListeners.set(p, syslogServer);
+    });
+  } catch (err) {
+    console.error(`[SYSLOG] Failed to bind port ${p}:`, err.message);
+  }
+}
 
 async function initSyslogReceiver() {
-  console.log('[SYSLOG] Starting syslog receiver...');
+  console.log('[SYSLOG] Starting multi-tenant syslog receiver...');
   
   // 1. Fetch active port mappings from the control plane
   let portMappings = [];
@@ -19,7 +72,7 @@ async function initSyslogReceiver() {
     console.warn('[SYSLOG] No control plane port mappings table or query error:', err.message);
   }
 
-  // Ensure default container port 5514 is ALWAYS bound for the current/default tenant
+  // Ensure default container port 5514 is ALWAYS bound for default tenant
   const defaultPort = Number(process.env.SYSLOG_PORT || 5514);
   const defaultTenant = process.env.TENANT_ID || 'default';
   
@@ -28,61 +81,15 @@ async function initSyslogReceiver() {
     portMappings.unshift({ port: defaultPort, tenant_id: defaultTenant });
   }
 
-  // Also if in SaaS mode, allow all provisioned tenants to be reached on 5514 as fallback
-  const boundPorts = new Set();
-
-  // 2. Start a UDP listener for each configured port
+  // Start listener for each configured port
   for (const mapping of portMappings) {
     const port = Number(mapping.port);
-    const tenant_id = mapping.tenant_id || defaultTenant;
-    
-    if (boundPorts.has(port)) continue;
-    boundPorts.add(port);
-
-    const syslogServer = dgram.createSocket('udp4');
-    
-    syslogServer.on('error', (err) => {
-      console.error(`[SYSLOG-ERR] Port ${port}:`, err.message);
-    });
-    
-    syslogServer.on('message', async (msg, rinfo) => {
-      const rawText = msg.toString('utf8').trim();
-      const lines = rawText.split(/\r?\n/);
-      const rows = [];
-
-      lines.forEach(line => {
-        try { 
-          const p = parseFwLog(line, rinfo.address, 'UTC'); 
-          if (p) {
-            p.raw = p.raw || line;
-            rows.push(p);
-          }
-        } catch (e) { }
-      });
-      
-      if (rows.length) {
-        console.log(`[SYSLOG] Received ${rows.length} firewall event(s) from ${rinfo.address} on port ${port} (Tenant: ${tenant_id})`);
-        
-        try {
-          // Publish to Redis Stream for bulk ingestion
-          await publishToStream('ingest:syslog', tenant_id, rows);
-        } catch (e) {
-          console.warn(`[SYSLOG] Redis stream publish error on port ${port}, attempting direct database insert:`, e.message);
-          try {
-            await batchIngestFw(rows);
-          } catch (dbErr) {
-            console.error(`[SYSLOG] Direct DB insert failed:`, dbErr.message);
-          }
-        }
-      }
-    });
-    
-    syslogServer.bind(port, () => {
-      console.log(`[SYSLOG] UDP listener bound on :${port} for tenant: ${tenant_id}`);
-    });
+    const tenantId = mapping.tenant_id || defaultTenant;
+    startListenerOnPort(port, tenantId);
   }
 }
 
 module.exports = {
-  initSyslogReceiver
+  initSyslogReceiver,
+  startListenerOnPort
 };
