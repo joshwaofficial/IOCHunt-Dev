@@ -74,11 +74,10 @@ async function updateMachineCurrentPolicy(req, res) {
     console.log(`[Policy] Current state reported for '${machine}' -> catModes: ${JSON.stringify(policy.catModes || [])}`);
 
     await req.queryTenant(`
-      INSERT INTO policies (machine, policy_json, current_json, applied_at, updated_at)
-      VALUES ($1, '{}', $2, (EXTRACT(EPOCH FROM NOW())::INTEGER), (EXTRACT(EPOCH FROM NOW())::INTEGER))
+      INSERT INTO policies (machine, policy_json, current_json, updated_at)
+      VALUES ($1, '{}', $2, (EXTRACT(EPOCH FROM NOW())::INTEGER))
       ON CONFLICT(machine) DO UPDATE SET 
-        current_json = excluded.current_json,
-        applied_at = (EXTRACT(EPOCH FROM NOW())::INTEGER)
+        current_json = excluded.current_json
     `, [targetMachine, JSON.stringify(policy)]);
     
     res.json({ ok: true });
@@ -137,18 +136,15 @@ async function ackMachinePolicy(req, res) {
       }
     }
 
-    const { policy } = req.body || {};
-    const currentJson = policy ? JSON.stringify(policy) : (effectivePolicy || JSON.stringify(DEFAULT_POLICY));
-
-    console.log(`[Policy] ACK received for '${machine}' (Actual: '${actualMachine}') -> Applied now. Status: in sync`);
-
     await req.queryTenant(`
-      INSERT INTO policies (machine, policy_json, current_json, applied_at, updated_at)
-      VALUES ($1, '{}', $2, (EXTRACT(EPOCH FROM NOW())::INTEGER), (EXTRACT(EPOCH FROM NOW())::INTEGER))
-      ON CONFLICT(machine) DO UPDATE SET
-        applied_at = (EXTRACT(EPOCH FROM NOW())::INTEGER),
-        current_json = EXCLUDED.current_json
-    `, [actualMachine, currentJson]);
+      UPDATE policies
+      SET applied_at = (EXTRACT(EPOCH FROM NOW())::INTEGER),
+          current_json = CASE 
+            WHEN $2::text IS NOT NULL AND $2::text != '{}' THEN $2::text 
+            ELSE current_json 
+          END
+      WHERE LOWER(machine) = LOWER($1)
+    `, [actualMachine, effectivePolicy || null]);
 
     res.json({ ok: true });
   } catch (error) {
