@@ -1,6 +1,16 @@
 
 const appMode = require('../config/appMode');
 
+const DEFAULT_POLICY = {
+  catModes: [3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2],
+  officeHoursStart: 9,
+  officeHoursEnd: 18,
+  officeHoursDays: 62,
+  failedLogonThreshold: 5,
+  failedLogonWindowMins: 10,
+  learningMode: true
+};
+
 async function getMachinePolicy(req, res) {
   try {
     const machine = (req.params.machine || '').trim();
@@ -19,9 +29,20 @@ async function getMachinePolicy(req, res) {
 
     const machinePolicy = row ? JSON.parse(row.policy_json || '{}') : {};
     const groupPolicy = groupRow ? JSON.parse(groupRow.policy_json || '{}') : {};
-    // Machine policy overrides group policy
-    const effectivePolicy = Object.keys(machinePolicy).length > 0 ? machinePolicy : groupPolicy;
-    const policySource = Object.keys(machinePolicy).length > 0 ? 'machine' : (groupRow ? 'group' : 'default');
+    
+    // Determine effective policy: Machine Override > Group Policy > System Default Policy
+    let effectivePolicy;
+    let policySource;
+    if (Object.keys(machinePolicy).length > 0) {
+      effectivePolicy = machinePolicy;
+      policySource = 'machine';
+    } else if (groupRow && Object.keys(groupPolicy).length > 0) {
+      effectivePolicy = groupPolicy;
+      policySource = 'group';
+    } else {
+      effectivePolicy = DEFAULT_POLICY;
+      policySource = 'default';
+    }
 
     console.log(`[Policy] GET request for '${machine}' (Auth: ${req.authType || 'session'}) -> Source: ${policySource}, catModes: ${JSON.stringify(effectivePolicy.catModes || 'default')}`);
 
@@ -124,22 +145,22 @@ async function ackMachinePolicy(req, res) {
       `, [machine]);
       if (grpRes.rows[0]?.policy_json && grpRes.rows[0]?.policy_json !== '{}') {
         effectivePolicy = grpRes.rows[0].policy_json;
+      } else {
+        effectivePolicy = JSON.stringify(DEFAULT_POLICY);
       }
     }
 
     const { policy } = req.body || {};
-    const currentJson = policy ? JSON.stringify(policy) : (effectivePolicy || '{}');
+    const currentJson = policy ? JSON.stringify(policy) : (effectivePolicy || JSON.stringify(DEFAULT_POLICY));
 
     console.log(`[Policy] ACK received for '${machine}' (Actual: '${actualMachine}') -> Applied now. Status: in sync`);
 
     await req.queryTenant(`
-      UPDATE policies
-      SET applied_at = (EXTRACT(EPOCH FROM NOW())::INTEGER),
-          current_json = CASE 
-            WHEN $2::text IS NOT NULL AND $2::text != '{}' THEN $2::text 
-            ELSE current_json 
-          END
-      WHERE LOWER(machine) = LOWER($1)
+      INSERT INTO policies (machine, policy_json, current_json, applied_at, updated_at)
+      VALUES ($1, '{}', $2, (EXTRACT(EPOCH FROM NOW())::INTEGER), (EXTRACT(EPOCH FROM NOW())::INTEGER))
+      ON CONFLICT(machine) DO UPDATE SET
+        applied_at = (EXTRACT(EPOCH FROM NOW())::INTEGER),
+        current_json = EXCLUDED.current_json
     `, [actualMachine, currentJson]);
 
     res.json({ ok: true });
