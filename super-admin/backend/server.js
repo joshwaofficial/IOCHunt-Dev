@@ -367,6 +367,232 @@ app.delete('/api/super/companies/:company_id', superAuthMiddleware, async (req, 
   }
 });
 
+// ── Global SaaS Statistics ──────────────────────────────────────
+app.get('/api/super/stats', superAuthMiddleware, async (req, res) => {
+  try {
+    const tenantsRes = await pool.query('SELECT status, COUNT(*) AS count FROM tenants GROUP BY status');
+    let totalTenants = 0;
+    let activeTenants = 0;
+    let suspendedTenants = 0;
+
+    tenantsRes.rows.forEach(r => {
+      const c = parseInt(r.count, 10);
+      totalTenants += c;
+      if (r.status === 'active') activeTenants = c;
+      if (r.status === 'suspended') suspendedTenants = c;
+    });
+
+    // Estimate storage usage across iochunt databases
+    let totalStorageBytes = 0;
+    let totalStoragePretty = '0 MB';
+    try {
+      const sizeRes = await pool.query(
+        "SELECT SUM(pg_database_size(datname)) AS total_bytes, pg_size_pretty(SUM(pg_database_size(datname))) AS pretty_size FROM pg_database WHERE datname LIKE 'iochunt%'"
+      );
+      if (sizeRes.rows[0]?.total_bytes) {
+        totalStorageBytes = parseInt(sizeRes.rows[0].total_bytes, 10);
+        totalStoragePretty = sizeRes.rows[0].pretty_size || '0 MB';
+      }
+    } catch (e) {
+      console.warn('[Stats] Could not get database size:', e.message);
+    }
+
+    // Get assigned syslog ports
+    const portRes = await pool.query('SELECT COUNT(*) AS count FROM syslog_port_map WHERE enabled = TRUE');
+    const activeSyslogPorts = parseInt(portRes.rows[0]?.count || 0, 10);
+
+    // Get audit logs count
+    const auditRes = await pool.query('SELECT COUNT(*) AS count FROM audit_log');
+    const totalAuditEvents = parseInt(auditRes.rows[0]?.count || 0, 10);
+
+    // Count enrolled agents across all active tenant DBs
+    let totalEnrolledAgents = 0;
+    try {
+      const activeTenantList = await pool.query("SELECT db_name, db_user, db_password_encrypted FROM tenants WHERE status = 'active'");
+      for (const t of activeTenantList.rows) {
+        try {
+          const parsedUrl = new URL(process.env.SUPER_ADMIN_DATABASE_URL || 'postgres://postgres:iochunt_password@localhost:5433/iochunt_db');
+          const tConnStr = `postgres://${parsedUrl.username}:${parsedUrl.password}@${parsedUrl.hostname}:${parsedUrl.port || 5432}/${t.db_name}`;
+          const tPool = new Pool({ connectionString: tConnStr, max: 1, connectionTimeoutMillis: 1500 });
+          const mRes = await tPool.query('SELECT COUNT(*) AS count FROM machines');
+          totalEnrolledAgents += parseInt(mRes.rows[0]?.count || 0, 10);
+          await tPool.end();
+        } catch (tErr) {
+          // ignore individual tenant DB connection timeout
+        }
+      }
+    } catch (err) {
+      console.warn('[Stats] Could not scan tenant machines:', err.message);
+    }
+
+    res.json({
+      totalTenants,
+      activeTenants,
+      suspendedTenants,
+      totalEnrolledAgents,
+      totalStorageBytes,
+      totalStoragePretty,
+      activeSyslogPorts,
+      totalAuditEvents,
+      estimatedEps: Math.max(12, totalEnrolledAgents * 3 + activeTenants * 15)
+    });
+  } catch (err) {
+    console.error('[Stats Error]', err);
+    res.status(500).json({ error: 'Failed to retrieve SaaS statistics' });
+  }
+});
+
+// ── Toggle Tenant Status (Active / Suspended) ───────────────────
+app.patch('/api/super/companies/:company_id/status', superAuthMiddleware, async (req, res) => {
+  try {
+    const { company_id } = req.params;
+    const { status } = req.body;
+    if (!company_id || !['active', 'suspended'].includes(status)) {
+      return res.status(400).json({ error: 'Valid company_id and status (active/suspended) required' });
+    }
+
+    const safeId = company_id.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const updateRes = await pool.query(
+      'UPDATE tenants SET status = $1, updated_at = EXTRACT(EPOCH FROM NOW()) WHERE tenant_id = $2 RETURNING id, tenant_id, company_name, status',
+      [status, safeId]
+    );
+
+    if (updateRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    // Log the status change
+    await pool.query(
+      `INSERT INTO audit_log (tenant_id, username, action, resource, detail, ip_address, result)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [safeId, req.superAdmin.username, status === 'suspended' ? 'SUSPEND_TENANT' : 'ACTIVATE_TENANT', safeId, `Tenant status changed to ${status}`, req.ip, 'SUCCESS']
+    );
+
+    res.json({ success: true, tenant: updateRes.rows[0] });
+  } catch (err) {
+    console.error('[Status Error]', err);
+    res.status(500).json({ error: 'Failed to update tenant status' });
+  }
+});
+
+// ── Reset Tenant Admin Password ─────────────────────────────────
+app.post('/api/super/companies/:company_id/reset-password', superAuthMiddleware, async (req, res) => {
+  try {
+    const { company_id } = req.params;
+    const { new_password, admin_username = 'admin' } = req.body;
+
+    if (!new_password || new_password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters long' });
+    }
+
+    const safeId = company_id.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const tenantRes = await pool.query('SELECT db_name FROM tenants WHERE tenant_id = $1', [safeId]);
+    if (tenantRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    const dbName = tenantRes.rows[0].db_name;
+    const salt = crypto.randomBytes(32).toString('hex');
+    const hash = crypto.pbkdf2Sync(new_password, salt, 100000, 64, 'sha512').toString('hex');
+
+    // Connect to tenant DB and update password
+    const parsedUrl = new URL(process.env.SUPER_ADMIN_DATABASE_URL || 'postgres://postgres:iochunt_password@localhost:5433/iochunt_db');
+    const tenantConnStr = `postgres://${parsedUrl.username}:${parsedUrl.password}@${parsedUrl.hostname}:${parsedUrl.port || 5432}/${dbName}`;
+    const tenantPool = new Pool({ connectionString: tenantConnStr, max: 1 });
+
+    try {
+      await tenantPool.query(
+        'UPDATE users SET password_hash = $1, salt = $2, force_password_change = 1 WHERE role = \'ADMIN\' OR username = $3',
+        [hash, salt, admin_username]
+      );
+    } finally {
+      await tenantPool.end();
+    }
+
+    // Log the password reset action
+    await pool.query(
+      `INSERT INTO audit_log (tenant_id, username, action, resource, detail, ip_address, result)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [safeId, req.superAdmin.username, 'RESET_TENANT_PASSWORD', safeId, `Admin password reset for tenant ${safeId}`, req.ip, 'SUCCESS']
+    );
+
+    res.json({ success: true, message: 'Tenant admin password updated successfully. Password change required on next login.' });
+  } catch (err) {
+    console.error('[Reset Password Error]', err);
+    res.status(500).json({ error: `Password reset failed: ${err.message}` });
+  }
+});
+
+// ── Get Immutable Audit Logs ────────────────────────────────────
+app.get('/api/super/audit-logs', superAuthMiddleware, async (req, res) => {
+  try {
+    const { limit = 50, offset = 0, search = '' } = req.query;
+    let query = 'SELECT * FROM audit_log';
+    const params = [];
+
+    if (search) {
+      query += ' WHERE action ILIKE $1 OR username ILIKE $1 OR tenant_id ILIKE $1 OR detail ILIKE $1';
+      params.push(`%${search}%`);
+    }
+
+    query += ` ORDER BY id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(parseInt(limit, 10), parseInt(offset, 10));
+
+    const logsRes = await pool.query(query, params);
+    const totalRes = await pool.query('SELECT COUNT(*) AS total FROM audit_log' + (search ? ' WHERE action ILIKE $1 OR username ILIKE $1 OR tenant_id ILIKE $1 OR detail ILIKE $1' : ''), search ? [`%${search}%`] : []);
+
+    res.json({
+      logs: logsRes.rows,
+      total: parseInt(totalRes.rows[0]?.total || 0, 10)
+    });
+  } catch (err) {
+    console.error('[Audit Logs Error]', err);
+    res.status(500).json({ error: 'Failed to retrieve audit logs' });
+  }
+});
+
+// ── Get System Health & Infrastructure Telemetry ─────────────────
+app.get('/api/super/system-health', superAuthMiddleware, async (req, res) => {
+  try {
+    const uptimeSec = Math.floor(process.uptime());
+    const memUsage = process.memoryUsage();
+
+    // Check Postgres Control Plane connections
+    const dbStatRes = await pool.query(
+      'SELECT count(*) AS active_connections, (SELECT count(*) FROM pg_stat_activity WHERE state = \'active\') AS active_queries FROM pg_stat_activity'
+    );
+
+    // Get Syslog Port Mappings
+    const portMapRes = await pool.query(
+      'SELECT spm.port, spm.tenant_id, spm.protocol, spm.enabled, t.company_name FROM syslog_port_map spm LEFT JOIN tenants t ON spm.tenant_id = t.tenant_id ORDER BY spm.port ASC'
+    );
+
+    // Database size info
+    const dbSizesRes = await pool.query(
+      "SELECT datname AS db_name, pg_size_pretty(pg_database_size(datname)) AS pretty_size, pg_database_size(datname) AS bytes FROM pg_database WHERE datname LIKE 'iochunt%' ORDER BY pg_database_size(datname) DESC"
+    );
+
+    res.json({
+      status: 'healthy',
+      uptimeSeconds: uptimeSec,
+      memory: {
+        rssMb: Math.round(memUsage.rss / 1024 / 1024),
+        heapUsedMb: Math.round(memUsage.heapUsed / 1024 / 1024),
+        heapTotalMb: Math.round(memUsage.heapTotal / 1024 / 1024)
+      },
+      postgres: {
+        totalConnections: parseInt(dbStatRes.rows[0]?.active_connections || 0, 10),
+        activeQueries: parseInt(dbStatRes.rows[0]?.active_queries || 0, 10),
+        databases: dbSizesRes.rows
+      },
+      syslogPorts: portMapRes.rows
+    });
+  } catch (err) {
+    console.error('[System Health Error]', err);
+    res.status(500).json({ error: 'Failed to retrieve system health metrics' });
+  }
+});
+
 // Static Frontend Serving
 const staticPath = path.join(__dirname, '../frontend/dist');
 if (process.env.SERVE_STATIC === 'true' || fs.existsSync(staticPath)) {

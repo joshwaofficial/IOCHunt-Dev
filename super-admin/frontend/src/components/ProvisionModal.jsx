@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Server, Building, Activity, ShieldPlus } from 'lucide-react';
+import { X, Server, Building, Check, Copy, AlertTriangle, ArrowRight } from 'lucide-react';
 import axios from 'axios';
 
 export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
@@ -9,207 +9,288 @@ export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
   const [adminPassword, setAdminPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [provisioningStatus, setProvisioningStatus] = useState('');
-  const [provisionedApiKey, setProvisionedApiKey] = useState('');
+  const [provisionedData, setProvisionedData] = useState(null);
+  const [copiedKey, setCopiedKey] = useState(false);
 
   const generatePassword = () => {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
     let pass = '';
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 14; i++) {
       pass += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     setAdminPassword(pass);
+  };
+
+  const handleCompanyNameChange = (e) => {
+    const val = e.target.value;
+    setCompanyName(val);
+    if (!companyId || companyId === companyName.toLowerCase().replace(/[^a-z0-9_]/g, '')) {
+      setCompanyId(val.toLowerCase().replace(/[^a-z0-9_]/g, ''));
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
-    setProvisioningStatus('Allocating ports and generating environment...');
 
     try {
-      // Simulate steps for UI UX
-      setTimeout(() => setProvisioningStatus('Building isolated Docker containers...'), 1500);
-      setTimeout(() => setProvisioningStatus('Finalizing database configuration...'), 4000);
-      
       const res = await axios.post('/api/super/companies', {
-        company_name: companyName,
-        company_id: companyId,
-        admin_username: adminUsername,
-        admin_password: adminPassword
+        company_name: companyName.trim(),
+        company_id: companyId.trim(),
+        admin_username: adminUsername.trim(),
+        admin_password: adminPassword.trim(),
+        tier
       });
-      
-      onSuccess();
-      setProvisionedApiKey(res.data.api_key || 'Unknown (Check Logs)');
+
+      setProvisionedData(res.data);
+      if (onSuccess) onSuccess();
     } catch (err) {
-      setError(err.response?.data?.error || 'Provisioning failed. Check server logs.');
+      setError(err.response?.data?.error || 'Tenant provisioning failed. Check database logs.');
     } finally {
       setIsLoading(false);
-      setProvisioningStatus('');
     }
   };
 
+  const handleCopyKey = () => {
+    if (!provisionedData?.api_key) return;
+    navigator.clipboard.writeText(provisionedData.api_key);
+    setCopiedKey(true);
+    setTimeout(() => setCopiedKey(false), 2000);
+  };
+
   const handleClose = () => {
-    onClose();
     setCompanyName('');
     setCompanyId('');
     setAdminPassword('');
-    setProvisionedApiKey('');
+    setProvisionedData(null);
+    setError('');
+    onClose();
   };
 
   if (!isOpen) return null;
 
   return (
-    <div 
-      style={{
-        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-        background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(2px)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        zIndex: 1000
-      }}
-    >
-      <div 
-        className="glass-panel"
-        style={{ width: '100%', maxWidth: '500px', padding: '2rem', position: 'relative', background: '#000' }}
-      >
-          <button 
-            onClick={!isLoading ? handleClose : null}
-            style={{ position: 'absolute', top: '1rem', right: '1rem', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: isLoading ? 'not-allowed' : 'pointer' }}
-          >
-            <X size={24} />
-          </button>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
-            <div style={{ background: 'rgba(99, 102, 241, 0.2)', padding: '0.75rem', borderRadius: '12px' }}>
-              <ShieldPlus size={28} color="var(--primary)" />
+    <div className="modal-overlay">
+      <div className="modal-dialog" style={{ maxWidth: provisionedData ? '540px' : '520px' }}>
+        {/* Header */}
+        <div className="modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ padding: '6px', borderRadius: '6px', background: '#161b26', border: '1px solid #23293b', color: '#38bdf8' }}>
+              <Server size={18} />
             </div>
             <div>
-              <h2 style={{ fontSize: '1.4rem' }}>Provision New Tenant</h2>
-              <p className="text-muted" style={{ fontSize: '0.9rem' }}>Spin up a fully isolated Central Server</p>
+              <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#f8fafc' }}>
+                {provisionedData ? 'Tenant Successfully Provisioned' : 'Provision Isolated Tenant Workspace'}
+              </h3>
+              <p style={{ fontSize: '12px', color: '#64748b' }}>
+                {provisionedData ? 'Secure deployment details generated' : 'Creates dedicated PostgreSQL schema & assigned Syslog port'}
+              </p>
             </div>
           </div>
+          <button onClick={!isLoading ? handleClose : null} className="btn-ghost" style={{ padding: '4px', borderRadius: '4px' }}>
+            <X size={18} />
+          </button>
+        </div>
 
+        {/* Content */}
+        <div className="modal-body">
           {error && (
-            <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--danger)', color: 'var(--danger)', padding: '0.75rem', borderRadius: '8px', marginBottom: '1.5rem', textAlign: 'center' }}>
+            <div style={{
+              background: 'rgba(244, 63, 94, 0.1)',
+              border: '1px solid rgba(244, 63, 94, 0.3)',
+              color: '#fb7185',
+              padding: '10px 14px',
+              borderRadius: '6px',
+              fontSize: '13px',
+              marginBottom: '16px'
+            }}>
               {error}
             </div>
           )}
 
-          {provisionedApiKey ? (
-            <div style={{ textAlign: 'center', padding: '1rem 0' }}>
-              <div style={{ background: 'rgba(34, 197, 94, 0.1)', color: '#22c55e', padding: '1rem', borderRadius: '50%', width: '80px', height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
-                <ShieldPlus size={40} />
+          {provisionedData ? (
+            <div>
+              <div style={{
+                background: '#090b10',
+                border: '1px solid #1e2538',
+                borderRadius: '8px',
+                padding: '16px',
+                marginBottom: '16px'
+              }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', rowGap: '10px', fontSize: '13px' }}>
+                  <span style={{ color: '#64748b' }}>Company:</span>
+                  <span style={{ fontWeight: '500', color: '#f8fafc' }}>{provisionedData.company_name}</span>
+
+                  <span style={{ color: '#64748b' }}>Tenant ID:</span>
+                  <span className="font-mono" style={{ color: '#38bdf8' }}>{provisionedData.company_id}</span>
+
+                  <span style={{ color: '#64748b' }}>Database:</span>
+                  <span className="font-mono" style={{ color: '#94a3b8' }}>{provisionedData.db_name}</span>
+
+                  <span style={{ color: '#64748b' }}>Syslog Port:</span>
+                  <span className="font-mono" style={{ color: '#10b981' }}>UDP :{provisionedData.syslog_port}</span>
+
+                  <span style={{ color: '#64748b' }}>Central URL:</span>
+                  <a href={provisionedData.central_url} target="_blank" rel="noreferrer" style={{ color: '#38bdf8', textDecoration: 'underline' }}>
+                    {provisionedData.central_url}
+                  </a>
+                </div>
               </div>
-              <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: '#fff' }}>Tenant Provisioned Successfully!</h3>
-              <p className="text-muted" style={{ marginBottom: '1.5rem', lineHeight: '1.5' }}>
-                The workspace database has been isolated and seeded. Provide the following API key to the company so they can configure their endpoint agents.
-              </p>
-              <div style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem', marginBottom: '1.5rem' }}>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.5rem', fontWeight: 600 }}>Workspace API Key</div>
-                <code style={{ fontSize: '1.1rem', color: 'var(--primary)', userSelect: 'all', wordBreak: 'break-all' }}>{provisionedApiKey}</code>
-              </div>
-              <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#fca5a5', padding: '0.75rem', borderRadius: '8px', fontSize: '0.85rem', marginBottom: '2rem' }}>
-                <strong>WARNING:</strong> Copy this API Key now! For security reasons, it is irreversibly hashed in the database and cannot be retrieved again later.
-              </div>
-              <button className="glass-button primary" onClick={handleClose} style={{ width: '100%' }}>
-                I have copied the key
-              </button>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              <div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
-                  <Building size={16} /> Company Name
-                </label>
-                <input 
-                  type="text" 
-                  className="glass-input" 
-                  placeholder="e.g. Acme Corp"
-                  value={companyName}
-                  onChange={(e) => {
-                    setCompanyName(e.target.value);
-                    if (!companyId) {
-                      setCompanyId(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''));
-                    }
-                  }}
-                  disabled={isLoading}
-                  required 
-                />
-              </div>
-              <div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
-                  <Server size={16} /> Tenant ID (Database Name & Subdomain)
-                </label>
-                <input 
-                  type="text" 
-                  className="glass-input" 
-                  placeholder="e.g. acmecorp"
-                  value={companyId}
-                  onChange={(e) => setCompanyId(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                  disabled={isLoading}
-                  required 
-                />
-              </div>
-              <div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
-                  Admin Username
-                </label>
-                <input 
-                  type="text" 
-                  className="glass-input" 
-                  value={adminUsername}
-                  onChange={(e) => setAdminUsername(e.target.value.trim())}
-                  disabled={isLoading}
-                  required 
-                />
-              </div>
-              <div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
-                  Initial Admin Password
-                </label>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <input 
-                    type="text" 
-                    className="glass-input" 
-                    value={adminPassword}
-                    onChange={(e) => setAdminPassword(e.target.value.trim())}
-                    disabled={isLoading}
-                    required 
-                  />
-                  <button type="button" className="glass-button" onClick={generatePassword} disabled={isLoading} style={{ padding: '0.5rem 1rem' }}>Generate</button>
-                  <button 
-                    type="button" 
-                    className="glass-button" 
-                    onClick={() => {
-                      navigator.clipboard.writeText(adminPassword);
-                      alert('Password copied to clipboard!');
-                    }} 
-                    disabled={isLoading || !adminPassword} 
-                    style={{ padding: '0.5rem 1rem' }}
+
+              {/* API Key Box */}
+              <div style={{
+                background: '#0c0f17',
+                border: '1px solid #2b354d',
+                borderRadius: '8px',
+                padding: '14px',
+                marginBottom: '16px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#64748b', fontWeight: '600' }}>
+                    Endpoint Agent Ingestion API Key
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopyKey}
+                    className="btn btn-secondary"
+                    style={{ padding: '3px 8px', fontSize: '11px', height: '26px' }}
                   >
-                    Copy
+                    {copiedKey ? <><Check size={12} color="#10b981" /> Copied</> : <><Copy size={12} /> Copy Key</>}
                   </button>
                 </div>
+                <div className="font-mono" style={{ fontSize: '14px', color: '#38bdf8', wordBreak: 'break-all', userSelect: 'all', padding: '6px 8px', background: '#07080c', borderRadius: '4px' }}>
+                  {provisionedData.api_key}
+                </div>
               </div>
 
-              {isLoading && (
-                <div style={{ marginTop: '1rem', textAlign: 'center' }}>
-                  <Activity size={24} color="var(--accent)" className="animate-pulse" style={{ margin: '0 auto', marginBottom: '0.5rem' }} />
-                  <p className="text-muted" style={{ fontSize: '0.9rem' }}>{provisioningStatus}</p>
-                </div>
-              )}
+              <div style={{
+                background: 'rgba(245, 158, 11, 0.08)',
+                border: '1px solid rgba(245, 158, 11, 0.25)',
+                color: '#fbbf24',
+                padding: '10px 12px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '8px'
+              }}>
+                <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
+                <span>
+                  <strong>Important:</strong> Store this API Key in a secure credential manager. The raw key is hashed in the database and cannot be retrieved again.
+                </span>
+              </div>
+            </div>
+          ) : (
+            <form id="provision-form" onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Building size={13} /> Company / Organization Name
+                  </span>
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Acme Corporation"
+                  value={companyName}
+                  onChange={handleCompanyNameChange}
+                  required
+                  disabled={isLoading}
+                />
+              </div>
 
-              <button 
-                type="submit" 
-                className="glass-button primary mt-4" 
-                disabled={isLoading}
-                style={{ width: '100%' }}
-              >
-                {isLoading ? 'Deploying...' : 'Deploy Central Server'}
-              </button>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Server size={13} /> Tenant Identifier (Slug & Database Name)
+                  </span>
+                </label>
+                <input
+                  type="text"
+                  className="form-input font-mono"
+                  placeholder="acme_corp"
+                  value={companyId}
+                  onChange={(e) => setCompanyId(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                  required
+                  disabled={isLoading}
+                />
+                <span style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                  Resulting DB: <code className="font-mono" style={{ color: '#94a3b8' }}>iochunt_tenant_{companyId || 'company'}</code>
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Initial Admin User</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={adminUsername}
+                    onChange={(e) => setAdminUsername(e.target.value)}
+                    required
+                    disabled={isLoading}
+                  />
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">
+                    <span>Admin Password</span>
+                    <button
+                      type="button"
+                      onClick={generatePassword}
+                      style={{ background: 'transparent', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '11px' }}
+                    >
+                      Generate
+                    </button>
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input font-mono"
+                    placeholder="Enter or generate"
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    required
+                    disabled={isLoading}
+                  />
+                </div>
+              </div>
             </form>
           )}
         </div>
+
+        {/* Footer */}
+        <div className="modal-footer">
+          {provisionedData ? (
+            <button type="button" className="btn btn-primary" onClick={handleClose}>
+              Done & Return to Workspace
+            </button>
+          ) : (
+            <>
+              <button type="button" className="btn btn-secondary" onClick={handleClose} disabled={isLoading}>
+                Cancel
+              </button>
+              <button
+                type="submit"
+                form="provision-form"
+                className="btn btn-primary"
+                disabled={isLoading || !companyName || !companyId || !adminPassword}
+              >
+                {isLoading ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                    Provisioning Database...
+                  </span>
+                ) : (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    Deploy Tenant <ArrowRight size={14} />
+                  </span>
+                )}
+              </button>
+            </>
+          )}
+        </div>
       </div>
+    </div>
   );
 }

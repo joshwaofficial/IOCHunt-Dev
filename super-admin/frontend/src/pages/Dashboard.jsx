@@ -1,190 +1,298 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Calendar, Bell, ShieldCheck, AlertCircle, Bug, Monitor, ArrowUpRight, ArrowDownRight, Server, Plus, Trash2, Copy, Check } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Building2,
+  HardDrive,
+  Activity,
+  Server,
+  ArrowUpRight,
+  Plus,
+  Radio,
+  Clock,
+  Database,
+  Layers,
+  ChevronRight,
+  CheckCircle2
+} from 'lucide-react';
 import ProvisionModal from '../components/ProvisionModal';
 
 export default function Dashboard() {
+  const [stats, setStats] = useState({
+    totalTenants: 0,
+    activeTenants: 0,
+    suspendedTenants: 0,
+    totalEnrolledAgents: 0,
+    totalStoragePretty: '0 MB',
+    activeSyslogPorts: 0,
+    totalAuditEvents: 0,
+    estimatedEps: 0
+  });
   const [companies, setCompanies] = useState([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, companyId: null, companyName: '', isDeleting: false, error: '' });
-  const [copiedId, setCopiedId] = useState(null);
+  const [health, setHealth] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isProvisionOpen, setIsProvisionOpen] = useState(false);
+  const navigate = useNavigate();
 
-  const handleCopyKey = (key, id) => {
-    if (!key) return;
-    navigator.clipboard.writeText(key);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
-
-  const fetchCompanies = async () => {
+  const loadDashboardData = async () => {
+    setIsLoading(true);
     try {
-      const res = await axios.get('/api/super/companies');
-      setCompanies(res.data);
+      const [statsRes, companiesRes, healthRes] = await Promise.all([
+        axios.get('/api/super/stats'),
+        axios.get('/api/super/companies'),
+        axios.get('/api/super/system-health')
+      ]);
+      setStats(statsRes.data);
+      setCompanies(companiesRes.data || []);
+      setHealth(healthRes.data);
     } catch (err) {
-      console.error(err);
+      console.error('[Dashboard Load Error]', err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchCompanies();
+    loadDashboardData();
   }, []);
 
-  const handleDelete = async () => {
-    if (!deleteConfirm.companyId) return;
-    setDeleteConfirm(prev => ({ ...prev, isDeleting: true, error: '' }));
-    try {
-      await axios.delete(`/api/super/companies/${deleteConfirm.companyId}`);
-      setDeleteConfirm({ isOpen: false, companyId: null, companyName: '', isDeleting: false, error: '' });
-      fetchCompanies();
-    } catch (err) {
-      setDeleteConfirm(prev => ({ ...prev, isDeleting: false, error: err.response?.data?.error || 'Failed to delete tenant' }));
-    }
+  const formatUptime = (seconds) => {
+    if (!seconds) return '0m';
+    const d = Math.floor(seconds / (3600 * 24));
+    const h = Math.floor((seconds % (3600 * 24)) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h ${m}m`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
   };
 
-  const totalTenants = companies.length;
-  const activeTenants = companies.filter(c => c.status === 'active').length;
-
   return (
-    <div style={{ paddingBottom: '40px' }}>
-      
-      {/* Top Header */}
-      <div className="top-header">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+      {/* Top Banner / Breadcrumb Bar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <h1>Overview</h1>
-          <div className="text-muted">System security at a glance</div>
+          <h1 style={{ fontSize: '22px', fontWeight: '600', color: '#f8fafc', letterSpacing: '-0.02em', marginBottom: '4px' }}>
+            Control Plane Overview
+          </h1>
+          <p style={{ fontSize: '13px', color: '#94a3b8' }}>
+            Central multi-tenant telemetry, database cluster metrics, and fleet statistics
+          </p>
         </div>
-        <div className="flex items-center gap-4">
-          <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
-            <Plus size={16} /> Provision Tenant
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button className="btn btn-secondary" onClick={loadDashboardData} disabled={isLoading}>
+            <Activity size={14} /> Refresh Metrics
+          </button>
+          <button className="btn btn-primary" onClick={() => setIsProvisionOpen(true)}>
+            <Plus size={14} /> Provision Tenant
           </button>
         </div>
       </div>
 
-      {/* Main Table Row */}
-      <div className="list-panel" style={{ marginTop: '24px' }}>
-        <div className="flex items-center justify-between mb-6">
-          <h2>Managed Tenants</h2>
+      {/* KPI Cards Grid */}
+      <div className="kpi-grid">
+        {/* Total Tenants */}
+        <div className="kpi-card">
+          <div className="kpi-title">
+            <span>Managed Tenants</span>
+            <Building2 size={15} color="#38bdf8" />
+          </div>
+          <div className="kpi-value">{stats.totalTenants}</div>
+          <div className="kpi-subtitle">
+            <span className="badge-pill badge-emerald">
+              <span className="status-dot active" /> {stats.activeTenants} Active
+            </span>
+            {stats.suspendedTenants > 0 && (
+              <span className="badge-pill badge-amber">
+                {stats.suspendedTenants} Suspended
+              </span>
+            )}
+          </div>
         </div>
-        
-        {companies.length === 0 ? (
-          <div className="text-muted" style={{ textAlign: 'center', padding: '60px 20px' }}>
-            <Server size={32} color="var(--border-color)" style={{ margin: '0 auto', marginBottom: '16px' }} />
-            <div style={{ fontSize: '15px', fontWeight: '500', color: 'var(--text-heading)', marginBottom: '4px' }}>No Tenants Provisioned</div>
-            <div style={{ fontSize: '13px' }}>Click "Provision Tenant" to deploy your first Central Server.</div>
+
+        {/* Total Enrolled Agents */}
+        <div className="kpi-card">
+          <div className="kpi-title">
+            <span>Enrolled Agents</span>
+            <Server size={15} color="#10b981" />
           </div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Tenant ID</th>
-                  <th>Company Name</th>
-                  <th>Status</th>
-                  <th>Central URL</th>
-                  <th>API Key</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {companies.map((company) => (
-                  <tr key={company.id}>
-                    <td style={{ fontFamily: 'monospace', color: 'var(--text-heading)' }}>{company.company_id}</td>
-                    <td style={{ fontWeight: '500', color: 'var(--text-heading)' }}>{company.company_name}</td>
-                    <td>
-                      <span className={`badge ${company.status === 'active' ? 'badge-info' : 'badge-warning'}`}>
-                        {company.status.toUpperCase()}
-                      </span>
-                    </td>
-                    <td>
-                      <a href={company.central_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-main)', textDecoration: 'none', borderBottom: '1px solid var(--border-color)' }}>
-                        {company.central_url}
-                      </a>
-                    </td>
-                    <td>
-                      {company.api_key ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>
-                            iochunt-••••••••
-                          </span>
-                          <button 
-                            onClick={() => handleCopyKey(company.api_key, company.id)}
-                            style={{ background: 'transparent', border: 'none', color: copiedId === company.id ? '#10b981' : 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
-                            title="Copy API Key"
-                          >
-                            {copiedId === company.id ? <Check size={14} /> : <Copy size={14} />}
-                          </button>
-                        </div>
-                      ) : (
-                        <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Unavailable</span>
-                      )}
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button 
-                        className="btn-danger" 
-                        onClick={() => setDeleteConfirm({ isOpen: true, companyId: company.company_id, companyName: company.company_name, isDeleting: false, error: '' })}
-                        title="Delete Tenant"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="kpi-value">{stats.totalEnrolledAgents}</div>
+          <div className="kpi-subtitle">
+            <span style={{ color: '#94a3b8' }}>Across {stats.activeTenants} active organizations</span>
           </div>
-        )}
+        </div>
+
+        {/* Estimated Global Throughput */}
+        <div className="kpi-card">
+          <div className="kpi-title">
+            <span>Ingestion Rate (EPS)</span>
+            <Radio size={15} color="#6366f1" />
+          </div>
+          <div className="kpi-value tabular-nums">~{stats.estimatedEps} <span style={{ fontSize: '13px', fontWeight: '400', color: '#64748b' }}>EPS</span></div>
+          <div className="kpi-subtitle">
+            <span style={{ color: '#94a3b8' }}>{stats.activeSyslogPorts} Syslog Ports Active</span>
+          </div>
+        </div>
+
+        {/* Storage Footprint */}
+        <div className="kpi-card">
+          <div className="kpi-title">
+            <span>Database Storage</span>
+            <HardDrive size={15} color="#f59e0b" />
+          </div>
+          <div className="kpi-value tabular-nums">{stats.totalStoragePretty}</div>
+          <div className="kpi-subtitle">
+            <span style={{ color: '#94a3b8' }}>PostgreSQL Cluster Footprint</span>
+          </div>
+        </div>
+
+        {/* Audit Events Recorded */}
+        <div className="kpi-card">
+          <div className="kpi-title">
+            <span>Control Audit Logs</span>
+            <Layers size={15} color="#ec4899" />
+          </div>
+          <div className="kpi-value tabular-nums">{stats.totalAuditEvents}</div>
+          <div className="kpi-subtitle">
+            <span style={{ color: '#94a3b8' }}>Immutable Actions Logged</span>
+          </div>
+        </div>
       </div>
 
-      <ProvisionModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        onSuccess={fetchCompanies} 
-      />
-
-      {/* Delete Confirmation Modal */}
-      {deleteConfirm.isOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div className="glass-panel" style={{ width: '100%', maxWidth: '400px', padding: '24px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-              <div style={{ background: 'rgba(239, 68, 68, 0.2)', padding: '12px', borderRadius: '50%', color: '#ef4444' }}>
-                <Trash2 size={24} />
-              </div>
-              <div>
-                <h3 style={{ margin: 0, fontSize: '18px', color: '#fff' }}>Delete Tenant</h3>
-              </div>
+      {/* Two Columns: Recent Tenants & Cluster Status */}
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
+        {/* Left: Active Tenants Summary Table */}
+        <div className="ent-card">
+          <div className="ent-card-header">
+            <div>
+              <h2 style={{ fontSize: '14px', fontWeight: '600', color: '#f8fafc', margin: 0 }}>
+                Recent Tenant Deployments
+              </h2>
+              <span style={{ fontSize: '12px', color: '#64748b' }}>Showing up to 6 recently provisioned tenant databases</span>
             </div>
-            
-            <p style={{ color: 'var(--text-muted)', marginBottom: '16px', lineHeight: '1.5' }}>
-              Are you sure you want to completely erase <strong>{deleteConfirm.companyName}</strong>? 
-              This will permanently drop their database and destroy all logs. This action <strong>cannot</strong> be undone.
-            </p>
+            <button className="btn btn-ghost" onClick={() => navigate('/tenants')} style={{ fontSize: '12px', padding: '4px 8px' }}>
+              View All ({companies.length}) <ChevronRight size={13} />
+            </button>
+          </div>
 
-            {deleteConfirm.error && (
-              <div style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', padding: '8px 12px', borderRadius: '6px', fontSize: '13px', marginBottom: '16px' }}>
-                {deleteConfirm.error}
+          <div style={{ overflowX: 'auto' }}>
+            {companies.length === 0 ? (
+              <div style={{ padding: '48px 20px', textAlign: 'center', color: '#64748b' }}>
+                <Server size={28} style={{ margin: '0 auto 10px', opacity: 0.5 }} />
+                <p style={{ fontSize: '14px', color: '#94a3b8', marginBottom: '4px' }}>No Tenants Provisioned Yet</p>
+                <p style={{ fontSize: '12px' }}>Click "Provision Tenant" to deploy your first isolated company workspace.</p>
               </div>
+            ) : (
+              <table className="ent-table">
+                <thead>
+                  <tr>
+                    <th>Tenant Organization</th>
+                    <th>Database Identifier</th>
+                    <th>Status</th>
+                    <th>Syslog Port</th>
+                    <th>Workspace URL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {companies.slice(0, 6).map((c) => (
+                    <tr key={c.id}>
+                      <td>
+                        <div style={{ fontWeight: '500', color: '#f8fafc' }}>{c.company_name}</div>
+                        <div style={{ fontSize: '11px', color: '#64748b' }}>Tier: {c.tier || 'standard'}</div>
+                      </td>
+                      <td>
+                        <span className="badge-pill badge-neutral font-mono">{c.company_id}</span>
+                      </td>
+                      <td>
+                        {c.status === 'active' ? (
+                          <span className="badge-pill badge-emerald">
+                            <span className="status-dot active" /> ACTIVE
+                          </span>
+                        ) : (
+                          <span className="badge-pill badge-amber">
+                            <span className="status-dot suspended" /> SUSPENDED
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <span className="font-mono" style={{ color: '#38bdf8' }}>:{c.syslog_port || '—'}</span>
+                      </td>
+                      <td>
+                        <a
+                          href={c.central_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ color: '#94a3b8', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          <span className="truncate" style={{ maxWidth: '180px' }}>{c.central_url}</span>
+                          <ArrowUpRight size={12} />
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
+          </div>
+        </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button 
-                onClick={() => setDeleteConfirm({ isOpen: false, companyId: null, companyName: '', isDeleting: false, error: '' })}
-                disabled={deleteConfirm.isDeleting}
-                style={{ background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-muted)', padding: '8px 16px', borderRadius: '6px', cursor: deleteConfirm.isDeleting ? 'not-allowed' : 'pointer' }}
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleDelete}
-                disabled={deleteConfirm.isDeleting}
-                style={{ background: '#ef4444', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: '6px', fontWeight: '500', cursor: deleteConfirm.isDeleting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-              >
-                {deleteConfirm.isDeleting ? 'Deleting...' : 'Erase Everything'}
-              </button>
+        {/* Right: Cluster & Infrastructure Telemetry */}
+        <div className="ent-card">
+          <div className="ent-card-header">
+            <div>
+              <h2 style={{ fontSize: '14px', fontWeight: '600', color: '#f8fafc', margin: 0 }}>
+                Control Plane Health
+              </h2>
+              <span style={{ fontSize: '12px', color: '#64748b' }}>PostgreSQL & Container telemetry</span>
+            </div>
+            <span className="badge-pill badge-emerald">
+              <CheckCircle2 size={11} /> Healthy
+            </span>
+          </div>
+
+          <div className="ent-card-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#090b10', border: '1px solid #191e2b', borderRadius: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Clock size={15} color="#38bdf8" />
+                <span style={{ fontSize: '13px', color: '#94a3b8' }}>Service Uptime</span>
+              </div>
+              <span className="font-mono tabular-nums" style={{ fontSize: '13px', fontWeight: '600', color: '#f8fafc' }}>
+                {formatUptime(health?.uptimeSeconds)}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#090b10', border: '1px solid #191e2b', borderRadius: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Database size={15} color="#10b981" />
+                <span style={{ fontSize: '13px', color: '#94a3b8' }}>Active DB Pools</span>
+              </div>
+              <span className="font-mono tabular-nums" style={{ fontSize: '13px', fontWeight: '600', color: '#f8fafc' }}>
+                {health?.postgres?.totalConnections || 0} Connections
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: '#090b10', border: '1px solid #191e2b', borderRadius: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Activity size={15} color="#f59e0b" />
+                <span style={{ fontSize: '13px', color: '#94a3b8' }}>Node Process RSS</span>
+              </div>
+              <span className="font-mono tabular-nums" style={{ fontSize: '13px', fontWeight: '600', color: '#f8fafc' }}>
+                {health?.memory?.rssMb || 0} MB
+              </span>
+            </div>
+
+            <div style={{ marginTop: '8px', paddingTop: '14px', borderTop: '1px solid #191e2b', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '12px', color: '#64748b' }}>Load Balancing:</span>
+              <span style={{ fontSize: '12px', color: '#38bdf8' }}>NGINX Port 8080 (Unified)</span>
             </div>
           </div>
         </div>
-      )}
+      </div>
 
+      <ProvisionModal
+        isOpen={isProvisionOpen}
+        onClose={() => setIsProvisionOpen(false)}
+        onSuccess={loadDashboardData}
+      />
     </div>
   );
 }
