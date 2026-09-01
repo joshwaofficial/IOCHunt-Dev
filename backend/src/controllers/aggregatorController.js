@@ -98,12 +98,14 @@ const generateCode = async (req, res) => {
     const expires = new Date();
     expires.setHours(expires.getHours() + 24);
 
+    const tenantId = req.session?.tenant_id || req.tenantId || 'default';
     const defaultDbHost = process.env.DB_HOST || 'db';
     await db.query(`
-      INSERT INTO aggregators (name, display_name, pairing_code_hash, pairing_expires, status, database_name, database_host, database_port)
-      VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7)
+      INSERT INTO aggregators (name, display_name, tenant_id, pairing_code_hash, pairing_expires, status, database_name, database_host, database_port)
+      VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8)
       ON CONFLICT (name) DO UPDATE SET 
         display_name = COALESCE(EXCLUDED.display_name, aggregators.display_name),
+        tenant_id = COALESCE(aggregators.tenant_id, EXCLUDED.tenant_id),
         pairing_code_hash = EXCLUDED.pairing_code_hash,
         pairing_expires = EXCLUDED.pairing_expires,
         database_name = EXCLUDED.database_name,
@@ -113,6 +115,7 @@ const generateCode = async (req, res) => {
     `, [
       safeName,
       display_name || safeName,
+      tenantId,
       hash(pairingCode),
       expires,
       dbInfo.databaseName,

@@ -24,6 +24,7 @@ async function getMachinePolicy(req, res) {
 
     res.json({
       ...(row || { machine: machine, policy_json: '{}', current_json: '{}', updated_at: 0, applied_at: null }),
+      policy: effectivePolicy,
       current: JSON.parse((row && row.current_json) || '{}'),
       group: groupRow ? { id: groupRow.id, name: groupRow.name, policy: groupPolicy } : null,
       effective_policy: effectivePolicy,

@@ -46,10 +46,10 @@ const batchIngest = async (req, res) => {
       return res.status(403).json({ error: 'Account is not active' });
     }
     
-    // For aggregators: resolve to the owning tenant so logs go into the correct isolated DB
+    // For aggregators: resolve to the owning tenant so logs and policies route to the dedicated DB
     // For tenants: use the tenant_id directly
-    if (isAggregatorClient && tenant.tenant_id) {
-      req.tenantId = tenant.tenant_id;
+    if (isAggregatorClient) {
+      req.tenantId = tenant.tenant_id || 'default';
     } else {
       req.tenantId = tenant.id;
     }
