@@ -18,11 +18,31 @@ const crypto = require('crypto');
 const { execSync } = require('child_process');
 
 // ── Auto-Generate SSL Certificates Helper ──────────────────────
+function generateFreshCerts(targetDir) {
+  try {
+    fs.mkdirSync(targetDir, { recursive: true });
+    const crtPath = path.join(targetDir, 'iochunt.crt');
+    const keyPath = path.join(targetDir, 'iochunt.key');
+    
+    // Remove old/corrupt files if present
+    try { if (fs.existsSync(crtPath)) fs.unlinkSync(crtPath); } catch (_) {}
+    try { if (fs.existsSync(keyPath)) fs.unlinkSync(keyPath); } catch (_) {}
+
+    console.log('[SuperAdmin] Generating fresh self-signed TLS certificates in:', targetDir);
+    execSync(`openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${crtPath}" -days 3650 -nodes -subj "/CN=iochunt-superadmin/O=DefSecOne/C=IN"`, { stdio: 'ignore' });
+    
+    return { crtPath, keyPath };
+  } catch (err) {
+    console.error('[SuperAdmin] Failed to generate SSL certificates with openssl:', err.message);
+    return null;
+  }
+}
+
 function ensureSuperAdminSSL() {
   const possibleDirs = [
+    path.resolve(__dirname, '../ssl'),
     path.resolve(__dirname, '../../nginx/ssl'),
     path.resolve(__dirname, '../../../nginx/ssl'),
-    path.resolve(__dirname, '../ssl'),
     path.resolve('/app/nginx/ssl'),
     path.resolve(process.cwd(), 'nginx/ssl')
   ];
@@ -31,26 +51,18 @@ function ensureSuperAdminSSL() {
     const crt = path.join(d, 'iochunt.crt');
     const key = path.join(d, 'iochunt.key');
     if (fs.existsSync(crt) && fs.existsSync(key)) {
-      return { crtPath: crt, keyPath: key };
+      try {
+        const keyContent = fs.readFileSync(key, 'utf8');
+        const crtContent = fs.readFileSync(crt, 'utf8');
+        if (keyContent.includes('PRIVATE KEY') && crtContent.includes('CERTIFICATE')) {
+          return { crtPath: crt, keyPath: key };
+        }
+      } catch (_) {}
     }
   }
 
-  // If not found in any standard path, generate self-signed certs in ../ssl
-  const targetDir = path.resolve(__dirname, '../ssl');
-  try {
-    fs.mkdirSync(targetDir, { recursive: true });
-    const crtPath = path.join(targetDir, 'iochunt.crt');
-    const keyPath = path.join(targetDir, 'iochunt.key');
-    if (!fs.existsSync(crtPath) || !fs.existsSync(keyPath)) {
-      console.log('[SuperAdmin] Generating fresh self-signed TLS certificates in:', targetDir);
-      execSync(`openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${crtPath}" -days 3650 -nodes -subj "/CN=iochunt-superadmin/O=DefSecOne/C=IN"`, { stdio: 'ignore' });
-      console.log('[SuperAdmin] SSL certificates generated successfully.');
-    }
-    return { crtPath, keyPath };
-  } catch (err) {
-    console.error('[SuperAdmin] Failed to generate SSL certificates:', err.message);
-    return null;
-  }
+  // Generate fresh in ../ssl
+  return generateFreshCerts(path.resolve(__dirname, '../ssl'));
 }
 
 const app = express();
@@ -631,18 +643,37 @@ if (process.env.SERVE_STATIC === 'true' || fs.existsSync(staticPath)) {
 
 // Start Server
 initSuperAdminDB().then(() => {
-  const ssl = ensureSuperAdminSSL();
   let server;
-  if (ssl && fs.existsSync(ssl.keyPath) && fs.existsSync(ssl.crtPath)) {
-    const sslOptions = {
-      key: fs.readFileSync(ssl.keyPath),
-      cert: fs.readFileSync(ssl.crtPath)
-    };
-    server = https.createServer(sslOptions, app);
-    console.log('[SuperAdmin] HTTPS TLS server enabled with certificate:', ssl.crtPath);
-  } else {
+  const useHttps = process.env.USE_HTTPS !== 'false';
+
+  if (useHttps) {
+    try {
+      const ssl = ensureSuperAdminSSL();
+      if (ssl && fs.existsSync(ssl.keyPath) && fs.existsSync(ssl.crtPath)) {
+        const key = fs.readFileSync(ssl.keyPath, 'utf8');
+        const cert = fs.readFileSync(ssl.crtPath, 'utf8');
+        server = https.createServer({ key, cert }, app);
+        console.log('[SuperAdmin] HTTPS TLS server enabled with certificate:', ssl.crtPath);
+      }
+    } catch (tlsErr) {
+      console.warn('[SuperAdmin] Primary TLS initialization failed (' + tlsErr.message + '), generating fresh certs...');
+      try {
+        const fresh = generateFreshCerts(path.resolve(__dirname, '../ssl'));
+        if (fresh) {
+          const key = fs.readFileSync(fresh.keyPath, 'utf8');
+          const cert = fs.readFileSync(fresh.crtPath, 'utf8');
+          server = https.createServer({ key, cert }, app);
+          console.log('[SuperAdmin] HTTPS TLS server recovered with newly generated certificate');
+        }
+      } catch (freshErr) {
+        console.error('[SuperAdmin] Fresh certificate generation failed:', freshErr.message);
+      }
+    }
+  }
+
+  if (!server) {
     server = http.createServer(app);
-    console.log('[SuperAdmin] HTTP server fallback enabled');
+    console.log('[SuperAdmin] HTTP server fallback active on port ' + PORT);
   }
 
   server.listen(PORT, '0.0.0.0', () => {
