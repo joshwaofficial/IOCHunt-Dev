@@ -404,10 +404,11 @@ def start_policy_poller():
                         ]:
                             if k in pol:
                                 config[attr] = pol[k]
-                        if "learningMode" in pol:
-                            config["learning_mode"] = bool(pol["learningMode"])
-                        
-                        log("[POLICY] Applied machine-specific policy.")
+                        if changed:
+                            save_config()
+                            log("[POLICY] Applied machine-specific policy.")
+                            ship_event("[POLICY]", "info", "OTHER", "Applied machine-specific policy.")
+                            _flush_ship_queue()
                         
                         # 2. Acknowledge policy application
                         requests.patch(
