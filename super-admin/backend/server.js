@@ -10,26 +10,47 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const https = require('https');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 const crypto = require('crypto');
 const { execSync } = require('child_process');
 
-// ── Auto-Generate SSL Certificates ─────────────────────────────
-try {
-  const sslDir = path.join(__dirname, '../../../nginx/ssl');
-  if (fs.existsSync(sslDir)) {
-    const crtPath = path.join(sslDir, 'iochunt.crt');
-    const keyPath = path.join(sslDir, 'iochunt.key');
-    if (!fs.existsSync(crtPath) || !fs.existsSync(keyPath)) {
-      console.log('[SuperAdmin] SSL certificates missing. Generating self-signed certificates...');
-      execSync(`openssl req -x509 -newkey rsa:4096 -keyout "${keyPath}" -out "${crtPath}" -days 3650 -nodes -subj "/CN=iochunt-platform/O=DefSecOne/C=IN"`, { stdio: 'ignore' });
-      console.log('[SuperAdmin] SSL certificates generated successfully.');
+// ── Auto-Generate SSL Certificates Helper ──────────────────────
+function ensureSuperAdminSSL() {
+  const possibleDirs = [
+    path.resolve(__dirname, '../../nginx/ssl'),
+    path.resolve(__dirname, '../../../nginx/ssl'),
+    path.resolve(__dirname, '../ssl'),
+    path.resolve('/app/nginx/ssl'),
+    path.resolve(process.cwd(), 'nginx/ssl')
+  ];
+
+  for (const d of possibleDirs) {
+    const crt = path.join(d, 'iochunt.crt');
+    const key = path.join(d, 'iochunt.key');
+    if (fs.existsSync(crt) && fs.existsSync(key)) {
+      return { crtPath: crt, keyPath: key };
     }
   }
-} catch (err) {
-  console.error('[SuperAdmin] Failed to auto-generate SSL certificates:', err.message);
+
+  // If not found in any standard path, generate self-signed certs in ../ssl
+  const targetDir = path.resolve(__dirname, '../ssl');
+  try {
+    fs.mkdirSync(targetDir, { recursive: true });
+    const crtPath = path.join(targetDir, 'iochunt.crt');
+    const keyPath = path.join(targetDir, 'iochunt.key');
+    if (!fs.existsSync(crtPath) || !fs.existsSync(keyPath)) {
+      console.log('[SuperAdmin] Generating fresh self-signed TLS certificates in:', targetDir);
+      execSync(`openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${crtPath}" -days 3650 -nodes -subj "/CN=iochunt-superadmin/O=DefSecOne/C=IN"`, { stdio: 'ignore' });
+      console.log('[SuperAdmin] SSL certificates generated successfully.');
+    }
+    return { crtPath, keyPath };
+  } catch (err) {
+    console.error('[SuperAdmin] Failed to generate SSL certificates:', err.message);
+    return null;
+  }
 }
 
 const app = express();
@@ -610,20 +631,22 @@ if (process.env.SERVE_STATIC === 'true' || fs.existsSync(staticPath)) {
 
 // Start Server
 initSuperAdminDB().then(() => {
-  const sslDir = path.resolve(__dirname, '../../nginx/ssl');
+  const ssl = ensureSuperAdminSSL();
   let server;
-  if (fs.existsSync(path.join(sslDir, 'iochunt.key')) && fs.existsSync(path.join(sslDir, 'iochunt.crt'))) {
+  if (ssl && fs.existsSync(ssl.keyPath) && fs.existsSync(ssl.crtPath)) {
     const sslOptions = {
-      key: fs.readFileSync(path.join(sslDir, 'iochunt.key')),
-      cert: fs.readFileSync(path.join(sslDir, 'iochunt.crt'))
+      key: fs.readFileSync(ssl.keyPath),
+      cert: fs.readFileSync(ssl.crtPath)
     };
     server = https.createServer(sslOptions, app);
+    console.log('[SuperAdmin] HTTPS TLS server enabled with certificate:', ssl.crtPath);
   } else {
-    server = app;
+    server = http.createServer(app);
+    console.log('[SuperAdmin] HTTP server fallback enabled');
   }
 
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`[SuperAdmin] Isolated Super Admin Control Plane running on port ${PORT}`);
+    console.log(`[SuperAdmin] Super Admin Control Plane running on port ${PORT}`);
     console.log(`[SuperAdmin] SaaS Mode: All tenants share port 8080 via NGINX`);
   });
 }).catch(err => {

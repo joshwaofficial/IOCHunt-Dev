@@ -11,8 +11,8 @@ RUN npm run build
 # ── Stage 2: Super Admin Backend ────────────────────────────────
 FROM node:20-alpine
 
-# Install Docker CLI so the Node app can run docker commands on the host
-RUN apk add --no-cache docker-cli docker-cli-compose
+# Install Docker CLI and OpenSSL for TLS certificate generation
+RUN apk add --no-cache docker-cli docker-cli-compose openssl
 
 WORKDIR /app
 
