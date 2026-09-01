@@ -161,6 +161,9 @@ async function syncQueueToCentral() {
         
         if (global_policies && global_policies.length > 0) {
           for (const p of global_policies) {
+            const existingRes = await client.query('SELECT machine FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1', [p.machine]);
+            const targetMachine = existingRes.rows[0]?.machine || p.machine;
+
             await client.query(`
               INSERT INTO policies (machine, policy_json, updated_at)
               VALUES ($1, $2, $3)
@@ -168,7 +171,7 @@ async function syncQueueToCentral() {
                 policy_json = EXCLUDED.policy_json,
                 applied_at = CASE WHEN EXCLUDED.updated_at > policies.updated_at THEN NULL ELSE policies.applied_at END,
                 updated_at = EXCLUDED.updated_at
-            `, [p.machine, p.policy_json, p.updated_at]);
+            `, [targetMachine, p.policy_json, p.updated_at]);
           }
         }
       }

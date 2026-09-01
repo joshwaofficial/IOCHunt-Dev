@@ -3,8 +3,8 @@ const appMode = require('../config/appMode');
 
 async function getMachinePolicy(req, res) {
   try {
-    const machine = req.params.machine;
-    const rowRes = await req.queryTenant('SELECT * FROM policies WHERE machine=$1', [machine]);
+    const machine = (req.params.machine || '').trim();
+    const rowRes = await req.queryTenant('SELECT * FROM policies WHERE LOWER(machine) = LOWER($1) ORDER BY updated_at DESC LIMIT 1', [machine]);
     const row = rowRes.rows[0];
     
     // Find group policy for this machine (first group wins)
@@ -12,7 +12,7 @@ async function getMachinePolicy(req, res) {
       SELECT pg.id, pg.name, pg.policy_json, pg.updated_at
       FROM machine_groups mg
       JOIN pol_groups pg ON pg.id = mg.group_id
-      WHERE mg.machine = $1
+      WHERE LOWER(mg.machine) = LOWER($1)
       ORDER BY pg.updated_at DESC LIMIT 1
     `, [machine]);
     const groupRow = groupRowRes.rows[0];
@@ -24,6 +24,7 @@ async function getMachinePolicy(req, res) {
 
     res.json({
       ...(row || { machine: machine, policy_json: '{}', current_json: '{}', updated_at: 0, applied_at: null }),
+      machine: row?.machine || machine,
       policy: effectivePolicy,
       current: JSON.parse((row && row.current_json) || '{}'),
       group: groupRow ? { id: groupRow.id, name: groupRow.name, policy: groupPolicy } : null,
@@ -38,15 +39,18 @@ async function getMachinePolicy(req, res) {
 
 async function updateMachineCurrentPolicy(req, res) {
   try {
-    const machine = req.params.machine;
+    const machine = (req.params.machine || '').trim();
     const { policy } = req.body;
     if (!policy) return res.status(400).json({ error: 'policy required' });
     
+    const rowRes = await req.queryTenant('SELECT machine FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1', [machine]);
+    const targetMachine = rowRes.rows[0]?.machine || machine;
+
     await req.queryTenant(`
       INSERT INTO policies (machine, policy_json, current_json, updated_at)
       VALUES ($1, '{}', $2, (EXTRACT(EPOCH FROM NOW())::INTEGER))
       ON CONFLICT(machine) DO UPDATE SET current_json = excluded.current_json
-    `, [machine, JSON.stringify(policy)]);
+    `, [targetMachine, JSON.stringify(policy)]);
     
     res.json({ ok: true });
   } catch (error) {
@@ -60,10 +64,13 @@ async function setMachinePolicy(req, res) {
     if (appMode.isAggregator()) {
       return res.status(403).json({ error: 'Policies are managed centrally. This instance is read-only.' });
     }
-    const machine = req.params.machine;
+    const machine = (req.params.machine || '').trim();
     const { policy } = req.body;
     if (!policy) return res.status(400).json({ error: 'policy object required' });
     
+    const rowRes = await req.queryTenant('SELECT machine FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1', [machine]);
+    const targetMachine = rowRes.rows[0]?.machine || machine;
+
     await req.queryTenant(`
       INSERT INTO policies (machine, policy_json, updated_at)
       VALUES ($1, $2, (EXTRACT(EPOCH FROM NOW())::INTEGER))
@@ -71,7 +78,7 @@ async function setMachinePolicy(req, res) {
         policy_json = excluded.policy_json,
         updated_at  = excluded.updated_at,
         applied_at  = NULL
-    `, [machine, JSON.stringify(policy)]);
+    `, [targetMachine, JSON.stringify(policy)]);
     
     res.json({ ok: true });
   } catch (error) {
@@ -82,21 +89,25 @@ async function setMachinePolicy(req, res) {
 
 async function ackMachinePolicy(req, res) {
   try {
-    const machine = req.params.machine;
+    const machine = (req.params.machine || '').trim();
     
     // Get effective policy to synchronize current_json immediately on ACK
-    const rowRes = await req.queryTenant('SELECT policy_json FROM policies WHERE machine=$1', [machine]);
+    const rowRes = await req.queryTenant('SELECT machine, policy_json FROM policies WHERE LOWER(machine) = LOWER($1) ORDER BY updated_at DESC LIMIT 1', [machine]);
+    const actualMachine = rowRes.rows[0]?.machine || machine;
     let effectivePolicy = rowRes.rows[0]?.policy_json;
     if (!effectivePolicy || effectivePolicy === '{}') {
       const grpRes = await req.queryTenant(`
         SELECT pg.policy_json FROM machine_groups mg
         JOIN pol_groups pg ON pg.id = mg.group_id
-        WHERE mg.machine = $1 ORDER BY pg.updated_at DESC LIMIT 1
+        WHERE LOWER(mg.machine) = LOWER($1) ORDER BY pg.updated_at DESC LIMIT 1
       `, [machine]);
       if (grpRes.rows[0]?.policy_json && grpRes.rows[0]?.policy_json !== '{}') {
         effectivePolicy = grpRes.rows[0].policy_json;
       }
     }
+
+    const { policy } = req.body || {};
+    const currentJson = policy ? JSON.stringify(policy) : (effectivePolicy || '{}');
 
     await req.queryTenant(`
       UPDATE policies
@@ -105,8 +116,8 @@ async function ackMachinePolicy(req, res) {
             WHEN $2::text IS NOT NULL AND $2::text != '{}' THEN $2::text 
             ELSE current_json 
           END
-      WHERE machine = $1
-    `, [machine, effectivePolicy || null]);
+      WHERE LOWER(machine) = LOWER($1)
+    `, [actualMachine, currentJson]);
 
     res.json({ ok: true });
   } catch (error) {

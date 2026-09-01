@@ -101,13 +101,16 @@ const batchIngest = async (req, res) => {
       try {
         await client.query('BEGIN');
         for (const p of data.policies) {
+          const existingRes = await client.query('SELECT machine FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1', [p.machine]);
+          const targetMachine = existingRes.rows[0]?.machine || p.machine;
+
           await client.query(`
             INSERT INTO policies (machine, policy_json, current_json, applied_at)
             VALUES ($1, '{}', $2, $3)
             ON CONFLICT (machine) DO UPDATE SET
               current_json = EXCLUDED.current_json,
               applied_at = EXCLUDED.applied_at
-          `, [p.machine, p.current_json, p.applied_at]);
+          `, [targetMachine, p.current_json, p.applied_at]);
         }
         await client.query('COMMIT');
       } catch (err) {
