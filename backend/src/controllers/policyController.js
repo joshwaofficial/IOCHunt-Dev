@@ -25,13 +25,13 @@ async function getMachinePolicy(req, res) {
 
     console.log(`[Policy] GET request for '${machine}' (Auth: ${req.authType || 'session'}) -> Source: ${policySource}, catModes: ${JSON.stringify(effectivePolicy.catModes || 'default')}`);
 
-    // If agent fetched policy on Aggregator, synchronize applied_at so sync pushes ACK to Central
+    // If agent fetched policy on Aggregator, synchronize applied_at and current_json so sync pushes ACK to Central
     if (appMode.isAggregator() && req.authType === 'aggregator_agent' && effectivePolicy && Object.keys(effectivePolicy).length > 0) {
       try {
         await req.queryTenant(`
           UPDATE policies 
           SET applied_at = (EXTRACT(EPOCH FROM NOW())::INTEGER),
-              current_json = CASE WHEN current_json IS NULL OR current_json = '{}' THEN $2 ELSE current_json END
+              current_json = $2
           WHERE LOWER(machine) = LOWER($1)
         `, [machine, JSON.stringify(effectivePolicy)]);
       } catch (err) {
@@ -66,9 +66,11 @@ async function updateMachineCurrentPolicy(req, res) {
     console.log(`[Policy] Current state reported for '${machine}' -> catModes: ${JSON.stringify(policy.catModes || [])}`);
 
     await req.queryTenant(`
-      INSERT INTO policies (machine, policy_json, current_json, updated_at)
-      VALUES ($1, '{}', $2, (EXTRACT(EPOCH FROM NOW())::INTEGER))
-      ON CONFLICT(machine) DO UPDATE SET current_json = excluded.current_json
+      INSERT INTO policies (machine, policy_json, current_json, applied_at, updated_at)
+      VALUES ($1, '{}', $2, (EXTRACT(EPOCH FROM NOW())::INTEGER), (EXTRACT(EPOCH FROM NOW())::INTEGER))
+      ON CONFLICT(machine) DO UPDATE SET 
+        current_json = excluded.current_json,
+        applied_at = (EXTRACT(EPOCH FROM NOW())::INTEGER)
     `, [targetMachine, JSON.stringify(policy)]);
     
     res.json({ ok: true });
