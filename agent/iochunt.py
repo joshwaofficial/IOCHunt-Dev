@@ -401,9 +401,23 @@ def start_policy_poller():
                             ("officeHoursDays",      "office_hours_days"),
                             ("failedLogonThreshold", "failed_logon_threshold"),
                             ("failedLogonWindowMins","failed_logon_window_mins"),
+                            ("learningMode",         "learning_mode"),
                         ]:
                             if k in pol:
-                                config[attr] = pol[k]
+                                if config.get(attr) != pol[k]:
+                                    config[attr] = pol[k]
+                                    changed = True
+                        
+                        current_policy_payload = {
+                            "catModes": cat_modes,
+                            "officeHoursStart": config.get("office_hours_start", 9),
+                            "officeHoursEnd": config.get("office_hours_end", 18),
+                            "officeHoursDays": config.get("office_hours_days", 62),
+                            "failedLogonThreshold": config.get("failed_logon_threshold", 5),
+                            "failedLogonWindowMins": config.get("failed_logon_window_mins", 10),
+                            "learningMode": config.get("learning_mode", True)
+                        }
+
                         if changed:
                             save_config()
                             log("[POLICY] Applied machine-specific policy.")
@@ -414,16 +428,28 @@ def start_policy_poller():
                         requests.patch(
                             f"{url}/api/policy/{machine}/ack",
                             headers={"x-api-key": key},
-                            json={"policy": {"catModes": cat_modes}},
+                            json={"policy": current_policy_payload},
                             timeout=5, verify=False,
                         )
+
+                else:
+                    # If we couldn't fetch policy, we still want to report what we have
+                    current_policy_payload = {
+                        "catModes": cat_modes,
+                        "officeHoursStart": config.get("office_hours_start", 9),
+                        "officeHoursEnd": config.get("office_hours_end", 18),
+                        "officeHoursDays": config.get("office_hours_days", 62),
+                        "failedLogonThreshold": config.get("failed_logon_threshold", 5),
+                        "failedLogonWindowMins": config.get("failed_logon_window_mins", 10),
+                        "learningMode": config.get("learning_mode", True)
+                    }
 
                 # 3. Report active running policy to Central
                 try:
                     requests.post(
                         f"{url}/api/policy/{machine}/current",
                         headers={"x-api-key": key},
-                        json={"policy": {"catModes": cat_modes}},
+                        json={"policy": current_policy_payload},
                         timeout=5, verify=False,
                     )
                 except Exception as ex:

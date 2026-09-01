@@ -109,7 +109,7 @@ const batchIngest = async (req, res) => {
             VALUES ($1, '{}', $2, $3)
             ON CONFLICT (machine) DO UPDATE SET
               current_json = EXCLUDED.current_json,
-              applied_at = EXCLUDED.applied_at
+              applied_at = CASE WHEN COALESCE(policies.updated_at, 0) > COALESCE(EXCLUDED.applied_at, 0) THEN policies.applied_at ELSE EXCLUDED.applied_at END
           `, [targetMachine, p.current_json, p.applied_at]);
         }
         await client.query('COMMIT');
