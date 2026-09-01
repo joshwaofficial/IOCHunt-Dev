@@ -46,19 +46,6 @@ async function getMachinePolicy(req, res) {
 
     console.log(`[Policy] GET request for '${machine}' (Auth: ${req.authType || 'session'}) -> Source: ${policySource}, catModes: ${JSON.stringify(effectivePolicy.catModes || 'default')}`);
 
-    // If agent fetched policy on Aggregator, synchronize applied_at and current_json so sync pushes ACK to Central
-    if (appMode.isAggregator() && req.authType === 'aggregator_agent' && effectivePolicy && Object.keys(effectivePolicy).length > 0) {
-      try {
-        await req.queryTenant(`
-          UPDATE policies 
-          SET applied_at = (EXTRACT(EPOCH FROM NOW())::INTEGER),
-              current_json = $2
-          WHERE LOWER(machine) = LOWER($1)
-        `, [machine, JSON.stringify(effectivePolicy)]);
-      } catch (err) {
-        console.error('[Policy] Error auto-updating applied_at on aggregator:', err.message);
-      }
-    }
 
     res.json({
       ...(row || { machine: machine, policy_json: '{}', current_json: '{}', updated_at: 0, applied_at: null }),
