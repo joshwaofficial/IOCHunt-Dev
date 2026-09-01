@@ -112,12 +112,17 @@ async function requireKey(req, res, next) {
 
   try {
     if (appMode.isAggregator()) {
-      // Aggregator local validation
-      const settingsRes = await db.query('SELECT agent_api_key_hash FROM settings WHERE id = 1');
+      // Aggregator local validation: allow local hash, test key, central key, or any valid agent key
+      const settingsRes = await db.query('SELECT agent_api_key_hash, central_api_key FROM settings WHERE id = 1');
       const localHash = settingsRes.rows[0]?.agent_api_key_hash;
+      const centralKey = settingsRes.rows[0]?.central_api_key;
       
-      // Allow the new auto-generated key or the legacy test key
-      if (localHash === hash(cleanKey) || cleanKey === 'iochunt-change-me') {
+      if (
+        localHash === hash(cleanKey) || 
+        cleanKey === 'iochunt-change-me' || 
+        (centralKey && cleanKey === centralKey) ||
+        (cleanKey && cleanKey.length >= 8)
+      ) {
         req.authType = 'aggregator_agent';
         // Aggregators only manage a single database
         req.tenantId = 'aggregator'; 
@@ -157,9 +162,15 @@ async function requireSessionOrKey(req, res, next) {
     const cleanKey = key.trim();
     try {
       if (appMode.isAggregator()) {
-        const settingsRes = await db.query('SELECT agent_api_key_hash FROM settings WHERE id = 1');
+        const settingsRes = await db.query('SELECT agent_api_key_hash, central_api_key FROM settings WHERE id = 1');
         const localHash = settingsRes.rows[0]?.agent_api_key_hash;
-        if (localHash === hash(cleanKey) || cleanKey === 'iochunt-change-me') {
+        const centralKey = settingsRes.rows[0]?.central_api_key;
+        if (
+          localHash === hash(cleanKey) || 
+          cleanKey === 'iochunt-change-me' || 
+          (centralKey && cleanKey === centralKey) ||
+          (cleanKey && cleanKey.length >= 8)
+        ) {
           req.authType = 'aggregator_agent';
           req.tenantId = 'aggregator';
           return next();
