@@ -21,6 +21,9 @@ async function getMachinePolicy(req, res) {
     const groupPolicy = groupRow ? JSON.parse(groupRow.policy_json || '{}') : {};
     // Machine policy overrides group policy
     const effectivePolicy = Object.keys(machinePolicy).length > 0 ? machinePolicy : groupPolicy;
+    const policySource = Object.keys(machinePolicy).length > 0 ? 'machine' : (groupRow ? 'group' : 'default');
+
+    console.log(`[Policy] GET request for '${machine}' (Auth: ${req.authType || 'session'}) -> Source: ${policySource}, catModes: ${JSON.stringify(effectivePolicy.catModes || 'default')}`);
 
     res.json({
       ...(row || { machine: machine, policy_json: '{}', current_json: '{}', updated_at: 0, applied_at: null }),
@@ -29,7 +32,7 @@ async function getMachinePolicy(req, res) {
       current: JSON.parse((row && row.current_json) || '{}'),
       group: groupRow ? { id: groupRow.id, name: groupRow.name, policy: groupPolicy } : null,
       effective_policy: effectivePolicy,
-      policy_source: Object.keys(machinePolicy).length > 0 ? 'machine' : (groupRow ? 'group' : 'default'),
+      policy_source: policySource,
     });
   } catch (error) {
     console.error('[Policy] Failed to get machine policy:', error);
@@ -45,6 +48,8 @@ async function updateMachineCurrentPolicy(req, res) {
     
     const rowRes = await req.queryTenant('SELECT machine FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1', [machine]);
     const targetMachine = rowRes.rows[0]?.machine || machine;
+
+    console.log(`[Policy] Current state reported for '${machine}' -> catModes: ${JSON.stringify(policy.catModes || [])}`);
 
     await req.queryTenant(`
       INSERT INTO policies (machine, policy_json, current_json, updated_at)
@@ -108,6 +113,8 @@ async function ackMachinePolicy(req, res) {
 
     const { policy } = req.body || {};
     const currentJson = policy ? JSON.stringify(policy) : (effectivePolicy || '{}');
+
+    console.log(`[Policy] ACK received for '${machine}' (Actual: '${actualMachine}') -> Applied now. Status: in sync`);
 
     await req.queryTenant(`
       UPDATE policies
