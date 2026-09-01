@@ -7,8 +7,7 @@ import {
   Building2,
   Activity,
   Layers,
-  LogOut,
-  Plus
+  LogOut
 } from 'lucide-react';
 import Login from './pages/Login';
 import SetupPassword from './pages/SetupPassword';
@@ -16,7 +15,6 @@ import Dashboard from './pages/Dashboard';
 import Tenants from './pages/Tenants';
 import SystemHealth from './pages/SystemHealth';
 import AuditLogs from './pages/AuditLogs';
-import ProvisionModal from './components/ProvisionModal';
 
 function Sidebar({ tenantCount }) {
   const location = useLocation();
@@ -154,13 +152,12 @@ function Sidebar({ tenantCount }) {
 
 function DashboardLayout({ children }) {
   const [tenantCount, setTenantCount] = useState(0);
-  const [isProvisionOpen, setIsProvisionOpen] = useState(false);
 
   const fetchTenantCount = async () => {
     try {
       const res = await axios.get('/api/super/companies');
       setTenantCount(res.data?.length || 0);
-    } catch (e) {}
+    } catch (_) {}
   };
 
   useEffect(() => {
@@ -182,9 +179,9 @@ function DashboardLayout({ children }) {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <button className="btn btn-primary" onClick={() => setIsProvisionOpen(true)} style={{ height: '32px', fontSize: '12px' }}>
-              <Plus size={13} /> Provision Tenant
-            </button>
+            <span className="badge-pill badge-neutral font-mono" style={{ fontSize: '11px' }}>
+              v2.0-SaaS
+            </span>
           </div>
         </header>
 
@@ -193,12 +190,6 @@ function DashboardLayout({ children }) {
           {children}
         </main>
       </div>
-
-      <ProvisionModal
-        isOpen={isProvisionOpen}
-        onClose={() => setIsProvisionOpen(false)}
-        onSuccess={fetchTenantCount}
-      />
     </div>
   );
 }
