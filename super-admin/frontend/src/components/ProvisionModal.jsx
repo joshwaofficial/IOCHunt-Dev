@@ -7,6 +7,7 @@ export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
   const [companyId, setCompanyId] = useState('');
   const [adminUsername, setAdminUsername] = useState('admin');
   const [adminPassword, setAdminPassword] = useState('');
+  const [tier, setTier] = useState('standard');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [provisionedData, setProvisionedData] = useState(null);
@@ -40,13 +41,14 @@ export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
         company_id: companyId.trim(),
         admin_username: adminUsername.trim(),
         admin_password: adminPassword.trim(),
-        tier
+        tier: tier || 'standard'
       });
 
       setProvisionedData(res.data);
       if (onSuccess) onSuccess();
     } catch (err) {
-      setError(err.response?.data?.error || 'Tenant provisioning failed. Check database logs.');
+      console.error('[ProvisionModal]', err);
+      setError(err.response?.data?.error || err.message || 'Tenant provisioning failed. Check database logs.');
     } finally {
       setIsLoading(false);
     }
