@@ -65,7 +65,7 @@ async function getMachinePolicy(req, res) {
 async function updateMachineCurrentPolicy(req, res) {
   try {
     const machine = (req.params.machine || '').trim();
-    const { policy } = req.body;
+    const policy = req.body?.policy;
     if (!policy) return res.status(400).json({ error: 'policy required' });
     
     const rowRes = await req.queryTenant('SELECT machine FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1', [machine]);
@@ -93,7 +93,7 @@ async function setMachinePolicy(req, res) {
       return res.status(403).json({ error: 'Policies are managed centrally. This instance is read-only.' });
     }
     const machine = (req.params.machine || '').trim();
-    const { policy } = req.body;
+    const policy = req.body?.policy;
     if (!policy) return res.status(400).json({ error: 'policy object required' });
     
     const rowRes = await req.queryTenant('SELECT machine FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1', [machine]);
@@ -118,7 +118,7 @@ async function setMachinePolicy(req, res) {
 async function ackMachinePolicy(req, res) {
   try {
     const machine = (req.params.machine || '').trim();
-    const { policy } = req.body;
+    const policy = req.body?.policy;
     
     // Get effective policy to synchronize current_json immediately on ACK
     const rowRes = await req.queryTenant('SELECT machine, policy_json FROM policies WHERE LOWER(machine) = LOWER($1) ORDER BY updated_at DESC LIMIT 1', [machine]);
@@ -150,6 +150,8 @@ async function ackMachinePolicy(req, res) {
           END)
       WHERE LOWER(machine) = LOWER($1)
     `, [actualMachine, payloadPolicy, effectivePolicy || null]);
+
+    console.log(`[Policy] ACK received for '${machine}' (Actual: '${actualMachine}') -> Applied now.`);
 
     res.json({ ok: true });
   } catch (error) {
