@@ -139,19 +139,17 @@ async function ackMachinePolicy(req, res) {
 
     const payloadPolicy = (policy && typeof policy === 'object' && Object.keys(policy).length > 0)
       ? JSON.stringify(policy)
-      : null;
+      : (effectivePolicy || '{}');
 
     await req.queryTenant(`
-      UPDATE policies
-      SET applied_at = (EXTRACT(EPOCH FROM NOW())::INTEGER),
-          current_json = COALESCE($2::text, CASE 
-            WHEN $3::text IS NOT NULL AND $3::text != '{}' THEN $3::text 
-            ELSE current_json 
-          END)
-      WHERE LOWER(machine) = LOWER($1)
-    `, [actualMachine, payloadPolicy, effectivePolicy || null]);
+      INSERT INTO policies (machine, policy_json, current_json, updated_at, applied_at)
+      VALUES ($1, '{}', $2, (EXTRACT(EPOCH FROM NOW())::INTEGER), (EXTRACT(EPOCH FROM NOW())::INTEGER))
+      ON CONFLICT(machine) DO UPDATE SET
+        applied_at = (EXTRACT(EPOCH FROM NOW())::INTEGER),
+        current_json = EXCLUDED.current_json
+    `, [actualMachine, payloadPolicy]);
 
-    console.log(`[Policy] ACK received for '${machine}' (Actual: '${actualMachine}') -> Applied now.`);
+    console.log(`[Policy] ACK received for '${machine}' (Actual: '${actualMachine}') -> Applied now. Status: in sync`);
 
     res.json({ ok: true });
   } catch (error) {
