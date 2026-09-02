@@ -118,6 +118,7 @@ async function setMachinePolicy(req, res) {
 async function ackMachinePolicy(req, res) {
   try {
     const machine = (req.params.machine || '').trim();
+    const { policy } = req.body;
     
     // Get effective policy to synchronize current_json immediately on ACK
     const rowRes = await req.queryTenant('SELECT machine, policy_json FROM policies WHERE LOWER(machine) = LOWER($1) ORDER BY updated_at DESC LIMIT 1', [machine]);
@@ -136,15 +137,19 @@ async function ackMachinePolicy(req, res) {
       }
     }
 
+    const payloadPolicy = (policy && typeof policy === 'object' && Object.keys(policy).length > 0)
+      ? JSON.stringify(policy)
+      : null;
+
     await req.queryTenant(`
       UPDATE policies
       SET applied_at = (EXTRACT(EPOCH FROM NOW())::INTEGER),
-          current_json = CASE 
-            WHEN $2::text IS NOT NULL AND $2::text != '{}' THEN $2::text 
+          current_json = COALESCE($2::text, CASE 
+            WHEN $3::text IS NOT NULL AND $3::text != '{}' THEN $3::text 
             ELSE current_json 
-          END
+          END)
       WHERE LOWER(machine) = LOWER($1)
-    `, [actualMachine, effectivePolicy || null]);
+    `, [actualMachine, payloadPolicy, effectivePolicy || null]);
 
     res.json({ ok: true });
   } catch (error) {

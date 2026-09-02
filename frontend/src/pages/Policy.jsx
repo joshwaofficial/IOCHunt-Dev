@@ -627,7 +627,7 @@ export default function Policy() {
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px', marginBottom: '24px', display: 'flex', gap: '20px', fontSize: '13px', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ flex: 1 }}>
             <span style={{ fontSize: '11px', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Sync Status</span>
-            {machinePolicyData.applied_at ? (
+            {machinePolicyData.applied_at && (!machinePolicyData.updated_at || machinePolicyData.applied_at >= machinePolicyData.updated_at) ? (
               <span style={{ color: '#22c55e', fontWeight: 600 }}>Applied by client: {new Date(machinePolicyData.applied_at * 1000).toLocaleString()}</span>
             ) : (
               <span style={{ color: '#f59e0b', fontWeight: 600 }}>Pending client pickup (polls every 60s)</span>
