@@ -55,11 +55,12 @@ async function updateMachinePolicy(req, res) {
 async function getClients(req, res) {
   try {
     let from, to;
-    if (req.query.from && req.query.to) {
+    if (req.query.from && req.query.to && req.query.from !== 'undefined' && req.query.to !== 'undefined') {
       from = req.query.from;
       to = req.query.to;
     } else {
-      const hours = Number(req.query.hours || 168);
+      const rawHours = Number(req.query.hours);
+      const hours = (!isNaN(rawHours) && rawHours > 0) ? rawHours : 168;
       to = new Date().toISOString();
       from = new Date(Date.now() - hours * 3600000).toISOString();
     }

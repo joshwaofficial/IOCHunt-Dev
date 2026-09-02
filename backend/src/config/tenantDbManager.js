@@ -232,8 +232,22 @@ async function getTenantPool(tenantId) {
  * @returns {Promise<object>}
  */
 async function queryTenant(tenantId, text, params = []) {
-  const pool = await getTenantPool(tenantId);
-  return pool.query(text, params);
+  try {
+    const pool = await getTenantPool(tenantId);
+    return await pool.query(text, params);
+  } catch (err) {
+    if (err.code === '28P01' || err.message?.includes('terminating connection') || err.message?.includes('Connection terminated') || err.message?.includes('closed')) {
+      console.warn(`[TenantDB:${tenantId}] Connection error (${err.code || err.message}) in query. Evicting stale pool and retrying...`);
+      if (tenantPools.has(tenantId)) {
+        const entry = tenantPools.get(tenantId);
+        await entry.pool.end().catch(() => {});
+        tenantPools.delete(tenantId);
+      }
+      const freshPool = await getTenantPool(tenantId);
+      return await freshPool.query(text, params);
+    }
+    throw err;
+  }
 }
 
 /**
