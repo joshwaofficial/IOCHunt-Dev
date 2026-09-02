@@ -33,47 +33,40 @@ async function getMachinePolicy(req, res) {
     // Determine effective policy: Machine Override > Group Policy > System Default Policy
     let effectivePolicy;
     let policySource;
+    let effectiveUpdatedAt = row?.updated_at || 0;
+
     if (Object.keys(machinePolicy).length > 0) {
       effectivePolicy = machinePolicy;
       policySource = 'machine';
+      effectiveUpdatedAt = row?.updated_at || 0;
     } else if (groupRow && Object.keys(groupPolicy).length > 0) {
       effectivePolicy = groupPolicy;
       policySource = 'group';
+      effectiveUpdatedAt = Math.max(groupRow.updated_at || 0, row?.updated_at || 0);
     } else {
       effectivePolicy = DEFAULT_POLICY;
       policySource = 'default';
+      effectiveUpdatedAt = row?.updated_at || 0;
     }
 
     console.log(`[Policy] GET request for '${machine}' (Auth: ${req.authType || 'session'}) -> Source: ${policySource}, catModes: ${JSON.stringify(effectivePolicy.catModes || 'default')}`);
 
-    let appliedAt = row?.applied_at;
-    let currentJson = (row && row.current_json) || '{}';
-
-    if (req.authType === 'tenant_agent' || req.authType === 'aggregator_agent') {
-      appliedAt = Math.floor(Date.now() / 1000);
-      currentJson = JSON.stringify(effectivePolicy);
-      try {
-        await req.queryTenant(`
-          INSERT INTO policies (machine, policy_json, current_json, updated_at, applied_at)
-          VALUES ($1, $2, $3, (EXTRACT(EPOCH FROM NOW())::INTEGER), $4)
-          ON CONFLICT(machine) DO UPDATE SET
-            applied_at = $4,
-            current_json = EXCLUDED.current_json
-        `, [machine, row?.policy_json || '{}', currentJson, appliedAt]);
-      } catch (err) {
-        console.warn('[Policy] Auto-sync record note:', err.message);
-      }
-    }
+    const currentJsonObj = JSON.parse((row && row.current_json) || '{}');
 
     res.json({
-      ...(row || { machine: machine, policy_json: '{}', current_json: '{}', updated_at: 0, applied_at: null }),
+      ...(row || { machine: machine, policy_json: '{}', current_json: '{}', applied_at: null }),
+      ...effectivePolicy, // Top-level catModes, etc. for direct C# deserialization
       machine: row?.machine || machine,
       policy: effectivePolicy,
-      current: JSON.parse(currentJson),
+      effective_policy: effectivePolicy,
+      policy_json: JSON.stringify(effectivePolicy), // Ensure never empty {}
+      current: currentJsonObj,
+      current_json: (row && row.current_json) || '{}',
       group: groupRow ? { id: groupRow.id, name: groupRow.name, policy: groupPolicy } : null,
       effective_policy: effectivePolicy,
       policy_source: policySource,
-      applied_at: appliedAt
+      updated_at: effectiveUpdatedAt,
+      applied_at: row?.applied_at || null
     });
   } catch (error) {
     console.error('[Policy] Failed to get machine policy:', error);

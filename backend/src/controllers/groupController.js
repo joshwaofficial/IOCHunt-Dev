@@ -53,9 +53,20 @@ async function updateGroupPolicy(req, res) {
   try {
     if (appMode.isAggregator()) return res.status(403).json({ error: 'Policies are managed centrally. This instance is read-only.' });
     const { policy } = req.body;
+    const now = Math.floor(Date.now() / 1000);
     await req.queryTenant(`
-      UPDATE pol_groups SET policy_json=$1, updated_at=EXTRACT(EPOCH FROM NOW())::INTEGER WHERE id=$2
-    `, [JSON.stringify(policy || {}), req.params.id]);
+      UPDATE pol_groups SET policy_json=$1, updated_at=$2 WHERE id=$3
+    `, [JSON.stringify(policy || {}), now, req.params.id]);
+
+    // Reset applied_at and advance updated_at for all machines in this group that don't have overrides
+    await req.queryTenant(`
+      UPDATE policies 
+      SET applied_at = NULL, updated_at = $1
+      WHERE LOWER(machine) IN (
+        SELECT LOWER(machine) FROM machine_groups WHERE group_id = $2
+      ) AND (policy_json = '{}' OR policy_json IS NULL)
+    `, [now, req.params.id]);
+
     res.json({ ok: true });
   } catch (error) {
     console.error('[Groups] Failed to update group policy:', error);
