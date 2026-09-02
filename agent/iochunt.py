@@ -36,10 +36,16 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIG
 # ═══════════════════════════════════════════════════════════════════════════════
-CONFIG_FILE    = "/etc/iochunt/config.json"
-LOG_FILE       = "/var/log/iochunt/iochunt.log"
-WHITELIST_FILE = "/etc/iochunt/whitelist.json"
-BLOCKLIST_FILE = "/etc/iochunt/blocklist.json"
+if os.name == 'nt':
+    CONFIG_FILE    = "config.json" if os.path.exists("config.json") else os.path.join(os.environ.get("ProgramData", "C:\\ProgramData"), "iochunt", "config.json")
+    LOG_FILE       = "iochunt.log"
+    WHITELIST_FILE = "whitelist.json"
+    BLOCKLIST_FILE = "blocklist.json"
+else:
+    CONFIG_FILE    = "/etc/iochunt/config.json"
+    LOG_FILE       = "/var/log/iochunt/iochunt.log"
+    WHITELIST_FILE = "/etc/iochunt/whitelist.json"
+    BLOCKLIST_FILE = "/etc/iochunt/blocklist.json"
 
 DEFAULT_CONFIG = {
     "central_server_url":     "",
@@ -134,9 +140,10 @@ _correlation_lock           = threading.Lock()
 _process_tree:  Dict[int, dict] = {}
 _proc_tree_lock = threading.Lock()
 
-os.makedirs("/var/log/iochunt", exist_ok=True)
-os.makedirs("/var/lib/iochunt", exist_ok=True)
-os.makedirs("/etc/iochunt",     exist_ok=True)
+if os.name != 'nt':
+    os.makedirs("/var/log/iochunt", exist_ok=True)
+    os.makedirs("/var/lib/iochunt", exist_ok=True)
+    os.makedirs("/etc/iochunt",     exist_ok=True)
 
 logging.basicConfig(
     filename=LOG_FILE,
