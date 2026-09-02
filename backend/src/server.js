@@ -184,6 +184,15 @@ app.get('/api/status', (req, res) => {
 // Dashboard Metrics (Catch-all for /api routes)
 app.use('/api', dashboardRoutes);
 
+// Global Error Handler for malformed JSON payloads
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    console.warn(`[HTTP] Bad JSON payload received from ${req.ip} on ${req.method} ${req.originalUrl}:`, err.message);
+    return res.status(400).json({ error: 'Malformed JSON payload' });
+  }
+  next(err);
+});
+
 // Static Frontend Serving
 const staticPath = path.join(__dirname, '../../frontend/dist');
 if (process.env.SERVE_STATIC === 'true' || fs.existsSync(staticPath)) {
