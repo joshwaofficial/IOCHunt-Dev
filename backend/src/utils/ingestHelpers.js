@@ -453,8 +453,7 @@ function normalizeToUTC(raw, sourceTZ = 'local') {
     if (dt.isValid) return dt.toUTC().toFormat('yyyy-MM-dd HH:mm:ss');
   }
 
-  const effectiveZone = (sourceTZ === 'UTC' || sourceTZ === 'local') ? (process.env.DEFAULT_AGENT_TZ || 'Asia/Kolkata') : sourceTZ;
-  const tzOption = effectiveZone === 'local' ? { zone: 'system' } : { zone: effectiveZone };
+  const tzOption = sourceTZ === 'local' ? { zone: 'system' } : { zone: sourceTZ };
   const plain = DateTime.fromSQL(trimmed, tzOption);
   if (plain.isValid) return plain.toUTC().toFormat('yyyy-MM-dd HH:mm:ss');
 

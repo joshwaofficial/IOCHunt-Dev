@@ -338,15 +338,18 @@ export default function AllLogs() {
                   let tsDate = '';
                   let tsTime = '';
                   if (e.ts) {
-                    const utc = e.ts.endsWith('Z') ? e.ts : e.ts;
+                    const str = String(e.ts).trim();
+                    const utc = (str.endsWith('Z') || str.endsWith('z') || str.includes('+'))
+                      ? str
+                      : (str.includes('T') ? `${str}Z` : `${str.replace(' ', 'T')}Z`);
                     const d = new Date(utc);
-                    if (!isNaN(d)) {
+                    if (!isNaN(d.getTime())) {
                       const pad = n => n.toString().padStart(2, '0');
                       tsDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
                       tsTime = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
                     } else {
-                      tsDate = e.ts.slice(0, 10);
-                      tsTime = e.ts.slice(11, 16);
+                      tsDate = str.slice(0, 10);
+                      tsTime = str.slice(11, 16);
                     }
                   }
 
