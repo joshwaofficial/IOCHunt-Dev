@@ -46,15 +46,34 @@ async function getMachinePolicy(req, res) {
 
     console.log(`[Policy] GET request for '${machine}' (Auth: ${req.authType || 'session'}) -> Source: ${policySource}, catModes: ${JSON.stringify(effectivePolicy.catModes || 'default')}`);
 
+    let appliedAt = row?.applied_at;
+    let currentJson = (row && row.current_json) || '{}';
+
+    if (req.authType === 'tenant_agent' || req.authType === 'aggregator_agent') {
+      appliedAt = Math.floor(Date.now() / 1000);
+      currentJson = JSON.stringify(effectivePolicy);
+      try {
+        await req.queryTenant(`
+          INSERT INTO policies (machine, policy_json, current_json, updated_at, applied_at)
+          VALUES ($1, $2, $3, (EXTRACT(EPOCH FROM NOW())::INTEGER), $4)
+          ON CONFLICT(machine) DO UPDATE SET
+            applied_at = $4,
+            current_json = EXCLUDED.current_json
+        `, [machine, row?.policy_json || '{}', currentJson, appliedAt]);
+      } catch (err) {
+        console.warn('[Policy] Auto-sync record note:', err.message);
+      }
+    }
 
     res.json({
       ...(row || { machine: machine, policy_json: '{}', current_json: '{}', updated_at: 0, applied_at: null }),
       machine: row?.machine || machine,
       policy: effectivePolicy,
-      current: JSON.parse((row && row.current_json) || '{}'),
+      current: JSON.parse(currentJson),
       group: groupRow ? { id: groupRow.id, name: groupRow.name, policy: groupPolicy } : null,
       effective_policy: effectivePolicy,
       policy_source: policySource,
+      applied_at: appliedAt
     });
   } catch (error) {
     console.error('[Policy] Failed to get machine policy:', error);
