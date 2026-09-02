@@ -10,6 +10,7 @@ const zlib = require('zlib');
 const crypto = require('crypto');
 const sseBroadcaster = require('../services/sseBroadcaster');
 const { publishToStream } = require('../services/redisIngestion');
+const { normalizeToUTC } = require('../utils/ingestHelpers');
 
 const hash = (text) => crypto.createHash('sha256').update(text).digest('hex');
 
@@ -72,7 +73,7 @@ const batchIngest = async (req, res) => {
       await publishToStream('ingest:agent', req.tenantId, data.events.map(e => ({
         ...e,
         aggregator_name: isAggregatorClient ? aggregatorName : (e.aggregator_name || 'direct'),
-        ts: e.ts || new Date()
+        ts: normalizeToUTC(e.ts) || new Date()
       })));
     }
 
@@ -81,7 +82,7 @@ const batchIngest = async (req, res) => {
       await publishToStream('ingest:agent', req.tenantId, data.fw_events.map(e => ({
         ...e,
         aggregator_name: isAggregatorClient ? aggregatorName : (e.aggregator_name || 'direct'),
-        ts: e.ts || new Date()
+        ts: normalizeToUTC(e.ts) || new Date()
       })));
     }
 
@@ -191,7 +192,7 @@ const ingestEvents = async (req, res) => {
         machine,
         label: label || machine,
         aggregator_name: 'direct',
-        ts: e.ts || new Date()
+        ts: normalizeToUTC(e.ts) || new Date()
       })));
     }
 
