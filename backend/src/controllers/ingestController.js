@@ -68,6 +68,15 @@ const batchIngest = async (req, res) => {
       return res.status(400).json({ error: 'Payload must contain events and machines' });
     }
 
+    // >>> TEMPORARY DEBUG LOGGING (DELETE LATER) >>>
+    console.log('\n================== [CENTRAL BATCH INGEST RECEIVED] ==================');
+    console.log(`[DEBUG] Time: ${new Date().toISOString()} | Tenant: ${req.tenantId} | Aggregator: ${aggregatorName || 'direct'}`);
+    console.log(`[DEBUG] Events: ${data.events?.length || 0} | FW Events: ${data.fw_events?.length || 0} | Machines: ${data.machines?.length || 0}`);
+    console.log(`[DEBUG] Full Incoming Batch Payload:`);
+    console.dir(data, { depth: null, colors: true });
+    console.log('=====================================================================\n');
+    // <<< TEMPORARY DEBUG LOGGING (DELETE LATER) <<<
+
     // 3. Bulk insert events
     if (data.events.length > 0) {
       await publishToStream('ingest:agent', req.tenantId, data.events.map(e => ({

@@ -75,6 +75,13 @@ async function processBatch(streamKey, messages) {
 
     const client = await pool.connect();
     try {
+      // >>> TEMPORARY DEBUG LOGGING (DELETE LATER) >>>
+      console.log(`\n[DEBUG-WORKER-DB] >>> BULK WORKER SAVING TO POSTGRES (Tenant: ${tenantId}):`);
+      console.log(`[DEBUG-WORKER-DB] Events: ${data.events?.length || 0} | FW Events: ${data.fw_events?.length || 0} | Machines: ${data.machines?.length || 0}`);
+      console.dir({ events: data.events, fw_events: data.fw_events, machines: data.machines }, { depth: null, colors: true });
+      console.log('------------------------------------------------------------------------------------\n');
+      // <<< TEMPORARY DEBUG LOGGING (DELETE LATER) <<<
+
       await client.query('BEGIN');
       
       if (data.events.length > 0) {
