@@ -17,14 +17,6 @@ async function ingestAgentLogs(req, res) {
       return res.status(400).json({ error: 'machine+events[] required' });
     }
 
-    // >>> TEMPORARY DEBUG LOGGING (DELETE LATER) >>>
-    console.log('\n================== [AGENT LOG PAYLOAD RECEIVED] ==================');
-    console.log(`[DEBUG] Time: ${new Date().toISOString()} | Machine: ${machine} | Events: ${events.length}`);
-    console.log(`[DEBUG] Full Incoming Payload:`);
-    console.dir(req.body, { depth: null, colors: true });
-    console.log('==================================================================\n');
-    // <<< TEMPORARY DEBUG LOGGING (DELETE LATER) <<<
-
     const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '')
       .split(',')[0].trim().replace(/^::ffff:/, '');
 
@@ -62,12 +54,6 @@ async function ingestAgentLogs(req, res) {
       }
 
       if (uniqueRows.length > 0) {
-        // >>> TEMPORARY DEBUG LOGGING (DELETE LATER) >>>
-        console.log(`\n[DEBUG-DB] >>> SAVING TO DATABASE: Inserting ${uniqueRows.length} unique events for machine: ${machine}`);
-        console.dir(uniqueRows, { depth: null, colors: true });
-        console.log('------------------------------------------------------------------\n');
-        // <<< TEMPORARY DEBUG LOGGING (DELETE LATER) <<<
-
         await client.query('BEGIN');
         
         // 2. Bulk insert events
