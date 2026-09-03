@@ -36,8 +36,8 @@ COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 # 5514: Syslog UDP listener (when running in aggregator mode)
 EXPOSE 4001 5514/udp
 
-HEALTHCHECK --interval=30s --timeout=5s --retries=5 --start-period=15s \
-  CMD curl -k -f https://127.0.0.1:${PORT:-4001}/api/ping || curl -f http://127.0.0.1:${PORT:-4001}/api/ping || exit 1
+HEALTHCHECK --interval=20s --timeout=5s --retries=3 --start-period=15s \
+  CMD curl -k -f https://127.0.0.1:${PORT:-4001}/health || curl -f http://127.0.0.1:${PORT:-4001}/health || exit 1
 
 WORKDIR /app/backend
 CMD ["node", "src/server.js"]

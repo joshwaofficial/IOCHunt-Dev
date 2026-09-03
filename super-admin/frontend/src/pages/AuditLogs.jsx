@@ -5,7 +5,8 @@ import {
   Search,
   RefreshCw,
   User,
-  CheckCircle2
+  CheckCircle2,
+  Download
 } from 'lucide-react';
 
 export default function AuditLogs() {
@@ -23,7 +24,7 @@ export default function AuditLogs() {
         params: {
           limit: pageSize,
           offset: page * pageSize,
-          search: searchQuery
+          search: searchQuery.trim() || undefined
         }
       });
       setLogs(res.data.logs || []);
@@ -41,8 +42,8 @@ export default function AuditLogs() {
 
   const formatTimestamp = (epochSeconds) => {
     if (!epochSeconds) return '—';
-    const date = new Date(parseInt(epochSeconds, 10) * 1000);
-    return date.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+    const d = new Date(epochSeconds * 1000);
+    return d.toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
   };
 
   const getActionBadge = (action) => {
@@ -59,8 +60,11 @@ export default function AuditLogs() {
     if (act.includes('ACTIVATE')) {
       return <span className="badge-pill badge-emerald">ACTIVATE</span>;
     }
-    if (act.includes('PASSWORD') || act.includes('RESET')) {
+    if (act.includes('PASSWORD') || act.includes('CREDENTIAL')) {
       return <span className="badge-pill badge-blue">CREDENTIALS</span>;
+    }
+    if (act.includes('SETTINGS')) {
+      return <span className="badge-pill badge-blue">SETTINGS</span>;
     }
     if (act.includes('LOGIN')) {
       return <span className="badge-pill badge-neutral">AUTH</span>;
@@ -80,9 +84,19 @@ export default function AuditLogs() {
             Immutable security audit logs tracking all administrative interventions, tenant provisioning, and credential resets
           </p>
         </div>
-        <button className="btn btn-secondary" onClick={fetchLogs} disabled={isLoading}>
-          <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> Refresh Log
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <a
+            href="/api/super/audit-logs/export"
+            download="control-plane-audit-logs.json"
+            className="btn btn-secondary"
+            style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            <Download size={14} /> Export JSON
+          </a>
+          <button className="btn btn-secondary" onClick={fetchLogs} disabled={isLoading}>
+            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> Refresh Log
+          </button>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}

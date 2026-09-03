@@ -80,6 +80,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -k -f https://127.0.0.1:4001/health || curl -f http://127.0.0.1:4001/health || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
     networks:
       - db-net
@@ -103,7 +109,7 @@ services:
       - ./nginx/ssl:/etc/nginx/ssl:ro
     depends_on:
       app:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget --no-check-certificate -qO- https://127.0.0.1/health || wget -qO- http://127.0.0.1/health || exit 1"]
       interval: 30s

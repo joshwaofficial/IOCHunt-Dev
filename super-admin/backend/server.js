@@ -140,6 +140,12 @@ async function initSuperAdminDB() {
         result VARCHAR(20) DEFAULT 'SUCCESS',
         created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())
       );
+
+      CREATE TABLE IF NOT EXISTS super_settings (
+        key VARCHAR(100) PRIMARY KEY,
+        value JSONB NOT NULL,
+        updated_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())
+      );
     `);
 
     // Auto-migrate schema for missing columns in existing deployments
@@ -155,6 +161,31 @@ async function initSuperAdminDB() {
       console.log('[SuperAdmin] Auto-migrated: Added api_key_encrypted to tenants table');
     } catch (e) {
       // Column already exists, ignore
+    }
+
+    // Seed default settings if not present
+    try {
+      const defaultSettings = {
+        portal_url: 'https://72.62.241.39:8082',
+        syslog_base_port: 9501,
+        log_retention_days: 30,
+        session_timeout_hours: 8,
+        alerts_enabled: false,
+        alerts_webhook_url: '',
+        smtp_host: '',
+        smtp_port: 587,
+        smtp_user: '',
+        smtp_from: 'alerts@iochunt.local',
+        maintenance_mode: false,
+        maintenance_message: 'The control plane is currently undergoing routine maintenance.'
+      };
+      await client.query(`
+        INSERT INTO super_settings (key, value)
+        VALUES ('general', $1)
+        ON CONFLICT (key) DO NOTHING
+      `, [JSON.stringify(defaultSettings)]);
+    } catch (e) {
+      console.warn('[SuperAdmin] Settings initialization notice:', e.message);
     }
 
     // Seed default superadmin / superadmin with mandatory password change
@@ -466,8 +497,7 @@ app.get('/api/super/stats', superAuthMiddleware, async (req, res) => {
       totalStorageBytes,
       totalStoragePretty,
       activeSyslogPorts,
-      totalAuditEvents,
-      estimatedEps: Math.max(12, totalEnrolledAgents * 3 + activeTenants * 15)
+      totalAuditEvents
     });
   } catch (err) {
     console.error('[Stats Error]', err);
@@ -623,6 +653,117 @@ app.get('/api/super/system-health', superAuthMiddleware, async (req, res) => {
   } catch (err) {
     console.error('[System Health Error]', err);
     res.status(500).json({ error: 'Failed to retrieve system health metrics' });
+  }
+});
+
+// ── Control Plane Settings ───────────────────────────────────────
+app.get('/api/super/settings', superAuthMiddleware, async (req, res) => {
+  try {
+    const settingsRes = await pool.query("SELECT value FROM super_settings WHERE key = 'general'");
+    if (settingsRes.rows.length === 0) {
+      return res.json({
+        portal_url: `https://${req.hostname}:8082`,
+        syslog_base_port: 9501,
+        log_retention_days: 30,
+        session_timeout_hours: 8,
+        alerts_enabled: false,
+        alerts_webhook_url: '',
+        smtp_host: '',
+        smtp_port: 587,
+        smtp_user: '',
+        smtp_from: 'alerts@iochunt.local',
+        maintenance_mode: false,
+        maintenance_message: 'The control plane is currently undergoing routine maintenance.'
+      });
+    }
+    res.json(settingsRes.rows[0].value);
+  } catch (err) {
+    console.error('[Get Settings Error]', err);
+    res.status(500).json({ error: 'Failed to retrieve settings' });
+  }
+});
+
+app.put('/api/super/settings', superAuthMiddleware, async (req, res) => {
+  try {
+    const updatedSettings = req.body;
+    if (!updatedSettings || typeof updatedSettings !== 'object') {
+      return res.status(400).json({ error: 'Invalid settings payload' });
+    }
+
+    await pool.query(`
+      INSERT INTO super_settings (key, value, updated_at)
+      VALUES ('general', $1, EXTRACT(EPOCH FROM NOW()))
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXTRACT(EPOCH FROM NOW())
+    `, [JSON.stringify(updatedSettings)]);
+
+    // Audit log
+    await pool.query(
+      `INSERT INTO audit_log (tenant_id, username, action, resource, detail, ip_address, result)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [null, req.superAdmin.username, 'UPDATE_SETTINGS', 'super_settings', 'Control plane platform settings updated', req.ip, 'SUCCESS']
+    );
+
+    res.json({ success: true, settings: updatedSettings });
+  } catch (err) {
+    console.error('[Update Settings Error]', err);
+    res.status(500).json({ error: 'Failed to save settings: ' + err.message });
+  }
+});
+
+// ── Super Admin Self-Service Change Password ─────────────────────
+app.post('/api/super/change-password', superAuthMiddleware, async (req, res) => {
+  try {
+    const { current_password, new_password } = req.body;
+    if (!current_password || !new_password) {
+      return res.status(400).json({ error: 'Current password and new password are required' });
+    }
+    if (new_password.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters long' });
+    }
+
+    const adminRes = await pool.query('SELECT * FROM super_admins WHERE id = $1', [req.superAdmin.admin_id]);
+    if (adminRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Super Admin account not found' });
+    }
+
+    const admin = adminRes.rows[0];
+    const currentHash = crypto.pbkdf2Sync(current_password, admin.salt, 100000, 64, 'sha512').toString('hex');
+    if (currentHash !== admin.password_hash) {
+      return res.status(401).json({ error: 'Incorrect current password' });
+    }
+
+    const newSalt = crypto.randomBytes(32).toString('hex');
+    const newHash = crypto.pbkdf2Sync(new_password, newSalt, 100000, 64, 'sha512').toString('hex');
+
+    await pool.query(
+      'UPDATE super_admins SET password_hash = $1, salt = $2, force_password_change = 0 WHERE id = $3',
+      [newHash, newSalt, admin.id]
+    );
+
+    // Audit log
+    await pool.query(
+      `INSERT INTO audit_log (tenant_id, username, action, resource, detail, ip_address, result)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [null, admin.username, 'CHANGE_MASTER_PASSWORD', 'super_admins', 'Super Admin master password changed successfully', req.ip, 'SUCCESS']
+    );
+
+    res.json({ success: true, message: 'Master password updated successfully.' });
+  } catch (err) {
+    console.error('[Change Password Error]', err);
+    res.status(500).json({ error: 'Failed to update password: ' + err.message });
+  }
+});
+
+// ── Export Audit Logs ───────────────────────────────────────────
+app.get('/api/super/audit-logs/export', superAuthMiddleware, async (req, res) => {
+  try {
+    const logsRes = await pool.query('SELECT * FROM audit_log ORDER BY id DESC LIMIT 5000');
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', 'attachment; filename="control-plane-audit-logs.json"');
+    res.send(JSON.stringify(logsRes.rows, null, 2));
+  } catch (err) {
+    console.error('[Export Audit Logs Error]', err);
+    res.status(500).json({ error: 'Failed to export audit logs' });
   }
 });
 

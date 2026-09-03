@@ -148,7 +148,46 @@ const fwSourceRoutes = require('./modules/aggregator/routes/fwSourceRoutes');
 app.use('/api/settings', requireAggregator, express.json(), aggregatorSettingsRoutes);
 app.use('/api/fw-sources', requireAggregator, express.json(), fwSourceRoutes);
 
-// ── Health Check ────────────────────────────────────────────────
+// ── Deep Health Check (PostgreSQL + Redis + Server) ─────────────
+app.get('/health', async (req, res) => {
+  let dbStatus = 'ok';
+  let redisStatus = 'ok';
+
+  try {
+    await db.query('SELECT 1');
+  } catch (err) {
+    dbStatus = 'down: ' + err.message;
+  }
+
+  try {
+    const { getRedisClient, isRedisConnected } = require('./config/redisClient');
+    const redis = getRedisClient();
+    if (redis && isRedisConnected()) {
+      await redis.ping();
+    } else {
+      redisStatus = isRedisConnected() ? 'ok' : 'disconnected';
+    }
+  } catch (err) {
+    redisStatus = 'down: ' + err.message;
+  }
+
+  const isHealthy = dbStatus === 'ok';
+  res.status(isHealthy ? 200 : 503).json({
+    status: isHealthy ? 'ok' : 'degraded',
+    service: 'IOC Hunt Unified Security Platform',
+    version: process.env.APP_VERSION || '2.0.0',
+    database: dbStatus,
+    redis: redisStatus,
+    uptime: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/health', (req, res) => {
+  res.redirect(307, '/health');
+});
+
+// ── Health Check (Legacy ping) ──────────────────────────────────
 app.get('/api/ping', (req, res) => {
   const config = appMode.getConfig();
   res.json({

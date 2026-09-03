@@ -6,9 +6,7 @@ import {
   HardDrive,
   Activity,
   Server,
-  ArrowUpRight,
   Plus,
-  Radio,
   Clock,
   Database,
   Layers,
@@ -25,8 +23,7 @@ export default function Dashboard() {
     totalEnrolledAgents: 0,
     totalStoragePretty: '0 MB',
     activeSyslogPorts: 0,
-    totalAuditEvents: 0,
-    estimatedEps: 0
+    totalAuditEvents: 0
   });
   const [companies, setCompanies] = useState([]);
   const [health, setHealth] = useState(null);
@@ -66,21 +63,27 @@ export default function Dashboard() {
     return `${m}m`;
   };
 
+  const formatCreated = (ts) => {
+    if (!ts) return '—';
+    const d = new Date(typeof ts === 'number' && ts < 1e11 ? ts * 1000 : ts);
+    return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
-      {/* Top Banner / Breadcrumb Bar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      {/* Top Header & Fast Actions */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
-          <h1 style={{ fontSize: '22px', fontWeight: '600', color: '#f8fafc', letterSpacing: '-0.02em', marginBottom: '4px' }}>
+          <h1 style={{ fontSize: '20px', fontWeight: '600', color: '#f8fafc', letterSpacing: '-0.02em', marginBottom: '4px' }}>
             Control Plane Overview
           </h1>
-          <p style={{ fontSize: '13px', color: '#94a3b8' }}>
+          <p style={{ fontSize: '13px', color: '#64748b' }}>
             Central multi-tenant telemetry, database cluster metrics, and fleet statistics
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '10px' }}>
           <button className="btn btn-secondary" onClick={loadDashboardData} disabled={isLoading}>
-            <Activity size={14} /> Refresh Metrics
+            <Activity size={14} className={isLoading ? 'spin' : ''} /> Refresh Metrics
           </button>
           <button className="btn btn-primary" onClick={() => setIsProvisionOpen(true)}>
             <Plus size={14} /> Provision Tenant
@@ -88,7 +91,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* KPI Cards Grid */}
+      {/* KPI Cards Grid (4 Columns) */}
       <div className="kpi-grid">
         {/* Total Tenants */}
         <div className="kpi-card">
@@ -118,18 +121,6 @@ export default function Dashboard() {
           <div className="kpi-value">{stats.totalEnrolledAgents}</div>
           <div className="kpi-subtitle">
             <span style={{ color: '#94a3b8' }}>Across {stats.activeTenants} active organizations</span>
-          </div>
-        </div>
-
-        {/* Estimated Global Throughput */}
-        <div className="kpi-card">
-          <div className="kpi-title">
-            <span>Ingestion Rate (EPS)</span>
-            <Radio size={15} color="#6366f1" />
-          </div>
-          <div className="kpi-value tabular-nums">~{stats.estimatedEps} <span style={{ fontSize: '13px', fontWeight: '400', color: '#64748b' }}>EPS</span></div>
-          <div className="kpi-subtitle">
-            <span style={{ color: '#94a3b8' }}>{stats.activeSyslogPorts} Syslog Ports Active</span>
           </div>
         </div>
 
@@ -189,7 +180,7 @@ export default function Dashboard() {
                     <th>Database Identifier</th>
                     <th>Status</th>
                     <th>Syslog Port</th>
-                    <th>Workspace URL</th>
+                    <th>Created</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -216,16 +207,8 @@ export default function Dashboard() {
                       <td>
                         <span className="font-mono" style={{ color: '#38bdf8' }}>:{c.syslog_port || '—'}</span>
                       </td>
-                      <td>
-                        <a
-                          href={c.central_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ color: '#94a3b8', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                        >
-                          <span className="truncate" style={{ maxWidth: '180px' }}>{c.central_url}</span>
-                          <ArrowUpRight size={12} />
-                        </a>
+                      <td style={{ fontSize: '12px', color: '#94a3b8' }}>
+                        {formatCreated(c.created_at)}
                       </td>
                     </tr>
                   ))}

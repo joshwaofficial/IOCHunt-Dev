@@ -114,6 +114,15 @@ export default function Tenants() {
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <a
+            href={`https://${window.location.hostname}:8082`}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-secondary"
+            style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            <ExternalLink size={13} /> Launch Workspace Portal
+          </a>
           <button className="btn btn-secondary" onClick={fetchCompanies} disabled={isLoading}>
             <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> Refresh
           </button>
@@ -179,7 +188,6 @@ export default function Tenants() {
                 <th>Status</th>
                 <th>Syslog Listener</th>
                 <th>Ingestion API Key</th>
-                <th>Workspace Portal</th>
                 <th className="text-right">Operational Actions</th>
               </tr>
             </thead>
@@ -231,18 +239,6 @@ export default function Tenants() {
                     ) : (
                       <span style={{ color: '#475569', fontSize: '12px' }}>Encrypted</span>
                     )}
-                  </td>
-
-                  <td>
-                    <a
-                      href={c.central_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: '#38bdf8', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}
-                    >
-                      <span>Open Workspace</span>
-                      <ExternalLink size={12} />
-                    </a>
                   </td>
 
                   <td className="text-right">

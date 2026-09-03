@@ -7,6 +7,7 @@ import {
   Building2,
   Activity,
   Layers,
+  Settings as SettingsIcon,
   LogOut
 } from 'lucide-react';
 import Login from './pages/Login';
@@ -15,6 +16,7 @@ import Dashboard from './pages/Dashboard';
 import Tenants from './pages/Tenants';
 import SystemHealth from './pages/SystemHealth';
 import AuditLogs from './pages/AuditLogs';
+import Settings from './pages/Settings';
 
 function Sidebar({ tenantCount }) {
   const location = useLocation();
@@ -31,6 +33,7 @@ function Sidebar({ tenantCount }) {
     { name: 'Managed Tenants', icon: <Building2 size={16} />, path: '/tenants', badge: tenantCount },
     { name: 'System Health', icon: <Activity size={16} />, path: '/system-health' },
     { name: 'Audit Logs', icon: <Layers size={16} />, path: '/audit-logs' },
+    { name: 'Settings', icon: <SettingsIcon size={16} />, path: '/settings' },
   ];
 
   return (
@@ -245,6 +248,7 @@ function App() {
         <Route path="/tenants" element={<ProtectedRoute><Tenants /></ProtectedRoute>} />
         <Route path="/system-health" element={<ProtectedRoute><SystemHealth /></ProtectedRoute>} />
         <Route path="/audit-logs" element={<ProtectedRoute><AuditLogs /></ProtectedRoute>} />
+        <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
