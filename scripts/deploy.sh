@@ -44,7 +44,10 @@ echo -e "\033[1;33m[3/4] Stopping any running containers...\033[0m"
 docker compose -p central down 2>/dev/null || true
 docker compose -p superadmin -f docker-compose.superadmin.yml down 2>/dev/null || true
 docker compose -p aggregator -f docker-compose.aggregator.yml down 2>/dev/null || true
+docker compose -f docker-compose.superadmin.yml down 2>/dev/null || true
+docker compose -f docker-compose.aggregator.yml down 2>/dev/null || true
 docker compose down 2>/dev/null || true
+docker rm -f $(docker ps -aq --filter "name=iochunt-") 2>/dev/null || true
 
 echo -e "\033[1;33m[4/4] Rebuilding and starting containers for $MODE...\033[0m"
 
