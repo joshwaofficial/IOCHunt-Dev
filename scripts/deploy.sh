@@ -8,8 +8,8 @@ set -e
 # Parse arguments
 MODE=$1
 
-if [[ "$MODE" != "central" && "$MODE" != "aggregator" ]]; then
-    echo -e "\033[0;31mUsage: $0 [central|aggregator]\033[0m"
+if [[ "$MODE" != "central" && "$MODE" != "aggregator" && "$MODE" != "all" ]]; then
+    echo -e "\033[0;31mUsage: $0 [central|aggregator|all]\033[0m"
     exit 1
 fi
 
@@ -47,7 +47,24 @@ docker compose -f docker-compose.aggregator.yml down 2>/dev/null || true
 
 echo -e "\033[1;33m[4/4] Rebuilding and starting containers for $MODE...\033[0m"
 
-if [[ "$MODE" == "central" ]]; then
+if [[ "$MODE" == "all" ]]; then
+    echo -e "\033[1;33m[4.1/4] Starting Central base stack (5 containers)...\033[0m"
+    docker compose up -d
+
+    echo -e "\033[1;33m[4.2/4] Starting Super Admin stack (1 container)...\033[0m"
+    export HOST_PWD=$PWD
+    docker compose -f docker-compose.superadmin.yml up -d --build
+
+    echo -e "\033[1;33m[4.3/4] Starting Aggregator stack (4 containers)...\033[0m"
+    docker compose -f docker-compose.aggregator.yml up -d --build
+
+    echo -e "\033[0;32m============================================================\033[0m"
+    echo -e "\033[0;32m All 10 Containers Deployed Successfully!\033[0m"
+    echo -e "\033[0;32m ➜ Central App:     https://$(hostname -I | awk '{print $1}'):8082\033[0m"
+    echo -e "\033[0;32m ➜ Super Admin UI:  https://$(hostname -I | awk '{print $1}'):8083\033[0m"
+    echo -e "\033[0;32m ➜ Aggregator UI:   https://$(hostname -I | awk '{print $1}'):8084\033[0m"
+    echo -e "\033[0;32m============================================================\033[0m"
+elif [[ "$MODE" == "central" ]]; then
     echo -e "\033[1;33m[4.1/4] Starting base infrastructure (Network & Default DB)...\033[0m"
     docker compose up -d
 
