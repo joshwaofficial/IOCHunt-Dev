@@ -13,12 +13,15 @@ const crypto = require('crypto');
 // ── Configuration ───────────────────────────────────────────────
 const MAX_CACHED_POOLS = 50;
 const POOL_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-const POOL_MAX_CONNECTIONS = 5;              // per tenant
+const POOL_MAX_CONNECTIONS = 20;             // per tenant (scales for concurrent machine ingestion and dashboards)
 const CONNECTION_TIMEOUT_MS = 5000;
 
 // ── Pool Cache ──────────────────────────────────────────────────
 // Map<tenantId, { pool: Pool, lastAccessed: number }>
 const tenantPools = new Map();
+
+// Track initialized tenant databases to ensure indexes once per process lifetime
+const initializedTenantIndexes = new Set();
 
 // Reference to the control plane pool (set during init)
 let controlPlanePool = null;
@@ -146,17 +149,6 @@ async function getTenantPool(tenantId) {
     || `postgres://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || 'iochunt_password'}@${tenant.db_host || 'iochunt-db-default'}:${tenant.db_port || 5432}/postgres`;
   const parsedUrl = new URL(adminUrl);
 
-  // Self-healing: Ensure tenant role has full permissions on all existing tables/sequences
-  try {
-    const tenantAdminConnStr = `postgres://${parsedUrl.username}:${parsedUrl.password}@${parsedUrl.hostname}:${parsedUrl.port || 5432}/${tenant.db_name}`;
-    const fixPool = new Pool({ connectionString: tenantAdminConnStr, max: 1 });
-    await fixPool.query(`GRANT ALL ON ALL TABLES IN SCHEMA public TO "${tenant.db_user}"`);
-    await fixPool.query(`GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "${tenant.db_user}"`);
-    await fixPool.end().catch(() => {});
-  } catch (healErr) {
-    console.warn(`[TenantDB:${tenantId}] Self-healing permission check note:`, healErr.message);
-  }
-
   // Create a new pool with tenant-specific credentials (NOT superuser)
   let pool = new Pool({
     host: tenant.db_host || 'iochunt-db-default',
@@ -169,7 +161,7 @@ async function getTenantPool(tenantId) {
     connectionTimeoutMillis: CONNECTION_TIMEOUT_MS
   });
 
-  // Test the connection — if auth fails, self-heal by resetting the role password
+  // Test the connection — if auth or permissions fail, self-heal via superuser connection
   try {
     const testClient = await pool.connect();
     testClient.release();
@@ -180,7 +172,6 @@ async function getTenantPool(tenantId) {
       try {
         const resetConnStr = `postgres://${parsedUrl.username}:${parsedUrl.password}@${parsedUrl.hostname}:${parsedUrl.port || 5432}/postgres`;
         const resetPool = new Pool({ connectionString: resetConnStr, max: 1 });
-        // Reset the PostgreSQL role password to match what we have stored
         await resetPool.query(`ALTER ROLE "${tenant.db_user}" WITH PASSWORD '${dbPassword.replace(/'/g, "''")}'`);
         await resetPool.end().catch(() => {});
         console.log(`[TenantDB:${tenantId}] Role password reset successfully. Reconnecting...`);
@@ -198,17 +189,44 @@ async function getTenantPool(tenantId) {
           connectionTimeoutMillis: CONNECTION_TIMEOUT_MS
         });
 
-        // Verify the fix worked
         const verifyClient = await pool.connect();
         verifyClient.release();
         console.log(`[TenantDB:${tenantId}] Reconnected successfully after password reset.`);
       } catch (resetErr) {
-        console.error(`[TenantDB:${tenantId}] Failed to self-heal:`, resetErr.message);
-        throw connErr; // Throw the original auth error
+        console.error(`[TenantDB:${tenantId}] Failed to self-heal password:`, resetErr.message);
+        throw connErr;
+      }
+    } else if (connErr.code === '42501') {
+      // Permission denied — grant permissions via superuser
+      console.warn(`[TenantDB:${tenantId}] Permission denied — granting schema permissions...`);
+      try {
+        const tenantAdminConnStr = `postgres://${parsedUrl.username}:${parsedUrl.password}@${parsedUrl.hostname}:${parsedUrl.port || 5432}/${tenant.db_name}`;
+        const fixPool = new Pool({ connectionString: tenantAdminConnStr, max: 1 });
+        await fixPool.query(`GRANT ALL ON ALL TABLES IN SCHEMA public TO "${tenant.db_user}"`);
+        await fixPool.query(`GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "${tenant.db_user}"`);
+        await fixPool.end().catch(() => {});
+        console.log(`[TenantDB:${tenantId}] Permissions repaired successfully.`);
+      } catch (fixErr) {
+        console.error(`[TenantDB:${tenantId}] Failed to repair permissions:`, fixErr.message);
+        throw connErr;
       }
     } else {
       throw connErr;
     }
+  }
+
+  // Ensure performance indexes exist (executed asynchronously once per process lifetime, non-blocking)
+  if (!initializedTenantIndexes.has(tenantId)) {
+    initializedTenantIndexes.add(tenantId);
+    pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_events_ts_noise ON events (ts DESC, is_noise);
+      CREATE INDEX IF NOT EXISTS idx_events_machine_ts ON events (machine, ts DESC);
+      CREATE INDEX IF NOT EXISTS idx_events_severity ON events (severity);
+      CREATE INDEX IF NOT EXISTS idx_events_aggregator ON events (aggregator_name);
+      CREATE INDEX IF NOT EXISTS idx_events_category ON events (category);
+    `).catch(idxErr => {
+      console.warn(`[TenantDB:${tenantId}] Index optimization note:`, idxErr.message);
+    });
   }
 
   pool.on('error', (err) => {

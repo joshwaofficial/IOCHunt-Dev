@@ -165,8 +165,7 @@ async function clearLockout(lockoutKey) {
     const { getRedisClient, isRedisConnected } = require('../config/redisClient');
     if (isRedisConnected()) {
       const redis = getRedisClient();
-      await redis.del(`lockout:failed:${lockoutKey}`);
-      await redis.del(`lockout:active:${lockoutKey}`);
+      await redis.del(`lockout:failed:${lockoutKey}`, `lockout:active:${lockoutKey}`);
     }
   } catch (_) {
     // Ignore Redis errors

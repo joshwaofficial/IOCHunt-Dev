@@ -1,5 +1,12 @@
-const { redis } = require('../services/redisIngestion');
+const { getRedisClient } = require('../config/redisClient');
 const tenantDbManager = require('../config/tenantDbManager');
+
+// Dedicated Redis connection for bulkWorker to ensure blocking stream operations (XREADGROUP ... BLOCK)
+// do not freeze the shared Redis TCP socket used by auth, rate limiting, and HTTP handlers.
+const redis = getRedisClient().duplicate();
+redis.on('error', (err) => {
+  console.error('[BulkWorker Redis Error]', err.message);
+});
 
 const STREAM_KEYS = ['ingest:syslog', 'ingest:agent'];
 const CONSUMER_GROUP = 'bulk_inserters';

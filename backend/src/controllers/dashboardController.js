@@ -245,42 +245,40 @@ const getStats = async (req, res) => {
       pIdx++;
     }
     
-    const totalRes = await req.queryTenant('SELECT COUNT(*) AS n FROM events ' + nw, bp);
-    const total = parseInt(totalRes.rows[0].n, 10);
+    const [
+      totalRes,
+      bySevRes,
+      byCatRes,
+      byMachineRes,
+      byMachineSevRes,
+      machinesRes,
+      hourlyRes,
+      criticalRes,
+      criticalStatsRes,
+      chains
+    ] = await Promise.all([
+      req.queryTenant('SELECT COUNT(*) AS n FROM events ' + nw, bp),
+      req.queryTenant('SELECT severity,COUNT(*) AS n FROM events ' + nw + ' GROUP BY severity', bp),
+      req.queryTenant('SELECT category,COUNT(*) AS n FROM events ' + nw + ' GROUP BY category ORDER BY n DESC', bp),
+      req.queryTenant('SELECT machine,COUNT(*) AS n FROM events ' + nw + ' GROUP BY machine ORDER BY n DESC', bp),
+      req.queryTenant("SELECT machine,severity,COUNT(*) AS n FROM events " + nw + " AND severity IN ('critical','high') GROUP BY machine,severity", bp),
+      req.queryTenant(machinesQuery, machinesParams),
+      req.queryTenant("SELECT TO_CHAR(ts::timestamp, 'YYYY-MM-DD HH24:00') AS hour,severity,COUNT(*) AS n FROM events " + nw + " GROUP BY hour,severity ORDER BY hour", bp),
+      req.queryTenant("SELECT * FROM events " + nw.replace('WHERE', "WHERE severity = 'critical' AND") + " ORDER BY ts DESC LIMIT 20", bp),
+      req.queryTenant("SELECT COALESCE(category, tag, 'Unknown') as type, COUNT(*) as n FROM events " + nw.replace('WHERE', "WHERE severity = 'critical' AND") + " GROUP BY type", bp),
+      buildChains(req, from, to, machine, aggregator)
+    ]);
 
-    const bySevRes = await req.queryTenant('SELECT severity,COUNT(*) AS n FROM events ' + nw + ' GROUP BY severity', bp);
+    const total = parseInt(totalRes.rows[0]?.n || 0, 10);
     const bySev = bySevRes.rows;
-
-    const byCatRes = await req.queryTenant('SELECT category,COUNT(*) AS n FROM events ' + nw + ' GROUP BY category ORDER BY n DESC', bp);
     const byCat = byCatRes.rows;
-
-    const byMachineRes = await req.queryTenant('SELECT machine,COUNT(*) AS n FROM events ' + nw + ' GROUP BY machine ORDER BY n DESC', bp);
     const byMachine = byMachineRes.rows;
-
-    const byMachineSevRes = await req.queryTenant("SELECT machine,severity,COUNT(*) AS n FROM events " + nw + " AND severity IN ('critical','high') GROUP BY machine,severity", bp);
     const byMachineSev = byMachineSevRes.rows;
-
-    let machinesQuery = 'SELECT * FROM machines';
-    const machinesParams = [];
-    if (aggregator) {
-      machinesQuery += ' WHERE aggregator_name=$1';
-      machinesParams.push(aggregator);
-    }
-    machinesQuery += ' ORDER BY last_seen DESC';
-    const machinesRes = await req.queryTenant(machinesQuery, machinesParams);
     const machines = machinesRes.rows;
-
-    const hourlyRes = await req.queryTenant("SELECT TO_CHAR(ts::timestamp, 'YYYY-MM-DD HH24:00') AS hour,severity,COUNT(*) AS n FROM events " + nw + " GROUP BY hour,severity ORDER BY hour", bp);
     const hourly = hourlyRes.rows;
-
-    const criticalRes = await req.queryTenant("SELECT * FROM events " + nw.replace('WHERE', "WHERE severity = 'critical' AND") + " ORDER BY ts DESC LIMIT 20", bp);
     const critical = criticalRes.rows;
-
-    const criticalStatsRes = await req.queryTenant("SELECT COALESCE(category, tag, 'Unknown') as type, COUNT(*) as n FROM events " + nw.replace('WHERE', "WHERE severity = 'critical' AND") + " GROUP BY type", bp);
     const criticalStats = criticalStatsRes.rows;
     const totalCritical = criticalStats.reduce((sum, row) => sum + parseInt(row.n, 10), 0);
-
-    const chains = await buildChains(req, from, to, machine, aggregator);
 
     res.json({ total, bySev, byCat, byMachine, byMachineSev, machines, hourly, critical, criticalStats, totalCritical, chains });
   } catch (error) {

@@ -140,6 +140,11 @@ function getTableSchemaSQL() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_events_unforwarded ON events (id) WHERE is_forwarded = FALSE;
+    CREATE INDEX IF NOT EXISTS idx_events_ts_noise ON events (ts DESC, is_noise);
+    CREATE INDEX IF NOT EXISTS idx_events_machine_ts ON events (machine, ts DESC);
+    CREATE INDEX IF NOT EXISTS idx_events_severity ON events (severity);
+    CREATE INDEX IF NOT EXISTS idx_events_aggregator ON events (aggregator_name);
+    CREATE INDEX IF NOT EXISTS idx_events_category ON events (category);
 
     CREATE TABLE IF NOT EXISTS fw_events (
       id BIGSERIAL PRIMARY KEY,
@@ -325,6 +330,11 @@ const initDB = async (retries = 10, delay = 3000) => {
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS aggregator_name VARCHAR(255) DEFAULT NULL;
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS display_name VARCHAR(255) DEFAULT NULL;
           ALTER TABLE mfa_pending ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT '';
+          CREATE INDEX IF NOT EXISTS idx_events_ts_noise ON events (ts DESC, is_noise);
+          CREATE INDEX IF NOT EXISTS idx_events_machine_ts ON events (machine, ts DESC);
+          CREATE INDEX IF NOT EXISTS idx_events_severity ON events (severity);
+          CREATE INDEX IF NOT EXISTS idx_events_aggregator ON events (aggregator_name);
+          CREATE INDEX IF NOT EXISTS idx_events_category ON events (category);
         `);
 
         // Instance Configuration Initialization

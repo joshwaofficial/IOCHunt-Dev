@@ -216,7 +216,7 @@ export default function Dashboard() {
         {/* Network Topology & AD Attacks */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '32px', marginBottom: '32px' }}>
           <div style={{ flex: '1.5 1 500px', minWidth: 0 }}>
-            <NetworkTopology />
+            <NetworkTopology initialData={topoData} />
           </div>
           <div style={{ flex: '1 1 350px', minWidth: 0 }}>
             <ADAttackSummary topoData={topoData} range={range} />

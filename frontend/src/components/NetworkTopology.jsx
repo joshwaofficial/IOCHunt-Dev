@@ -18,7 +18,7 @@ function esc(str) {
   return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 }
 
-export default function NetworkTopology() {
+export default function NetworkTopology({ initialData } = {}) {
   const containerRef = useRef(null);
   const networkRef = useRef(null);
   const rawDataRef = useRef({ inbound: [], outbound: [], lateral: [], ad_attacks: [], machines: [] });
@@ -44,9 +44,21 @@ export default function NetworkTopology() {
   });
 
   useEffect(() => {
+    if (initialData && (!rawDataRef.current.inbound || rawDataRef.current.inbound.length === 0)) {
+      rawDataRef.current = initialData;
+      const { inbound = [], outbound = [], lateral = [], ad_attacks = [] } = initialData;
+      setCounts({
+        in: inbound.length,
+        out: outbound.length,
+        lat: lateral.length,
+        ad: ad_attacks.length
+      });
+      applyFilter();
+      return;
+    }
     localStorage.setItem('topoRange', localRange);
     fetchTopology();
-  }, [localRange, machine]);
+  }, [localRange, machine, initialData]);
 
   useEffect(() => {
     applyFilter();
