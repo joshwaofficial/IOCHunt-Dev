@@ -5,7 +5,8 @@ import {
   Search,
   RefreshCw,
   User,
-  CheckCircle2
+  CheckCircle2,
+  Download
 } from 'lucide-react';
 
 export default function AuditLogs() {
@@ -13,8 +14,43 @@ export default function AuditLogs() {
   const [total, setTotal] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
   const [page, setPage] = useState(0);
   const pageSize = 25;
+
+  const handleExportCSV = async () => {
+    setIsExporting(true);
+    try {
+      const res = await axios.get('/api/super/audit-logs', {
+        params: { limit: 1000, offset: 0, search: searchQuery }
+      });
+      const dataToExport = res.data?.logs || logs;
+
+      const headers = ['Timestamp (UTC)', 'Security Action', 'Actor', 'Target Tenant', 'Operational Detail', 'Source IP', 'Result'];
+      const rows = dataToExport.map(log => [
+        `"${formatTimestamp(log.created_at)}"`,
+        `"${log.action || ''}"`,
+        `"${log.username || 'system'}"`,
+        `"${log.tenant_id || ''}"`,
+        `"${(log.detail || '').replace(/"/g, '""')}"`,
+        `"${log.ip_address || ''}"`,
+        `"${log.result || 'SUCCESS'}"`
+      ]);
+
+      const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `control-plane-audit-log-${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('[Audit Export Error]', err);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const fetchLogs = async () => {
     setIsLoading(true);
@@ -80,9 +116,14 @@ export default function AuditLogs() {
             Immutable security audit logs tracking all administrative interventions, tenant provisioning, and credential resets
           </p>
         </div>
-        <button className="btn btn-secondary" onClick={fetchLogs} disabled={isLoading}>
-          <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> Refresh Log
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="btn btn-secondary" onClick={handleExportCSV} disabled={isExporting || logs.length === 0} title="Export audit trail to CSV">
+            <Download size={14} /> {isExporting ? 'Exporting...' : 'Export CSV'}
+          </button>
+          <button className="btn btn-secondary" onClick={fetchLogs} disabled={isLoading}>
+            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} /> Refresh Log
+          </button>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}

@@ -140,7 +140,54 @@ async function initSuperAdminDB() {
         result VARCHAR(20) DEFAULT 'SUCCESS',
         created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())
       );
+
+      CREATE TABLE IF NOT EXISTS super_settings (
+        category VARCHAR(50) PRIMARY KEY,
+        settings JSONB NOT NULL,
+        updated_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())
+      );
     `);
+
+    // Seed default settings if not exists
+    const defaultSettings = [
+      {
+        category: 'security',
+        settings: {
+          session_timeout_mins: 120,
+          ip_whitelist: '',
+          mfa_enforced: false
+        }
+      },
+      {
+        category: 'platform',
+        settings: {
+          portal_domain: process.env.PORTAL_DOMAIN || '',
+          syslog_start_port: 9501,
+          log_retention_days: 90,
+          maintenance_mode: false
+        }
+      },
+      {
+        category: 'notifications',
+        settings: {
+          smtp_host: '',
+          smtp_port: 587,
+          smtp_user: '',
+          smtp_password: '',
+          smtp_from: 'no-reply@iochunt.local',
+          alert_webhook_url: ''
+        }
+      }
+    ];
+
+    for (const item of defaultSettings) {
+      await client.query(
+        `INSERT INTO super_settings (category, settings)
+         VALUES ($1, $2)
+         ON CONFLICT (category) DO NOTHING`,
+        [item.category, JSON.stringify(item.settings)]
+      );
+    }
 
     // Auto-migrate schema for missing columns in existing deployments
     try {
@@ -264,22 +311,52 @@ app.post('/api/super/logout', superAuthMiddleware, async (req, res) => {
 
 app.post('/api/super/change-password', superAuthMiddleware, async (req, res) => {
   try {
-    const { new_password, confirm_password } = req.body;
-    if (new_password !== confirm_password) return res.status(400).json({ error: 'Passwords do not match' });
-    if (!new_password || new_password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    const { current_password, new_password, confirm_password } = req.body;
+    const finalPassword = new_password || req.body.password;
+    if (!finalPassword || finalPassword.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters long' });
+    }
+    if (confirm_password && finalPassword !== confirm_password) {
+      return res.status(400).json({ error: 'Passwords do not match' });
+    }
+
+    const adminId = req.superAdmin.admin_id || req.superAdmin.id;
+    const adminRes = await pool.query('SELECT * FROM super_admins WHERE id = $1', [adminId]);
+    if (adminRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Super Admin account not found' });
+    }
+
+    const admin = adminRes.rows[0];
+
+    // If not in forced initial change mode, verify current password
+    if (admin.force_password_change !== 1 || current_password) {
+      if (!current_password) {
+        return res.status(400).json({ error: 'Current password is required' });
+      }
+      const computedHash = crypto.pbkdf2Sync(current_password, admin.salt, 100000, 64, 'sha512').toString('hex');
+      if (computedHash !== admin.password_hash) {
+        return res.status(401).json({ error: 'Current password is incorrect' });
+      }
+    }
 
     const newSalt = crypto.randomBytes(32).toString('hex');
-    const newHash = crypto.pbkdf2Sync(new_password, newSalt, 100000, 64, 'sha512').toString('hex');
+    const newHash = crypto.pbkdf2Sync(finalPassword, newSalt, 100000, 64, 'sha512').toString('hex');
 
     await pool.query(
       'UPDATE super_admins SET password_hash = $1, salt = $2, force_password_change = 0 WHERE id = $3',
-      [newHash, newSalt, req.superAdmin.admin_id]
+      [newHash, newSalt, admin.id]
     );
 
-    res.json({ success: true, message: 'Super admin password updated successfully.' });
+    await pool.query(
+      `INSERT INTO audit_log (username, action, resource, detail, ip_address, result)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [admin.username, 'CHANGE_SUPERADMIN_PASSWORD', 'super_admins', 'Super Admin master password changed', req.ip, 'SUCCESS']
+    );
+
+    res.json({ success: true, message: 'Super Admin master password updated successfully.' });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('[Change Password Error]', err);
+    res.status(500).json({ error: `Password update failed: ${err.message}` });
   }
 });
 
@@ -287,18 +364,35 @@ app.post('/api/super/change-password', superAuthMiddleware, async (req, res) => 
 app.get('/api/super/companies', superAuthMiddleware, async (req, res) => {
   try {
     const companiesRes = await pool.query(
-      'SELECT id, tenant_id AS company_id, company_name, status, central_url, syslog_port, db_name, tier, max_eps, api_key_encrypted, created_at FROM tenants ORDER BY id DESC'
+      'SELECT id, tenant_id AS company_id, company_name, status, central_url, syslog_port, db_name, tier, api_key_encrypted, created_at FROM tenants ORDER BY id DESC'
     );
     
-    // Decrypt API key for display
-    const mappedCompanies = companiesRes.rows.map(company => {
+    const parsedUrl = new URL(process.env.SUPER_ADMIN_DATABASE_URL || 'postgres://postgres:iochunt_password@localhost:5433/iochunt_db');
+
+    // Decrypt API key and query enrolled agent count per active tenant
+    const mappedCompanies = await Promise.all(companiesRes.rows.map(async (company) => {
       const apiKey = decryptData(company.api_key_encrypted);
-      delete company.api_key_encrypted; // don't send raw encrypted string to frontend
+      delete company.api_key_encrypted;
+
+      let agentCount = 0;
+      if (company.status === 'active' && company.db_name) {
+        try {
+          const tConnStr = `postgres://${parsedUrl.username}:${parsedUrl.password}@${parsedUrl.hostname}:${parsedUrl.port || 5432}/${company.db_name}`;
+          const tPool = new Pool({ connectionString: tConnStr, max: 1, connectionTimeoutMillis: 1000 });
+          const mRes = await tPool.query('SELECT COUNT(*) AS count FROM machines');
+          agentCount = parseInt(mRes.rows[0]?.count || 0, 10);
+          await tPool.end();
+        } catch (_) {
+          // tenant DB timeout or unreachable, default to 0
+        }
+      }
+
       return {
         ...company,
-        api_key: apiKey
+        api_key: apiKey,
+        agent_count: agentCount
       };
-    });
+    }));
     
     res.json(mappedCompanies);
   } catch (err) {
@@ -466,8 +560,7 @@ app.get('/api/super/stats', superAuthMiddleware, async (req, res) => {
       totalStorageBytes,
       totalStoragePretty,
       activeSyslogPorts,
-      totalAuditEvents,
-      estimatedEps: Math.max(12, totalEnrolledAgents * 3 + activeTenants * 15)
+      totalAuditEvents
     });
   } catch (err) {
     console.error('[Stats Error]', err);
@@ -625,6 +718,51 @@ app.get('/api/super/system-health', superAuthMiddleware, async (req, res) => {
     res.status(500).json({ error: 'Failed to retrieve system health metrics' });
   }
 });
+
+// ── Control Plane Settings ───────────────────────────────────────
+app.get('/api/super/settings', superAuthMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT category, settings FROM super_settings');
+    const settingsMap = {};
+    result.rows.forEach(r => {
+      settingsMap[r.category] = r.settings;
+    });
+    res.json({ success: true, settings: settingsMap });
+  } catch (err) {
+    console.error('[Settings GET Error]', err);
+    res.status(500).json({ error: 'Failed to retrieve settings' });
+  }
+});
+
+app.put('/api/super/settings', superAuthMiddleware, async (req, res) => {
+  try {
+    const { category, settings } = req.body;
+    if (!category || typeof settings !== 'object') {
+      return res.status(400).json({ error: 'Valid category and settings object required' });
+    }
+
+    await pool.query(
+      `INSERT INTO super_settings (category, settings, updated_at)
+       VALUES ($1, $2, EXTRACT(EPOCH FROM NOW()))
+       ON CONFLICT (category) DO UPDATE
+       SET settings = EXCLUDED.settings, updated_at = EXTRACT(EPOCH FROM NOW())`,
+      [category, JSON.stringify(settings)]
+    );
+
+    // Audit log
+    await pool.query(
+      `INSERT INTO audit_log (username, action, resource, detail, ip_address, result)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [req.superAdmin.username, 'UPDATE_SETTINGS', category, `Updated settings for category: ${category}`, req.ip, 'SUCCESS']
+    );
+
+    res.json({ success: true, message: `Settings for ${category} updated successfully` });
+  } catch (err) {
+    console.error('[Settings PUT Error]', err);
+    res.status(500).json({ error: 'Failed to save settings' });
+  }
+});
+
 
 // Static Frontend Serving
 const staticPath = path.join(__dirname, '../frontend/dist');

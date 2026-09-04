@@ -8,7 +8,6 @@ import {
   Server,
   ArrowUpRight,
   Plus,
-  Radio,
   Clock,
   Database,
   Layers,
@@ -25,8 +24,7 @@ export default function Dashboard() {
     totalEnrolledAgents: 0,
     totalStoragePretty: '0 MB',
     activeSyslogPorts: 0,
-    totalAuditEvents: 0,
-    estimatedEps: 0
+    totalAuditEvents: 0
   });
   const [companies, setCompanies] = useState([]);
   const [health, setHealth] = useState(null);
@@ -121,17 +119,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Estimated Global Throughput */}
-        <div className="kpi-card">
-          <div className="kpi-title">
-            <span>Ingestion Rate (EPS)</span>
-            <Radio size={15} color="#6366f1" />
-          </div>
-          <div className="kpi-value tabular-nums">~{stats.estimatedEps} <span style={{ fontSize: '13px', fontWeight: '400', color: '#64748b' }}>EPS</span></div>
-          <div className="kpi-subtitle">
-            <span style={{ color: '#94a3b8' }}>{stats.activeSyslogPorts} Syslog Ports Active</span>
-          </div>
-        </div>
 
         {/* Storage Footprint */}
         <div className="kpi-card">
@@ -189,7 +176,6 @@ export default function Dashboard() {
                     <th>Database Identifier</th>
                     <th>Status</th>
                     <th>Syslog Port</th>
-                    <th>Workspace URL</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -215,17 +201,6 @@ export default function Dashboard() {
                       </td>
                       <td>
                         <span className="font-mono" style={{ color: '#38bdf8' }}>:{c.syslog_port || '—'}</span>
-                      </td>
-                      <td>
-                        <a
-                          href={c.central_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ color: '#94a3b8', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                        >
-                          <span className="truncate" style={{ maxWidth: '180px' }}>{c.central_url}</span>
-                          <ArrowUpRight size={12} />
-                        </a>
                       </td>
                     </tr>
                   ))}

@@ -7,7 +7,9 @@ import {
   Building2,
   Activity,
   Layers,
-  LogOut
+  LogOut,
+  Settings as SettingsIcon,
+  ExternalLink
 } from 'lucide-react';
 import Login from './pages/Login';
 import SetupPassword from './pages/SetupPassword';
@@ -15,6 +17,7 @@ import Dashboard from './pages/Dashboard';
 import Tenants from './pages/Tenants';
 import SystemHealth from './pages/SystemHealth';
 import AuditLogs from './pages/AuditLogs';
+import Settings from './pages/Settings';
 
 function Sidebar({ tenantCount }) {
   const location = useLocation();
@@ -31,6 +34,7 @@ function Sidebar({ tenantCount }) {
     { name: 'Managed Tenants', icon: <Building2 size={16} />, path: '/tenants', badge: tenantCount },
     { name: 'System Health', icon: <Activity size={16} />, path: '/system-health' },
     { name: 'Audit Logs', icon: <Layers size={16} />, path: '/audit-logs' },
+    { name: 'Settings', icon: <SettingsIcon size={16} />, path: '/settings' },
   ];
 
   return (
@@ -179,6 +183,17 @@ function DashboardLayout({ children }) {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <a
+              href={`https://${window.location.hostname}:8082`}
+              target="_blank"
+              rel="noreferrer"
+              className="btn btn-secondary"
+              style={{ fontSize: '11px', padding: '5px 11px', display: 'inline-flex', alignItems: 'center', gap: '5px', textDecoration: 'none' }}
+              title="Open Unified Tenant Login Portal"
+            >
+              <span>Launch Tenant Portal</span>
+              <ExternalLink size={12} />
+            </a>
             <span className="badge-pill badge-neutral font-mono" style={{ fontSize: '11px' }}>
               v2.0-SaaS
             </span>
@@ -245,6 +260,7 @@ function App() {
         <Route path="/tenants" element={<ProtectedRoute><Tenants /></ProtectedRoute>} />
         <Route path="/system-health" element={<ProtectedRoute><SystemHealth /></ProtectedRoute>} />
         <Route path="/audit-logs" element={<ProtectedRoute><AuditLogs /></ProtectedRoute>} />
+        <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

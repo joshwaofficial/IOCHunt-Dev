@@ -9,10 +9,10 @@ import {
   Check,
   Power,
   KeyRound,
-  ExternalLink,
   AlertTriangle,
   RefreshCw,
-  X
+  X,
+  Server
 } from 'lucide-react';
 import ProvisionModal from '../components/ProvisionModal';
 import ResetPasswordModal from '../components/ResetPasswordModal';
@@ -178,8 +178,8 @@ export default function Tenants() {
                 <th>Database & Subdomain</th>
                 <th>Status</th>
                 <th>Syslog Listener</th>
+                <th>Enrolled Agents</th>
                 <th>Ingestion API Key</th>
-                <th>Workspace Portal</th>
                 <th className="text-right">Operational Actions</th>
               </tr>
             </thead>
@@ -214,6 +214,13 @@ export default function Tenants() {
                   </td>
 
                   <td>
+                    <span className="badge-pill badge-neutral font-mono" style={{ fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                      <Server size={11} color={c.agent_count > 0 ? '#10b981' : '#64748b'} />
+                      <span>{c.agent_count || 0} {c.agent_count === 1 ? 'Agent' : 'Agents'}</span>
+                    </span>
+                  </td>
+
+                  <td>
                     {c.api_key ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span className="font-mono" style={{ fontSize: '12px', color: '#64748b' }}>
@@ -233,17 +240,7 @@ export default function Tenants() {
                     )}
                   </td>
 
-                  <td>
-                    <a
-                      href={c.central_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: '#38bdf8', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}
-                    >
-                      <span>Open Workspace</span>
-                      <ExternalLink size={12} />
-                    </a>
-                  </td>
+
 
                   <td className="text-right">
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
