@@ -29,6 +29,9 @@ function validatePasswordStrength(password) {
   if (!/[0-9]/.test(password)) {
     return 'Password must contain at least one number';
   }
+  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/.test(password)) {
+    return 'Password must contain at least one special character (!@#$%^&* etc.)';
+  }
   return null;
 }
 
@@ -55,6 +58,135 @@ function decryptData(encryptedString) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════
+// Account Lockout Configuration & Storage
+// Policy: 5 failed attempts within 15 minutes -> 15 minute lock
+// ════════════════════════════════════════════════════════════════
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_WINDOW_SECONDS = 15 * 60;   // 15 minutes window
+const LOCKOUT_DURATION_SECONDS = 15 * 60; // 15 minutes lockout duration
+
+// In-memory fallback store if Redis is unavailable
+const memoryLockoutStore = new Map();
+
+// Periodic cleanup of expired in-memory lockout records (every 15 min)
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of memoryLockoutStore.entries()) {
+    if (val.lockedUntil && now > val.lockedUntil) {
+      memoryLockoutStore.delete(key);
+    } else if (val.firstAttempt && now - val.firstAttempt > LOCKOUT_WINDOW_SECONDS * 1000) {
+      memoryLockoutStore.delete(key);
+    }
+  }
+}, LOCKOUT_WINDOW_SECONDS * 1000).unref();
+
+/**
+ * Check if account is locked and return remaining seconds, or 0 if not locked.
+ */
+async function getAccountLockoutRemaining(lockoutKey) {
+  // 1. Try Redis if available
+  try {
+    const { getRedisClient, isRedisConnected } = require('../config/redisClient');
+    if (isRedisConnected()) {
+      const redis = getRedisClient();
+      const ttl = await redis.ttl(`lockout:active:${lockoutKey}`);
+      if (ttl > 0) return ttl;
+    }
+  } catch (_) {
+    // Redis error, fall back to in-memory store
+  }
+
+  // 2. In-memory check
+  const mem = memoryLockoutStore.get(lockoutKey);
+  if (mem && mem.lockedUntil) {
+    const now = Date.now();
+    if (now < mem.lockedUntil) {
+      return Math.ceil((mem.lockedUntil - now) / 1000);
+    } else {
+      memoryLockoutStore.delete(lockoutKey);
+    }
+  }
+  return 0;
+}
+
+/**
+ * Record a failed login attempt. Locks account if threshold is reached.
+ */
+async function recordFailedAttempt(lockoutKey) {
+  // 1. Try Redis
+  try {
+    const { getRedisClient, isRedisConnected } = require('../config/redisClient');
+    if (isRedisConnected()) {
+      const redis = getRedisClient();
+      const failKey = `lockout:failed:${lockoutKey}`;
+      const activeLockKey = `lockout:active:${lockoutKey}`;
+
+      const attempts = await redis.incr(failKey);
+      if (attempts === 1) {
+        await redis.expire(failKey, LOCKOUT_WINDOW_SECONDS);
+      }
+
+      if (attempts >= MAX_FAILED_ATTEMPTS) {
+        await redis.set(activeLockKey, 'locked', 'EX', LOCKOUT_DURATION_SECONDS);
+        await redis.del(failKey);
+        return { locked: true, remainingSeconds: LOCKOUT_DURATION_SECONDS };
+      }
+      return { locked: false, attemptsRemaining: MAX_FAILED_ATTEMPTS - attempts };
+    }
+  } catch (_) {
+    // Redis error, fall back to in-memory
+  }
+
+  // 2. In-memory fallback
+  const now = Date.now();
+  let entry = memoryLockoutStore.get(lockoutKey);
+  if (!entry || (entry.firstAttempt && now - entry.firstAttempt > LOCKOUT_WINDOW_SECONDS * 1000)) {
+    entry = { count: 1, firstAttempt: now, lockedUntil: null };
+  } else {
+    entry.count += 1;
+  }
+
+  if (entry.count >= MAX_FAILED_ATTEMPTS) {
+    entry.lockedUntil = now + LOCKOUT_DURATION_SECONDS * 1000;
+    memoryLockoutStore.set(lockoutKey, entry);
+    return { locked: true, remainingSeconds: LOCKOUT_DURATION_SECONDS };
+  }
+
+  memoryLockoutStore.set(lockoutKey, entry);
+  return { locked: false, attemptsRemaining: MAX_FAILED_ATTEMPTS - entry.count };
+}
+
+/**
+ * Clear failed attempts and active lockout upon successful authentication.
+ */
+async function clearLockout(lockoutKey) {
+  try {
+    const { getRedisClient, isRedisConnected } = require('../config/redisClient');
+    if (isRedisConnected()) {
+      const redis = getRedisClient();
+      await redis.del(`lockout:failed:${lockoutKey}`);
+      await redis.del(`lockout:active:${lockoutKey}`);
+    }
+  } catch (_) {
+    // Ignore Redis errors
+  }
+  memoryLockoutStore.delete(lockoutKey);
+}
+
+/**
+ * Helper to record failure and return locked or invalid credentials response.
+ */
+async function handleFailedLogin(lockoutKey, res) {
+  const result = await recordFailedAttempt(lockoutKey);
+  if (result.locked) {
+    return res.status(423).json({
+      error: 'Account is temporarily locked due to multiple failed login attempts. Please try again in 15 minutes.'
+    });
+  }
+  return res.status(401).json({ error: 'Invalid credentials' });
+}
+
 async function login(req, res) {
   try {
     let { username, password, workspace_id } = req.body;
@@ -63,6 +195,21 @@ async function login(req, res) {
     }
     
     password = password.trim();
+
+    const normalizedUser = String(username).trim().toLowerCase();
+    const normalizedWorkspace = (workspace_id && typeof workspace_id === 'string')
+      ? workspace_id.trim().toLowerCase()
+      : 'default';
+    const lockoutKey = `${normalizedWorkspace}:${normalizedUser}`;
+
+    // Check account lockout status before performing expensive operations
+    const remainingLockout = await getAccountLockoutRemaining(lockoutKey);
+    if (remainingLockout > 0) {
+      const mins = Math.ceil(remainingLockout / 60);
+      return res.status(423).json({
+        error: `Account is temporarily locked due to multiple failed login attempts. Please try again in ${mins} minute${mins === 1 ? '' : 's'}.`
+      });
+    }
 
     if (appMode.isCentralServer()) {
       if (!workspace_id) {
@@ -106,17 +253,18 @@ async function login(req, res) {
       );
 
       if (userRes.rows.length === 0) {
-        console.log(`[DEBUG Auth] User not found: ${username.trim()}`);
-        return res.status(401).json({ error: 'Invalid credentials' });
+        return await handleFailedLogin(lockoutKey, res);
       }
 
       const user = userRes.rows[0];
       const isValid = verifyPassword(password, user.password_hash, user.salt);
-      console.log(`[DEBUG Auth] verifyPassword for ${user.username}:`, isValid);
       
       if (!isValid) {
-        return res.status(401).json({ error: 'Invalid credentials' });
+        return await handleFailedLogin(lockoutKey, res);
       }
+
+      // Successful credentials verification: clear failed login attempts
+      await clearLockout(lockoutKey);
 
       // MFA check
       if (user.mfa_enabled) {
@@ -161,7 +309,6 @@ async function login(req, res) {
 
       return res.status(200).json({
         message: 'Login successful',
-        token: token,
         user: {
           id: user.id,
           username: user.username,
@@ -181,13 +328,16 @@ async function login(req, res) {
     // Falls back to the original login flow for backwards compatibility
     const user = await User.findByUsername(username);
     if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return await handleFailedLogin(lockoutKey, res);
     }
 
     const isValid = verifyPassword(password, user.password_hash, user.salt);
     if (!isValid) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return await handleFailedLogin(lockoutKey, res);
     }
+
+    // Successful credentials verification: clear failed login attempts
+    await clearLockout(lockoutKey);
 
     // MFA check
     if (user.mfa_enabled) {
@@ -201,7 +351,7 @@ async function login(req, res) {
       
       return res.status(200).json({ 
         message: 'MFA required', 
-        mfa_required: true,
+        mfa_required: true, 
         tempToken: tempToken 
       });
     }
@@ -238,7 +388,6 @@ async function login(req, res) {
 
     return res.status(200).json({
       message: 'Login successful',
-      token: token,
       user: {
         id: user.id,
         username: user.username,
@@ -298,13 +447,6 @@ async function changePassword(req, res) {
     if (!user) {
       return res.status(404).json({ error: 'User account not found' });
     }
-
-    console.log('[DEBUG changePassword]', {
-      reqUserId: req.session.user_id,
-      userFound: user.username,
-      inputPassword: current_password,
-      hashMatch: verifyPassword(current_password, user.password_hash, user.salt)
-    });
 
     const isCurrentValid = verifyPassword(current_password, user.password_hash, user.salt);
     if (!isCurrentValid) {
@@ -386,7 +528,6 @@ async function mfaVerify(req, res) {
 
     return res.status(200).json({
       message: 'Login successful',
-      token: token,
       user: {
         id: user.id,
         username: user.username,
@@ -558,7 +699,6 @@ async function setupBranchNode(req, res) {
 
     return res.status(200).json({
       message: `Branch Node successfully connected to Central Server as '${aggregator_name}'`,
-      token: token,
       aggregator_name: aggregator_name,
       user: {
         id: localUser.id,
@@ -626,5 +766,6 @@ module.exports = {
   mfaVerify,
   logout,
   me,
-  getApiKey
+  getApiKey,
+  validatePasswordStrength
 };
