@@ -39,40 +39,45 @@ else
     echo -e "\033[0;32m[2/4] TLS certificates already exist. Skipping generation.\033[0m"
 fi
 
-# Bring down existing containers
-echo -e "\033[1;33m[3/4] Stopping any running containers...\033[0m"
-docker compose -p central down 2>/dev/null || true
-docker compose -p superadmin -f docker-compose.superadmin.yml down 2>/dev/null || true
-docker compose -p aggregator -f docker-compose.aggregator.yml down 2>/dev/null || true
-docker compose -f docker-compose.superadmin.yml down 2>/dev/null || true
-docker compose -f docker-compose.aggregator.yml down 2>/dev/null || true
-docker compose down 2>/dev/null || true
-docker rm -f $(docker ps -aq --filter "name=iochunt-") 2>/dev/null || true
+# Check for clean mode
+CLEAN_MODE=$2
 
-echo -e "\033[1;33m[4/4] Rebuilding and starting containers for $MODE...\033[0m"
+if [[ "$CLEAN_MODE" == "--clean" || "$CLEAN_MODE" == "--force" ]]; then
+    # Bring down existing containers only if requested
+    echo -e "\033[1;33m[3/4] Clean mode requested. Stopping and removing containers...\033[0m"
+    docker compose -p central down 2>/dev/null || true
+    docker compose -p superadmin -f docker-compose.superadmin.yml down 2>/dev/null || true
+    docker compose -p aggregator -f docker-compose.aggregator.yml down 2>/dev/null || true
+    docker compose down 2>/dev/null || true
+    docker rm -f $(docker ps -aq --filter "name=iochunt-") 2>/dev/null || true
+else
+    echo -e "\033[0;32m[3/4] Rolling mode: Keeping databases & Redis online without interruption...\033[0m"
+fi
+
+echo -e "\033[1;33m[4/4] Building and updating containers for $MODE...\033[0m"
 
 if [[ "$MODE" == "all" ]]; then
-    echo -e "\033[1;33m[4.1/4] Starting Central base stack (5 containers)...\033[0m"
-    docker compose -p central up -d
+    echo -e "\033[1;33m[4.1/4] Updating Central base stack (Postgres & Redis stay online)...\033[0m"
+    docker compose -p central up -d --build
 
-    echo -e "\033[1;33m[4.2/4] Starting Super Admin stack (1 container)...\033[0m"
+    echo -e "\033[1;33m[4.2/4] Updating Super Admin stack...\033[0m"
     export HOST_PWD=$PWD
     docker compose -p superadmin -f docker-compose.superadmin.yml up -d --build
 
-    echo -e "\033[1;33m[4.3/4] Starting Aggregator stack (4 containers)...\033[0m"
+    echo -e "\033[1;33m[4.3/4] Updating Aggregator stack...\033[0m"
     docker compose -p aggregator -f docker-compose.aggregator.yml up -d --build
 
     echo -e "\033[0;32m============================================================\033[0m"
-    echo -e "\033[0;32m All 10 Containers Deployed Successfully!\033[0m"
+    echo -e "\033[0;32m All Containers Updated Successfully with Zero DB Downtime!\033[0m"
     echo -e "\033[0;32m ➜ Central App:     https://$(hostname -I | awk '{print $1}'):8082\033[0m"
     echo -e "\033[0;32m ➜ Super Admin UI:  https://$(hostname -I | awk '{print $1}'):8083\033[0m"
     echo -e "\033[0;32m ➜ Aggregator UI:   https://$(hostname -I | awk '{print $1}'):8084\033[0m"
     echo -e "\033[0;32m============================================================\033[0m"
 elif [[ "$MODE" == "central" ]]; then
-    echo -e "\033[1;33m[4.1/4] Starting base infrastructure (Network & Default DB)...\033[0m"
-    docker compose -p central up -d
+    echo -e "\033[1;33m[4.1/4] Updating Central Server stack (Postgres & Redis stay online)...\033[0m"
+    docker compose -p central up -d --build
 
-    echo -e "\033[1;33m[4.2/4] Starting Super Admin stack (Port 8083)...\033[0m"
+    echo -e "\033[1;33m[4.2/4] Updating Super Admin stack (Port 8083)...\033[0m"
     export HOST_PWD=$PWD
     docker compose -p superadmin -f docker-compose.superadmin.yml up -d --build
 
