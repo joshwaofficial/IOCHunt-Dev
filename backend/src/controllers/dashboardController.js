@@ -244,6 +244,14 @@ const getStats = async (req, res) => {
       bp.push(aggregator);
       pIdx++;
     }
+
+    let machinesQuery = 'SELECT * FROM machines';
+    const machinesParams = [];
+    if (aggregator) {
+      machinesQuery += ' WHERE aggregator_name=$1';
+      machinesParams.push(aggregator);
+    }
+    machinesQuery += ' ORDER BY last_seen DESC';
     
     const [
       totalRes,
