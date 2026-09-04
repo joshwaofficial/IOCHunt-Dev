@@ -153,29 +153,7 @@ async function initSuperAdminDB() {
       {
         category: 'security',
         settings: {
-          session_timeout_mins: 120,
-          ip_whitelist: '',
-          mfa_enforced: false
-        }
-      },
-      {
-        category: 'platform',
-        settings: {
-          portal_domain: process.env.PORTAL_DOMAIN || '',
-          syslog_start_port: 9501,
-          log_retention_days: 90,
-          maintenance_mode: false
-        }
-      },
-      {
-        category: 'notifications',
-        settings: {
-          smtp_host: '',
-          smtp_port: 587,
-          smtp_user: '',
-          smtp_password: '',
-          smtp_from: 'no-reply@iochunt.local',
-          alert_webhook_url: ''
+          session_timeout_mins: 120
         }
       }
     ];
