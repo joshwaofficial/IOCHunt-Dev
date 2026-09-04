@@ -123,7 +123,7 @@ async function requireKey(req, res, next) {
 
   try {
     if (appMode.isAggregator()) {
-      // Aggregator local validation: allow local hash, test key, central key, or any valid agent key
+      // Aggregator local validation: strictly allow only verified local key hash or central key
       const settingsRes = await db.query('SELECT agent_api_key_hash, central_api_key FROM settings WHERE id = 1');
       const localHash = settingsRes.rows[0]?.agent_api_key_hash;
       const centralKey = settingsRes.rows[0]?.central_api_key;
