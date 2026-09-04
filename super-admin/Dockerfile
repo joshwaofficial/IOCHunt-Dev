@@ -21,14 +21,14 @@ COPY super-admin/package*.json ./super-admin/
 WORKDIR /app/super-admin
 RUN npm install
 
-# We need the entire repository because provision_tenant.js expects to run docker compose
-# from the root folder where the main docker-compose.yml lives.
-WORKDIR /app
-COPY . /app/
-
-# Install backend dependencies because provision_tenant.js requires backend/src/config/db.js
+# Copy backend dependencies first so Docker permanently caches this layer
+COPY backend/package*.json /app/backend/
 WORKDIR /app/backend
 RUN npm install
+
+# Copy the rest of the application files
+WORKDIR /app
+COPY . /app/
 
 # Copy built frontend assets from stage 1
 COPY --from=frontend-builder /app/frontend/dist /app/super-admin/frontend/dist
