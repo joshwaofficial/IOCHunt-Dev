@@ -240,8 +240,40 @@ function decryptData(encryptedString) {
   }
 }
 
+// Rate limiter for super-admin login (10 attempts per 15 minutes per IP)
+const superLoginAttempts = new Map();
+function superLoginLimiter(req, res, next) {
+  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000;
+  const maxAttempts = 10;
+
+  const record = superLoginAttempts.get(ip);
+  if (!record || now - record.startTime > windowMs) {
+    superLoginAttempts.set(ip, { count: 1, startTime: now });
+    return next();
+  }
+
+  record.count++;
+  if (record.count > maxAttempts) {
+    return res.status(429).json({ error: 'Too many login attempts. Please try again after 15 minutes.' });
+  }
+
+  return next();
+}
+
+// Background session cleaner for super-admin control plane (every 15 minutes)
+setInterval(async () => {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    await pool.query('DELETE FROM super_sessions WHERE expires_at < $1', [now]);
+  } catch (err) {
+    console.error('[Session Cleanup] Error deleting expired super_sessions:', err.message);
+  }
+}, 15 * 60 * 1000).unref();
+
 // Routes
-app.post('/api/super/login', async (req, res) => {
+app.post('/api/super/login', superLoginLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
@@ -251,7 +283,11 @@ app.post('/api/super/login', async (req, res) => {
 
     const admin = adminRes.rows[0];
     const computedHash = crypto.pbkdf2Sync(password, admin.salt, 100000, 64, 'sha512').toString('hex');
-    if (computedHash !== admin.password_hash) return res.status(401).json({ error: 'Invalid credentials' });
+    const computedBuf = Buffer.from(computedHash, 'hex');
+    const storedBuf = Buffer.from(admin.password_hash, 'hex');
+    if (computedBuf.length !== storedBuf.length || !crypto.timingSafeEqual(computedBuf, storedBuf)) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = Math.floor(Date.now() / 1000) + 8 * 3600;
@@ -263,7 +299,6 @@ app.post('/api/super/login', async (req, res) => {
 
     res.cookie('super_session', token, { httpOnly: true, secure: true, sameSite: 'strict' });
     return res.json({
-      token,
       force_password_change: admin.force_password_change === 1,
       username: admin.username
     });

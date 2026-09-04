@@ -16,10 +16,18 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const mfaLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 5,
+  message: { message: 'Too many MFA verification attempts. Please try again after 5 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Public authentication routes
 router.post('/login', loginLimiter, authController.login);
 router.post('/setup-branch', loginLimiter, authController.setupBranchNode);
-router.post('/mfa/verify', authController.mfaVerify);
+router.post('/mfa/verify', mfaLimiter, authController.mfaVerify);
 
 // Protected authentication routes
 router.post('/logout', requireSession, authController.logout);

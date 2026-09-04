@@ -210,7 +210,7 @@ if (process.env.SERVE_STATIC === 'true' || fs.existsSync(staticPath)) {
   });
 }
 
-// ── Background Session Cleaner ──────────────────────────────────
+// ── Background Session Cleaner (every 15 minutes) ───────────────
 setInterval(async () => {
   try {
     const now = Math.floor(Date.now() / 1000);
@@ -219,7 +219,7 @@ setInterval(async () => {
   } catch (e) {
     console.error('[Cleanup Error]', e.message);
   }
-}, 3600000);
+}, 15 * 60 * 1000);
 
 // ── Server Bootstrap & Background Services Initialization ───────
 const PORT = process.env.PORT || process.env.CENTRAL_PORT || process.env.AGGREGATOR_PORT || 4001;

@@ -16,6 +16,9 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Purge any legacy token from localStorage to prevent XSS exposure
+    localStorage.removeItem('iochunt_token');
+
     // Verify session on mount with the backend
     axios.get('/api/auth/me')
       .then(res => {
@@ -28,7 +31,6 @@ export function AuthProvider({ children }) {
         // Only clear user on explicit 401 Unauthorized
         if (err.response?.status === 401) {
           localStorage.removeItem('iochunt_user');
-          localStorage.removeItem('iochunt_token');
           setUser(null);
         }
       })
@@ -42,17 +44,12 @@ export function AuthProvider({ children }) {
     if (res.data.mfa_required) {
       return { mfaRequired: true, tempToken: res.data.tempToken };
     }
-    if (res.data.token) {
-      localStorage.setItem('iochunt_token', res.data.token);
-    }
     if (res.data.user) {
       localStorage.setItem('iochunt_user', JSON.stringify(res.data.user));
       setUser(res.data.user);
     }
     return { success: true };
   };
-
-
 
   const logout = async () => {
     try {
@@ -61,7 +58,6 @@ export function AuthProvider({ children }) {
       console.warn('Logout API failed:', e);
     } finally {
       localStorage.removeItem('iochunt_user');
-      localStorage.removeItem('iochunt_token');
       setUser(null);
     }
   };

@@ -10,6 +10,17 @@ const appMode = require('../config/appMode');
 const hash = (text) => crypto.createHash('sha256').update(text).digest('hex');
 
 /**
+ * Constant-time string comparison to prevent timing attacks
+ */
+function safeCompare(a, b) {
+  if (!a || !b) return false;
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+/**
  * Parses the session cookie or authorization token from request headers
  */
 function parseSessionCookie(req) {
@@ -118,10 +129,8 @@ async function requireKey(req, res, next) {
       const centralKey = settingsRes.rows[0]?.central_api_key;
       
       if (
-        localHash === hash(cleanKey) || 
-        cleanKey === 'iochunt-change-me' || 
-        (centralKey && cleanKey === centralKey) ||
-        (cleanKey && cleanKey.length >= 8)
+        (localHash && safeCompare(localHash, hash(cleanKey))) || 
+        (centralKey && safeCompare(cleanKey, centralKey))
       ) {
         req.authType = 'aggregator_agent';
         // Aggregators only manage a single database
@@ -166,10 +175,8 @@ async function requireSessionOrKey(req, res, next) {
         const localHash = settingsRes.rows[0]?.agent_api_key_hash;
         const centralKey = settingsRes.rows[0]?.central_api_key;
         if (
-          localHash === hash(cleanKey) || 
-          cleanKey === 'iochunt-change-me' || 
-          (centralKey && cleanKey === centralKey) ||
-          (cleanKey && cleanKey.length >= 8)
+          (localHash && safeCompare(localHash, hash(cleanKey))) || 
+          (centralKey && safeCompare(cleanKey, centralKey))
         ) {
           req.authType = 'aggregator_agent';
           req.tenantId = 'aggregator';

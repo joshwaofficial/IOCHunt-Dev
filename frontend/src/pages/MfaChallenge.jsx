@@ -29,8 +29,7 @@ export default function MfaChallenge() {
         totpToken: code
       });
 
-      const { user, token } = response.data;
-      if (token) localStorage.setItem('iochunt_token', token);
+      const { user } = response.data;
       if (user) localStorage.setItem('iochunt_user', JSON.stringify(user));
       setUser(user);
       navigate('/dashboard', { replace: true });
