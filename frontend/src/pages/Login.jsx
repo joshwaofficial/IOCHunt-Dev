@@ -11,6 +11,9 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [takeoverData, setTakeoverData] = useState(null);
+  const [isTakingOver, setIsTakingOver] = useState(false);
+  const [terminatedNotice, setTerminatedNotice] = useState('');
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -19,13 +22,26 @@ export default function Login() {
 
   const serverMode = instanceInfo?.mode || 'central_server';
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('reason') === 'session_terminated' || params.get('reason') === 'concurrent_takeover') {
+      setTerminatedNotice('You were logged out because this account was accessed from another device.');
+    }
+  }, [location.search]);
+
+  const handleSubmit = async (e, confirmTakeover = false) => {
+    if (e) e.preventDefault();
     setError('');
-    setLoading(true);
+    setTerminatedNotice('');
+    if (confirmTakeover) {
+      setIsTakingOver(true);
+    } else {
+      setLoading(true);
+    }
 
     try {
-      const result = await login(username, password, workspaceId?.trim() || undefined);
+      const result = await login(username, password, workspaceId?.trim() || undefined, confirmTakeover);
+      setTakeoverData(null);
 
       if (result.mfaRequired) {
         navigate('/mfa-challenge', {
@@ -41,9 +57,14 @@ export default function Login() {
       }
     } catch (err) {
       console.error('[Login Error]', err);
-      setError(err.response?.data?.error || 'Authentication failed. Please verify credentials.');
+      if (err.response?.status === 409 && err.response?.data?.session_already_active) {
+        setTakeoverData(err.response.data.active_session || {});
+      } else {
+        setError(err.response?.data?.error || 'Authentication failed. Please verify credentials.');
+      }
     } finally {
       setLoading(false);
+      setIsTakingOver(false);
     }
   };
 
@@ -377,6 +398,26 @@ export default function Login() {
         {/* Title */}
         <h1>Sign In</h1>
 
+        {terminatedNotice && (
+          <div style={{
+            background: 'rgba(234, 179, 8, 0.1)',
+            border: '1px solid rgba(234, 179, 8, 0.3)',
+            borderRadius: '10px',
+            padding: '12px 14px',
+            marginBottom: '18px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '10px',
+            fontSize: '12px',
+            color: '#facc15',
+            lineHeight: 1.4
+          }}>
+            <span className="material-symbols-outlined" style={{ fontSize: '18px', flexShrink: 0, marginTop: '2px' }}>warning</span>
+            <div>
+              <strong>Session Terminated:</strong> {terminatedNotice}
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="err-box">
@@ -453,6 +494,175 @@ export default function Login() {
 
         </form>
       </div>
+
+      {/* Concurrent Login Takeover Modal */}
+      {takeoverData && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(3, 7, 18, 0.85)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: '16px'
+        }}>
+          <div style={{
+            width: '100%',
+            maxWidth: '460px',
+            background: '#0d1326',
+            border: '1px solid rgba(59, 130, 246, 0.25)',
+            borderRadius: '14px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.95)',
+            overflow: 'hidden',
+            animation: 'fadeIn 0.2s ease-out'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '20px 24px',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              background: 'linear-gradient(180deg, rgba(30, 58, 138, 0.2) 0%, rgba(13, 19, 38, 0.8) 100%)'
+            }}>
+              <div style={{
+                width: '40px',
+                height: '40px',
+                borderRadius: '10px',
+                background: 'rgba(245, 158, 11, 0.15)',
+                border: '1px solid rgba(245, 158, 11, 0.35)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#f59e0b'
+              }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 24 }}>warning</span>
+              </div>
+              <div>
+                <h3 style={{ fontSize: '16px', fontWeight: '700', color: '#f8fafc', margin: 0 }}>
+                  Active Session Detected
+                </h3>
+                <p style={{ fontSize: '12px', color: '#94a3b8', margin: '2px 0 0' }}>
+                  Account currently active on another device
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '24px' }}>
+              <p style={{ fontSize: '13px', color: '#cbd5e1', lineHeight: 1.5, margin: '0 0 16px' }}>
+                An active session was found for <strong style={{ color: '#38bdf8' }}>{username}</strong>. Concurrent logins are restricted to protect account integrity.
+              </p>
+
+              {/* Active Session Info Card */}
+              <div style={{
+                background: 'rgba(15, 23, 42, 0.8)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: '10px',
+                padding: '14px 16px',
+                marginBottom: '18px',
+                fontSize: '12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#94a3b8' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#38bdf8' }}>public</span>
+                  <span>IP Address:</span>
+                  <strong style={{ color: '#f8fafc', fontFamily: 'monospace' }}>
+                    {takeoverData.ip_address || 'Unknown'}
+                  </strong>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#94a3b8' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#f59e0b' }}>schedule</span>
+                  <span>Logged In:</span>
+                  <strong style={{ color: '#f8fafc' }}>
+                    {takeoverData.created_at ? new Date(takeoverData.created_at * 1000).toLocaleString() : 'Just now'}
+                  </strong>
+                </div>
+
+                {takeoverData.user_agent && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', color: '#94a3b8' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#a855f7', flexShrink: 0, marginTop: '2px' }}>devices</span>
+                    <span style={{ wordBreak: 'break-all', fontSize: '11px', color: '#64748b' }}>
+                      {takeoverData.user_agent.slice(0, 100)}...
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                fontSize: '12px',
+                color: '#f87171',
+                lineHeight: 1.4,
+                marginBottom: '22px'
+              }}>
+                <strong>Warning:</strong> Logging in here will terminate that active session immediately and notify the account owner.
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setTakeoverData(null)}
+                  disabled={isTakingOver}
+                  style={{
+                    padding: '9px 18px',
+                    borderRadius: '8px',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    color: '#94a3b8',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSubmit(null, true)}
+                  disabled={isTakingOver}
+                  style={{
+                    padding: '9px 20px',
+                    borderRadius: '8px',
+                    background: 'linear-gradient(135deg, #dc2626, #b91c1c)',
+                    border: 'none',
+                    color: '#fff',
+                    fontSize: '13px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    boxShadow: '0 4px 14px rgba(220, 38, 38, 0.4)'
+                  }}
+                >
+                  {isTakingOver ? (
+                    'Disconnecting & Signing In...'
+                  ) : (
+                    <>
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>logout</span>
+                      Log Out Other Device & Continue
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

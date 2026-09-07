@@ -31,6 +31,26 @@ export const useThreatStore = create((set, get) => ({
       // Just keep-alive, no action needed
     });
 
+    sseSource.addEventListener('session_revoked', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const stored = localStorage.getItem('iochunt_user');
+        if (stored) {
+          const currentUser = JSON.parse(stored);
+          if (currentUser && currentUser.id === data.user_id && (!data.tenant_id || data.tenant_id === currentUser.tenant_id)) {
+            localStorage.removeItem('iochunt_user');
+            if (sseSource) {
+              sseSource.close();
+              sseSource = null;
+            }
+            window.location.href = '/login?reason=session_terminated';
+          }
+        }
+      } catch (err) {
+        console.warn('[SSE] Error processing session_revoked:', err);
+      }
+    });
+
     sseSource.addEventListener('new_event', (event) => {
       try {
         const data = JSON.parse(event.data);

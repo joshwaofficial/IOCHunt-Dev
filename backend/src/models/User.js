@@ -25,13 +25,13 @@ class User {
     await q('UPDATE users SET last_login = $1 WHERE id = $2', [now, id]);
   }
 
-  static async createSession(userId, username, role, tenantId = 'default') {
+  static async createSession(userId, username, role, tenantId = 'default', ipAddress = '', userAgent = '', forcePasswordChange = 0) {
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = Math.floor(Date.now() / 1000) + 7 * 86400; // 7 days
     
     await db.query(
-      'INSERT INTO sessions (token, user_id, username, role, tenant_id, expires_at) VALUES ($1, $2, $3, $4, $5, $6)',
-      [token, userId, username, role, tenantId, expiresAt]
+      'INSERT INTO sessions (token, user_id, username, role, tenant_id, ip_address, user_agent, force_password_change, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+      [token, userId, username, role, tenantId, ipAddress, userAgent, forcePasswordChange ? 1 : 0, expiresAt]
     );
     return token;
   }

@@ -95,6 +95,8 @@ async function initSuperAdminDB() {
       CREATE TABLE IF NOT EXISTS super_sessions (
         token VARCHAR(128) PRIMARY KEY,
         admin_id INTEGER REFERENCES super_admins(id) ON DELETE CASCADE,
+        ip_address VARCHAR(45) DEFAULT '',
+        user_agent TEXT DEFAULT '',
         created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
         expires_at BIGINT NOT NULL
       );
@@ -180,6 +182,14 @@ async function initSuperAdminDB() {
       console.log('[SuperAdmin] Auto-migrated: Added api_key_encrypted to tenants table');
     } catch (e) {
       // Column already exists, ignore
+    }
+
+    try {
+      await client.query('ALTER TABLE super_sessions ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45) DEFAULT \'\'');
+      await client.query('ALTER TABLE super_sessions ADD COLUMN IF NOT EXISTS user_agent TEXT DEFAULT \'\'');
+      console.log('[SuperAdmin] Auto-migrated: Added ip_address and user_agent to super_sessions table');
+    } catch (e) {
+      // Columns already exist or error, ignore
     }
 
     // Seed default superadmin / superadmin with mandatory password change
@@ -309,7 +319,7 @@ setInterval(async () => {
 // Routes
 app.post('/api/super/login', superLoginLimiter, async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, confirm_takeover } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
     const adminRes = await pool.query('SELECT * FROM super_admins WHERE username = $1', [username.trim().toLowerCase()]);
@@ -323,12 +333,46 @@ app.post('/api/super/login', superLoginLimiter, async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket?.remoteAddress || req.ip || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const now = Math.floor(Date.now() / 1000);
+
+    // Check for active unexpired session for this admin account
+    const activeSessionRes = await pool.query(
+      'SELECT token, ip_address, user_agent, created_at, expires_at FROM super_sessions WHERE admin_id = $1 AND expires_at > $2 ORDER BY created_at DESC LIMIT 1',
+      [admin.id, now]
+    );
+
+    if (activeSessionRes.rows.length > 0 && confirm_takeover !== true) {
+      const activeSession = activeSessionRes.rows[0];
+      return res.status(409).json({
+        session_already_active: true,
+        active_session: {
+          ip_address: activeSession.ip_address || 'unknown',
+          user_agent: activeSession.user_agent || 'unknown',
+          created_at: activeSession.created_at
+        },
+        message: 'This account is currently active on another device. Do you want to log out that device and continue?'
+      });
+    }
+
+    // Single active session enforcement: delete prior active sessions for this admin
+    if (activeSessionRes.rows.length > 0) {
+      await pool.query('DELETE FROM super_sessions WHERE admin_id = $1', [admin.id]);
+      try {
+        await pool.query(
+          'INSERT INTO audit_log (user_id, username, action, resource, detail, ip_address, user_agent, result) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+          [admin.id, admin.username, 'SESSION_TAKEOVER', 'super_sessions', 'Terminated previous session due to new login takeover', clientIp, userAgent, 'SUCCESS']
+        );
+      } catch (_) {}
+    }
+
     const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = Math.floor(Date.now() / 1000) + 8 * 3600;
+    const expiresAt = now + 8 * 3600;
 
     await pool.query(
-      'INSERT INTO super_sessions (token, admin_id, expires_at) VALUES ($1, $2, $3)',
-      [token, admin.id, expiresAt]
+      'INSERT INTO super_sessions (token, admin_id, ip_address, user_agent, expires_at) VALUES ($1, $2, $3, $4, $5)',
+      [token, admin.id, clientIp, userAgent, expiresAt]
     );
 
     res.cookie('super_session', token, { httpOnly: true, secure: true, sameSite: 'strict' });
@@ -340,6 +384,10 @@ app.post('/api/super/login', superLoginLimiter, async (req, res) => {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+app.get('/api/super/session-check', superAuthMiddleware, (req, res) => {
+  res.json({ valid: true, username: req.superAdmin.username });
 });
 
 app.post('/api/super/logout', superAuthMiddleware, async (req, res) => {

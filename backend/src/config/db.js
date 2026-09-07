@@ -90,6 +90,8 @@ function getTableSchemaSQL() {
       aggregator_name VARCHAR(255) DEFAULT NULL,
       display_name VARCHAR(255) DEFAULT NULL,
       force_password_change INTEGER DEFAULT 0,
+      ip_address VARCHAR(45) DEFAULT '',
+      user_agent TEXT DEFAULT '',
       created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
       expires_at BIGINT NOT NULL
     );
@@ -329,6 +331,8 @@ const initDB = async (retries = 10, delay = 3000) => {
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 0;
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS aggregator_name VARCHAR(255) DEFAULT NULL;
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS display_name VARCHAR(255) DEFAULT NULL;
+          ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45) DEFAULT '';
+          ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_agent TEXT DEFAULT '';
           ALTER TABLE mfa_pending ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT '';
           CREATE INDEX IF NOT EXISTS idx_events_ts_noise ON events (ts DESC, is_noise);
           CREATE INDEX IF NOT EXISTS idx_events_machine_ts ON events (machine, ts DESC);

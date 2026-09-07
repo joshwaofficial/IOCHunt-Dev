@@ -219,17 +219,31 @@ function ProtectedRoute({ children }) {
       (error) => {
         if (error.response?.status === 401) {
           setIsAuthenticated(false);
-          navigate('/login');
+          navigate('/login?reason=session_terminated');
         }
         return Promise.reject(error);
       }
     );
 
+    // Initial session verification
     axios.get('/api/super/companies')
       .then(() => setIsAuthenticated(true))
       .catch(() => setIsAuthenticated(false));
 
-    return () => axios.interceptors.response.eject(interceptor);
+    // Periodic heartbeat to detect session revocation in real-time (every 25 seconds)
+    const heartbeatInterval = setInterval(() => {
+      axios.get('/api/super/session-check').catch((err) => {
+        if (err.response?.status === 401) {
+          setIsAuthenticated(false);
+          navigate('/login?reason=session_terminated');
+        }
+      });
+    }, 25000);
+
+    return () => {
+      axios.interceptors.response.eject(interceptor);
+      clearInterval(heartbeatInterval);
+    };
   }, [navigate]);
 
   if (isAuthenticated === null) {

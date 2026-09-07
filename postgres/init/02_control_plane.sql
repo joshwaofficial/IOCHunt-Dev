@@ -69,6 +69,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     aggregator_name VARCHAR(255) DEFAULT NULL,
     display_name VARCHAR(255) DEFAULT NULL,
     force_password_change INTEGER DEFAULT 0,
+    ip_address VARCHAR(45) DEFAULT '',
+    user_agent TEXT DEFAULT '',
     created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
     expires_at BIGINT NOT NULL
 );

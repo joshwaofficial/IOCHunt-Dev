@@ -105,8 +105,58 @@ body{font-family:Arial,sans-serif;background:#f0f4fc;padding:20px;color:#1a2540}
   }
 }
 
+async function sendSecurityAlertEmail({ to, username, ip, userAgent, time }) {
+  try {
+    const cfg = await getSmtpConfig();
+    if (!cfg || !cfg.enabled || !cfg.host || !to) return;
+
+    const formattedTime = time ? new Date(time * 1000).toLocaleString() : new Date().toLocaleString();
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+body{font-family:Arial,sans-serif;background:#0d111d;padding:20px;color:#e2e8f0}
+.card{background:#161c2c;border:1px solid #2d3748;border-radius:10px;padding:24px 28px;max-width:540px;margin:0 auto}
+.hdr{background:#dc2626;color:#fff;border-radius:8px;padding:14px 18px;margin-bottom:18px}
+.hdr h1{margin:0;font-size:16px;letter-spacing:0.5px}
+.field{margin-bottom:12px;font-size:13px}
+.label{font-weight:700;color:#94a3b8;text-transform:uppercase;font-size:10px;letter-spacing:.8px;display:block;margin-bottom:2px}
+.val{color:#f8fafc;font-family:monospace;font-size:13px}
+.alert-box{background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);border-radius:6px;padding:12px;color:#fca5a5;font-size:12px;line-height:1.5;margin:16px 0}
+.footer{text-align:center;font-size:11px;color:#64748b;margin-top:20px}
+</style></head><body>
+<div class="card">
+  <div class="hdr"><h1>⚠️ IOC Hunt — New Device Login Detected</h1></div>
+  <p style="font-size:13px;color:#cbd5e1;margin-bottom:16px">Hello <strong>${username}</strong>,</p>
+  <p style="font-size:13px;color:#cbd5e1;line-height:1.5">Your IOC Hunt account was accessed from a new device or browser, and any existing active session was disconnected.</p>
+  <div style="background:#0f131f;border:1px solid #1e2538;border-radius:8px;padding:14px;margin:16px 0">
+    <div class="field"><span class="label">IP Address</span><span class="val">${ip || 'Unknown'}</span></div>
+    <div class="field"><span class="label">Date & Time</span><span class="val">${formattedTime}</span></div>
+    <div class="field"><span class="label">Device / Browser</span><span style="font-size:11px;color:#94a3b8;word-break:break-all">${userAgent ? userAgent.slice(0, 150) : 'Unknown'}</span></div>
+  </div>
+  <div class="alert-box">
+    <strong>Did you perform this login?</strong><br>
+    If this was you, you can safely ignore this notification. If you did NOT log in, your password may be compromised. Please sign in immediately and reset your password.
+  </div>
+  <div class="footer">IOC Hunt Security Monitoring &nbsp;|&nbsp; Automated Alert</div>
+</div>
+</body></html>`;
+
+    const t = createTransporter(cfg);
+    await t.sendMail({
+      from: `"${cfg.from_name || 'IOC Hunt Security'}" <${cfg.from_addr}>`,
+      to,
+      subject: `[IOC Hunt Security Alert] New Login Takeover Detected for ${username}`,
+      text: `Hello ${username},\n\nA new login was detected for your IOC Hunt account from IP: ${ip || 'Unknown'} at ${formattedTime}.\n\nIf this was not you, please log in and change your password immediately.`,
+      html
+    });
+    console.log(`[EMAIL] Security takeover alert sent to ${to}`);
+  } catch (err) {
+    console.warn('[EMAIL] Failed to send security takeover email:', err.message);
+  }
+}
+
 module.exports = {
   getSmtpConfig,
   createTransporter,
-  sendAssignmentEmail
+  sendAssignmentEmail,
+  sendSecurityAlertEmail
 };

@@ -9,6 +9,8 @@ const db = require('../config/db');
 const tenantDbManager = require('../config/tenantDbManager');
 const { verifyTOTP } = require('../utils/totpHelper');
 const appMode = require('../config/appMode');
+const sseBroadcaster = require('../services/sseBroadcaster');
+const { sendSecurityAlertEmail } = require('../utils/emailHelper');
 
 /**
  * Validates password complexity
@@ -188,12 +190,15 @@ async function handleFailedLogin(lockoutKey, res) {
 
 async function login(req, res) {
   try {
-    let { username, password, workspace_id } = req.body;
+    let { username, password, workspace_id, confirm_takeover } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password are required' });
     }
     
     password = password.trim();
+
+    const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
 
     const normalizedUser = String(username).trim().toLowerCase();
     const normalizedWorkspace = (workspace_id && typeof workspace_id === 'string')
@@ -265,6 +270,26 @@ async function login(req, res) {
       // Successful credentials verification: clear failed login attempts
       await clearLockout(lockoutKey);
 
+      // Check for active unexpired session for this tenant user
+      const now = Math.floor(Date.now() / 1000);
+      const activeSessionRes = await db.query(
+        'SELECT token, ip_address, user_agent, created_at, expires_at FROM sessions WHERE user_id = $1 AND tenant_id = $2 AND expires_at > $3 ORDER BY created_at DESC LIMIT 1',
+        [user.id, tenantId, now]
+      );
+
+      if (activeSessionRes.rows.length > 0 && confirm_takeover !== true) {
+        const activeSession = activeSessionRes.rows[0];
+        return res.status(409).json({
+          session_already_active: true,
+          active_session: {
+            ip_address: activeSession.ip_address || 'unknown',
+            user_agent: activeSession.user_agent || 'unknown',
+            created_at: activeSession.created_at
+          },
+          message: 'This account is currently active on another device. Do you want to log out that device and continue?'
+        });
+      }
+
       // MFA check
       if (user.mfa_enabled) {
         const tempToken = crypto.randomBytes(32).toString('hex');
@@ -282,19 +307,41 @@ async function login(req, res) {
         });
       }
 
-      // Create session in control plane with tenant_id
+      // Single active session enforcement: terminate old sessions
+      if (activeSessionRes.rows.length > 0) {
+        await db.query('DELETE FROM sessions WHERE user_id = $1 AND tenant_id = $2', [user.id, tenantId]);
+        
+        // Push real-time event to terminate the old session immediately
+        sseBroadcaster.broadcast('session_revoked', {
+          user_id: user.id,
+          tenant_id: tenantId,
+          reason: 'concurrent_takeover'
+        });
+
+        // Email notification
+        if (user.email) {
+          sendSecurityAlertEmail({
+            to: user.email,
+            username: user.username,
+            ip: clientIp,
+            userAgent: userAgent,
+            time: now
+          }).catch(() => {});
+        }
+      }
+
+      // Create session in control plane with tenant_id, ip_address, and user_agent
       const token = crypto.randomBytes(32).toString('hex');
       const expiresAt = Math.floor(Date.now() / 1000) + 7 * 86400;
       const isForcedChange = user.force_password_change === 1 || user.force_password_change === true;
 
       await db.query(
-        `INSERT INTO sessions (token, user_id, username, role, tenant_id, force_password_change, aggregator_name, display_name, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [token, user.id, user.username, user.role, tenantId, isForcedChange ? 1 : 0, user.aggregator_name || null, user.display_name || null, expiresAt]
+        `INSERT INTO sessions (token, user_id, username, role, tenant_id, force_password_change, aggregator_name, display_name, ip_address, user_agent, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [token, user.id, user.username, user.role, tenantId, isForcedChange ? 1 : 0, user.aggregator_name || null, user.display_name || null, clientIp, userAgent, expiresAt]
       );
 
       // Update last login in tenant DB
-      const now = Math.floor(Date.now() / 1000);
       await tenantPool.query('UPDATE users SET last_login = $1 WHERE id = $2', [now, user.id]);
 
       // Set secure session cookie
@@ -323,7 +370,7 @@ async function login(req, res) {
       });
     }
 
-    // ── Legacy Single-Tenant Login (no workspace_id) ────────
+    // ── Legacy Single-Tenant / Aggregator Login (no workspace_id) ────────
     // Falls back to the original login flow for backwards compatibility
     const user = await User.findByUsername(username);
     if (!user) {
@@ -337,6 +384,28 @@ async function login(req, res) {
 
     // Successful credentials verification: clear failed login attempts
     await clearLockout(lockoutKey);
+
+    const targetTenant = user.aggregator_name ? 'aggregator' : 'default';
+    const now = Math.floor(Date.now() / 1000);
+
+    // Check for active unexpired session
+    const activeSessionRes = await db.query(
+      'SELECT token, ip_address, user_agent, created_at, expires_at FROM sessions WHERE user_id = $1 AND (tenant_id = $2 OR tenant_id = \'\' OR tenant_id IS NULL) AND expires_at > $3 ORDER BY created_at DESC LIMIT 1',
+      [user.id, targetTenant, now]
+    );
+
+    if (activeSessionRes.rows.length > 0 && confirm_takeover !== true) {
+      const activeSession = activeSessionRes.rows[0];
+      return res.status(409).json({
+        session_already_active: true,
+        active_session: {
+          ip_address: activeSession.ip_address || 'unknown',
+          user_agent: activeSession.user_agent || 'unknown',
+          created_at: activeSession.created_at
+        },
+        message: 'This account is currently active on another device. Do you want to log out that device and continue?'
+      });
+    }
 
     // MFA check
     if (user.mfa_enabled) {
@@ -355,8 +424,33 @@ async function login(req, res) {
       });
     }
 
-    // Generate authenticated session
-    const token = await User.createSession(user.id, user.username, user.role);
+    // Invalidate previous sessions
+    if (activeSessionRes.rows.length > 0) {
+      await db.query(
+        'DELETE FROM sessions WHERE user_id = $1 AND (tenant_id = $2 OR tenant_id = \'\' OR tenant_id IS NULL)',
+        [user.id, targetTenant]
+      );
+
+      sseBroadcaster.broadcast('session_revoked', {
+        user_id: user.id,
+        tenant_id: targetTenant,
+        reason: 'concurrent_takeover'
+      });
+
+      if (user.email) {
+        sendSecurityAlertEmail({
+          to: user.email,
+          username: user.username,
+          ip: clientIp,
+          userAgent: userAgent,
+          time: now
+        }).catch(() => {});
+      }
+    }
+
+    // Generate authenticated single session
+    const isForcedChange = user.force_password_change === 1 || user.force_password_change === true;
+    const token = await User.createSession(user.id, user.username, user.role, targetTenant, clientIp, userAgent, isForcedChange ? 1 : 0);
     await User.updateLastLogin(user.id);
 
     // Set secure session cookie (7 days)
@@ -367,8 +461,6 @@ async function login(req, res) {
       path: '/',
       maxAge: 7 * 24 * 3600 * 1000 // 7 days
     });
-
-    const isForcedChange = user.force_password_change === 1 || user.force_password_change === true;
 
     // If logging in as Central Super Admin, ensure instance_mode is central_server
     if (user.role === 'ADMIN' && !user.aggregator_name) {
@@ -508,7 +600,20 @@ async function mfaVerify(req, res) {
 
     await db.query('DELETE FROM mfa_pending WHERE token=$1', [tempToken]);
     
-    const token = await User.createSession(user.id, user.username, user.role);
+    const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const targetTenant = pending.tenant_id || 'default';
+
+    // Terminate existing sessions upon successful MFA verification
+    await db.query('DELETE FROM sessions WHERE user_id = $1 AND (tenant_id = $2 OR tenant_id = \'\' OR tenant_id IS NULL)', [user.id, targetTenant]);
+    sseBroadcaster.broadcast('session_revoked', {
+      user_id: user.id,
+      tenant_id: targetTenant,
+      reason: 'concurrent_takeover'
+    });
+
+    const isForcedChange = user.force_password_change === 1 || user.force_password_change === true;
+    const token = await User.createSession(user.id, user.username, user.role, targetTenant, clientIp, userAgent, isForcedChange ? 1 : 0);
     await User.updateLastLogin(user.id);
 
     res.cookie('iochunt_session', token, {
@@ -518,8 +623,6 @@ async function mfaVerify(req, res) {
       path: '/',
       maxAge: 7 * 24 * 3600 * 1000
     });
-
-    const isForcedChange = user.force_password_change === 1 || user.force_password_change === true;
 
     return res.status(200).json({
       message: 'Login successful',
