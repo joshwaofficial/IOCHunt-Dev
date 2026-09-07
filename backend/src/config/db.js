@@ -399,7 +399,7 @@ const initDB = async (retries = 10, delay = 3000) => {
           if (settingsRes.rows.length > 0) {
             if (!settingsRes.rows[0].agent_api_key_hash || !settingsRes.rows[0].agent_api_key_plain) {
               // Generate default API key on first run or if plain key is missing from a migration
-              const defaultPlain = 'iochunt-' + crypto.randomBytes(4).toString('hex');
+              const defaultPlain = crypto.randomBytes(16).toString('base64url');
               const defaultHash = hash(defaultPlain);
               await client.query(
                 'UPDATE settings SET agent_api_key_hash = $1, agent_api_key_plain = $2 WHERE id = 1',

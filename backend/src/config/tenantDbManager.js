@@ -294,7 +294,7 @@ async function provisionTenantDb(opts) {
   const dbName = `iochunt_tenant_${safeId}`;
   const dbUser = `tenant_${safeId}`;
   const dbPassword = crypto.randomBytes(24).toString('hex');
-  const apiKey = 'iochunt-' + crypto.randomBytes(16).toString('hex');
+  const apiKey = crypto.randomBytes(16).toString('base64url');
   const apiKeyHash = crypto.createHash('sha256').update(apiKey).digest('hex');
 
   // Use a provisioning connection (has CREATEDB / CREATEROLE but is NOT superuser)
