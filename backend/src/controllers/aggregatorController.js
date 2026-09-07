@@ -53,10 +53,12 @@ const createAggregator = async (req, res) => {
       dbName
     ]);
 
-    const { getNetworkUrl } = require('../utils/networkHelper');
     const port = process.env.PORT || 4001;
     const isHttps = req.protocol === 'https' || req.secure || Boolean(process.env.SSL_KEY_PATH);
-    const centralServerUrl = getNetworkUrl(port, isHttps);
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    const protocol = req.headers['x-forwarded-proto'] || (isHttps ? 'https' : 'http');
+    const { getNetworkUrl } = require('../utils/networkHelper');
+    const centralServerUrl = process.env.CENTRAL_SERVER_URL || (host ? `${protocol}://${host}` : getNetworkUrl(port, isHttps));
 
     res.status(201).json({
       success: true,
@@ -123,10 +125,12 @@ const generateCode = async (req, res) => {
       5432
     ]);
 
-    const { getNetworkUrl } = require('../utils/networkHelper');
     const port = process.env.PORT || 4001;
     const isHttps = req.protocol === 'https' || req.secure || Boolean(process.env.SSL_KEY_PATH);
-    const centralServerUrl = getNetworkUrl(port, isHttps);
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    const protocol = req.headers['x-forwarded-proto'] || (isHttps ? 'https' : 'http');
+    const { getNetworkUrl } = require('../utils/networkHelper');
+    const centralServerUrl = process.env.CENTRAL_SERVER_URL || (host ? `${protocol}://${host}` : getNetworkUrl(port, isHttps));
 
     res.json({
       success: true,

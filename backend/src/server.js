@@ -172,12 +172,7 @@ app.get('/api/status', (req, res) => {
     setupCompleted: config.setupComplete,
     version: process.env.APP_VERSION || '2.0.0',
     protocol: process.env.USE_HTTPS !== 'false' ? 'HTTPS (Secure)' : 'HTTP',
-    timestamp: new Date().toISOString(),
-    endpoints: {
-      health: '/api/ping',
-      instance: '/api/instance/info',
-      auth: '/api/auth/login'
-    }
+    timestamp: new Date().toISOString()
   });
 });
 

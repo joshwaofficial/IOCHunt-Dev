@@ -40,18 +40,11 @@ async function getInstanceInfo(req, res) {
       console.warn('[Instance] DB query for setup status notice:', dbErr.message);
     }
 
-    const { getHostIp, getNetworkUrl } = require('../utils/networkHelper');
-    const port = process.env.PORT || 4001;
-    const isHttps = req.protocol === 'https' || req.secure || Boolean(process.env.SSL_KEY_PATH);
-
     return res.json({
       mode: mode,
       deployment_mode: deploymentMode,
       instance_name: instanceName,
       setup_complete: setupComplete,
-      host_ip: getHostIp(),
-      network_url: getNetworkUrl(port, isHttps),
-      port: port,
       available_modes: [
         {
           id: MODES.CENTRAL,
