@@ -28,24 +28,21 @@ export default function ForcePasswordReset() {
     }
 
     try {
-      await axios.post('/api/auth/change-password', {
+      const res = await axios.post('/api/auth/change-password', {
         current_password: currentPassword,
         new_password: newPassword,
         confirm_password: confirmPassword,
         new_username: newUsername || undefined
       });
       
-      // Update local state
-      const updatedUser = { 
-        ...user, 
-        force_password_change: false, 
-        username: newUsername || user.username 
-      };
-      setUser(updatedUser);
-      localStorage.setItem('iochunt_user', JSON.stringify(updatedUser));
+      // Clear local state and session since all active sessions are revoked
+      localStorage.removeItem('iochunt_user');
+      setUser(null);
       
-      toast.success('Credentials updated successfully!');
-      navigate('/dashboard', { replace: true });
+      toast.success(res.data?.message || 'Credentials updated! Active sessions terminated. Please log in with your new password.');
+      setTimeout(() => {
+        navigate('/login', { replace: true });
+      }, 1500);
     } catch (err) {
       console.error('[Reset Error]', err);
       setError(err.response?.data?.error || 'Failed to update credentials.');

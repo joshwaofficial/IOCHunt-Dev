@@ -35,13 +35,15 @@ export default function ForcePasswordChangeModal() {
         confirm_password: confirmPassword
       });
 
-      toast.success(res.data.message || 'Password successfully updated!');
-      
-      // Update user state so force_password_change becomes false
-      setUser(prev => ({
-        ...prev,
-        force_password_change: false
-      }));
+      toast.success(res.data.message || 'Password successfully updated! Active sessions terminated. Please log in again.');
+      setTimeout(() => {
+        if (logout) {
+          logout();
+        } else {
+          localStorage.removeItem('iochunt_user');
+          window.location.href = '/login';
+        }
+      }, 1500);
     } catch (err) {
       console.error('Password change error:', err);
       toast.error(err.response?.data?.error || 'Failed to update password. Please check your current password.');

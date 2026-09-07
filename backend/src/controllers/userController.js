@@ -125,6 +125,10 @@ async function updateUser(req, res) {
       await req.queryControlPlane('UPDATE sessions SET username = $1 WHERE user_id = $2 AND tenant_id = $3', [username, id, req.tenantId]);
     }
 
+    if (password) {
+      await req.queryControlPlane('DELETE FROM sessions WHERE user_id = $1 AND tenant_id = $2', [id, req.tenantId]);
+    }
+
     return res.status(200).json({ success: true, message: 'User updated successfully' });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
@@ -144,6 +148,7 @@ async function deleteUser(req, res) {
       }
     }
     await User.deleteUser(id, req.queryTenant);
+    await req.queryControlPlane('DELETE FROM sessions WHERE user_id = $1 AND tenant_id = $2', [id, req.tenantId]);
     return res.status(200).json({ success: true, message: 'User deleted successfully' });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });

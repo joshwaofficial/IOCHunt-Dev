@@ -80,7 +80,11 @@ async function run() {
   if (updateRes.rows.length === 0) {
     console.error("User not found in tenant database.");
   } else {
-    console.log(`Password reset successfully for ${username} in tenant ${tenantId}.`);
+    await cpPool.query(
+      "DELETE FROM sessions WHERE tenant_id = $1 AND LOWER(username) = LOWER($2)",
+      [tenantId, username]
+    );
+    console.log(`Password reset successfully for ${username} in tenant ${tenantId}, and active sessions terminated.`);
   }
   
   await tenantPool.end();

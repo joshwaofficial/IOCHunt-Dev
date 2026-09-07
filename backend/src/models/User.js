@@ -40,6 +40,18 @@ class User {
     await db.query('DELETE FROM sessions WHERE token = $1', [token]);
   }
 
+  static async deleteSessionsByUserId(userId, tenantId = null) {
+    if (tenantId) {
+      await db.query('DELETE FROM sessions WHERE user_id = $1 AND tenant_id = $2', [userId, tenantId]);
+    } else {
+      await db.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
+    }
+  }
+
+  static async deleteSessionsByTenant(tenantId) {
+    await db.query('DELETE FROM sessions WHERE tenant_id = $1', [tenantId]);
+  }
+
   static async getAllUsers(queryFn) {
     const q = queryFn || db.query.bind(db);
     const res = await q(`

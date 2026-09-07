@@ -360,13 +360,17 @@ app.post('/api/super/change-password', superAuthMiddleware, async (req, res) => 
       [newHash, newSalt, admin.id]
     );
 
+    // Invalidate all active sessions for this super admin
+    await pool.query('DELETE FROM super_sessions WHERE admin_id = $1', [admin.id]);
+    res.clearCookie('super_session', { httpOnly: true, secure: true, sameSite: 'strict' });
+
     await pool.query(
       `INSERT INTO audit_log (username, action, resource, detail, ip_address, result)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [admin.username, 'CHANGE_SUPERADMIN_PASSWORD', 'super_admins', 'Super Admin master password changed', req.ip, 'SUCCESS']
     );
 
-    res.json({ success: true, message: 'Super Admin master password updated successfully.' });
+    res.json({ success: true, reauth_required: true, message: 'Super Admin master password updated successfully. Please log in again with your new password.' });
   } catch (err) {
     console.error('[Change Password Error]', err);
     res.status(500).json({ error: `Password update failed: ${err.message}` });
@@ -648,6 +652,12 @@ app.post('/api/super/companies/:company_id/reset-password', superAuthMiddleware,
       await tenantPool.end();
     }
 
+    // Invalidate all active sessions for this tenant and targeted admin in the central sessions table
+    await pool.query(
+      'DELETE FROM sessions WHERE tenant_id = $1 AND (LOWER(username) = LOWER($2) OR role = \'ADMIN\')',
+      [safeId, admin_username]
+    );
+
     // Log the password reset action
     await pool.query(
       `INSERT INTO audit_log (tenant_id, username, action, resource, detail, ip_address, result)
@@ -655,7 +665,7 @@ app.post('/api/super/companies/:company_id/reset-password', superAuthMiddleware,
       [safeId, req.superAdmin.username, 'RESET_TENANT_PASSWORD', safeId, `Admin password reset for tenant ${safeId}`, req.ip, 'SUCCESS']
     );
 
-    res.json({ success: true, message: 'Tenant admin password updated successfully. Password change required on next login.' });
+    res.json({ success: true, message: 'Tenant admin password updated successfully and all active sessions have been terminated. Password change required on next login.' });
   } catch (err) {
     console.error('[Reset Password Error]', err);
     res.status(500).json({ error: `Password reset failed: ${err.message}` });

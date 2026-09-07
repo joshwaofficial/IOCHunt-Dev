@@ -465,20 +465,16 @@ async function changePassword(req, res) {
       await User.updatePassword(user.id, hash, salt, queryFn);
     }
 
-    // Update the session in memory and in the control plane database
-    if (req.session && req.session.token) {
-      req.session.force_password_change = 0;
-      const db = require('../config/db');
-      await db.query(
-        'UPDATE sessions SET force_password_change = 0 WHERE token = $1',
-        [req.session.token]
-      );
-    }
+    // Invalidate all active sessions for this user across all devices/browsers (INT-WAPT-M-002 remediation)
+    await User.deleteSessionsByUserId(user.id, req.tenantId);
+
+    // Clear session cookie so existing token cannot be reused
+    res.clearCookie('iochunt_session', { path: '/' });
 
     return res.status(200).json({
       success: true,
-      force_password_change: false,
-      message: 'Password successfully changed. You now have full access to the system.'
+      reauth_required: true,
+      message: 'Password successfully changed and all active sessions have been terminated. Please log in again with your new password.'
     });
   } catch (error) {
     console.error('[Auth Error] Change password failed:', error);

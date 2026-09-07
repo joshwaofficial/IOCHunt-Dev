@@ -45,7 +45,8 @@ export default function SetupPassword() {
         new_password: newPassword,
         confirm_password: confirmPassword
       });
-      navigate('/');
+      document.cookie = "super_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+      navigate('/login');
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to update permanent master password');
     } finally {

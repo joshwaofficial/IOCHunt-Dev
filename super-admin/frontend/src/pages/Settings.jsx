@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import {
   Shield,
@@ -10,6 +11,7 @@ import {
 } from 'lucide-react';
 
 export default function Settings() {
+  const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [alert, setAlert] = useState({ type: '', message: '' });
@@ -94,11 +96,14 @@ export default function Settings() {
         current_password: passwordForm.currentPassword,
         new_password: passwordForm.newPassword
       });
-      showAlert('success', res.data?.message || 'Super Admin master password updated successfully!');
+      showAlert('success', res.data?.message || 'Master password updated! Active sessions terminated. Redirecting to login...');
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setTimeout(() => {
+        document.cookie = "super_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+        navigate('/login');
+      }, 1500);
     } catch (err) {
       showAlert('error', err.response?.data?.error || 'Failed to update master password.');
-    } finally {
       setIsPasswordChanging(false);
     }
   };
