@@ -24,6 +24,18 @@ const mfaLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const changePasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many password change attempts. Account protection engaged. Please try again after 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    return req.session?.user_id ? `user_${req.session.user_id}` : (req.ip || 'unknown');
+  },
+  validate: { default: true, ip: false, keyGeneratorIpFallback: false },
+});
+
 // Public authentication routes
 router.post('/login', loginLimiter, authController.login);
 router.post('/setup-branch', loginLimiter, authController.setupBranchNode);
@@ -32,7 +44,7 @@ router.post('/mfa/verify', mfaLimiter, authController.mfaVerify);
 // Protected authentication routes
 router.post('/logout', requireSession, authController.logout);
 router.get('/me', requireSession, authController.me);
-router.post('/change-password', requireSession, authController.changePassword);
+router.post('/change-password', requireSession, changePasswordLimiter, authController.changePassword);
 
 const { requireCentralServer } = require('../middlewares/modeGuard');
 const { requireAdmin } = require('../middlewares/authMiddleware');

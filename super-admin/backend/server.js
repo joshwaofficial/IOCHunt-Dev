@@ -262,11 +262,45 @@ function superLoginLimiter(req, res, next) {
   return next();
 }
 
+// Rate limiter for super-admin password changes (5 attempts per 15 minutes per IP/Admin)
+const superPasswordAttempts = new Map();
+function superPasswordLimiter(req, res, next) {
+  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+  const adminId = req.superAdmin?.admin_id || req.superAdmin?.id || 'anon';
+  const key = `${ip}_admin_${adminId}`;
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000;
+  const maxAttempts = 5;
+
+  const record = superPasswordAttempts.get(key);
+  if (!record || now - record.startTime > windowMs) {
+    superPasswordAttempts.set(key, { count: 1, startTime: now });
+    return next();
+  }
+
+  record.count++;
+  if (record.count > maxAttempts) {
+    return res.status(429).json({ error: 'Too many password change attempts. Account protection engaged. Please try again after 15 minutes.' });
+  }
+
+  return next();
+}
+
 // Background session cleaner for super-admin control plane (every 15 minutes)
 setInterval(async () => {
   try {
     const now = Math.floor(Date.now() / 1000);
     await pool.query('DELETE FROM super_sessions WHERE expires_at < $1', [now]);
+
+    // Clean up expired rate limiter memory maps
+    const nowMs = Date.now();
+    const windowMs = 15 * 60 * 1000;
+    for (const [key, val] of superLoginAttempts.entries()) {
+      if (nowMs - val.startTime > windowMs) superLoginAttempts.delete(key);
+    }
+    for (const [key, val] of superPasswordAttempts.entries()) {
+      if (nowMs - val.startTime > windowMs) superPasswordAttempts.delete(key);
+    }
   } catch (err) {
     console.error('[Session Cleanup] Error deleting expired super_sessions:', err.message);
   }
@@ -322,7 +356,7 @@ app.post('/api/super/logout', superAuthMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/super/change-password', superAuthMiddleware, async (req, res) => {
+app.post('/api/super/change-password', superAuthMiddleware, superPasswordLimiter, async (req, res) => {
   try {
     const { current_password, new_password, confirm_password } = req.body;
     const finalPassword = new_password || req.body.password;
@@ -348,6 +382,11 @@ app.post('/api/super/change-password', superAuthMiddleware, async (req, res) => 
       }
       const computedHash = crypto.pbkdf2Sync(current_password, admin.salt, 100000, 64, 'sha512').toString('hex');
       if (computedHash !== admin.password_hash) {
+        await pool.query(
+          `INSERT INTO audit_log (username, action, resource, detail, ip_address, result)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [admin.username, 'CHANGE_SUPERADMIN_PASSWORD_FAILED', 'super_admins', 'Failed password change: incorrect current password', req.ip, 'FAILURE']
+        ).catch(() => {});
         return res.status(401).json({ error: 'Current password is incorrect' });
       }
     }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { toast } from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 
 const esc = (s) => (s || '').toString().replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'");
@@ -17,7 +18,7 @@ const formatLocalTime = (unixSeconds) => {
 };
 
 export default function Users() {
-  const { user: currentUser, setUser } = useAuth();
+  const { user: currentUser, setUser, logout } = useAuth();
   const [data, setData] = useState([]);
   const [apiKey, setApiKey] = useState(null);
   const [apiKeyCopied, setApiKeyCopied] = useState(false);
@@ -111,6 +112,12 @@ export default function Users() {
   const savePassword = async (id) => {
     setPwErrors(prev => ({ ...prev, [id]: null }));
     const form = pwForms[id];
+    const isOwn = String(id) === String(currentUser?.id);
+
+    if (isOwn && !form?.currentPw) {
+      setPwErrors(prev => ({ ...prev, [id]: 'Current password is required.' }));
+      return;
+    }
     if (!form?.newPw || form.newPw.length < 8) {
       setPwErrors(prev => ({ ...prev, [id]: 'Min 8 characters required.' }));
       return;
@@ -119,11 +126,35 @@ export default function Users() {
       setPwErrors(prev => ({ ...prev, [id]: 'Passwords do not match.' }));
       return;
     }
+
     try {
-      await axios.patch(`/api/users/${id}`, { password: form.newPw });
-      setExpandedPwId(null);
-      // clear pw form securely
-      setPwForms(prev => ({ ...prev, [id]: { newPw: '', confirmPw: '' }}));
+      if (isOwn) {
+        // Secure change-password endpoint with rate-limiting and full session revocation
+        const res = await axios.post('/api/auth/change-password', {
+          current_password: form.currentPw,
+          new_password: form.newPw,
+          confirm_password: form.confirmPw
+        });
+        toast.success(res.data?.message || 'Password updated successfully! Please log in again.');
+        setTimeout(() => {
+          if (logout) {
+            logout();
+          } else {
+            localStorage.removeItem('iochunt_user');
+            window.location.href = '/login';
+          }
+        }, 1500);
+      } else {
+        // Admin setting temporary password for another user
+        await axios.patch(`/api/users/${id}`, { 
+          password: form.newPw,
+          force_password_change: true 
+        });
+        toast.success('Temporary password set. The user must change it on their next login.');
+        setExpandedPwId(null);
+        setPwForms(prev => ({ ...prev, [id]: { currentPw: '', newPw: '', confirmPw: '' }}));
+        fetchData();
+      }
     } catch (e) {
       setPwErrors(prev => ({ ...prev, [id]: e.response?.data?.error || 'Failed to update password' }));
     }
@@ -199,7 +230,7 @@ export default function Users() {
     if (expandedPwId === u.id) {
       setExpandedPwId(null);
     } else {
-      setPwForms(prev => ({ ...prev, [u.id]: { newPw: '', confirmPw: '' }}));
+      setPwForms(prev => ({ ...prev, [u.id]: { currentPw: '', newPw: '', confirmPw: '' }}));
       setExpandedPwId(u.id);
     }
   };
@@ -503,17 +534,48 @@ export default function Users() {
                         <tr style={{ background: 'rgba(0,0,0,0.1)' }}>
                           <td colSpan="5">
                             <div style={{ padding: '14px 20px 14px 56px' }}>
-                              <p style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 10px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Change Password — {u.username}</p>
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', maxWidth: '460px' }}>
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>New Password</label>
-                                  <input type="password" placeholder="Min 8 chars" className="input-field" value={pwForms[u.id]?.newPw || ''} onChange={(e) => setPwForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], newPw: e.target.value } }))} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }} />
-                                </div>
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Confirm</label>
-                                  <input type="password" placeholder="Repeat" className="input-field" value={pwForms[u.id]?.confirmPw || ''} onChange={(e) => setPwForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], confirmPw: e.target.value } }))} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }} />
-                                </div>
-                              </div>
+                              {String(u.id) === String(currentUser?.id) ? (
+                                <>
+                                  <p style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 10px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                                    Change Your Password — {u.username}
+                                  </p>
+                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', maxWidth: '680px' }}>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Current Password</label>
+                                      <input type="password" placeholder="Current password" className="input-field" value={pwForms[u.id]?.currentPw || ''} onChange={(e) => setPwForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], currentPw: e.target.value } }))} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }} />
+                                    </div>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>New Password</label>
+                                      <input type="password" placeholder="Min 8 chars" className="input-field" value={pwForms[u.id]?.newPw || ''} onChange={(e) => setPwForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], newPw: e.target.value } }))} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }} />
+                                    </div>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Confirm</label>
+                                      <input type="password" placeholder="Repeat" className="input-field" value={pwForms[u.id]?.confirmPw || ''} onChange={(e) => setPwForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], confirmPw: e.target.value } }))} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }} />
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                                    <p style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', margin: 0, color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                                      Reset Temporary Password — {u.username}
+                                    </p>
+                                    <span style={{ fontSize: '11px', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.2)', padding: '1px 7px', borderRadius: '4px' }}>
+                                      User will be forced to change on next login
+                                    </span>
+                                  </div>
+                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', maxWidth: '460px' }}>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Temporary Password</label>
+                                      <input type="password" placeholder="Min 8 chars" className="input-field" value={pwForms[u.id]?.newPw || ''} onChange={(e) => setPwForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], newPw: e.target.value } }))} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }} />
+                                    </div>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Confirm</label>
+                                      <input type="password" placeholder="Repeat" className="input-field" value={pwForms[u.id]?.confirmPw || ''} onChange={(e) => setPwForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], confirmPw: e.target.value } }))} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }} />
+                                    </div>
+                                  </div>
+                                </>
+                              )}
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
                                 <button onClick={() => savePassword(u.id)} style={{ background: '#2563eb', color: '#fff', border: '1px solid #2563eb', padding: '5px 11px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>Update</button>
                                 <button onClick={() => setExpandedPwId(null)} style={{ background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)', padding: '5px 11px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>

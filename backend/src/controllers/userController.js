@@ -99,15 +99,29 @@ async function updateUser(req, res) {
     if (!existing) return res.status(404).json({ error: 'User not found' });
     
     const isAdmin = req.session.role === 'ADMIN';
-    if (!isAdmin && parseInt(id) !== req.session.user_id) return res.status(403).json({ error: 'Forbidden' });
+    const isOwnAccount = parseInt(id) === req.session.user_id;
+
+    if (!isAdmin && !isOwnAccount) return res.status(403).json({ error: 'Forbidden' });
     if (role && role !== existing.role && !isAdmin) return res.status(403).json({ error: 'Forbidden' });
 
     let passwordHash = undefined, salt = undefined;
+    let enforcedForcePasswordChange = force_password_change;
+
     if (password) {
+      if (isOwnAccount) {
+        return res.status(400).json({
+          error: 'To change your own password, please use the Change Password setting with your current password verification.'
+        });
+      }
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Forbidden: Only administrators can reset user passwords.' });
+      }
       if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
       const hashed = hashPassword(password);
       passwordHash = hashed.hash;
       salt = hashed.salt;
+      // Admin reset always forces the employee to set their own password on next login
+      enforcedForcePasswordChange = 1;
     }
 
     const upperRole = role ? role.toUpperCase() : existing.role;
@@ -118,7 +132,7 @@ async function updateUser(req, res) {
       role: upperRole,
       passwordHash,
       salt,
-      forcePasswordChange: force_password_change !== undefined ? force_password_change : (password ? 0 : undefined)
+      forcePasswordChange: enforcedForcePasswordChange
     }, req.queryTenant);
 
     if (username && username !== existing.username) {
