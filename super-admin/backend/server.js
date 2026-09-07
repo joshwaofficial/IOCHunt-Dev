@@ -316,7 +316,69 @@ setInterval(async () => {
   }
 }, 15 * 60 * 1000).unref();
 
+// ════════════════════════════════════════════════════════════════
+// Real-Time SSE Broadcaster for Super-Admin Control Plane
+// ════════════════════════════════════════════════════════════════
+class SuperSSEBroadcaster {
+  constructor() {
+    this.clients = new Map(); // adminId -> Set of res
+  }
+
+  subscribe(adminId, res) {
+    if (!this.clients.has(adminId)) {
+      this.clients.set(adminId, new Set());
+    }
+    this.clients.get(adminId).add(res);
+  }
+
+  unsubscribe(adminId, res) {
+    const adminSet = this.clients.get(adminId);
+    if (adminSet) {
+      adminSet.delete(res);
+      if (adminSet.size === 0) {
+        this.clients.delete(adminId);
+      }
+    }
+  }
+
+  broadcastToAdmin(adminId, eventType, data = {}) {
+    const adminSet = this.clients.get(adminId);
+    if (adminSet && adminSet.size > 0) {
+      const payload = JSON.stringify(data);
+      for (const client of adminSet) {
+        try {
+          client.write(`event: ${eventType}\ndata: ${payload}\n\n`);
+        } catch (_) {}
+      }
+    }
+  }
+}
+
+const superSSE = new SuperSSEBroadcaster();
+
 // Routes
+app.get('/api/super/stream', superAuthMiddleware, (req, res) => {
+  const adminId = req.superAdmin.admin_id || req.superAdmin.id;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  superSSE.subscribe(adminId, res);
+
+  res.write(`event: connected\ndata: {"status":"connected"}\n\n`);
+
+  const heartbeat = setInterval(() => {
+    res.write(`event: heartbeat\ndata: {}\n\n`);
+  }, 15000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    superSSE.unsubscribe(adminId, res);
+  });
+});
+
 app.post('/api/super/login', superLoginLimiter, async (req, res) => {
   try {
     const { username, password, confirm_takeover } = req.body;
@@ -359,6 +421,13 @@ app.post('/api/super/login', superLoginLimiter, async (req, res) => {
     // Single active session enforcement: delete prior active sessions for this admin
     if (activeSessionRes.rows.length > 0) {
       await pool.query('DELETE FROM super_sessions WHERE admin_id = $1', [admin.id]);
+      
+      // REAL-TIME INSTANT PUSH: kick out the old device immediately with ZERO clicks
+      superSSE.broadcastToAdmin(admin.id, 'session_revoked', {
+        reason: 'concurrent_takeover',
+        message: 'You were logged out because this account was accessed from another device.'
+      });
+
       try {
         await pool.query(
           'INSERT INTO audit_log (user_id, username, action, resource, detail, ip_address, user_agent, result) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',

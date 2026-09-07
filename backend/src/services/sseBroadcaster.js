@@ -11,15 +11,22 @@ class SSEBroadcaster {
 
     this.clients.add(res);
 
+    const heartbeat = setInterval(() => {
+      res.write(`event: heartbeat\ndata: {}\n\n`);
+    }, 15000);
+
     req.on('close', () => {
+      clearInterval(heartbeat);
       this.clients.delete(res);
     });
   }
 
   broadcast = (type, data) => {
-    const payload = JSON.stringify({ type, data });
+    const payload = JSON.stringify(data);
     for (const client of this.clients) {
-      client.write(`data: ${payload}\n\n`);
+      try {
+        client.write(`event: ${type}\ndata: ${payload}\n\n`);
+      } catch (_) {}
     }
   }
 }

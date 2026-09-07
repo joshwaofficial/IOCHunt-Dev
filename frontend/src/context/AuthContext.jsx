@@ -39,6 +39,32 @@ export function AuthProvider({ children }) {
       });
   }, []);
 
+  // Global real-time force-logout push listener (0 clicks, instant across all pages)
+  useEffect(() => {
+    if (!user || !user.id) return;
+
+    let sse = null;
+    try {
+      sse = new EventSource('/api/stream', { withCredentials: true });
+
+      sse.addEventListener('session_revoked', (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data && data.user_id === user.id && (!data.tenant_id || data.tenant_id === user.tenant_id)) {
+            if (sse) sse.close();
+            localStorage.removeItem('iochunt_user');
+            setUser(null);
+            window.location.href = '/login?reason=session_terminated';
+          }
+        } catch (_) {}
+      });
+    } catch (_) {}
+
+    return () => {
+      if (sse) sse.close();
+    };
+  }, [user]);
+
   const login = async (username, password, workspace_id, confirm_takeover = false) => {
     const res = await axios.post('/api/auth/login', {
       username,

@@ -226,23 +226,39 @@ function ProtectedRoute({ children }) {
     );
 
     // Initial session verification
+    let sse = null;
     axios.get('/api/super/companies')
-      .then(() => setIsAuthenticated(true))
+      .then(() => {
+        setIsAuthenticated(true);
+        // Connect real-time SSE push stream for instant force logout (0 clicks, instant!)
+        try {
+          sse = new EventSource('/api/super/stream', { withCredentials: true });
+          sse.addEventListener('session_revoked', () => {
+            if (sse) sse.close();
+            document.cookie = "super_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+            setIsAuthenticated(false);
+            window.location.href = '/login?reason=session_terminated';
+          });
+        } catch (_) {}
+      })
       .catch(() => setIsAuthenticated(false));
 
-    // Periodic heartbeat to detect session revocation in real-time (every 25 seconds)
+    // Fallback heartbeat (every 20 seconds)
     const heartbeatInterval = setInterval(() => {
       axios.get('/api/super/session-check').catch((err) => {
         if (err.response?.status === 401) {
+          if (sse) sse.close();
+          document.cookie = "super_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
           setIsAuthenticated(false);
           navigate('/login?reason=session_terminated');
         }
       });
-    }, 25000);
+    }, 20000);
 
     return () => {
       axios.interceptors.response.eject(interceptor);
       clearInterval(heartbeatInterval);
+      if (sse) sse.close();
     };
   }, [navigate]);
 
