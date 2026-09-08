@@ -90,16 +90,26 @@ export default function Users() {
   const saveEdit = async (id) => {
     setEditErrors(prev => ({ ...prev, [id]: null }));
     const form = editForms[id];
-    if (!form?.username) {
+    const targetUser = data.find(u => String(u.id) === String(id));
+    const isTargetAdmin = targetUser?.role === 'ADMIN';
+
+    if (!isTargetAdmin && !form?.username) {
       setEditErrors(prev => ({ ...prev, [id]: 'Username required.' }));
       return;
     }
     try {
-      await axios.patch(`/api/users/${id}`, { username: form.username, email: form.email, role: form.role });
+      const payload = {
+        email: form.email,
+        role: form.role
+      };
+      if (!isTargetAdmin) {
+        payload.username = form.username;
+      }
+      await axios.patch(`/api/users/${id}`, payload);
       
       // Update global context if user edited themselves
       if (currentUser && String(currentUser.id) === String(id)) {
-        setUser(prev => ({ ...prev, username: form.username, email: form.email, role: form.role }));
+        setUser(prev => ({ ...prev, email: form.email, role: form.role, ...((!isTargetAdmin && form.username) ? { username: form.username } : {}) }));
       }
       
       setExpandedEditId(null);
@@ -502,8 +512,28 @@ export default function Users() {
                               <p style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 10px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Editing — {u.username}</p>
                               <div style={{ display: 'grid', gridTemplateColumns: currentUser?.role === 'ADMIN' ? '1fr 1fr 120px' : '1fr 1fr', gap: '10px', maxWidth: currentUser?.role === 'ADMIN' ? '680px' : '550px' }}>
                                 <div>
-                                  <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Username</label>
-                                  <input type="text" className="input-field" value={editForms[u.id]?.username || ''} onChange={(e) => setEditForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], username: e.target.value } }))} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }} />
+                                  <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                                    Username {u.role === 'ADMIN' && <span style={{ color: '#38bdf8', textTransform: 'none', fontWeight: 400 }}>(Managed by Super Admin)</span>}
+                                  </label>
+                                  <input 
+                                    type="text" 
+                                    className="input-field" 
+                                    disabled={u.role === 'ADMIN'}
+                                    value={editForms[u.id]?.username || ''} 
+                                    onChange={(e) => setEditForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], username: e.target.value } }))} 
+                                    style={{ 
+                                      background: u.role === 'ADMIN' ? 'rgba(255, 255, 255, 0.03)' : 'var(--surface)', 
+                                      border: '1px solid var(--border)', 
+                                      color: u.role === 'ADMIN' ? 'var(--muted)' : 'var(--text)', 
+                                      cursor: u.role === 'ADMIN' ? 'not-allowed' : 'text',
+                                      borderRadius: '6px', 
+                                      padding: '7px 11px', 
+                                      fontSize: '13px', 
+                                      outline: 'none', 
+                                      width: '100%', 
+                                      fontFamily: 'var(--sans)' 
+                                    }} 
+                                  />
                                 </div>
                                 <div>
                                   <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Email</label>

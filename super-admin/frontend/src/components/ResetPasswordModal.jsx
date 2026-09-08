@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, KeyRound, Check, ArrowRight } from 'lucide-react';
 import axios from 'axios';
 
@@ -8,6 +8,12 @@ export default function ResetPasswordModal({ isOpen, tenant, onClose, onSuccess 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  useEffect(() => {
+    if (tenant) {
+      setAdminUsername(tenant.admin_username || 'admin');
+    }
+  }, [tenant]);
 
   const generatePassword = () => {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
@@ -30,10 +36,10 @@ export default function ResetPasswordModal({ isOpen, tenant, onClose, onSuccess 
         new_password: newPassword,
         admin_username: adminUsername
       });
-      setSuccessMsg(res.data.message || 'Password successfully reset.');
+      setSuccessMsg(res.data.message || 'Credentials successfully updated.');
       if (onSuccess) onSuccess();
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to reset tenant password');
+      setError(err.response?.data?.error || 'Failed to update tenant admin credentials');
     } finally {
       setIsLoading(false);
     }
@@ -57,8 +63,8 @@ export default function ResetPasswordModal({ isOpen, tenant, onClose, onSuccess 
               <KeyRound size={18} />
             </div>
             <div>
-              <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#f8fafc' }}>Reset Tenant Password</h3>
-              <p style={{ fontSize: '12px', color: '#64748b' }}>Override admin credentials for {tenant.company_name}</p>
+              <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#f8fafc' }}>Manage Admin Credentials</h3>
+              <p style={{ fontSize: '12px', color: '#64748b' }}>Set administrator username & password for {tenant.company_name}</p>
             </div>
           </div>
           <button onClick={!isLoading ? handleClose : null} className="btn-ghost" style={{ padding: '4px', borderRadius: '4px' }}>
@@ -97,7 +103,7 @@ export default function ResetPasswordModal({ isOpen, tenant, onClose, onSuccess 
           ) : (
             <form id="reset-pwd-form" onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Target Admin Username</label>
+                <label className="form-label">Central Server Admin Username</label>
                 <input
                   type="text"
                   className="form-input"
@@ -106,6 +112,9 @@ export default function ResetPasswordModal({ isOpen, tenant, onClose, onSuccess 
                   required
                   disabled={isLoading}
                 />
+                <span style={{ fontSize: '11px', color: '#64748b', marginTop: '4px', display: 'block' }}>
+                  Only the Super Admin can set or change the central server admin username.
+                </span>
               </div>
 
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -146,7 +155,7 @@ export default function ResetPasswordModal({ isOpen, tenant, onClose, onSuccess 
             >
               {isLoading ? 'Updating...' : (
                 <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  Update Password <ArrowRight size={14} />
+                  Update Credentials <ArrowRight size={14} />
                 </span>
               )}
             </button>

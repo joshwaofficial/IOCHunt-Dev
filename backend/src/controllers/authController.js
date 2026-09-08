@@ -541,7 +541,7 @@ async function login(req, res) {
 
 async function changePassword(req, res) {
   try {
-    let { current_password, new_password, confirm_password, new_username } = req.body;
+    let { current_password, new_password, confirm_password } = req.body;
 
     if (!current_password || !new_password || !confirm_password) {
       return res.status(400).json({ error: 'All password fields are required' });
@@ -588,16 +588,7 @@ async function changePassword(req, res) {
 
     // Hash new password and reset force_password_change flag
     const { hash, salt } = hashPassword(new_password);
-    
-    if (new_username && new_username.trim().toLowerCase() !== user.username) {
-      const existingUser = await User.findByUsername(new_username, queryFn);
-      if (existingUser) {
-        return res.status(400).json({ error: 'Username is already taken' });
-      }
-      await User.updateCredentials(user.id, new_username, hash, salt, queryFn);
-    } else {
-      await User.updatePassword(user.id, hash, salt, queryFn);
-    }
+    await User.updatePassword(user.id, hash, salt, queryFn);
 
     // Invalidate all active sessions for this user across all devices/browsers (INT-WAPT-M-002 remediation)
     await User.deleteSessionsByUserId(user.id, req.tenantId);

@@ -5,7 +5,6 @@ import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 
 export default function ForcePasswordReset() {
-  const [newUsername, setNewUsername] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -31,8 +30,7 @@ export default function ForcePasswordReset() {
       const res = await axios.post('/api/auth/change-password', {
         current_password: currentPassword,
         new_password: newPassword,
-        confirm_password: confirmPassword,
-        new_username: newUsername || undefined
+        confirm_password: confirmPassword
       });
       
       // Clear local state and session since all active sessions are revoked
@@ -381,7 +379,7 @@ export default function ForcePasswordReset() {
         {/* Title */}
         <h1>Security Check</h1>
         <div className="subtitle" style={{ color: '#f87171' }}>
-          You are using default credentials. Please set a new username and strong password to continue.
+          You are using temporary credentials. Please set a strong password to continue.
         </div>
 
         {error && (
@@ -392,22 +390,6 @@ export default function ForcePasswordReset() {
         )}
 
         <form onSubmit={handleSubmit}>
-
-
-          <div className="field">
-            <label>NEW USERNAME</label>
-            <div className="input-wrap">
-              <span className="input-icon material-symbols-outlined">person_add</span>
-              <input
-                type="text"
-                placeholder="Choose a new username"
-                required
-                value={newUsername}
-                onChange={(e) => setNewUsername(e.target.value)}
-              />
-            </div>
-          </div>
-
           <div className="field">
             <label>CURRENT PASSWORD</label>
             <div className="input-wrap">

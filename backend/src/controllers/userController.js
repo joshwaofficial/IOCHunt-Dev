@@ -104,6 +104,19 @@ async function updateUser(req, res) {
     if (!isAdmin && !isOwnAccount) return res.status(403).json({ error: 'Forbidden' });
     if (role && role !== existing.role && !isAdmin) return res.status(403).json({ error: 'Forbidden' });
 
+    // Restrict username modification
+    if (username && username.trim().toLowerCase() !== existing.username.toLowerCase()) {
+      if (existing.role === 'ADMIN') {
+        return res.status(403).json({
+          error: 'Central server administrator username cannot be changed. The admin username can only be set by the Super Admin.'
+        });
+      }
+      const existingUser = await User.findByUsername(username.trim().toLowerCase(), req.queryTenant);
+      if (existingUser && parseInt(existingUser.id) !== parseInt(id)) {
+        return res.status(400).json({ error: 'Username is already taken' });
+      }
+    }
+
     let passwordHash = undefined, salt = undefined;
     let enforcedForcePasswordChange = force_password_change;
 
@@ -125,9 +138,10 @@ async function updateUser(req, res) {
     }
 
     const upperRole = role ? role.toUpperCase() : existing.role;
+    const targetUsername = existing.role === 'ADMIN' ? existing.username : (username ? username.trim().toLowerCase() : existing.username);
 
     await User.updateUser(id, {
-      username: username || existing.username,
+      username: targetUsername,
       email: email !== undefined ? email : existing.email,
       role: upperRole,
       passwordHash,
@@ -135,8 +149,8 @@ async function updateUser(req, res) {
       forcePasswordChange: enforcedForcePasswordChange
     }, req.queryTenant);
 
-    if (username && username !== existing.username) {
-      await req.queryControlPlane('UPDATE sessions SET username = $1 WHERE user_id = $2 AND tenant_id = $3', [username, id, req.tenantId]);
+    if (targetUsername !== existing.username) {
+      await req.queryControlPlane('UPDATE sessions SET username = $1 WHERE user_id = $2 AND tenant_id = $3', [targetUsername, id, req.tenantId]);
     }
 
     if (password) {

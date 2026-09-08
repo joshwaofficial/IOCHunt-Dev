@@ -597,12 +597,19 @@ app.get('/api/super/companies', superAuthMiddleware, async (req, res) => {
       delete company.api_key_encrypted;
 
       let agentCount = 0;
+      let adminUsername = 'admin';
       if (company.status === 'active' && company.db_name) {
         try {
           const tConnStr = `postgres://${parsedUrl.username}:${parsedUrl.password}@${parsedUrl.hostname}:${parsedUrl.port || 5432}/${company.db_name}`;
           const tPool = new Pool({ connectionString: tConnStr, max: 1, connectionTimeoutMillis: 1000 });
-          const mRes = await tPool.query('SELECT COUNT(*) AS count FROM machines');
+          const [mRes, uRes] = await Promise.all([
+            tPool.query('SELECT COUNT(*) AS count FROM machines'),
+            tPool.query("SELECT username FROM users WHERE role = 'ADMIN' ORDER BY id ASC LIMIT 1")
+          ]);
           agentCount = parseInt(mRes.rows[0]?.count || 0, 10);
+          if (uRes.rows.length > 0 && uRes.rows[0].username) {
+            adminUsername = uRes.rows[0].username;
+          }
           await tPool.end();
         } catch (_) {
           // tenant DB timeout or unreachable, default to 0
@@ -612,7 +619,8 @@ app.get('/api/super/companies', superAuthMiddleware, async (req, res) => {
       return {
         ...company,
         api_key: apiKey,
-        agent_count: agentCount
+        agent_count: agentCount,
+        admin_username: adminUsername
       };
     }));
 
@@ -827,7 +835,7 @@ app.patch('/api/super/companies/:company_id/status', superAuthMiddleware, async 
 app.post('/api/super/companies/:company_id/reset-password', superAuthMiddleware, async (req, res) => {
   try {
     const { company_id } = req.params;
-    const { new_password, admin_username = 'admin' } = req.body;
+    const { new_password, admin_username } = req.body;
 
     if (!new_password || new_password.length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters long' });
@@ -843,34 +851,43 @@ app.post('/api/super/companies/:company_id/reset-password', superAuthMiddleware,
     const salt = crypto.randomBytes(32).toString('hex');
     const hash = crypto.pbkdf2Sync(new_password, salt, 100000, 64, 'sha512').toString('hex');
 
-    // Connect to tenant DB and update password
+    // Connect to tenant DB and update credentials
     const parsedUrl = new URL(process.env.SUPER_ADMIN_DATABASE_URL || 'postgres://postgres:iochunt_password@localhost:5433/iochunt_db');
     const tenantConnStr = `postgres://${parsedUrl.username}:${parsedUrl.password}@${parsedUrl.hostname}:${parsedUrl.port || 5432}/${dbName}`;
     const tenantPool = new Pool({ connectionString: tenantConnStr, max: 1 });
 
+    const targetUsername = (admin_username && admin_username.trim()) ? admin_username.trim().toLowerCase() : null;
+
     try {
-      await tenantPool.query(
-        'UPDATE users SET password_hash = $1, salt = $2, force_password_change = 1 WHERE role = \'ADMIN\' OR username = $3',
-        [hash, salt, admin_username]
-      );
+      if (targetUsername) {
+        await tenantPool.query(
+          'UPDATE users SET username = $1, password_hash = $2, salt = $3, force_password_change = 1 WHERE role = \'ADMIN\'',
+          [targetUsername, hash, salt]
+        );
+      } else {
+        await tenantPool.query(
+          'UPDATE users SET password_hash = $1, salt = $2, force_password_change = 1 WHERE role = \'ADMIN\'',
+          [hash, salt]
+        );
+      }
     } finally {
       await tenantPool.end();
     }
 
     // Invalidate all active sessions for this tenant and targeted admin in the central sessions table
     await pool.query(
-      'DELETE FROM sessions WHERE tenant_id = $1 AND (LOWER(username) = LOWER($2) OR role = \'ADMIN\')',
-      [safeId, admin_username]
+      'DELETE FROM sessions WHERE tenant_id = $1 AND role = \'ADMIN\'',
+      [safeId]
     );
 
     // Log the password reset action
     await pool.query(
       `INSERT INTO audit_log (tenant_id, username, action, resource, detail, ip_address, result)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [safeId, req.superAdmin.username, 'RESET_TENANT_PASSWORD', safeId, `Admin password reset for tenant ${safeId}`, req.ip, 'SUCCESS']
+      [safeId, req.superAdmin.username, 'RESET_TENANT_PASSWORD', safeId, `Admin credentials reset for tenant ${safeId}${targetUsername ? ` (username: ${targetUsername})` : ''}`, req.ip, 'SUCCESS']
     );
 
-    res.json({ success: true, message: 'Tenant admin password updated successfully and all active sessions have been terminated. Password change required on next login.' });
+    res.json({ success: true, message: `Tenant admin credentials updated successfully${targetUsername ? ` (Username: ${targetUsername})` : ''} and all active sessions have been terminated. Password change required on next login.` });
   } catch (err) {
     console.error('[Reset Password Error]', err);
     res.status(500).json({ error: 'Password reset failed' });
