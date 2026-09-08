@@ -8,6 +8,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [retryAfterSeconds, setRetryAfterSeconds] = useState(null);
   const [terminatedNotice, setTerminatedNotice] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [takeoverData, setTakeoverData] = useState(null);
@@ -23,6 +24,32 @@ export default function Login() {
     }
   }, [location.search]);
 
+  useEffect(() => {
+    if (!retryAfterSeconds || retryAfterSeconds <= 0) return;
+    const interval = setInterval(() => {
+      setRetryAfterSeconds((prev) => {
+        if (!prev || prev <= 1) {
+          setError('');
+          return null;
+        }
+        const next = prev - 1;
+        const mins = Math.floor(next / 60);
+        const secs = next % 60;
+        let timeStr = '';
+        if (mins > 0 && secs > 0) {
+          timeStr = `${mins} minute${mins !== 1 ? 's' : ''} and ${secs} second${secs !== 1 ? 's' : ''}`;
+        } else if (mins > 0) {
+          timeStr = `${mins} minute${mins !== 1 ? 's' : ''}`;
+        } else {
+          timeStr = `${secs} second${secs !== 1 ? 's' : ''}`;
+        }
+        setError(`Too many login attempts. Please try again in ${timeStr}.`);
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [retryAfterSeconds]);
+
   const handleLogin = async (e, confirmTakeover = false) => {
     if (e) e.preventDefault();
     if (confirmTakeover) {
@@ -34,6 +61,7 @@ export default function Login() {
     setTerminatedNotice('');
 
     try {
+      setRetryAfterSeconds(null);
       const res = await axios.post('/api/super/login', {
         username,
         password,
@@ -49,8 +77,14 @@ export default function Login() {
     } catch (err) {
       if (err.response?.status === 409 && err.response?.data?.session_already_active) {
         setTakeoverData(err.response.data.active_session || {});
+        setRetryAfterSeconds(null);
       } else {
-        setError(err.response?.data?.error || 'Invalid credentials or connection error');
+        if (err.response?.status === 429 && err.response?.data?.retryAfter) {
+          setRetryAfterSeconds(err.response.data.retryAfter);
+        } else {
+          setRetryAfterSeconds(null);
+        }
+        setError(err.response?.data?.error || err.response?.data?.message || 'Invalid credentials or connection error');
       }
     } finally {
       setIsLoading(false);

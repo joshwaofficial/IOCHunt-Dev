@@ -62,11 +62,25 @@ function decryptData(encryptedString) {
 
 // ════════════════════════════════════════════════════════════════
 // Account Lockout Configuration & Storage
-// Policy: 5 failed attempts within 15 minutes -> 15 minute lock
+// Policy: 7 allowed attempts within 15 minutes -> 15 minute lock on 8th attempt
 // ════════════════════════════════════════════════════════════════
-const MAX_FAILED_ATTEMPTS = 5;
+const MAX_FAILED_ATTEMPTS = 7;
 const LOCKOUT_WINDOW_SECONDS = 15 * 60;   // 15 minutes window
 const LOCKOUT_DURATION_SECONDS = 15 * 60; // 15 minutes lockout duration
+
+function formatRemainingTime(ms) {
+  const totalSeconds = Math.max(1, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes > 0 && seconds > 0) {
+    return `${minutes} minute${minutes !== 1 ? 's' : ''} and ${seconds} second${seconds !== 1 ? 's' : ''}`;
+  } else if (minutes > 0) {
+    return `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+  } else {
+    return `${seconds} second${seconds !== 1 ? 's' : ''}`;
+  }
+}
 
 // In-memory fallback store if Redis is unavailable
 const memoryLockoutStore = new Map();
@@ -113,7 +127,7 @@ async function getAccountLockoutRemaining(lockoutKey) {
 }
 
 /**
- * Record a failed login attempt. Locks account if threshold is reached.
+ * Record a failed login attempt. Locks account if threshold is exceeded.
  */
 async function recordFailedAttempt(lockoutKey) {
   // 1. Try Redis
@@ -129,12 +143,12 @@ async function recordFailedAttempt(lockoutKey) {
         await redis.expire(failKey, LOCKOUT_WINDOW_SECONDS);
       }
 
-      if (attempts >= MAX_FAILED_ATTEMPTS) {
+      if (attempts > MAX_FAILED_ATTEMPTS) {
         await redis.set(activeLockKey, 'locked', 'EX', LOCKOUT_DURATION_SECONDS);
         await redis.del(failKey);
         return { locked: true, remainingSeconds: LOCKOUT_DURATION_SECONDS };
       }
-      return { locked: false, attemptsRemaining: MAX_FAILED_ATTEMPTS - attempts };
+      return { locked: false, attemptsRemaining: Math.max(0, MAX_FAILED_ATTEMPTS - attempts) };
     }
   } catch (_) {
     // Redis error, fall back to in-memory
@@ -149,14 +163,14 @@ async function recordFailedAttempt(lockoutKey) {
     entry.count += 1;
   }
 
-  if (entry.count >= MAX_FAILED_ATTEMPTS) {
+  if (entry.count > MAX_FAILED_ATTEMPTS) {
     entry.lockedUntil = now + LOCKOUT_DURATION_SECONDS * 1000;
     memoryLockoutStore.set(lockoutKey, entry);
     return { locked: true, remainingSeconds: LOCKOUT_DURATION_SECONDS };
   }
 
   memoryLockoutStore.set(lockoutKey, entry);
-  return { locked: false, attemptsRemaining: MAX_FAILED_ATTEMPTS - entry.count };
+  return { locked: false, attemptsRemaining: Math.max(0, MAX_FAILED_ATTEMPTS - entry.count) };
 }
 
 /**
@@ -176,13 +190,32 @@ async function clearLockout(lockoutKey) {
 }
 
 /**
+ * Reset IP-level rate limiter on successful login.
+ */
+function resetLoginRateLimit(req) {
+  try {
+    const authRoutes = require('../routes/authRoutes');
+    if (authRoutes.loginLimiter && typeof authRoutes.loginLimiter.resetKey === 'function') {
+      const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || req.ip;
+      if (clientIp) authRoutes.loginLimiter.resetKey(clientIp);
+      if (req.ip && req.ip !== clientIp) authRoutes.loginLimiter.resetKey(req.ip);
+    }
+  } catch (_) {}
+}
+
+/**
  * Helper to record failure and return locked or invalid credentials response.
  */
 async function handleFailedLogin(lockoutKey, res) {
   const result = await recordFailedAttempt(lockoutKey);
   if (result.locked) {
+    const remainingSeconds = result.remainingSeconds || LOCKOUT_DURATION_SECONDS;
+    const formatted = formatRemainingTime(remainingSeconds * 1000);
+    const errorMsg = `Account is temporarily locked due to multiple failed login attempts. Please try again in ${formatted}.`;
     return res.status(423).json({
-      error: 'Account is temporarily locked due to multiple failed login attempts. Please try again in 15 minutes.'
+      error: errorMsg,
+      message: errorMsg,
+      retryAfter: remainingSeconds
     });
   }
   return res.status(401).json({ error: 'Invalid credentials' });
@@ -209,9 +242,12 @@ async function login(req, res) {
     // Check account lockout status before performing expensive operations
     const remainingLockout = await getAccountLockoutRemaining(lockoutKey);
     if (remainingLockout > 0) {
-      const mins = Math.ceil(remainingLockout / 60);
+      const formatted = formatRemainingTime(remainingLockout * 1000);
+      const errorMsg = `Account is temporarily locked due to multiple failed login attempts. Please try again in ${formatted}.`;
       return res.status(423).json({
-        error: `Account is temporarily locked due to multiple failed login attempts. Please try again in ${mins} minute${mins === 1 ? '' : 's'}.`
+        error: errorMsg,
+        message: errorMsg,
+        retryAfter: remainingLockout
       });
     }
 
@@ -267,8 +303,9 @@ async function login(req, res) {
         return await handleFailedLogin(lockoutKey, res);
       }
 
-      // Successful credentials verification: clear failed login attempts
+      // Successful credentials verification: clear failed login attempts and rate limiter
       await clearLockout(lockoutKey);
+      resetLoginRateLimit(req);
 
       // Check for active unexpired session for this tenant user
       const now = Math.floor(Date.now() / 1000);
@@ -386,8 +423,9 @@ async function login(req, res) {
       return await handleFailedLogin(lockoutKey, res);
     }
 
-    // Successful credentials verification: clear failed login attempts
+    // Successful credentials verification: clear failed login attempts and rate limiter
     await clearLockout(lockoutKey);
+    resetLoginRateLimit(req);
 
     const targetTenant = user.aggregator_name ? 'aggregator' : 'default';
     const now = Math.floor(Date.now() / 1000);

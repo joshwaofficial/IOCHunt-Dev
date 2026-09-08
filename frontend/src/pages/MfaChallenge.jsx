@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 export default function MfaChallenge() {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
+  const [retryAfterSeconds, setRetryAfterSeconds] = useState(null);
   const [loading, setLoading] = useState(false);
   
   const navigate = useNavigate();
@@ -19,12 +20,39 @@ export default function MfaChallenge() {
     return <Navigate to="/login" replace />;
   }
 
+  React.useEffect(() => {
+    if (!retryAfterSeconds || retryAfterSeconds <= 0) return;
+    const interval = setInterval(() => {
+      setRetryAfterSeconds((prev) => {
+        if (!prev || prev <= 1) {
+          setError('');
+          return null;
+        }
+        const next = prev - 1;
+        const mins = Math.floor(next / 60);
+        const secs = next % 60;
+        let timeStr = '';
+        if (mins > 0 && secs > 0) {
+          timeStr = `${mins} minute${mins !== 1 ? 's' : ''} and ${secs} second${secs !== 1 ? 's' : ''}`;
+        } else if (mins > 0) {
+          timeStr = `${mins} minute${mins !== 1 ? 's' : ''}`;
+        } else {
+          timeStr = `${secs} second${secs !== 1 ? 's' : ''}`;
+        }
+        setError(`Too many MFA verification attempts. Please try again in ${timeStr}.`);
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [retryAfterSeconds]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
     try {
+      setRetryAfterSeconds(null);
       const response = await axios.post('/api/auth/mfa/verify', {
         tempToken,
         totpToken: code,
@@ -36,7 +64,12 @@ export default function MfaChallenge() {
       setUser(user);
       navigate('/dashboard', { replace: true });
     } catch (err) {
-      setError(err.response?.data?.message || 'Invalid MFA code. Please try again.');
+      if (err.response?.status === 429 && err.response?.data?.retryAfter) {
+        setRetryAfterSeconds(err.response.data.retryAfter);
+      } else {
+        setRetryAfterSeconds(null);
+      }
+      setError(err.response?.data?.error || err.response?.data?.message || 'Invalid MFA code. Please try again.');
       setCode('');
     } finally {
       setLoading(false);

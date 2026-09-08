@@ -23,14 +23,14 @@ function generateFreshCerts(targetDir) {
     fs.mkdirSync(targetDir, { recursive: true });
     const crtPath = path.join(targetDir, 'iochunt.crt');
     const keyPath = path.join(targetDir, 'iochunt.key');
-    
+
     // Remove old/corrupt files if present
-    try { if (fs.existsSync(crtPath)) fs.unlinkSync(crtPath); } catch (_) {}
-    try { if (fs.existsSync(keyPath)) fs.unlinkSync(keyPath); } catch (_) {}
+    try { if (fs.existsSync(crtPath)) fs.unlinkSync(crtPath); } catch (_) { }
+    try { if (fs.existsSync(keyPath)) fs.unlinkSync(keyPath); } catch (_) { }
 
     console.log('[SuperAdmin] Generating fresh self-signed TLS certificates in:', targetDir);
     execSync(`openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${crtPath}" -days 3650 -nodes -subj "/CN=iochunt-superadmin/O=DefSecOne/C=IN"`, { stdio: 'ignore' });
-    
+
     return { crtPath, keyPath };
   } catch (err) {
     console.error('[SuperAdmin] Failed to generate SSL certificates with openssl:', err.message);
@@ -57,7 +57,7 @@ function ensureSuperAdminSSL() {
         if (keyContent.includes('PRIVATE KEY') && crtContent.includes('CERTIFICATE')) {
           return { crtPath: crt, keyPath: key };
         }
-      } catch (_) {}
+      } catch (_) { }
     }
   }
 
@@ -189,7 +189,7 @@ async function initSuperAdminDB() {
     } catch (e) {
       // Column already exists, ignore
     }
-    
+
     try {
       await client.query('ALTER TABLE tenants ADD COLUMN api_key_encrypted TEXT');
       console.log('[SuperAdmin] Auto-migrated: Added api_key_encrypted to tenants table');
@@ -245,10 +245,10 @@ function decryptData(encryptedString) {
   if (!encryptedString || typeof encryptedString !== 'string') return null;
   const parts = encryptedString.split(':');
   if (parts.length !== 2) return encryptedString;
-  
+
   const keyHex = process.env.ENCRYPTION_KEY;
   if (!keyHex) return encryptedString;
-  
+
   try {
     const iv = Buffer.from(parts[0], 'hex');
     const encryptedText = Buffer.from(parts[1], 'hex');
@@ -263,13 +263,27 @@ function decryptData(encryptedString) {
   }
 }
 
-// Rate limiter for super-admin login (10 attempts per 15 minutes per IP)
+function formatRemainingTime(ms) {
+  const totalSeconds = Math.max(1, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes > 0 && seconds > 0) {
+    return `${minutes} minute${minutes !== 1 ? 's' : ''} and ${seconds} second${seconds !== 1 ? 's' : ''}`;
+  } else if (minutes > 0) {
+    return `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+  } else {
+    return `${seconds} second${seconds !== 1 ? 's' : ''}`;
+  }
+}
+
+// Rate limiter for super-admin login (7 attempts per 15 minutes per IP)
 const superLoginAttempts = new Map();
 function superLoginLimiter(req, res, next) {
   const ip = req.ip || req.connection?.remoteAddress || 'unknown';
   const now = Date.now();
   const windowMs = 15 * 60 * 1000;
-  const maxAttempts = 10;
+  const maxAttempts = 7;
 
   const record = superLoginAttempts.get(ip);
   if (!record || now - record.startTime > windowMs) {
@@ -279,13 +293,22 @@ function superLoginLimiter(req, res, next) {
 
   record.count++;
   if (record.count > maxAttempts) {
-    return res.status(429).json({ error: 'Too many login attempts. Please try again after 15 minutes.' });
+    const msRemaining = Math.max(1000, (record.startTime + windowMs) - now);
+    const formatted = formatRemainingTime(msRemaining);
+    const retrySec = Math.ceil(msRemaining / 1000);
+    res.setHeader('Retry-After', retrySec);
+    const errorMsg = `Too many login attempts. Please try again in ${formatted}.`;
+    return res.status(429).json({
+      error: errorMsg,
+      message: errorMsg,
+      retryAfter: retrySec
+    });
   }
 
   return next();
 }
 
-// Rate limiter for super-admin password changes (5 attempts per 15 minutes per IP/Admin)
+// Rate limiter for super-admin password changes (7 attempts per 15 minutes per IP/Admin)
 const superPasswordAttempts = new Map();
 function superPasswordLimiter(req, res, next) {
   const ip = req.ip || req.connection?.remoteAddress || 'unknown';
@@ -293,7 +316,7 @@ function superPasswordLimiter(req, res, next) {
   const key = `${ip}_admin_${adminId}`;
   const now = Date.now();
   const windowMs = 15 * 60 * 1000;
-  const maxAttempts = 5;
+  const maxAttempts = 7;
 
   const record = superPasswordAttempts.get(key);
   if (!record || now - record.startTime > windowMs) {
@@ -303,7 +326,16 @@ function superPasswordLimiter(req, res, next) {
 
   record.count++;
   if (record.count > maxAttempts) {
-    return res.status(429).json({ error: 'Too many password change attempts. Account protection engaged. Please try again after 15 minutes.' });
+    const msRemaining = Math.max(1000, (record.startTime + windowMs) - now);
+    const formatted = formatRemainingTime(msRemaining);
+    const retrySec = Math.ceil(msRemaining / 1000);
+    res.setHeader('Retry-After', retrySec);
+    const errorMsg = `Too many password change attempts. Account protection engaged. Please try again in ${formatted}.`;
+    return res.status(429).json({
+      error: errorMsg,
+      message: errorMsg,
+      retryAfter: retrySec
+    });
   }
 
   return next();
@@ -361,7 +393,7 @@ class SuperSSEBroadcaster {
       for (const client of adminSet) {
         try {
           client.write(`event: ${eventType}\ndata: ${payload}\n\n`);
-        } catch (_) {}
+        } catch (_) { }
       }
     }
   }
@@ -409,6 +441,10 @@ app.post('/api/super/login', superLoginLimiter, async (req, res) => {
     }
 
     const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket?.remoteAddress || req.ip || 'unknown';
+    // Clear failed rate limit attempts on successful authentication
+    superLoginAttempts.delete(clientIp);
+    if (req.ip) superLoginAttempts.delete(req.ip);
+
     const userAgent = req.headers['user-agent'] || 'unknown';
     const now = Math.floor(Date.now() / 1000);
 
@@ -434,7 +470,7 @@ app.post('/api/super/login', superLoginLimiter, async (req, res) => {
     // Single active session enforcement: delete prior active sessions for this admin
     if (activeSessionRes.rows.length > 0) {
       await pool.query('DELETE FROM super_sessions WHERE admin_id = $1', [admin.id]);
-      
+
       // REAL-TIME INSTANT PUSH: kick out the old device immediately with ZERO clicks
       superSSE.broadcastToAdmin(admin.id, 'session_revoked', {
         reason: 'concurrent_takeover',
@@ -446,7 +482,7 @@ app.post('/api/super/login', superLoginLimiter, async (req, res) => {
           'INSERT INTO audit_log (user_id, username, action, resource, detail, ip_address, user_agent, result) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
           [admin.id, admin.username, 'SESSION_TAKEOVER', 'super_sessions', 'Terminated previous session due to new login takeover', clientIp, userAgent, 'SUCCESS']
         );
-      } catch (_) {}
+      } catch (_) { }
     }
 
     const token = crypto.randomBytes(32).toString('hex');
@@ -516,7 +552,7 @@ app.post('/api/super/change-password', superAuthMiddleware, superPasswordLimiter
           `INSERT INTO audit_log (username, action, resource, detail, ip_address, result)
            VALUES ($1, $2, $3, $4, $5, $6)`,
           [admin.username, 'CHANGE_SUPERADMIN_PASSWORD_FAILED', 'super_admins', 'Failed password change: incorrect current password', req.ip, 'FAILURE']
-        ).catch(() => {});
+        ).catch(() => { });
         return res.status(401).json({ error: 'Current password is incorrect' });
       }
     }
@@ -552,7 +588,7 @@ app.get('/api/super/companies', superAuthMiddleware, async (req, res) => {
     const companiesRes = await pool.query(
       'SELECT id, tenant_id AS company_id, company_name, status, central_url, syslog_port, db_name, tier, api_key_encrypted, created_at FROM tenants ORDER BY id DESC'
     );
-    
+
     const parsedUrl = new URL(process.env.SUPER_ADMIN_DATABASE_URL || 'postgres://postgres:iochunt_password@localhost:5433/iochunt_db');
 
     // Decrypt API key and query enrolled agent count per active tenant
@@ -579,7 +615,7 @@ app.get('/api/super/companies', superAuthMiddleware, async (req, res) => {
         agent_count: agentCount
       };
     }));
-    
+
     res.json(mappedCompanies);
   } catch (err) {
     console.error(err);
@@ -639,10 +675,10 @@ app.post('/api/super/companies', superAuthMiddleware, async (req, res) => {
       'SELECT id, tenant_id AS company_id, company_name, status, central_url, syslog_port, db_name, tier, created_at FROM tenants WHERE tenant_id = $1',
       [safeId]
     );
-    
+
     const tenantData = tenantRes.rows[0];
     tenantData.api_key = result.api_key;
-    
+
     res.json(tenantData);
   } catch (err) {
     console.error(err);

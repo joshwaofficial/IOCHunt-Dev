@@ -14,8 +14,10 @@ router.patch('/:id', userController.updateUser);
 router.delete('/:id', requireAdmin, userController.deleteUser);
 router.post('/:id/mfa-disable', userController.disableMfa);
 
+const { mfaLimiter } = require('./authRoutes');
+
 // MFA Setup
 router.get('/mfa/generate', userController.generateMfa);
-router.post('/mfa/verify', userController.verifyMfa);
+router.post('/mfa/verify', mfaLimiter, userController.verifyMfa);
 
 module.exports = router;
