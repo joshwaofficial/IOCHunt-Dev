@@ -237,6 +237,16 @@ async function superAuthMiddleware(req, res, next) {
   }
 
   req.superAdmin = sessionRes.rows[0];
+
+  // Enforce mandatory password change if required
+  const allowedPaths = ['/api/super/change-password', '/api/super/logout', '/api/super/session-check', '/api/super/stream'];
+  if (req.superAdmin.force_password_change === 1 && !allowedPaths.includes(req.path)) {
+    return res.status(403).json({
+      error: 'Forbidden: Mandatory password change required before accessing the system',
+      force_password_change: true
+    });
+  }
+
   next();
 }
 
@@ -505,7 +515,11 @@ app.post('/api/super/login', superLoginLimiter, async (req, res) => {
 });
 
 app.get('/api/super/session-check', superAuthMiddleware, (req, res) => {
-  res.json({ valid: true, username: req.superAdmin.username });
+  res.json({
+    valid: true,
+    username: req.superAdmin.username,
+    force_password_change: req.superAdmin.force_password_change === 1
+  });
 });
 
 app.post('/api/super/logout', superAuthMiddleware, async (req, res) => {

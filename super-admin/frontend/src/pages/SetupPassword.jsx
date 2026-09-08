@@ -54,6 +54,14 @@ export default function SetupPassword() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await axios.post('/api/super/logout');
+    } catch (_) {}
+    document.cookie = "super_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+    navigate('/login');
+  };
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -212,6 +220,26 @@ export default function SetupPassword() {
                 </span>
               )}
             </button>
+
+            <div style={{ marginTop: '12px', textAlign: 'center' }}>
+              <button
+                type="button"
+                onClick={handleLogout}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#64748b',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  transition: 'color 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = '#94a3b8'}
+                onMouseLeave={(e) => e.currentTarget.style.color = '#64748b'}
+              >
+                Sign out of current session
+              </button>
+            </div>
           </form>
         </div>
       </div>

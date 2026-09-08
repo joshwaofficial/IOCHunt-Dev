@@ -53,6 +53,11 @@ const ProtectedRoute = ({ children, requiredRole }) => {
       return <Navigate to="/force-password-reset" replace />;
     }
   }
+
+  // If the user's password does not need to be changed, do not allow staying on /force-password-reset
+  if (user && !user.force_password_change && window.location.pathname === '/force-password-reset') {
+    return <Navigate to="/dashboard" replace />;
+  }
   
   if (!user) {
     return <Navigate to="/login" replace />;

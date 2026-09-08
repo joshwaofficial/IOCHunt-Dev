@@ -210,16 +210,20 @@ function DashboardLayout({ children }) {
 }
 
 function ProtectedRoute({ children }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(null);
+  const [sessionState, setSessionState] = useState({ isAuthenticated: null, forcePasswordChange: false });
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     const interceptor = axios.interceptors.response.use(
       (response) => response,
       (error) => {
         if (error.response?.status === 401) {
-          setIsAuthenticated(false);
+          setSessionState({ isAuthenticated: false, forcePasswordChange: false });
           navigate('/login?reason=session_terminated');
+        } else if (error.response?.status === 403 && error.response?.data?.force_password_change) {
+          setSessionState(prev => ({ ...prev, forcePasswordChange: true }));
+          navigate('/setup');
         }
         return Promise.reject(error);
       }
@@ -227,29 +231,38 @@ function ProtectedRoute({ children }) {
 
     // Initial session verification
     let sse = null;
-    axios.get('/api/super/companies')
-      .then(() => {
-        setIsAuthenticated(true);
+    axios.get('/api/super/session-check')
+      .then((res) => {
+        const forceChange = res.data?.force_password_change === true;
+        setSessionState({ isAuthenticated: true, forcePasswordChange: forceChange });
+
         // Connect real-time SSE push stream for instant force logout (0 clicks, instant!)
         try {
           sse = new EventSource('/api/super/stream', { withCredentials: true });
           sse.addEventListener('session_revoked', () => {
             if (sse) sse.close();
             document.cookie = "super_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-            setIsAuthenticated(false);
+            setSessionState({ isAuthenticated: false, forcePasswordChange: false });
             window.location.href = '/login?reason=session_terminated';
           });
         } catch (_) {}
       })
-      .catch(() => setIsAuthenticated(false));
+      .catch(() => setSessionState({ isAuthenticated: false, forcePasswordChange: false }));
 
     // Fallback heartbeat (every 20 seconds)
     const heartbeatInterval = setInterval(() => {
-      axios.get('/api/super/session-check').catch((err) => {
+      axios.get('/api/super/session-check').then((res) => {
+        if (res.data?.force_password_change !== undefined) {
+          setSessionState(prev => ({
+            ...prev,
+            forcePasswordChange: res.data.force_password_change === true
+          }));
+        }
+      }).catch((err) => {
         if (err.response?.status === 401) {
           if (sse) sse.close();
           document.cookie = "super_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-          setIsAuthenticated(false);
+          setSessionState({ isAuthenticated: false, forcePasswordChange: false });
           navigate('/login?reason=session_terminated');
         }
       });
@@ -262,7 +275,7 @@ function ProtectedRoute({ children }) {
     };
   }, [navigate]);
 
-  if (isAuthenticated === null) {
+  if (sessionState.isAuthenticated === null) {
     return (
       <div style={{ height: '100vh', width: '100vw', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#08090d', color: '#94a3b8' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
@@ -273,8 +286,21 @@ function ProtectedRoute({ children }) {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!sessionState.isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  // If password change is required, only allow /setup and prevent dashboard access
+  if (sessionState.forcePasswordChange) {
+    if (location.pathname !== '/setup') {
+      return <Navigate to="/setup" replace />;
+    }
+    return children;
+  }
+
+  // If password change is NOT required, do not allow staying on /setup
+  if (location.pathname === '/setup') {
+    return <Navigate to="/" replace />;
   }
 
   return <DashboardLayout>{children}</DashboardLayout>;
