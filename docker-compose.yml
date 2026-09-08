@@ -92,7 +92,10 @@ services:
 
   # ── Nginx TLS Reverse Proxy ───────────────────────────────────
   nginx:
-    image: nginx:alpine
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    image: iochunt-nginx:latest
     container_name: iochunt-nginx-${TENANT_ID:-default}
     ports:
       - "${NGINX_HTTP_PORT:-8080}:80"

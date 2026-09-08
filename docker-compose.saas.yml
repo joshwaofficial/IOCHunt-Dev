@@ -131,7 +131,10 @@ services:
         max-file: "5"
   # ── Nginx TLS Reverse Proxy ───────────────────────────────────
   nginx:
-    image: nginx:alpine
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    image: iochunt-nginx:latest
     container_name: iochunt-saas-nginx
     ports:
       - "${NGINX_HTTP_PORT:-8081}:80"

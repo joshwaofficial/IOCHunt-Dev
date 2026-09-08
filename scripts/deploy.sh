@@ -59,6 +59,7 @@ echo -e "\033[1;33m[4/4] Building and updating containers for $MODE...\033[0m"
 if [[ "$MODE" == "all" ]]; then
     echo -e "\033[1;33m[4.1/4] Updating Central base stack (Postgres & Redis stay online)...\033[0m"
     docker compose -p central up -d --build
+    docker compose -p central restart nginx 2>/dev/null || true
 
     echo -e "\033[1;33m[4.2/4] Updating Super Admin stack...\033[0m"
     export HOST_PWD=$PWD
@@ -66,6 +67,7 @@ if [[ "$MODE" == "all" ]]; then
 
     echo -e "\033[1;33m[4.3/4] Updating Aggregator stack...\033[0m"
     docker compose -p aggregator -f docker-compose.aggregator.yml up -d --build
+    docker compose -p aggregator restart nginx 2>/dev/null || true
 
     echo -e "\033[0;32m============================================================\033[0m"
     echo -e "\033[0;32m All Containers Updated Successfully with Zero DB Downtime!\033[0m"
@@ -76,6 +78,7 @@ if [[ "$MODE" == "all" ]]; then
 elif [[ "$MODE" == "central" ]]; then
     echo -e "\033[1;33m[4.1/4] Updating Central Server stack (Postgres & Redis stay online)...\033[0m"
     docker compose -p central up -d --build
+    docker compose -p central restart nginx 2>/dev/null || true
 
     echo -e "\033[1;33m[4.2/4] Updating Super Admin stack (Port 8083)...\033[0m"
     export HOST_PWD=$PWD
@@ -89,6 +92,7 @@ elif [[ "$MODE" == "central" ]]; then
 else
     # Start Aggregator stack (Port 8084)
     docker compose -p aggregator -f docker-compose.aggregator.yml up -d --build
+    docker compose -p aggregator restart nginx 2>/dev/null || true
 
     echo -e "\033[0;32m============================================================\033[0m"
     echo -e "\033[0;32m Aggregator Deployment Complete!\033[0m"

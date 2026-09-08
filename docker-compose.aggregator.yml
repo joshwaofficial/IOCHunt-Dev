@@ -76,7 +76,10 @@ services:
 
   # ── Nginx TLS Reverse Proxy ───────────────────────────────────
   nginx:
-    image: nginx:alpine
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    image: iochunt-nginx:latest
     container_name: iochunt-nginx-aggregator
     ports:
       - "8086:80"   # Exposed on 8086 to avoid any zombie port conflicts
