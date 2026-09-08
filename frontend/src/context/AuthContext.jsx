@@ -73,7 +73,7 @@ export function AuthProvider({ children }) {
       confirm_takeover
     });
     if (res.data.mfa_required) {
-      return { mfaRequired: true, tempToken: res.data.tempToken };
+      return { mfaRequired: true, tempToken: res.data.tempToken, workspace_id };
     }
     if (res.data.user) {
       localStorage.setItem('iochunt_user', JSON.stringify(res.data.user));

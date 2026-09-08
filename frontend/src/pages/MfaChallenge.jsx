@@ -26,7 +26,8 @@ export default function MfaChallenge() {
     try {
       const response = await axios.post('/api/auth/mfa/verify', {
         tempToken,
-        totpToken: code
+        totpToken: code,
+        workspace_id: location.state?.workspace_id
       });
 
       const { user } = response.data;

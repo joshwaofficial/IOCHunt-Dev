@@ -47,6 +47,7 @@ export default function Login() {
         navigate('/mfa-challenge', {
           state: {
             tempToken: result.tempToken,
+            workspace_id: result.workspace_id || workspaceId?.trim() || undefined,
             next: location.state?.from?.pathname || '/dashboard'
           }
         });

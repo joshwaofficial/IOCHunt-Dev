@@ -292,13 +292,17 @@ async function login(req, res) {
 
       // MFA check
       if (user.mfa_enabled) {
-        const tempToken = crypto.randomBytes(32).toString('hex');
+        const rawToken = crypto.randomBytes(32).toString('hex');
         const expiresAt = Math.floor(Date.now() / 1000) + 300;
 
-        await db.query(
+        // Store mfa_pending strictly in the isolated tenant database
+        await tenantPool.query(
           'INSERT INTO mfa_pending (token, user_id, username, role, tenant_id, expires_at) VALUES ($1, $2, $3, $4, $5, $6)',
-          [tempToken, user.id, user.username, user.role, tenantId, expiresAt]
+          [rawToken, user.id, user.username, user.role, tenantId, expiresAt]
         );
+
+        // Prefix tempToken with tenantId so verification requests route directly to tenant DB
+        const tempToken = `${tenantId}:${rawToken}`;
 
         return res.status(200).json({
           message: 'MFA required',
@@ -576,21 +580,61 @@ async function changePassword(req, res) {
 
 async function mfaVerify(req, res) {
   try {
-    const { tempToken, totpToken } = req.body;
+    const { tempToken, totpToken, workspace_id } = req.body;
     if (!tempToken || !totpToken) {
       return res.status(400).json({ message: 'Token and code required' });
     }
 
-    const pendingRes = await db.query(
-      'SELECT * FROM mfa_pending WHERE token=$1 AND expires_at > $2',
-      [tempToken, Math.floor(Date.now() / 1000)]
-    );
-    const pending = pendingRes.rows[0];
+    let tenantId = (workspace_id && typeof workspace_id === 'string') ? workspace_id.trim().toLowerCase() : null;
+    let rawToken = tempToken;
+
+    // Parse tenantId from tempToken prefix (format: "tenantId:rawToken") if present
+    if (tempToken.includes(':')) {
+      const parts = tempToken.split(':');
+      tenantId = parts[0].trim().toLowerCase();
+      rawToken = parts.slice(1).join(':');
+    }
+
+    let targetPool = db;
+    let queryFn = db.query.bind(db);
+    let pending = null;
+
+    if (tenantId && tenantId !== 'default' && appMode.isCentralServer()) {
+      try {
+        targetPool = await tenantDbManager.getTenantPool(tenantId);
+        queryFn = targetPool.query.bind(targetPool);
+      } catch (err) {
+        console.error(`[Auth] Failed to connect to tenant DB for ${tenantId}:`, err.message);
+        return res.status(500).json({ message: 'Unable to connect to workspace database' });
+      }
+
+      // Check isolated tenant database for mfa_pending
+      const pendingRes = await targetPool.query(
+        'SELECT * FROM mfa_pending WHERE token=$1 AND expires_at > $2',
+        [rawToken, Math.floor(Date.now() / 1000)]
+      );
+      pending = pendingRes.rows[0];
+    } else {
+      // Standalone / legacy fallback to central db
+      const pendingRes = await db.query(
+        'SELECT * FROM mfa_pending WHERE token=$1 AND expires_at > $2',
+        [rawToken, Math.floor(Date.now() / 1000)]
+      );
+      pending = pendingRes.rows[0];
+
+      // If token was found in central DB but belongs to a tenant, route queryFn to tenant
+      if (pending && pending.tenant_id && pending.tenant_id !== 'default' && appMode.isCentralServer()) {
+        tenantId = pending.tenant_id;
+        targetPool = await tenantDbManager.getTenantPool(tenantId);
+        queryFn = targetPool.query.bind(targetPool);
+      }
+    }
+
     if (!pending) return res.status(401).json({ message: 'Session expired or invalid' });
 
-    const user = await User.findById(pending.user_id);
+    const user = await User.findById(pending.user_id, queryFn);
     if (!user || !user.mfa_enabled || !user.mfa_secret) {
-      await db.query('DELETE FROM mfa_pending WHERE token=$1', [tempToken]);
+      await targetPool.query('DELETE FROM mfa_pending WHERE token=$1', [rawToken]);
       return res.status(401).json({ message: 'Invalid user state' });
     }
 
@@ -598,11 +642,12 @@ async function mfaVerify(req, res) {
       return res.status(401).json({ message: 'Invalid MFA code. Please try again.' });
     }
 
-    await db.query('DELETE FROM mfa_pending WHERE token=$1', [tempToken]);
+    // Cleanup pending challenge token
+    await targetPool.query('DELETE FROM mfa_pending WHERE token=$1', [rawToken]);
     
     const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
-    const targetTenant = pending.tenant_id || 'default';
+    const targetTenant = pending.tenant_id || tenantId || 'default';
 
     // Terminate existing sessions upon successful MFA verification
     await db.query('DELETE FROM sessions WHERE user_id = $1 AND (tenant_id = $2 OR tenant_id = \'\' OR tenant_id IS NULL)', [user.id, targetTenant]);
@@ -612,9 +657,10 @@ async function mfaVerify(req, res) {
       reason: 'concurrent_takeover'
     });
 
+    // Session is created ONLY AFTER MFA verification succeeds
     const isForcedChange = user.force_password_change === 1 || user.force_password_change === true;
     const token = await User.createSession(user.id, user.username, user.role, targetTenant, clientIp, userAgent, isForcedChange ? 1 : 0);
-    await User.updateLastLogin(user.id);
+    await User.updateLastLogin(user.id, queryFn);
 
     res.cookie('iochunt_session', token, {
       httpOnly: true,
