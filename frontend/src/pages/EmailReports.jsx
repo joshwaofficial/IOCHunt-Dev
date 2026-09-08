@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Mail, Router, Lock, Save, CalendarDays, Plus, Play, Edit, Trash2, X } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 export default function EmailReports() {
+  const { user } = useAuth();
+  const isAdmin = (user?.role?.toUpperCase() === 'ADMIN' || user?.role?.toUpperCase() === 'SUPERADMIN') && !user?.aggregator_name;
+
   const [smtpConfig, setSmtpConfig] = useState({
     host: '', port: 587, secure: false, username: '', password: '', from_addr: '', from_name: 'IOC Hunt', enabled: false
   });
@@ -27,11 +31,13 @@ export default function EmailReports() {
   });
 
   useEffect(() => {
-    fetchConfig();
+    if (isAdmin) {
+      fetchConfig();
+    }
     fetchSchedules();
     fetchMachines();
     fetchAggregators();
-  }, []);
+  }, [isAdmin]);
 
   const fetchConfig = async () => {
     try {
@@ -70,6 +76,7 @@ export default function EmailReports() {
   };
 
   const saveConfig = async () => {
+    if (!isAdmin) return;
     setLoadingConfig(true);
     try {
       await axios.post('/api/smtp/config', smtpConfig);
@@ -83,7 +90,7 @@ export default function EmailReports() {
   };
 
   const sendTestEmail = async () => {
-    if (!testEmail) return;
+    if (!isAdmin || !testEmail) return;
     setLoadingConfig(true);
     setSmtpMsg({ text: 'Sending...', type: 'info' });
     try {
@@ -97,18 +104,21 @@ export default function EmailReports() {
   };
 
   const handleConfigChange = (e) => {
+    if (!isAdmin) return;
     const { id, value, type, checked } = e.target;
     const key = id.replace('smtp-', '');
     setSmtpConfig({ ...smtpConfig, [key]: type === 'checkbox' ? checked : value });
   };
 
   const handleFormChange = (e) => {
+    if (!isAdmin) return;
     const { id, value, type, checked } = e.target;
     const key = id.replace('sched-', '');
     setFormData({ ...formData, [key]: type === 'checkbox' ? checked : value });
   };
 
   const openNewForm = () => {
+    if (!isAdmin) return;
     setEditId(null);
     setFormData({ name: '', recipients: '', cron_expr: '0 8 * * 1', duration: 24, aggregator: [], machine: '', severity: '', category: '', include_fw: true, enabled: true });
     setShowForm(true);
@@ -116,6 +126,7 @@ export default function EmailReports() {
   };
 
   const editSchedule = (s) => {
+    if (!isAdmin) return;
     setEditId(s.id);
     setFormData({
       name: s.name, recipients: s.recipients, cron_expr: s.cron_expr, duration: s.duration, aggregator: s.aggregator ? s.aggregator.split(',') : [], machine: s.machine || '', severity: s.severity || '', category: s.category || '', include_fw: s.include_fw === 1, enabled: s.enabled === 1
@@ -125,6 +136,7 @@ export default function EmailReports() {
   };
 
   const saveSchedule = async () => {
+    if (!isAdmin) return;
     setLoadingSchedules(true);
     try {
       const payload = { ...formData, duration: Number(formData.duration), aggregator: formData.aggregator.join(',') };
@@ -143,6 +155,7 @@ export default function EmailReports() {
   };
 
   const deleteSchedule = (id) => {
+    if (!isAdmin) return;
     setConfirmDialog({
       isOpen: true,
       title: 'Delete Schedule',
@@ -161,6 +174,7 @@ export default function EmailReports() {
   };
 
   const runSchedule = async (id) => {
+    if (!isAdmin) return;
     try {
       await axios.post(`/api/smtp/schedules/${id}/run`);
       setAlertDialog({ isOpen: true, title: 'Success', message: 'Report generated and sent successfully!', type: 'info' });
@@ -171,6 +185,7 @@ export default function EmailReports() {
   };
 
   const toggleSchedule = async (s) => {
+    if (!isAdmin) return;
     try {
       await axios.patch(`/api/smtp/schedules/${s.id}`, { enabled: s.enabled ? 0 : 1 });
       fetchSchedules();
@@ -214,17 +229,17 @@ export default function EmailReports() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>SMTP Host</label>
-                  <input id="smtp-host" className="input-field" type="text" placeholder="smtp.gmail.com" value={smtpConfig.host || ''} onChange={handleConfigChange}
-                    style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} />
+                  <input id="smtp-host" className="input-field" type="text" placeholder="smtp.gmail.com" value={smtpConfig.host || ''} onChange={handleConfigChange} disabled={!isAdmin}
+                    style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', borderRadius: '6px', outline: 'none', opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }} />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>Port</label>
-                  <input id="smtp-port" className="input-field" type="number" value={smtpConfig.port || ''} onChange={handleConfigChange}
-                    style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} />
+                  <input id="smtp-port" className="input-field" type="number" value={smtpConfig.port || ''} onChange={handleConfigChange} disabled={!isAdmin}
+                    style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', borderRadius: '6px', outline: 'none', opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }} />
                 </div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', marginTop: '4px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: isAdmin ? 'pointer' : 'not-allowed', marginTop: '4px', opacity: isAdmin ? 1 : 0.6 }}>
                   <div className="tog-switch">
-                    <input type="checkbox" id="smtp-secure" checked={smtpConfig.secure || false} onChange={handleConfigChange} />
+                    <input type="checkbox" id="smtp-secure" checked={smtpConfig.secure || false} onChange={handleConfigChange} disabled={!isAdmin} />
                     <span className="tog-slider"></span>
                   </div>
                   <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>Use TLS/SSL (port 465)</span>
@@ -241,25 +256,25 @@ export default function EmailReports() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>Username</label>
-                    <input id="smtp-username" className="input-field" type="text" placeholder="alerts@yourorg.com" value={smtpConfig.username || ''} onChange={handleConfigChange}
-                      style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} />
+                    <input id="smtp-username" className="input-field" type="text" placeholder="alerts@yourorg.com" value={smtpConfig.username || ''} onChange={handleConfigChange} disabled={!isAdmin}
+                      style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', borderRadius: '6px', outline: 'none', opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }} />
                   </div>
                   <div>
                     <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>Password</label>
-                    <input id="smtp-password" className="input-field" type="password" placeholder="leave blank to keep" value={smtpConfig.password || ''} onChange={handleConfigChange}
-                      style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} />
+                    <input id="smtp-password" className="input-field" type="password" placeholder="leave blank to keep" value={smtpConfig.password || ''} onChange={handleConfigChange} disabled={!isAdmin}
+                      style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', borderRadius: '6px', outline: 'none', opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }} />
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>From Address</label>
-                    <input id="smtp-from_addr" className="input-field" type="text" placeholder="iochunt@yourorg.com" value={smtpConfig.from_addr || ''} onChange={handleConfigChange}
-                      style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} />
+                    <input id="smtp-from_addr" className="input-field" type="text" placeholder="iochunt@yourorg.com" value={smtpConfig.from_addr || ''} onChange={handleConfigChange} disabled={!isAdmin}
+                      style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', borderRadius: '6px', outline: 'none', opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }} />
                   </div>
                   <div>
                     <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>From Name</label>
-                    <input id="smtp-from_name" className="input-field" type="text" placeholder="IOC Hunt" value={smtpConfig.from_name || ''} onChange={handleConfigChange}
-                      style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} />
+                    <input id="smtp-from_name" className="input-field" type="text" placeholder="IOC Hunt" value={smtpConfig.from_name || ''} onChange={handleConfigChange} disabled={!isAdmin}
+                      style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', borderRadius: '6px', outline: 'none', opacity: isAdmin ? 1 : 0.6, cursor: isAdmin ? 'text' : 'not-allowed' }} />
                   </div>
                 </div>
               </div>
@@ -267,9 +282,9 @@ export default function EmailReports() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px', borderTop: '1px solid var(--border)', paddingTop: '20px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: isAdmin ? 'pointer' : 'not-allowed', fontSize: '13px', fontWeight: 700, color: 'var(--text)', opacity: isAdmin ? 1 : 0.6 }}>
               <div className="tog-switch">
-                <input type="checkbox" id="smtp-enabled" checked={smtpConfig.enabled || false} onChange={handleConfigChange} />
+                <input type="checkbox" id="smtp-enabled" checked={smtpConfig.enabled || false} onChange={handleConfigChange} disabled={!isAdmin} />
                 <span className="tog-slider"></span>
               </div>
               Enable Scheduled Emails Engine
@@ -278,17 +293,17 @@ export default function EmailReports() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
               <span style={{ fontFamily: 'var(--mono)', fontSize: '11px', color: smtpMsg.type === 'error' ? 'var(--critical)' : 'var(--low)' }}>{smtpMsg.text}</span>
               
-              <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden', height: '36px' }}>
-                <input type="text" className="input-field no-focus-outline" autoComplete="new-password" placeholder="test@example.com" value={testEmail} onChange={e => setTestEmail(e.target.value)}
-                  style={{ background: 'transparent', border: 'none', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', padding: '0 12px', width: '200px', outline: 'none', boxShadow: 'none' }} />
-                <button onClick={sendTestEmail} disabled={loadingConfig}
-                  style={{ background: 'var(--surface2)', borderLeft: '1px solid var(--border)', borderTop: 'none', borderRight: 'none', borderBottom: 'none', color: 'var(--text)', padding: '0 16px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', height: '100%', outline: 'none', opacity: loadingConfig ? 0.5 : 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden', height: '36px', opacity: isAdmin ? 1 : 0.6 }}>
+                <input type="text" className="input-field no-focus-outline" autoComplete="new-password" placeholder="test@example.com" value={testEmail} onChange={e => setTestEmail(e.target.value)} disabled={!isAdmin}
+                  style={{ background: 'transparent', border: 'none', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', padding: '0 12px', width: '200px', outline: 'none', boxShadow: 'none', cursor: isAdmin ? 'text' : 'not-allowed' }} />
+                <button onClick={sendTestEmail} disabled={loadingConfig || !isAdmin} title={isAdmin ? "Send test email" : "Admin privileges required"}
+                  style={{ background: 'var(--surface2)', borderLeft: '1px solid var(--border)', borderTop: 'none', borderRight: 'none', borderBottom: 'none', color: 'var(--text)', padding: '0 16px', fontSize: '11px', fontWeight: 700, cursor: (!isAdmin || loadingConfig) ? 'not-allowed' : 'pointer', height: '100%', outline: 'none', opacity: (loadingConfig || !isAdmin) ? 0.5 : 1 }}>
                   Send Test
                 </button>
               </div>
 
-              <button onClick={saveConfig} disabled={loadingConfig} className="rbtn"
-                style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '0 20px', height: '36px', borderRadius: '6px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', opacity: loadingConfig ? 0.5 : 1 }}>
+              <button onClick={saveConfig} disabled={loadingConfig || !isAdmin} className="rbtn" title={isAdmin ? "Save Configuration" : "Admin privileges required"}
+                style={{ background: isAdmin ? '#2563eb' : 'var(--surface2)', color: isAdmin ? '#fff' : 'var(--muted)', border: isAdmin ? 'none' : '1px solid var(--border)', padding: '0 20px', height: '36px', borderRadius: '6px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px', opacity: (loadingConfig || !isAdmin) ? 0.5 : 1, cursor: (!isAdmin || loadingConfig) ? 'not-allowed' : 'pointer' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>save</span> Save Configuration
               </button>
             </div>
@@ -303,12 +318,13 @@ export default function EmailReports() {
             <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)' }}>calendar_month</span>
             <h2 style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', margin: 0, color: 'var(--text)' }}>Email Schedules</h2>
           </div>
-          <button onClick={openNewForm} style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '6px 14px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+          <button onClick={openNewForm} disabled={!isAdmin} title={isAdmin ? "Create new email schedule" : "Admin privileges required"}
+            style={{ background: isAdmin ? '#2563eb' : 'var(--surface2)', color: isAdmin ? '#fff' : 'var(--muted)', border: isAdmin ? 'none' : '1px solid var(--border)', padding: '6px 14px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', cursor: isAdmin ? 'pointer' : 'not-allowed', opacity: isAdmin ? 1 : 0.5 }}>
              + New Schedule
           </button>
         </div>
 
-        {showForm && (
+        {showForm && isAdmin && (
           <div style={{ padding: '20px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <div style={{ fontFamily: 'var(--mono)', fontSize: '10px', color: '#2563eb', letterSpacing: '1px', textTransform: 'uppercase', fontWeight: 700 }}>{editId ? 'EDIT SCHEDULE' : 'NEW SCHEDULE'}</div>
@@ -495,10 +511,62 @@ export default function EmailReports() {
                       </td>
                       <td style={{ padding: '14px 16px', whiteSpace: 'nowrap', textAlign: 'right' }}>
                         <div style={{ display: 'inline-flex', gap: '6px', justifyContent: 'flex-end', fontFamily: 'var(--sans)' }}>
-                          <button onClick={() => runSchedule(s.id)} style={{ background: 'rgba(34,212,122,0.1)', color: '#22c55e', border: '1px solid rgba(34,212,122,0.2)', padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, cursor: 'pointer' }}>Run</button>
-                          <button onClick={() => editSchedule(s)} style={{ background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)', padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, cursor: 'pointer' }}>Edit</button>
-                          <button onClick={() => toggleSchedule(s)} style={{ background: 'var(--surface2)', color: 'var(--text)', border: '1px solid var(--border)', padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, cursor: 'pointer' }}>{s.enabled ? 'Pause' : 'Resume'}</button>
-                          <button onClick={() => deleteSchedule(s.id)} style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, cursor: 'pointer' }}>X</button>
+                          <button 
+                            onClick={() => isAdmin && runSchedule(s.id)} 
+                            disabled={!isAdmin}
+                            title={isAdmin ? "Run schedule now" : "Admin privileges required"}
+                            style={{ 
+                              background: isAdmin ? 'rgba(34,212,122,0.1)' : 'var(--surface2)', 
+                              color: isAdmin ? '#22c55e' : 'var(--muted)', 
+                              border: `1px solid ${isAdmin ? 'rgba(34,212,122,0.2)' : 'var(--border)'}`, 
+                              padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, 
+                              cursor: isAdmin ? 'pointer' : 'not-allowed',
+                              opacity: isAdmin ? 1 : 0.4
+                            }}>
+                            Run
+                          </button>
+                          <button 
+                            onClick={() => isAdmin && editSchedule(s)} 
+                            disabled={!isAdmin}
+                            title={isAdmin ? "Edit schedule" : "Admin privileges required"}
+                            style={{ 
+                              background: 'var(--surface2)', 
+                              color: isAdmin ? 'var(--text)' : 'var(--muted)', 
+                              border: '1px solid var(--border)', 
+                              padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, 
+                              cursor: isAdmin ? 'pointer' : 'not-allowed',
+                              opacity: isAdmin ? 1 : 0.4
+                            }}>
+                            Edit
+                          </button>
+                          <button 
+                            onClick={() => isAdmin && toggleSchedule(s)} 
+                            disabled={!isAdmin}
+                            title={isAdmin ? (s.enabled ? 'Pause schedule' : 'Resume schedule') : "Admin privileges required"}
+                            style={{ 
+                              background: 'var(--surface2)', 
+                              color: isAdmin ? 'var(--text)' : 'var(--muted)', 
+                              border: '1px solid var(--border)', 
+                              padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, 
+                              cursor: isAdmin ? 'pointer' : 'not-allowed',
+                              opacity: isAdmin ? 1 : 0.4
+                            }}>
+                            {s.enabled ? 'Pause' : 'Resume'}
+                          </button>
+                          <button 
+                            onClick={() => isAdmin && deleteSchedule(s.id)} 
+                            disabled={!isAdmin}
+                            title={isAdmin ? "Delete schedule" : "Admin privileges required"}
+                            style={{ 
+                              background: isAdmin ? 'rgba(239,68,68,0.1)' : 'var(--surface2)', 
+                              color: isAdmin ? '#ef4444' : 'var(--muted)', 
+                              border: `1px solid ${isAdmin ? 'rgba(239,68,68,0.2)' : 'var(--border)'}`, 
+                              padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, 
+                              cursor: isAdmin ? 'pointer' : 'not-allowed',
+                              opacity: isAdmin ? 1 : 0.4
+                            }}>
+                            X
+                          </button>
                         </div>
                       </td>
                     </tr>
