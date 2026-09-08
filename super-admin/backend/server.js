@@ -66,12 +66,25 @@ function ensureSuperAdminSSL() {
 }
 
 const app = express();
+app.disable('x-powered-by');
+
 const PORT = process.env.SUPER_ADMIN_PORT || 4002;
 
 // Database connection for Super Admin Control Plane
 const pool = new Pool({
   connectionString: process.env.SUPER_ADMIN_DATABASE_URL || process.env.DATABASE_URL || 'postgres://postgres:iochunt_password@localhost:5433/iochunt_db',
   max: 10
+});
+
+// Security & Header Sanitization Middleware
+app.use((req, res, next) => {
+  res.removeHeader('X-Powered-By');
+  res.removeHeader('Server');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  next();
 });
 
 app.use(cors({ origin: true, credentials: true }));
@@ -529,7 +542,7 @@ app.post('/api/super/change-password', superAuthMiddleware, superPasswordLimiter
     res.json({ success: true, reauth_required: true, message: 'Super Admin master password updated successfully. Please log in again with your new password.' });
   } catch (err) {
     console.error('[Change Password Error]', err);
-    res.status(500).json({ error: `Password update failed: ${err.message}` });
+    res.status(500).json({ error: 'Password update failed' });
   }
 });
 
@@ -633,7 +646,7 @@ app.post('/api/super/companies', superAuthMiddleware, async (req, res) => {
     res.json(tenantData);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: `Provisioning failed: ${err.message}` });
+    res.status(500).json({ error: 'Provisioning failed' });
   }
 });
 
@@ -663,7 +676,7 @@ app.delete('/api/super/companies/:company_id', superAuthMiddleware, async (req, 
     res.json({ success: true, message: `Tenant ${safeId} has been successfully deleted.` });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: `Deletion failed: ${err.message}` });
+    res.status(500).json({ error: 'Deletion failed' });
   }
 });
 
@@ -824,7 +837,7 @@ app.post('/api/super/companies/:company_id/reset-password', superAuthMiddleware,
     res.json({ success: true, message: 'Tenant admin password updated successfully and all active sessions have been terminated. Password change required on next login.' });
   } catch (err) {
     console.error('[Reset Password Error]', err);
-    res.status(500).json({ error: `Password reset failed: ${err.message}` });
+    res.status(500).json({ error: 'Password reset failed' });
   }
 });
 
@@ -957,6 +970,17 @@ if (process.env.SERVE_STATIC === 'true' || fs.existsSync(staticPath)) {
     next();
   });
 }
+
+// 404 Handler for unmatched API and static requests
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+// Safe Global Error Handler (never leak stack traces or internal server details)
+app.use((err, req, res, next) => {
+  console.error('[SuperAdmin Error]', err);
+  res.status(err.status || 500).json({ error: 'Internal server error' });
+});
 
 // Start Server
 initSuperAdminDB().then(() => {

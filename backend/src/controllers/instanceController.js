@@ -291,7 +291,7 @@ async function completeSetup(req, res) {
 
   } catch (error) {
     console.error('[Instance] Setup error:', error);
-    return res.status(500).json({ error: 'Failed to complete setup: ' + error.message });
+    return res.status(500).json({ error: 'Failed to complete setup' });
   }
 }
 

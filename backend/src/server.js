@@ -42,7 +42,15 @@ const { requireSession, requireKey } = require('./middlewares/authMiddleware');
 const sseBroadcaster = require('./services/sseBroadcaster');
 
 const app = express();
+app.disable('x-powered-by');
 app.set('trust proxy', 1); // Trust Reverse Proxy X-Forwarded-For
+
+// Security & Header Sanitization Middleware
+app.use((req, res, next) => {
+  res.removeHeader('X-Powered-By');
+  res.removeHeader('Server');
+  next();
+});
 
 // ── CORS Configuration ─────────────────────────────────────────
 const frontendUrl = process.env.CENTRAL_FRONTEND_URL || process.env.FRONTEND_URL || '*';
@@ -52,7 +60,8 @@ app.use(cors({
 }));
 
 app.use(helmet({
-  contentSecurityPolicy: false // Allows inline assets for frontend dashboard
+  contentSecurityPolicy: false, // Allows inline assets for frontend dashboard
+  hidePoweredBy: true
 }));
 app.use(hpp());
 app.use(cookieParser());
@@ -162,18 +171,7 @@ app.get('/api/ping', (req, res) => {
 
 // ── Server Status (API Status) ──────────────────────────────────
 app.get('/api/status', (req, res) => {
-  const config = appMode.getConfig();
-  res.json({
-    status: 'online',
-    service: 'IOC Hunt Unified Security Platform',
-    mode: config.mode,
-    deployment_mode: config.deploymentMode,
-    company_name: config.companyName,
-    setupCompleted: config.setupComplete,
-    version: process.env.APP_VERSION || '2.0.0',
-    protocol: process.env.USE_HTTPS !== 'false' ? 'HTTPS (Secure)' : 'HTTP',
-    timestamp: new Date().toISOString()
-  });
+  res.json({ status: 'online' });
 });
 
 // Dashboard Metrics (Catch-all for /api routes)
@@ -204,6 +202,17 @@ if (process.env.SERVE_STATIC === 'true' || fs.existsSync(staticPath)) {
     next();
   });
 }
+
+// 404 Handler for unmatched API and static requests
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+// Safe Global Error Handler (never leak stack traces or internal server details)
+app.use((err, req, res, next) => {
+  console.error('[Global Error]', err);
+  res.status(err.status || 500).json({ error: 'Internal server error' });
+});
 
 // ── Background Session Cleaner (every 15 minutes) ───────────────
 setInterval(async () => {

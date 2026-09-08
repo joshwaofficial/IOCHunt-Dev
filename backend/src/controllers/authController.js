@@ -811,7 +811,7 @@ async function setupBranchNode(req, res) {
     });
   } catch (error) {
     console.error('[Branch Setup Error]', error);
-    return res.status(500).json({ error: 'Failed to initialize branch node: ' + error.message });
+    return res.status(500).json({ error: 'Failed to initialize branch node' });
   }
 }
 

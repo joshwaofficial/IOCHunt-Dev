@@ -74,7 +74,7 @@ const createAggregator = async (req, res) => {
     });
   } catch (error) {
     console.error('[Create Aggregator Error]', error);
-    res.status(500).json({ error: 'Server error: ' + error.message });
+    res.status(500).json({ error: 'Server error' });
   }
 };
 
@@ -142,7 +142,7 @@ const generateCode = async (req, res) => {
     });
   } catch (error) {
     console.error('[Generate Code Error]', error);
-    res.status(500).json({ error: 'Server error: ' + error.message });
+    res.status(500).json({ error: 'Server error' });
   }
 };
 
@@ -192,7 +192,7 @@ const pair = async (req, res) => {
     });
   } catch (error) {
     console.error('[Pairing Error]', error);
-    res.status(500).json({ error: 'Server error: ' + error.message });
+    res.status(500).json({ error: 'Server error' });
   }
 };
 
