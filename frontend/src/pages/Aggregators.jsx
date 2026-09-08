@@ -1,23 +1,14 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Navigate } from 'react-router-dom';
 import axios from 'axios';
 import { Network, Server, Key, Copy, Check, Clock, Plus, Trash2, Database, Shield, Eye, RefreshCw, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
-import { useInstance } from '../context/InstanceContext';
 
 const Aggregators = () => {
   const { user } = useAuth();
-  const { isCentral } = useInstance();
-  const isAdmin = user?.role?.toLowerCase().includes('admin') || user?.role?.toLowerCase().includes('superadmin');
-  const isCentralAdmin = isAdmin && isCentral() && !user?.aggregator_name;
-
-  if (!isCentralAdmin) {
-    return <Navigate to="/dashboard" replace />;
-  }
-
   const isBranchAdmin = Boolean(user?.aggregator_name);
+  const isCentralAdmin = (user?.role?.toLowerCase().includes('admin') || user?.role?.toLowerCase().includes('superadmin')) && !user?.aggregator_name;
   const [aggregators, setAggregators] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -56,6 +47,7 @@ const Aggregators = () => {
 
   const handleCreateAggregator = async (e) => {
     e.preventDefault();
+    if (!isCentralAdmin) return;
     if (!formData.name.trim()) return toast.error('Aggregator system identifier required');
 
     try {
@@ -99,6 +91,7 @@ const Aggregators = () => {
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: '', message: '', onConfirm: null, type: 'danger' });
 
   const handleRevoke = (id, name) => {
+    if (!isCentralAdmin) return;
     setConfirmDialog({
       isOpen: true,
       title: `Disconnect Aggregator '${name}'`,
