@@ -60,8 +60,9 @@ function verifyTOTP(secret, token) {
   if (!secret || !token) return false;
   const clean = String(token).replace(/\s/g, '');
   
-  // Accept current window ±1 step to handle clock drift
-  return [-1, 0, 1].some(w => {
+  // Strict real-time verification: Only accept the exact current 30-second window (w=0)
+  // Expired codes from previous intervals are immediately rejected
+  return [0].some(w => {
     const validCode = totpCode(secret, w);
     // Use timing-safe comparison to prevent side-channel timing attacks
     if (validCode.length !== clean.length) return false;
