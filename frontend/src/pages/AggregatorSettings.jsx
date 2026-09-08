@@ -263,13 +263,13 @@ export default function AggregatorSettings() {
             </label>
             <div style={{ display: 'flex', gap: '8px' }}>
               <input 
-                type="text" 
+                type="password" 
                 readOnly
-                value={settings?.agent_api_key || 'Loading...'}
+                value={settings?.agent_api_key || ''}
                 style={{
                   flex: 1, padding: '10px 14px', background: 'var(--background)',
                   border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--primary)', fontSize: '13px',
-                  fontFamily: 'monospace'
+                  fontFamily: 'monospace', letterSpacing: '2px'
                 }}
               />
               <button

@@ -308,8 +308,8 @@ export default function Users() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(0,0,0,0.02)', padding: '4px 10px', borderRadius: '4px', border: '1px solid var(--border)' }}>
               {apiKey ? (
                 <>
-                  <span style={{ fontFamily: 'monospace', fontSize: '13px', color: 'var(--text)', letterSpacing: '1px' }}>
-                    {apiKey && apiKey.length > 8 ? `${apiKey.slice(0, 4)}••••${apiKey.slice(-4)}` : '••••••••••••'}
+                  <span style={{ fontFamily: 'monospace', fontSize: '13px', color: 'var(--text)', letterSpacing: '1.5px' }}>
+                    ••••••••••••••••
                   </span>
                   <button 
                     onClick={() => {

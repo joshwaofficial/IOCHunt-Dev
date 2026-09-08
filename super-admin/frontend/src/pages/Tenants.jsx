@@ -223,8 +223,8 @@ export default function Tenants() {
                   <td>
                     {c.api_key ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span className="font-mono" style={{ fontSize: '12px', color: '#64748b' }}>
-                          {c.api_key && c.api_key.length > 8 ? `${c.api_key.slice(0, 4)}••••${c.api_key.slice(-4)}` : '••••••••••••'}
+                        <span className="font-mono" style={{ fontSize: '12px', color: '#64748b', letterSpacing: '1px' }}>
+                          ••••••••••••••••
                         </span>
                         <button
                           onClick={() => handleCopyKey(c.api_key, c.id)}
