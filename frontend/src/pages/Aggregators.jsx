@@ -1,12 +1,22 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { Navigate } from 'react-router-dom';
 import axios from 'axios';
 import { Network, Server, Key, Copy, Check, Clock, Plus, Trash2, Database, Shield, Eye, RefreshCw, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
+import { useInstance } from '../context/InstanceContext';
 
 const Aggregators = () => {
   const { user } = useAuth();
+  const { isCentral } = useInstance();
+  const isAdmin = user?.role?.toLowerCase().includes('admin') || user?.role?.toLowerCase().includes('superadmin');
+  const isCentralAdmin = isAdmin && isCentral() && !user?.aggregator_name;
+
+  if (!isCentralAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   const isBranchAdmin = Boolean(user?.aggregator_name);
   const [aggregators, setAggregators] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -120,7 +130,7 @@ const Aggregators = () => {
               : 'Manage regional branch aggregator nodes (each isolated in a dedicated PostgreSQL database).'}
           </p>
         </div>
-        {!isBranchAdmin && (
+        {isCentralAdmin && (
           <button 
             onClick={() => { setPairingData(null); setShowCreateModal(true); }}
             className="rbtn"
@@ -231,7 +241,7 @@ const Aggregators = () => {
                           <Eye size={13} />
                           Logs
                         </button>
-                        {!isBranchAdmin && (
+                        {isCentralAdmin && (
                           <button 
                             onClick={() => handleRevoke(agg.id, agg.name)}
                             style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(240,79,90,0.1)', color: '#f04f5a', border: '1px solid rgba(240,79,90,0.2)', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}

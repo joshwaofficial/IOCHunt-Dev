@@ -87,7 +87,7 @@ export default function Sidebar({ collapsed, toggle }) {
         <div className="sidebar-section">
           <div className="sidebar-section-label">Management</div>
           {/* Only Central Master Admin manages all aggregators */}
-          {isCentral() && !user?.aggregator_name && (
+          {isAdmin && isCentral() && !user?.aggregator_name && (
             <NavLink to="/aggregators" className={navClass}><span className="icon material-symbols-outlined">network_node</span> Aggregators</NavLink>
           )}
 

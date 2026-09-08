@@ -104,7 +104,11 @@ function App() {
                   }>
                     <Route index element={<Navigate to="/dashboard" replace />} />
                     <Route path="dashboard" element={<Dashboard />} />
-                    <Route path="aggregators" element={<Aggregators />} />
+                    <Route path="aggregators" element={
+                      <ProtectedRoute requiredRole="admin">
+                        <Aggregators />
+                      </ProtectedRoute>
+                    } />
                     <Route path="aggregator-settings" element={<AggregatorSettings />} />
                     <Route path="ad-attacks" element={<AdAttacks />} />
                     <Route path="malicious-activity" element={<MaliciousActivity />} />
