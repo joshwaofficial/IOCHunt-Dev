@@ -10,11 +10,11 @@ router.get('/config', requireAdmin, emailController.getSmtpConfig);
 router.post('/config', requireAdmin, emailController.updateSmtpConfig);
 router.post('/test', requireAdmin, emailController.testSmtp);
 
-// Email Schedules (any authenticated user)
+// Email Schedules (Admin only for modifications)
 router.get('/schedules', emailController.getSchedules);
-router.post('/schedules', emailController.createSchedule);
-router.patch('/schedules/:id', emailController.updateSchedule);
-router.delete('/schedules/:id', emailController.deleteSchedule);
-router.post('/schedules/:id/run', emailController.runSchedule);
+router.post('/schedules', requireAdmin, emailController.createSchedule);
+router.patch('/schedules/:id', requireAdmin, emailController.updateSchedule);
+router.delete('/schedules/:id', requireAdmin, emailController.deleteSchedule);
+router.post('/schedules/:id/run', requireAdmin, emailController.runSchedule);
 
 module.exports = router;

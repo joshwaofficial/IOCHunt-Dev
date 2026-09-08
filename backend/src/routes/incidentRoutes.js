@@ -14,6 +14,7 @@ router.patch('/:id', requireRole(['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST', 'ADM
 router.post('/:id/assign', requireRole(['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST', 'ADMIN']), incidentController.assignIncident);
 router.post('/:id/notes', requireRole(['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST', 'ADMIN']), incidentController.addNote);
 router.post('/:id/events', requireRole(['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST', 'ADMIN']), incidentController.linkEvents);
-router.delete('/:id', requireRole(['ADMIN']), incidentController.deleteIncident);
 
 module.exports = router;
+
+

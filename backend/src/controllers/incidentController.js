@@ -152,6 +152,28 @@ async function getIncident(req, res) {
     if (!inc) {
       return res.status(404).json({ error: 'Not found' });
     }
+
+    if (req.session && req.session.role !== 'ADMIN' && req.session.role !== 'L3_ANALYST') {
+      const username = req.session.username;
+      const isAssigned = inc.assigned_to === username;
+      const isUnassigned = !inc.assigned_to;
+      const isCreator = inc.created_by === username;
+
+      let hasAccess = isAssigned || isUnassigned || isCreator;
+      if (!hasAccess) {
+        const noteRes = await req.queryTenant(
+          'SELECT 1 FROM incident_notes WHERE incident_id = $1 AND author = $2 LIMIT 1',
+          [inc.id, username]
+        );
+        if (noteRes.rows.length > 0) {
+          hasAccess = true;
+        }
+      }
+
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'Forbidden: Access denied to this incident' });
+      }
+    }
     
     const notesRes = await req.queryTenant('SELECT * FROM incident_notes WHERE incident_id=$1 ORDER BY created_at ASC', [inc.id]);
     
@@ -271,6 +293,17 @@ async function addNote(req, res) {
     const inc = incRes.rows[0];
     if (!inc) return res.status(404).json({ error: 'Not found' });
 
+    if (req.session && req.session.role !== 'ADMIN' && req.session.role !== 'L3_ANALYST') {
+      const username = req.session.username;
+      const isAssigned = inc.assigned_to === username;
+      const isCreator = inc.created_by === username;
+      const isUnassigned = !inc.assigned_to;
+
+      if (!isAssigned && !isCreator && !isUnassigned) {
+        return res.status(403).json({ error: 'Forbidden: You cannot add notes to an incident assigned to another analyst' });
+      }
+    }
+
     await req.queryTenant('INSERT INTO incident_notes (incident_id, author, body, note_type) VALUES ($1,$2,$3,$4)', [inc.id, author, body, note_type]);
     await req.queryTenant('UPDATE incidents SET updated_at=$1 WHERE id=$2', [Math.floor(Date.now() / 1000), inc.id]);
 
@@ -320,17 +353,6 @@ async function linkEvents(req, res) {
   }
 }
 
-async function deleteIncident(req, res) {
-  try {
-
-    const { id } = req.params;
-    await req.queryTenant('DELETE FROM incidents WHERE id=$1', [id]);
-    return res.status(200).json({ ok: true });
-  } catch (error) {
-    console.error('[Incident Error] Failed to delete incident:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-}
 
 async function assignIncident(req, res) {
   try {
@@ -392,6 +414,5 @@ module.exports = {
   updateIncident,
   addNote,
   linkEvents,
-  deleteIncident,
   assignIncident
 };

@@ -294,10 +294,25 @@ const getAggregatorLogs = async (req, res) => {
 const deleteAggregator = async (req, res) => {
   try {
     const { id } = req.params;
-    const aggRes = await db.query('SELECT name FROM aggregators WHERE id = $1', [id]);
-    if (aggRes.rows.length > 0) {
-      await closeAggregatorPool(aggRes.rows[0].name);
+    const tenantId = req.session?.tenant_id || req.tenantId || 'default';
+
+    // Verify the aggregator exists AND belongs to this user's tenant
+    const aggRes = await db.query(
+      'SELECT name, tenant_id FROM aggregators WHERE id = $1',
+      [id]
+    );
+    if (aggRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Aggregator not found' });
     }
+
+    const agg = aggRes.rows[0];
+
+    // Security check: only allow deleting aggregators belonging to this tenant
+    if (agg.tenant_id && agg.tenant_id !== tenantId && tenantId !== 'default') {
+      return res.status(403).json({ error: 'Access denied: aggregator belongs to another tenant' });
+    }
+
+    await closeAggregatorPool(agg.name);
     await db.query('DELETE FROM aggregators WHERE id = $1', [id]);
     res.json({ success: true, message: 'Aggregator removed' });
   } catch (error) {

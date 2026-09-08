@@ -173,6 +173,13 @@ exports.updateSchedule = async (req, res) => {
 // ── DELETE /api/smtp/schedules/:id ───────────────────────────────────────────
 exports.deleteSchedule = async (req, res) => {
   try {
+    const existingRes = await req.queryTenant(
+      'SELECT id FROM email_schedules WHERE id=$1', [req.params.id]
+    );
+    if (existingRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
     stopSchedule(Number(req.params.id));
     await req.queryTenant('DELETE FROM email_schedules WHERE id=$1', [req.params.id]);
     res.json({ ok: true });
