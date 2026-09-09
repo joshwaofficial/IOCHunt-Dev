@@ -439,23 +439,34 @@ app.post('/api/super/login', superLoginLimiter, async (req, res) => {
     const { username, password, confirm_takeover } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket?.remoteAddress || req.ip || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+
     const adminRes = await pool.query('SELECT * FROM super_admins WHERE username = $1', [username.trim().toLowerCase()]);
-    if (adminRes.rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
+    if (adminRes.rows.length === 0) {
+      await pool.query(
+        'INSERT INTO audit_log (username, action, resource, detail, ip_address, user_agent, result) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [username || 'unknown', 'SUPERADMIN_LOGIN_FAILED', 'super_admins', 'Invalid username attempt', clientIp, userAgent, 'FAILURE']
+      ).catch(() => {});
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
     const admin = adminRes.rows[0];
     const computedHash = crypto.pbkdf2Sync(password, admin.salt, 100000, 64, 'sha512').toString('hex');
     const computedBuf = Buffer.from(computedHash, 'hex');
     const storedBuf = Buffer.from(admin.password_hash, 'hex');
     if (computedBuf.length !== storedBuf.length || !crypto.timingSafeEqual(computedBuf, storedBuf)) {
+      await pool.query(
+        'INSERT INTO audit_log (user_id, username, action, resource, detail, ip_address, user_agent, result) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+        [admin.id, admin.username, 'SUPERADMIN_LOGIN_FAILED', 'super_admins', 'Invalid password attempt', clientIp, userAgent, 'FAILURE']
+      ).catch(() => {});
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket?.remoteAddress || req.ip || 'unknown';
     // Clear failed rate limit attempts on successful authentication
     superLoginAttempts.delete(clientIp);
     if (req.ip) superLoginAttempts.delete(req.ip);
 
-    const userAgent = req.headers['user-agent'] || 'unknown';
     const now = Math.floor(Date.now() / 1000);
 
     // Check for active unexpired session for this admin account
@@ -502,6 +513,11 @@ app.post('/api/super/login', superLoginLimiter, async (req, res) => {
       'INSERT INTO super_sessions (token, admin_id, ip_address, user_agent, expires_at) VALUES ($1, $2, $3, $4, $5)',
       [token, admin.id, clientIp, userAgent, expiresAt]
     );
+
+    await pool.query(
+      'INSERT INTO audit_log (user_id, username, action, resource, detail, ip_address, user_agent, result) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+      [admin.id, admin.username, 'SUPERADMIN_LOGIN_SUCCESS', 'super_sessions', 'Super Admin authenticated successfully', clientIp, userAgent, 'SUCCESS']
+    ).catch(() => {});
 
     res.cookie('super_session', token, { httpOnly: true, secure: true, sameSite: 'strict' });
     return res.json({

@@ -21,8 +21,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iochunt_password}
       POSTGRES_DB: ${POSTGRES_DB:-iochunt_control}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
@@ -45,8 +43,6 @@ services:
   redis:
     image: redis:7-alpine
     container_name: iochunt-saas-redis
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redisdata:/data
     command: ["redis-server", "--appendonly", "yes"]

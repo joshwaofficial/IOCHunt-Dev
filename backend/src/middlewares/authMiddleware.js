@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const db = require('../config/db');
 const { normalizeRole, isRoleAboveOrEqual } = require('../config/roles');
 const appMode = require('../config/appMode');
+const { logSecurityEvent, EVENTS, SEVERITY } = require('../utils/securityLogger');
 
 const hash = (text) => crypto.createHash('sha256').update(text).digest('hex');
 
@@ -85,6 +86,16 @@ async function requireSession(req, res, next) {
 
   const session = await getSession(token);
   if (!session) {
+    const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown';
+    logSecurityEvent({
+      event: EVENTS.API_ERROR_4XX,
+      severity: SEVERITY.WARN,
+      ip: clientIp,
+      detail: {
+        path: req.originalUrl || req.url,
+        reason: 'Invalid or expired session token presented'
+      }
+    });
     return res.status(401).json({ error: 'Unauthorized: Invalid or expired session' });
   }
 
@@ -116,6 +127,16 @@ async function requireKey(req, res, next) {
   }
 
   if (!key) {
+    const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown';
+    logSecurityEvent({
+      event: EVENTS.TRAFFIC_INVALID_KEY,
+      severity: SEVERITY.WARN,
+      ip: clientIp,
+      detail: {
+        path: req.originalUrl || req.url,
+        reason: 'Missing API key'
+      }
+    });
     return res.status(401).json({ error: 'Unauthorized: Missing API key' });
   }
 
@@ -154,6 +175,16 @@ async function requireKey(req, res, next) {
     console.error('[AUTH] Error checking API key in requireKey:', e.message);
   }
 
+  const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown';
+  logSecurityEvent({
+    event: EVENTS.TRAFFIC_INVALID_KEY,
+    severity: SEVERITY.WARN,
+    ip: clientIp,
+    detail: {
+      path: req.originalUrl || req.url,
+      reason: 'Invalid API key provided'
+    }
+  });
   return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
 }
 

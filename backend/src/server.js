@@ -18,6 +18,13 @@ const fs = require('fs');
 const { execSync } = require('child_process');
 require('dotenv').config();
 
+// ── Security Configuration Validation (Non-blocking startup audit) ──
+const { validateSecurityConfig } = require('./utils/securityValidator');
+validateSecurityConfig();
+
+const { logSecurityEvent, EVENTS, SEVERITY } = require('./utils/securityLogger');
+const auditMiddleware = require('./middlewares/auditMiddleware');
+
 // ── Auto-Generate SSL Certificates ─────────────────────────────
 try {
   const sslDir = path.join(__dirname, '../../nginx/ssl');
@@ -45,6 +52,16 @@ const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1); // Trust Reverse Proxy X-Forwarded-For
 
+// Enforce HTTPS if behind reverse proxy forwarding plain HTTP (308 preserves POST body for API agents)
+app.use((req, res, next) => {
+  const proto = req.headers['x-forwarded-proto'];
+  if (proto && proto.toLowerCase() === 'http') {
+    const status = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) ? 308 : 301;
+    return res.redirect(status, `https://${req.headers.host}${req.url}`);
+  }
+  next();
+});
+
 // Security & Header Sanitization Middleware
 app.use((req, res, next) => {
   res.removeHeader('X-Powered-By');
@@ -61,10 +78,15 @@ app.use(cors({
 
 app.use(helmet({
   contentSecurityPolicy: false, // Allows inline assets for frontend dashboard
-  hidePoweredBy: true
+  hidePoweredBy: true,
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true
+  }
 }));
 app.use(hpp());
 app.use(cookieParser());
+app.use(auditMiddleware);
 
 // ── Database Context Middleware ─────────────────────────────────
 app.use(databaseContext);
@@ -210,8 +232,23 @@ app.use((req, res) => {
 
 // Safe Global Error Handler (never leak stack traces or internal server details)
 app.use((err, req, res, next) => {
+  const status = err.status || 500;
   console.error('[Global Error]', err);
-  res.status(err.status || 500).json({ error: 'Internal server error' });
+  if (status >= 500) {
+    logSecurityEvent({
+      event: EVENTS.API_ERROR_5XX,
+      severity: SEVERITY.ERROR,
+      ip: req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown',
+      user: req.user?.username || null,
+      tenant: req.tenantId || 'default',
+      detail: {
+        method: req.method,
+        path: req.originalUrl || req.url,
+        errorMessage: err.message
+      }
+    });
+  }
+  res.status(status).json({ error: 'Internal server error' });
 });
 
 // ── Background Session Cleaner (every 15 minutes) ───────────────

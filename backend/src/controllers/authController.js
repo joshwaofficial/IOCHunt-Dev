@@ -11,6 +11,7 @@ const { verifyTOTP } = require('../utils/totpHelper');
 const appMode = require('../config/appMode');
 const sseBroadcaster = require('../services/sseBroadcaster');
 const { sendSecurityAlertEmail } = require('../utils/emailHelper');
+const { logSecurityEvent, EVENTS, SEVERITY } = require('../utils/securityLogger');
 
 /**
  * Validates password complexity
@@ -206,18 +207,35 @@ function resetLoginRateLimit(req) {
 /**
  * Helper to record failure and return locked or invalid credentials response.
  */
-async function handleFailedLogin(lockoutKey, res) {
+async function handleFailedLogin(lockoutKey, res, req = null, user = null, tenant = 'default') {
   const result = await recordFailedAttempt(lockoutKey);
+  const clientIp = (req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress || req?.ip || '').split(',')[0].trim() || 'unknown';
   if (result.locked) {
     const remainingSeconds = result.remainingSeconds || LOCKOUT_DURATION_SECONDS;
     const formatted = formatRemainingTime(remainingSeconds * 1000);
     const errorMsg = `Account is temporarily locked due to multiple failed login attempts. Please try again in ${formatted}.`;
+    logSecurityEvent({
+      event: EVENTS.AUTH_ACCOUNT_LOCKED,
+      severity: SEVERITY.WARN,
+      ip: clientIp,
+      user: user || 'unknown',
+      tenant: tenant || 'default',
+      detail: { lockoutKey, retryAfter: remainingSeconds }
+    });
     return res.status(423).json({
       error: errorMsg,
       message: errorMsg,
       retryAfter: remainingSeconds
     });
   }
+  logSecurityEvent({
+    event: EVENTS.AUTH_LOGIN_FAILED,
+    severity: SEVERITY.WARN,
+    ip: clientIp,
+    user: user || 'unknown',
+    tenant: tenant || 'default',
+    detail: { reason: 'Invalid credentials' }
+  });
   return res.status(401).json({ error: 'Invalid credentials' });
 }
 
@@ -293,14 +311,14 @@ async function login(req, res) {
       );
 
       if (userRes.rows.length === 0) {
-        return await handleFailedLogin(lockoutKey, res);
+        return await handleFailedLogin(lockoutKey, res, req, username, tenantId);
       }
 
       const user = userRes.rows[0];
       const isValid = verifyPassword(password, user.password_hash, user.salt);
       
       if (!isValid) {
-        return await handleFailedLogin(lockoutKey, res);
+        return await handleFailedLogin(lockoutKey, res, req, username, tenantId);
       }
 
       // Successful credentials verification: clear failed login attempts and rate limiter
@@ -369,6 +387,15 @@ async function login(req, res) {
             time: now
           }).catch(() => {});
         }
+
+        logSecurityEvent({
+          event: EVENTS.AUTH_SESSION_TAKEOVER,
+          severity: SEVERITY.WARN,
+          ip: clientIp,
+          user: user.username,
+          tenant: tenantId,
+          detail: { message: 'Terminated previous session due to new login takeover' }
+        });
       }
 
       // Create session in control plane with tenant_id, ip_address, and user_agent
@@ -394,6 +421,15 @@ async function login(req, res) {
         maxAge: 7 * 24 * 3600 * 1000
       });
 
+      logSecurityEvent({
+        event: EVENTS.AUTH_LOGIN_SUCCESS,
+        severity: SEVERITY.INFO,
+        ip: clientIp,
+        user: user.username,
+        tenant: tenantId,
+        detail: { role: user.role, company: companyName }
+      });
+
       return res.status(200).json({
         message: 'Login successful',
         user: {
@@ -415,12 +451,12 @@ async function login(req, res) {
     // Falls back to the original login flow for backwards compatibility
     const user = await User.findByUsername(username);
     if (!user) {
-      return await handleFailedLogin(lockoutKey, res);
+      return await handleFailedLogin(lockoutKey, res, req, username, 'default');
     }
 
     const isValid = verifyPassword(password, user.password_hash, user.salt);
     if (!isValid) {
-      return await handleFailedLogin(lockoutKey, res);
+      return await handleFailedLogin(lockoutKey, res, req, username, user.aggregator_name ? 'aggregator' : 'default');
     }
 
     // Successful credentials verification: clear failed login attempts and rate limiter
@@ -488,6 +524,15 @@ async function login(req, res) {
           time: now
         }).catch(() => {});
       }
+
+      logSecurityEvent({
+        event: EVENTS.AUTH_SESSION_TAKEOVER,
+        severity: SEVERITY.WARN,
+        ip: clientIp,
+        user: user.username,
+        tenant: targetTenant,
+        detail: { message: 'Terminated previous session due to new login takeover' }
+      });
     }
 
     // Generate authenticated single session
@@ -518,6 +563,15 @@ async function login(req, res) {
         source: 'database'
       });
     }
+
+    logSecurityEvent({
+      event: EVENTS.AUTH_LOGIN_SUCCESS,
+      severity: SEVERITY.INFO,
+      ip: clientIp,
+      user: user.username,
+      tenant: targetTenant,
+      detail: { role: user.role }
+    });
 
     return res.status(200).json({
       message: 'Login successful',
@@ -596,6 +650,15 @@ async function changePassword(req, res) {
     // Clear session cookie so existing token cannot be reused
     res.clearCookie('iochunt_session', { path: '/' });
 
+    logSecurityEvent({
+      event: EVENTS.AUTH_PASSWORD_CHANGED,
+      severity: SEVERITY.INFO,
+      ip: (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown',
+      user: user.username,
+      tenant: req.tenantId || 'default',
+      detail: { message: 'Password successfully changed, active sessions invalidated' }
+    });
+
     return res.status(200).json({
       success: true,
       reauth_required: true,
@@ -668,6 +731,14 @@ async function mfaVerify(req, res) {
     }
 
     if (!verifyTOTP(user.mfa_secret, totpToken)) {
+      logSecurityEvent({
+        event: EVENTS.AUTH_MFA_FAILED,
+        severity: SEVERITY.WARN,
+        ip: (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown',
+        user: user.username,
+        tenant: pending?.tenant_id || tenantId || 'default',
+        detail: { reason: 'Invalid MFA code' }
+      });
       return res.status(401).json({ message: 'Invalid MFA code. Please try again.' });
     }
 
@@ -699,6 +770,15 @@ async function mfaVerify(req, res) {
       maxAge: 7 * 24 * 3600 * 1000
     });
 
+    logSecurityEvent({
+      event: EVENTS.AUTH_MFA_SUCCESS,
+      severity: SEVERITY.INFO,
+      ip: clientIp,
+      user: user.username,
+      tenant: targetTenant,
+      detail: { role: user.role }
+    });
+
     return res.status(200).json({
       message: 'Login successful',
       user: {
@@ -724,6 +804,15 @@ async function logout(req, res) {
     }
     
     res.clearCookie('iochunt_session', { path: '/' });
+
+    logSecurityEvent({
+      event: EVENTS.AUTH_LOGOUT,
+      severity: SEVERITY.INFO,
+      ip: (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown',
+      user: req.session?.username || null,
+      tenant: req.tenantId || req.session?.tenant_id || 'default'
+    });
+
     return res.status(200).json({ message: 'Logout successful' });
   } catch (error) {
     console.error('[Auth Error] Logout failed:', error);

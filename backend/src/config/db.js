@@ -38,12 +38,19 @@ const connectionString = process.env.CONTROL_PLANE_DB_URL
   || process.env.CENTRAL_DATABASE_URL
   || `postgres://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || 'iochunt_password'}@${process.env.DB_HOST || 'localhost'}:${process.env.POSTGRES_PORT || 5433}/${process.env.POSTGRES_DB || 'iochunt_db'}`;
 
-const pool = new Pool({
+const poolConfig = {
   connectionString,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000
-});
+};
+
+// Enable SSL if explicitly configured in environment (e.g. AWS RDS or external managed DB)
+if (process.env.DATABASE_SSL === 'true') {
+  poolConfig.ssl = { rejectUnauthorized: false };
+}
+
+const pool = new Pool(poolConfig);
 
 pool.on('error', (err) => {
   console.error('[DB] Unexpected error on idle PostgreSQL client:', err.message);
