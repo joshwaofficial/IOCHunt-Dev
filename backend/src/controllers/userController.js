@@ -42,6 +42,7 @@ async function getUsers(req, res) {
     }));
     return res.status(200).json({ users: safeUsers });
   } catch (error) {
+    console.error('[Users] Failed to get users:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -285,23 +286,28 @@ async function getSessionSettings(req, res) {
     };
 
     if (req.tenantId && req.tenantId !== 'default' && req.tenantId !== 'aggregator') {
-      const tRes = await req.queryControlPlane(
-        'SELECT session_policy, session_lifetime_hours, idle_timeout_mins FROM tenants WHERE tenant_id = $1',
-        [req.tenantId]
-      );
-      if (tRes && tRes.rows.length > 0 && tRes.rows[0].session_policy) {
-        settings = tRes.rows[0];
-      }
+      try {
+        const tRes = await req.queryControlPlane(
+          'SELECT session_policy, session_lifetime_hours, idle_timeout_mins FROM tenants WHERE tenant_id = $1',
+          [req.tenantId]
+        );
+        if (tRes && tRes.rows.length > 0 && tRes.rows[0].session_policy) {
+          settings = tRes.rows[0];
+        }
+      } catch (_) {}
     } else {
-      const q = req.queryTenant || req.queryControlPlane;
-      const sRes = await q('SELECT session_policy, session_lifetime_hours, idle_timeout_mins FROM settings LIMIT 1');
-      if (sRes && sRes.rows.length > 0 && sRes.rows[0].session_policy) {
-        settings = sRes.rows[0];
-      }
+      try {
+        const q = req.queryTenant || req.queryControlPlane;
+        const sRes = await q('SELECT session_policy, session_lifetime_hours, idle_timeout_mins FROM settings LIMIT 1');
+        if (sRes && sRes.rows.length > 0 && sRes.rows[0].session_policy) {
+          settings = sRes.rows[0];
+        }
+      } catch (_) {}
     }
 
     return res.status(200).json({ success: true, settings });
   } catch (error) {
+    console.error('[Users] Failed to get session settings:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

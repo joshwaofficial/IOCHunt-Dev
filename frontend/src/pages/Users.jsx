@@ -444,112 +444,6 @@ export default function Users() {
         </div>
       )}
 
-      {/* Tenant Session Security Policy Configuration */}
-      {currentUser?.role === 'ADMIN' && (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', marginBottom: '14px', boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(90deg, rgba(37,99,235,0.06) 0%, rgba(37,99,235,0) 100%)', flexWrap: 'wrap', gap: '8px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#38bdf8' }}>timer</span>
-              <div>
-                <span style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text)', fontFamily: 'var(--sans)' }}>Tenant Session Security Policy</span>
-                <span style={{ display: 'block', fontSize: '11px', color: 'var(--muted)' }}>Configure the default session lifetime and automatic idle timeout for all users in this tenant workspace</span>
-              </div>
-            </div>
-            <button
-              onClick={handleSaveTenantSessionSettings}
-              disabled={savingTenantPolicy}
-              style={{
-                background: '#2563eb',
-                color: '#fff',
-                border: 'none',
-                padding: '6px 14px',
-                borderRadius: '6px',
-                fontSize: '12px',
-                fontWeight: 600,
-                cursor: savingTenantPolicy ? 'not-allowed' : 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>save</span>
-              {savingTenantPolicy ? 'Saving...' : 'Save Tenant Policy'}
-            </button>
-          </div>
-
-          <div style={{ padding: '16px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: tenantSessionSettings.session_policy === 'custom' ? '1.5fr 1fr 1fr' : '1fr', gap: '16px', alignItems: 'end' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-                  Default Workspace Session Policy
-                </label>
-                <select
-                  className="input-field"
-                  value={tenantSessionSettings.session_policy || 'soc_shift_8h'}
-                  onChange={(e) => {
-                    const pol = e.target.value;
-                    let hrs = tenantSessionSettings.session_lifetime_hours;
-                    let idle = tenantSessionSettings.idle_timeout_mins;
-                    if (pol === 'soc_shift_8h') { hrs = 8; idle = 0; }
-                    else if (pol === 'wallboard_24h') { hrs = 24; idle = 0; }
-                    else if (pol === 'strict_30m') { hrs = 8; idle = 30; }
-                    setTenantSessionSettings(prev => ({
-                      ...prev,
-                      session_policy: pol,
-                      session_lifetime_hours: hrs,
-                      idle_timeout_mins: idle
-                    }));
-                  }}
-                  style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }}
-                >
-                  <option value="soc_shift_8h">SOC Shift Mode (8 Hours, Continuous - No Idle Timeout)</option>
-                  <option value="wallboard_24h">Wallboard Display Mode (24 Hours, Continuous - No Idle Timeout)</option>
-                  <option value="strict_30m">Strict Compliance Mode (8 Hours Max, 30-min Inactivity Timeout)</option>
-                  <option value="custom">Custom Session Policy (Specify Custom Hours & Idle Timeout)</option>
-                </select>
-              </div>
-
-              {tenantSessionSettings.session_policy === 'custom' && (
-                <>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-                      Max Session Lifetime (Hours)
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="168"
-                      className="input-field"
-                      value={tenantSessionSettings.session_lifetime_hours || 8}
-                      onChange={(e) => setTenantSessionSettings(prev => ({ ...prev, session_lifetime_hours: Math.max(1, parseInt(e.target.value, 10) || 1) }))}
-                      style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-                      Idle Inactivity Timeout (Minutes, 0 = None)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="1440"
-                      className="input-field"
-                      value={tenantSessionSettings.idle_timeout_mins ?? 0}
-                      onChange={(e) => setTenantSessionSettings(prev => ({ ...prev, idle_timeout_mins: Math.max(0, parseInt(e.target.value, 10) || 0) }))}
-                      style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }}
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-            <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--muted)' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#10b981' }}>check_circle</span>
-              <span>User accounts configured with <strong>"Default (Inherit)"</strong> follow this baseline policy. Specific accounts can also be overridden below.</span>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', marginBottom: '14px', boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
         <div style={{ padding: '11px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(0,0,0,0.01)' }}>
           <span className="material-symbols-outlined text-muted" style={{ fontSize: '16px', color: 'var(--muted)' }}>group</span>
@@ -948,6 +842,112 @@ export default function Users() {
               </div>
             )}
             {newError && <div style={{ marginTop: '12px', color: '#ef4444', fontSize: '12px', fontWeight: 600 }}>{newError}</div>}
+          </div>
+        </div>
+      )}
+
+      {/* Tenant Session Security Policy Configuration */}
+      {currentUser?.role === 'ADMIN' && (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', marginBottom: '14px', boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(90deg, rgba(37,99,235,0.06) 0%, rgba(37,99,235,0) 100%)', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#38bdf8' }}>timer</span>
+              <div>
+                <span style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text)', fontFamily: 'var(--sans)' }}>Tenant Session Security Policy</span>
+                <span style={{ display: 'block', fontSize: '11px', color: 'var(--muted)' }}>Configure the default session lifetime and automatic idle timeout for all users in this tenant workspace</span>
+              </div>
+            </div>
+            <button
+              onClick={handleSaveTenantSessionSettings}
+              disabled={savingTenantPolicy}
+              style={{
+                background: '#2563eb',
+                color: '#fff',
+                border: 'none',
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: savingTenantPolicy ? 'not-allowed' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>save</span>
+              {savingTenantPolicy ? 'Saving...' : 'Save Tenant Policy'}
+            </button>
+          </div>
+
+          <div style={{ padding: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: tenantSessionSettings.session_policy === 'custom' ? '1.5fr 1fr 1fr' : '1fr', gap: '16px', alignItems: 'end' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                  Default Workspace Session Policy
+                </label>
+                <select
+                  className="input-field"
+                  value={tenantSessionSettings.session_policy || 'soc_shift_8h'}
+                  onChange={(e) => {
+                    const pol = e.target.value;
+                    let hrs = tenantSessionSettings.session_lifetime_hours;
+                    let idle = tenantSessionSettings.idle_timeout_mins;
+                    if (pol === 'soc_shift_8h') { hrs = 8; idle = 0; }
+                    else if (pol === 'wallboard_24h') { hrs = 24; idle = 0; }
+                    else if (pol === 'strict_30m') { hrs = 8; idle = 30; }
+                    setTenantSessionSettings(prev => ({
+                      ...prev,
+                      session_policy: pol,
+                      session_lifetime_hours: hrs,
+                      idle_timeout_mins: idle
+                    }));
+                  }}
+                  style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }}
+                >
+                  <option value="soc_shift_8h">SOC Shift Mode (8 Hours, Continuous - No Idle Timeout)</option>
+                  <option value="wallboard_24h">Wallboard Display Mode (24 Hours, Continuous - No Idle Timeout)</option>
+                  <option value="strict_30m">Strict Compliance Mode (8 Hours Max, 30-min Inactivity Timeout)</option>
+                  <option value="custom">Custom Session Policy (Specify Custom Hours & Idle Timeout)</option>
+                </select>
+              </div>
+
+              {tenantSessionSettings.session_policy === 'custom' && (
+                <>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                      Max Session Lifetime (Hours)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="168"
+                      className="input-field"
+                      value={tenantSessionSettings.session_lifetime_hours || 8}
+                      onChange={(e) => setTenantSessionSettings(prev => ({ ...prev, session_lifetime_hours: Math.max(1, parseInt(e.target.value, 10) || 1) }))}
+                      style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                      Idle Inactivity Timeout (Minutes, 0 = None)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="1440"
+                      className="input-field"
+                      value={tenantSessionSettings.idle_timeout_mins ?? 0}
+                      onChange={(e) => setTenantSessionSettings(prev => ({ ...prev, idle_timeout_mins: Math.max(0, parseInt(e.target.value, 10) || 0) }))}
+                      style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+            <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--muted)' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#10b981' }}>check_circle</span>
+              <span>User accounts configured with <strong>"Default (Inherit)"</strong> follow this baseline policy. Specific accounts can also be overridden above in the user list.</span>
+            </div>
           </div>
         </div>
       )}

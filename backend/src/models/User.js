@@ -58,23 +58,72 @@ class User {
 
   static async getAllUsers(queryFn) {
     const q = queryFn || db.query.bind(db);
-    const res = await q(`
-      SELECT id, username, email, role, force_password_change, mfa_enabled, session_policy, custom_session_hours, custom_idle_mins, created_at, last_login 
-      FROM users 
-      ORDER BY id ASC
-    `);
-    return res.rows;
+    try {
+      const res = await q(`
+        SELECT id, username, email, role, force_password_change, mfa_enabled, session_policy, custom_session_hours, custom_idle_mins, created_at, last_login 
+        FROM users 
+        ORDER BY id ASC
+      `);
+      return res.rows;
+    } catch (err) {
+      if (err && err.message && (err.message.includes('session_policy') || err.message.includes('column'))) {
+        try {
+          await q(`
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'inherit';
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_session_hours INTEGER DEFAULT NULL;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_idle_mins INTEGER DEFAULT NULL;
+          `);
+          const retryRes = await q(`
+            SELECT id, username, email, role, force_password_change, mfa_enabled, session_policy, custom_session_hours, custom_idle_mins, created_at, last_login 
+            FROM users 
+            ORDER BY id ASC
+          `);
+          return retryRes.rows;
+        } catch (healErr) {
+          console.warn('[User] Auto-heal columns fallback:', healErr.message);
+        }
+        const legacyRes = await q(`
+          SELECT id, username, email, role, force_password_change, mfa_enabled, created_at, last_login 
+          FROM users 
+          ORDER BY id ASC
+        `);
+        return (legacyRes.rows || []).map(u => ({
+          ...u,
+          session_policy: 'inherit',
+          custom_session_hours: null,
+          custom_idle_mins: null
+        }));
+      }
+      throw err;
+    }
   }
 
   static async createUser({ username, email, passwordHash, salt, role, forcePasswordChange = 1, sessionPolicy = 'inherit', customSessionHours = null, customIdleMins = null }, queryFn) {
     const now = Math.floor(Date.now() / 1000);
     const q = queryFn || db.query.bind(db);
-    const res = await q(
-      `INSERT INTO users (username, email, password_hash, salt, role, force_password_change, session_policy, custom_session_hours, custom_idle_mins, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-      [username.trim().toLowerCase(), email || '', passwordHash, salt, role || 'ADMIN', forcePasswordChange ? 1 : 0, sessionPolicy || 'inherit', customSessionHours || null, customIdleMins || null, now]
-    );
-    return res.rows[0];
+    try {
+      const res = await q(
+        `INSERT INTO users (username, email, password_hash, salt, role, force_password_change, session_policy, custom_session_hours, custom_idle_mins, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+        [username.trim().toLowerCase(), email || '', passwordHash, salt, role || 'ADMIN', forcePasswordChange ? 1 : 0, sessionPolicy || 'inherit', customSessionHours || null, customIdleMins || null, now]
+      );
+      return res.rows[0];
+    } catch (err) {
+      if (err && err.message && (err.message.includes('session_policy') || err.message.includes('column'))) {
+        await q(`
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'inherit';
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_session_hours INTEGER DEFAULT NULL;
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_idle_mins INTEGER DEFAULT NULL;
+        `).catch(() => {});
+        const retryRes = await q(
+          `INSERT INTO users (username, email, password_hash, salt, role, force_password_change, session_policy, custom_session_hours, custom_idle_mins, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+          [username.trim().toLowerCase(), email || '', passwordHash, salt, role || 'ADMIN', forcePasswordChange ? 1 : 0, sessionPolicy || 'inherit', customSessionHours || null, customIdleMins || null, now]
+        );
+        return retryRes.rows[0];
+      }
+      throw err;
+    }
   }
 
   static async updatePassword(id, passwordHash, salt, queryFn) {
@@ -141,7 +190,20 @@ class User {
     if (fields.length === 0) return;
 
     vals.push(id);
-    await q(`UPDATE users SET ${fields.join(', ')} WHERE id = $${idx}`, vals);
+    try {
+      await q(`UPDATE users SET ${fields.join(', ')} WHERE id = $${idx}`, vals);
+    } catch (err) {
+      if (err && err.message && (err.message.includes('session_policy') || err.message.includes('column'))) {
+        await q(`
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'inherit';
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_session_hours INTEGER DEFAULT NULL;
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_idle_mins INTEGER DEFAULT NULL;
+        `).catch(() => {});
+        await q(`UPDATE users SET ${fields.join(', ')} WHERE id = $${idx}`, vals);
+        return;
+      }
+      throw err;
+    }
   }
 
   static async deleteUser(id, queryFn) {

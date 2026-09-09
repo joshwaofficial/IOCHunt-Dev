@@ -84,6 +84,9 @@ function getTableSchemaSQL() {
       mfa_enabled INTEGER DEFAULT 0,
       aggregator_name TEXT DEFAULT NULL,
       display_name TEXT DEFAULT NULL,
+      session_policy VARCHAR(50) DEFAULT 'inherit',
+      custom_session_hours INTEGER DEFAULT NULL,
+      custom_idle_mins INTEGER DEFAULT NULL,
       created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
       last_login BIGINT
     );
@@ -99,6 +102,8 @@ function getTableSchemaSQL() {
       force_password_change INTEGER DEFAULT 0,
       ip_address VARCHAR(45) DEFAULT '',
       user_agent TEXT DEFAULT '',
+      last_activity_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
+      idle_timeout_mins INTEGER DEFAULT 0,
       created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
       expires_at BIGINT NOT NULL
     );
@@ -298,6 +303,9 @@ function getTableSchemaSQL() {
       aggregator_name VARCHAR(255) DEFAULT '',
       agent_api_key_hash VARCHAR(255),
       agent_api_key_plain VARCHAR(255),
+      session_policy VARCHAR(50) DEFAULT 'soc_shift_8h',
+      session_lifetime_hours INTEGER DEFAULT 8,
+      idle_timeout_mins INTEGER DEFAULT 0,
       local_retention_days INTEGER DEFAULT 30,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
