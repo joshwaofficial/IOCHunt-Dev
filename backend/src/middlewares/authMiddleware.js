@@ -62,7 +62,8 @@ async function getSession(token) {
   try {
     const res = await db.query(`
       SELECT s.token, s.user_id, s.username, s.expires_at, s.role, s.tenant_id,
-             s.force_password_change, s.aggregator_name, s.display_name
+             s.force_password_change, s.aggregator_name, s.display_name,
+             s.last_activity_at, s.idle_timeout_mins, s.user_agent, s.ip_address
       FROM sessions s
       WHERE s.token = $1 AND s.expires_at > $2
     `, [token, now]);
@@ -97,6 +98,34 @@ async function requireSession(req, res, next) {
       }
     });
     return res.status(401).json({ error: 'Unauthorized: Invalid or expired session' });
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+
+  // 1. Idle Inactivity Check (if configured > 0)
+  const idleTimeoutMins = Number(session.idle_timeout_mins) || 0;
+  if (idleTimeoutMins > 0) {
+    const lastActivity = Number(session.last_activity_at) || 0;
+    const idleSeconds = now - lastActivity;
+    if (idleSeconds > idleTimeoutMins * 60) {
+      await db.query('DELETE FROM sessions WHERE token = $1', [token]);
+      return res.status(401).json({ error: 'Session expired due to inactivity', reason: 'inactivity_timeout' });
+    }
+  }
+
+  // 2. User-Agent Fingerprint Validation (prevents session hijacking)
+  const clientUserAgent = req.headers['user-agent'] || 'unknown';
+  if (session.user_agent && session.user_agent !== 'unknown' && session.user_agent !== clientUserAgent) {
+    return res.status(401).json({ error: 'Session anomaly detected: User-Agent mismatch' });
+  }
+
+  // 3. Activity sliding: update last_activity_at once every 60s for non-passive endpoints
+  const passivePaths = ['/api/stream', '/api/ping', '/api/auth/keep-alive'];
+  if (!passivePaths.includes(req.path)) {
+    const lastAct = Number(session.last_activity_at) || 0;
+    if (now - lastAct > 60) {
+      db.query('UPDATE sessions SET last_activity_at = $1 WHERE token = $2', [now, token]).catch(() => {});
+    }
   }
 
   req.session = session;

@@ -323,9 +323,10 @@ const getADAttacks = async (req, res) => {
     const actor = (req.query.actor || '').toLowerCase();
     const attackType = (req.query.attackType || '').toLowerCase();
     const sort = req.query.sort || 'newest';
-    const severity = req.query.severity || 'all';
+    const severity = (req.query.severity || 'all').toLowerCase();
     const protocol = (req.query.protocol || '').toLowerCase();
     const tactic = (req.query.tactic || '').toLowerCase();
+    const incidentLink = req.query.incidentLink || 'all';
 
     const rows = await Event.getAdAttacks(req, aggregator, machine, 3000, from, to);
     let events = rows.map(r => {
@@ -350,7 +351,7 @@ const getADAttacks = async (req, res) => {
       events = events.filter(a => (a.action || '').toLowerCase().includes(action));
     }
     if (excludeSystem) {
-      events = events.filter(a => !/\b(system|SYSTEM)\b/.test(a.process) && !/\b(system|SYSTEM)\b/.test(a.machine));
+      events = events.filter(a => !/\b(system|SYSTEM)\b/.test(a.process || '') && !/\b(system|SYSTEM)\b/.test(a.machine || ''));
     }
     if (incidentLink === 'unassigned') {
       events = events.filter(a => !a.incident_id);
@@ -402,6 +403,13 @@ const getMaliciousEvents = async (req, res) => {
     const search = (req.query.search || '').toLowerCase();
     const processFilter = (req.query.process || '').toLowerCase();
     const sort = req.query.sort || 'newest';
+    const severity = (req.query.severity || 'all').toLowerCase();
+    const source = (req.query.source || '').toLowerCase();
+    const action = (req.query.action || '').toLowerCase();
+    const actor = (req.query.actor || '').toLowerCase();
+    const attackType = (req.query.attackType || '').toLowerCase();
+    const incidentLink = req.query.incidentLink || 'all';
+    const excludeSystem = req.query.excludeSystem === 'true';
     const page = parseSafeInt(req.query.page, 1, 1, 10000);
     const limit = parseSafeInt(req.query.limit, 10, 1, 500);
     let from, to;
@@ -421,11 +429,46 @@ const getMaliciousEvents = async (req, res) => {
       return { ...parsed, id: r.id, aggregator_name: r.aggregator_name, incident_id: r.incident_id, incident_assigned_to: r.incident_assigned_to, incident_status: r.incident_status };
     }).filter(Boolean);
 
+    if (machine) {
+      events = events.filter(a => a.machine === machine || a.target_machine === machine || a.actor === machine);
+    }
     if (search) {
       events = events.filter(a => Object.values(a).some(v => v !== null && v !== undefined && String(v).toLowerCase().includes(search)));
     }
     if (severity !== 'all') {
       events = events.filter(a => (a.severity || 'info').toLowerCase() === severity);
+    }
+    if (processFilter) {
+      events = events.filter(a => (a.process || '').toLowerCase().includes(processFilter));
+    }
+    if (source) {
+      events = events.filter(a => (a.source || '').toLowerCase().includes(source));
+    }
+    if (action) {
+      events = events.filter(a => (a.action || '').toLowerCase().includes(action));
+    }
+    if (actor) {
+      events = events.filter(a => (a.actor || '').toLowerCase().includes(actor));
+    }
+    if (attackType) {
+      events = events.filter(a => (a.attack_type || '').toLowerCase().includes(attackType));
+    }
+    if (incidentLink === 'unassigned') {
+      events = events.filter(a => !a.incident_id);
+    } else if (incidentLink === 'linked') {
+      events = events.filter(a => !!a.incident_id);
+    }
+    if (excludeSystem) {
+      events = events.filter(a => !/\b(system|SYSTEM)\b/.test(a.actor || '') && !(a.actor || '').endsWith('$') && !/\b(system|SYSTEM)\b/.test(a.target_machine || ''));
+    }
+
+    if (sort === 'oldest') {
+      events.sort((a, b) => new Date(a.ts) - new Date(b.ts));
+    } else if (sort === 'severity') {
+      const sevMap = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
+      events.sort((a, b) => sevMap[(b.severity || 'info').toLowerCase()] - sevMap[(a.severity || 'info').toLowerCase()]);
+    } else {
+      events.sort((a, b) => new Date(b.ts) - new Date(a.ts));
     }
 
     const total = events.length;
@@ -487,6 +530,8 @@ const getUserEvents = async (req, res) => {
     const sort = req.query.sort || 'newest';
     const severity = (req.query.severity || 'all').toLowerCase();
     const isPrivileged = req.query.isPrivileged === 'true';
+    const excludeSystem = req.query.excludeSystem === 'true';
+    const incidentLink = req.query.incidentLink || 'all';
     const page = parseSafeInt(req.query.page, 1, 1, 10000);
     const limit = parseSafeInt(req.query.limit, 10, 1, 500);
 
@@ -505,8 +550,13 @@ const getUserEvents = async (req, res) => {
     if (isPrivileged) {
       out = out.filter(a => !!a.is_privileged);
     }
+    if (incidentLink === 'unassigned') {
+      out = out.filter(a => !a.incident_id);
+    } else if (incidentLink === 'linked') {
+      out = out.filter(a => !!a.incident_id);
+    }
     if (excludeSystem) {
-      out = out.filter(a => !/\b(system|SYSTEM)\b/.test(a.actor) && !a.actor.endsWith('$') && !/\b(system|SYSTEM)\b/.test(a.target_machine));
+      out = out.filter(a => !/\b(system|SYSTEM)\b/.test(a.actor || '') && !(a.actor || '').endsWith('$') && !/\b(system|SYSTEM)\b/.test(a.target_machine || ''));
     }
     
     if (sort === 'oldest') {

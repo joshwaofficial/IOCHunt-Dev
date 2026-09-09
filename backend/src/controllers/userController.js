@@ -35,7 +35,10 @@ async function getUsers(req, res) {
       force_password_change: u.force_password_change === 1 || u.force_password_change === true,
       created_at: u.created_at,
       last_login: u.last_login,
-      mfa_enabled: u.mfa_enabled
+      mfa_enabled: u.mfa_enabled,
+      session_policy: u.session_policy || 'inherit',
+      custom_session_hours: u.custom_session_hours !== null && u.custom_session_hours !== undefined ? Number(u.custom_session_hours) : null,
+      custom_idle_mins: u.custom_idle_mins !== null && u.custom_idle_mins !== undefined ? Number(u.custom_idle_mins) : null
     }));
     return res.status(200).json({ users: safeUsers });
   } catch (error) {
@@ -70,7 +73,7 @@ async function getAssignableUsers(req, res) {
 
 async function createUser(req, res) {
   try {
-    const { username, email, password, role, force_password_change = true } = req.body || {};
+    const { username, email, password, role, force_password_change = true, session_policy = 'inherit', custom_session_hours, custom_idle_mins } = req.body || {};
     if (!username || !password || !role || typeof username !== 'string' || typeof password !== 'string' || typeof role !== 'string') {
       return res.status(400).json({ error: 'Username, password, and role are required and must be strings' });
     }
@@ -105,7 +108,10 @@ async function createUser(req, res) {
       passwordHash,
       salt,
       role: upperRole,
-      forcePasswordChange: force_password_change !== false
+      forcePasswordChange: force_password_change !== false,
+      sessionPolicy: session_policy || 'inherit',
+      customSessionHours: custom_session_hours ? Math.min(168, Math.max(1, Number(custom_session_hours))) : null,
+      customIdleMins: custom_idle_mins !== undefined && custom_idle_mins !== null && custom_idle_mins !== '' ? Math.max(0, Number(custom_idle_mins)) : null
     }, req.queryTenant);
     
     return res.status(201).json({ success: true, message: 'User created successfully' });
@@ -121,7 +127,7 @@ async function updateUser(req, res) {
       return res.status(400).json({ error: 'Invalid user ID parameter' });
     }
 
-    const { username, email, role, password, force_password_change } = req.body || {};
+    const { username, email, role, password, force_password_change, session_policy, custom_session_hours, custom_idle_mins } = req.body || {};
     const existing = await User.findById(id, req.queryTenant);
     if (!existing) return res.status(404).json({ error: 'User not found' });
     
@@ -183,7 +189,10 @@ async function updateUser(req, res) {
       role: upperRole,
       passwordHash,
       salt,
-      forcePasswordChange: enforcedForcePasswordChange
+      forcePasswordChange: enforcedForcePasswordChange,
+      sessionPolicy: session_policy !== undefined ? session_policy : existing.session_policy,
+      customSessionHours: custom_session_hours !== undefined ? (custom_session_hours ? Math.min(168, Math.max(1, Number(custom_session_hours))) : null) : existing.custom_session_hours,
+      customIdleMins: custom_idle_mins !== undefined ? (custom_idle_mins !== null && custom_idle_mins !== '' ? Math.max(0, Number(custom_idle_mins)) : null) : existing.custom_idle_mins
     }, req.queryTenant);
 
     if (targetUsername !== existing.username) {
@@ -267,6 +276,77 @@ async function verifyMfa(req, res) {
   }
 }
 
+async function getSessionSettings(req, res) {
+  try {
+    let settings = {
+      session_policy: 'soc_shift_8h',
+      session_lifetime_hours: 8,
+      idle_timeout_mins: 0
+    };
+
+    if (req.tenantId && req.tenantId !== 'default' && req.tenantId !== 'aggregator') {
+      const tRes = await req.queryControlPlane(
+        'SELECT session_policy, session_lifetime_hours, idle_timeout_mins FROM tenants WHERE tenant_id = $1',
+        [req.tenantId]
+      );
+      if (tRes && tRes.rows.length > 0 && tRes.rows[0].session_policy) {
+        settings = tRes.rows[0];
+      }
+    } else {
+      const q = req.queryTenant || req.queryControlPlane;
+      const sRes = await q('SELECT session_policy, session_lifetime_hours, idle_timeout_mins FROM settings LIMIT 1');
+      if (sRes && sRes.rows.length > 0 && sRes.rows[0].session_policy) {
+        settings = sRes.rows[0];
+      }
+    }
+
+    return res.status(200).json({ success: true, settings });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+async function updateSessionSettings(req, res) {
+  try {
+    const { session_policy = 'soc_shift_8h', session_lifetime_hours = 8, idle_timeout_mins = 0 } = req.body || {};
+
+    const validPolicies = ['soc_shift_8h', 'wallboard_24h', 'strict_30m', 'custom'];
+    if (!validPolicies.includes(session_policy)) {
+      return res.status(400).json({ error: 'Invalid session policy' });
+    }
+
+    const hours = Math.min(168, Math.max(1, Number(session_lifetime_hours) || 8));
+    const idle = Math.max(0, Number(idle_timeout_mins) || 0);
+
+    if (req.tenantId && req.tenantId !== 'default' && req.tenantId !== 'aggregator') {
+      await req.queryControlPlane(
+        'UPDATE tenants SET session_policy = $1, session_lifetime_hours = $2, idle_timeout_mins = $3 WHERE tenant_id = $4',
+        [session_policy, hours, idle, req.tenantId]
+      );
+    }
+
+    try {
+      const q = req.queryTenant || req.queryControlPlane;
+      await q(
+        'UPDATE settings SET session_policy = $1, session_lifetime_hours = $2, idle_timeout_mins = $3',
+        [session_policy, hours, idle]
+      );
+    } catch (_) {}
+
+    return res.status(200).json({
+      success: true,
+      message: 'Session policy updated successfully',
+      settings: {
+        session_policy,
+        session_lifetime_hours: hours,
+        idle_timeout_mins: idle
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
 module.exports = {
   getUsers,
   getAssignableUsers,
@@ -275,5 +355,8 @@ module.exports = {
   deleteUser,
   disableMfa,
   generateMfa,
-  verifyMfa
+  verifyMfa,
+  getSessionSettings,
+  updateSessionSettings
 };
+

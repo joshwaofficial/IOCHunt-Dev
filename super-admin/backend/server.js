@@ -214,7 +214,8 @@ async function initSuperAdminDB() {
     try {
       await client.query('ALTER TABLE super_sessions ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45) DEFAULT \'\'');
       await client.query('ALTER TABLE super_sessions ADD COLUMN IF NOT EXISTS user_agent TEXT DEFAULT \'\'');
-      console.log('[SuperAdmin] Auto-migrated: Added ip_address and user_agent to super_sessions table');
+      await client.query('ALTER TABLE super_sessions ADD COLUMN IF NOT EXISTS last_activity_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())');
+      console.log('[SuperAdmin] Auto-migrated: Added ip_address, user_agent, and last_activity_at to super_sessions table');
     } catch (e) {
       // Columns already exist or error, ignore
     }
@@ -251,6 +252,38 @@ async function superAuthMiddleware(req, res, next) {
   }
 
   req.superAdmin = sessionRes.rows[0];
+
+  // User-Agent fingerprint sanity check
+  const clientUserAgent = req.headers['user-agent'] || 'unknown';
+  if (req.superAdmin.user_agent && req.superAdmin.user_agent !== 'unknown' && req.superAdmin.user_agent !== clientUserAgent) {
+    return res.status(401).json({ error: 'Session anomaly detected: User-Agent mismatch' });
+  }
+
+  // Idle inactivity check based on super_settings.session_timeout_mins
+  let idleTimeoutMins = 120;
+  try {
+    const settingsRes = await pool.query("SELECT settings FROM super_settings WHERE category = 'security'");
+    if (settingsRes.rows.length > 0 && settingsRes.rows[0].settings?.session_timeout_mins) {
+      const parsed = parseInt(settingsRes.rows[0].settings.session_timeout_mins, 10);
+      if (!isNaN(parsed) && parsed > 0) idleTimeoutMins = parsed;
+    }
+  } catch (_) {}
+
+  const lastAct = Number(req.superAdmin.last_activity_at) || 0;
+  if (lastAct > 0 && (now - lastAct) > (idleTimeoutMins * 60)) {
+    await pool.query('DELETE FROM super_sessions WHERE token = $1', [token]).catch(() => {});
+    res.clearCookie('super_session');
+    return res.status(401).json({ error: 'Session expired due to inactivity' });
+  }
+
+  // Throttle activity sliding: update last_activity_at once every 60s for non-passive endpoints
+  const passivePaths = ['/api/super/stream', '/api/super/session-check'];
+  if (!passivePaths.includes(req.path)) {
+    if (now - lastAct > 60) {
+      const newExpiry = now + (idleTimeoutMins * 60);
+      pool.query('UPDATE super_sessions SET last_activity_at = $1, expires_at = GREATEST(expires_at, $2) WHERE token = $3', [now, newExpiry, token]).catch(() => {});
+    }
+  }
 
   // Enforce mandatory password change if required
   const allowedPaths = ['/api/super/change-password', '/api/super/logout', '/api/super/session-check', '/api/super/stream'];
@@ -522,12 +555,21 @@ app.post('/api/super/login', superLoginLimiter, async (req, res) => {
       } catch (_) { }
     }
 
+    let sessionTimeoutMins = 120; // Default: 2 hours
+    try {
+      const settingsRes = await pool.query("SELECT settings FROM super_settings WHERE category = 'security'");
+      if (settingsRes.rows.length > 0 && settingsRes.rows[0].settings?.session_timeout_mins) {
+        const parsed = parseInt(settingsRes.rows[0].settings.session_timeout_mins, 10);
+        if (!isNaN(parsed) && parsed > 0) sessionTimeoutMins = parsed;
+      }
+    } catch (_) {}
+
     const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = now + 8 * 3600;
+    const expiresAt = now + (sessionTimeoutMins * 60);
 
     await pool.query(
-      'INSERT INTO super_sessions (token, admin_id, ip_address, user_agent, expires_at) VALUES ($1, $2, $3, $4, $5)',
-      [token, admin.id, clientIp, userAgent, expiresAt]
+      'INSERT INTO super_sessions (token, admin_id, ip_address, user_agent, expires_at, last_activity_at) VALUES ($1, $2, $3, $4, $5, $6)',
+      [token, admin.id, clientIp, userAgent, expiresAt, now]
     );
 
     await pool.query(
@@ -535,10 +577,16 @@ app.post('/api/super/login', superLoginLimiter, async (req, res) => {
       [admin.id, admin.username, 'SUPERADMIN_LOGIN_SUCCESS', 'super_sessions', 'Super Admin authenticated successfully', clientIp, userAgent, 'SUCCESS']
     ).catch(() => {});
 
-    res.cookie('super_session', token, { httpOnly: true, secure: true, sameSite: 'strict' });
+    res.cookie('super_session', token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      maxAge: sessionTimeoutMins * 60 * 1000
+    });
     return res.json({
       force_password_change: admin.force_password_change === 1,
-      username: admin.username
+      username: admin.username,
+      session_timeout_mins: sessionTimeoutMins
     });
   } catch (err) {
     console.error(err);
@@ -1049,6 +1097,14 @@ app.put('/api/super/settings', superAuthMiddleware, async (req, res) => {
     const { category, settings } = req.body;
     if (!category || typeof settings !== 'object') {
       return res.status(400).json({ error: 'Valid category and settings object required' });
+    }
+
+    if (category === 'security' && settings.session_timeout_mins !== undefined) {
+      const parsed = parseInt(settings.session_timeout_mins, 10);
+      if (isNaN(parsed) || parsed < 1 || parsed > 10080) {
+        return res.status(400).json({ error: 'Session timeout must be between 1 and 10080 minutes' });
+      }
+      settings.session_timeout_mins = parsed;
     }
 
     await pool.query(

@@ -28,6 +28,7 @@ export default function Settings() {
   const [securitySettings, setSecuritySettings] = useState({
     session_timeout_mins: 120
   });
+  const [isCustomTimeout, setIsCustomTimeout] = useState(false);
 
   // Fetch persisted settings from backend
   const fetchSettings = async () => {
@@ -218,20 +219,54 @@ export default function Settings() {
           <div className="ent-card-body" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div className="form-group">
               <label className="form-label">Session Idle Timeout</label>
-              <select
-                className="form-input"
-                value={securitySettings.session_timeout_mins}
-                onChange={(e) => setSecuritySettings({
-                  session_timeout_mins: parseInt(e.target.value, 10)
-                })}
-              >
-                <option value={30}>30 Minutes</option>
-                <option value={60}>1 Hour</option>
-                <option value={120}>2 Hours (Default)</option>
-                <option value={240}>4 Hours</option>
-                <option value={480}>8 Hours</option>
-                <option value={1440}>24 Hours</option>
-              </select>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <select
+                  className="form-input"
+                  style={{ flex: 1 }}
+                  value={[30, 60, 120, 240, 480, 1440].includes(securitySettings.session_timeout_mins) && !isCustomTimeout ? securitySettings.session_timeout_mins : 'custom'}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === 'custom') {
+                      setIsCustomTimeout(true);
+                    } else {
+                      setIsCustomTimeout(false);
+                      setSecuritySettings(prev => ({
+                        ...prev,
+                        session_timeout_mins: parseInt(val, 10)
+                      }));
+                    }
+                  }}
+                >
+                  <option value={30}>30 Minutes</option>
+                  <option value={60}>1 Hour</option>
+                  <option value={120}>2 Hours (Default)</option>
+                  <option value={240}>4 Hours</option>
+                  <option value={480}>8 Hours</option>
+                  <option value={1440}>24 Hours</option>
+                  <option value="custom">Custom Inactivity Time...</option>
+                </select>
+                {(![30, 60, 120, 240, 480, 1440].includes(securitySettings.session_timeout_mins) || isCustomTimeout) && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <input
+                      type="number"
+                      min="5"
+                      max="10080"
+                      className="form-input"
+                      style={{ width: '110px' }}
+                      value={securitySettings.session_timeout_mins || ''}
+                      placeholder="Minutes"
+                      onChange={(e) => {
+                        const parsed = parseInt(e.target.value, 10);
+                        setSecuritySettings(prev => ({
+                          ...prev,
+                          session_timeout_mins: isNaN(parsed) ? '' : parsed
+                        }));
+                      }}
+                    />
+                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>mins</span>
+                  </div>
+                )}
+              </div>
               <span style={{ fontSize: '11px', color: '#64748b' }}>
                 Active sessions exceeding this inactivity window will be invalidated automatically.
               </span>

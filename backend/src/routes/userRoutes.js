@@ -8,6 +8,8 @@ const { accountCreationLimiter } = require('../middlewares/rateLimiters');
 const requireAdmin = requireRole(['ADMIN']);
 
 router.use(requireSession);
+router.get('/session-settings', userController.getSessionSettings);
+router.put('/session-settings', requireAdmin, userController.updateSessionSettings);
 router.get('/', userController.getUsers);
 router.get('/assignable', userController.getAssignableUsers);
 router.post('/', requireAdmin, accountCreationLimiter, userController.createUser);

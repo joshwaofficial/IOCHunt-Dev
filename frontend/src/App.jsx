@@ -30,6 +30,7 @@ import Firewall from './pages/Firewall';
 import Aggregators from './pages/Aggregators';
 import AggregatorSettings from './pages/AggregatorSettings';
 import Layout from './components/Layout';
+import IdleTimerManager from './components/IdleTimerManager';
 
 // Protected Route Wrapper with Setup Check
 const ProtectedRoute = ({ children, requiredRole }) => {
@@ -79,6 +80,7 @@ function App() {
         <InstanceProvider>
           <AuthProvider>
             <FilterProvider>
+              <IdleTimerManager />
               <Toaster position="top-right" toastOptions={{ style: { background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' } }} />
               <Router>
                 <Routes>

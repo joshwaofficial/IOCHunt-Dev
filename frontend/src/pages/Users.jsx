@@ -43,24 +43,60 @@ export default function Users() {
   const [alertDialog, setAlertDialog] = useState({ isOpen: false, title: '', message: '', type: 'info' });
 
   // Add User Form
-  const [newForm, setNewForm] = useState({ username: '', email: '', password: '', role: 'L1_ANALYST', force_password_change: true });
+  const [newForm, setNewForm] = useState({
+    username: '',
+    email: '',
+    password: '',
+    role: 'L1_ANALYST',
+    force_password_change: true,
+    session_policy: 'inherit',
+    custom_session_hours: 8,
+    custom_idle_mins: 0
+  });
   const [newError, setNewError] = useState('');
+
+  // Tenant-wide Session Security Policy
+  const [tenantSessionSettings, setTenantSessionSettings] = useState({
+    session_policy: 'soc_shift_8h',
+    session_lifetime_hours: 8,
+    idle_timeout_mins: 0
+  });
+  const [savingTenantPolicy, setSavingTenantPolicy] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [usersRes, keyRes] = await Promise.all([
+      const [usersRes, keyRes, sessionSettingsRes] = await Promise.all([
         axios.get('/api/users'),
-        axios.get('/api/auth/api-key').catch(() => ({ data: { api_key: null } }))
+        axios.get('/api/auth/api-key').catch(() => ({ data: { api_key: null } })),
+        axios.get('/api/users/session-settings').catch(() => ({ data: { settings: null } }))
       ]);
       setData(usersRes.data.users || []);
       setApiKey(keyRes.data.api_key);
+      if (sessionSettingsRes.data?.settings) {
+        setTenantSessionSettings(sessionSettingsRes.data.settings);
+      }
     } catch (e) {
       console.error(e);
       setError(e.response?.data?.error || e.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveTenantSessionSettings = async () => {
+    setSavingTenantPolicy(true);
+    try {
+      const res = await axios.put('/api/users/session-settings', tenantSessionSettings);
+      toast.success(res.data?.message || 'Tenant session policy updated successfully');
+      if (res.data?.settings) {
+        setTenantSessionSettings(res.data.settings);
+      }
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'Failed to update tenant session policy');
+    } finally {
+      setSavingTenantPolicy(false);
     }
   };
 
@@ -80,8 +116,18 @@ export default function Users() {
     }
     try {
       await axios.post('/api/users', newForm);
-      setNewForm({ username: '', email: '', password: '', role: 'L1_ANALYST', force_password_change: true });
+      setNewForm({
+        username: '',
+        email: '',
+        password: '',
+        role: 'L1_ANALYST',
+        force_password_change: true,
+        session_policy: 'inherit',
+        custom_session_hours: 8,
+        custom_idle_mins: 0
+      });
       fetchData();
+      toast.success('User created successfully');
     } catch (e) {
       setNewError(e.response?.data?.error || 'Failed to create user');
     }
@@ -100,7 +146,10 @@ export default function Users() {
     try {
       const payload = {
         email: form.email,
-        role: form.role
+        role: form.role,
+        session_policy: form.session_policy || 'inherit',
+        custom_session_hours: form.custom_session_hours ? Number(form.custom_session_hours) : null,
+        custom_idle_mins: form.custom_idle_mins !== '' && form.custom_idle_mins !== null ? Number(form.custom_idle_mins) : null
       };
       if (!isTargetAdmin) {
         payload.username = form.username;
@@ -114,6 +163,7 @@ export default function Users() {
       
       setExpandedEditId(null);
       fetchData();
+      toast.success('User updated successfully');
     } catch (e) {
       setEditErrors(prev => ({ ...prev, [id]: e.response?.data?.error || 'Failed to update user' }));
     }
@@ -205,7 +255,7 @@ export default function Users() {
   };
 
   const toggleRole = (user) => {
-    const roleHierarchy = ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST', 'ADMIN'];
+    const roleHierarchy = ['VIEWER', 'L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST', 'ADMIN'];
     const currentIdx = roleHierarchy.indexOf(user.role);
     const nextIdx = (currentIdx + 1) % roleHierarchy.length;
     const newRole = roleHierarchy[nextIdx];
@@ -230,7 +280,17 @@ export default function Users() {
     if (expandedEditId === u.id) {
       setExpandedEditId(null);
     } else {
-      setEditForms(prev => ({ ...prev, [u.id]: { username: u.username, email: u.email || '', role: u.role }}));
+      setEditForms(prev => ({
+        ...prev,
+        [u.id]: {
+          username: u.username,
+          email: u.email || '',
+          role: u.role,
+          session_policy: u.session_policy || 'inherit',
+          custom_session_hours: u.custom_session_hours || 8,
+          custom_idle_mins: u.custom_idle_mins !== null && u.custom_idle_mins !== undefined ? u.custom_idle_mins : 0
+        }
+      }));
       setExpandedEditId(u.id);
     }
   };
@@ -262,6 +322,7 @@ export default function Users() {
   const l1Analysts = filteredData.filter(u => u.role === 'L1_ANALYST').length;
   const l2Analysts = filteredData.filter(u => u.role === 'L2_ANALYST').length;
   const l3Analysts = filteredData.filter(u => u.role === 'L3_ANALYST').length;
+  const viewers = filteredData.filter(u => u.role === 'VIEWER').length;
   const mfaEnabled = filteredData.filter(u => u.mfa_enabled).length;
 
   const PremiumCard = ({ value, label, color, icon, subtitle }) => {
@@ -342,12 +403,13 @@ export default function Users() {
       </div>
 
       {currentUser?.role === 'ADMIN' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '14px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '14px' }}>
           <PremiumCard value={total} label="Total Users" color="#2563eb" icon="group" subtitle="Active" />
           <PremiumCard value={admins} label="Admins" color="#7c3aed" icon="admin_panel_settings" subtitle="Active" />
           <PremiumCard value={l1Analysts} label="L1 Analysts" color="#16a34a" icon="visibility" subtitle="Active" />
           <PremiumCard value={l2Analysts} label="L2 Analysts" color="#ec4899" icon="shield" subtitle="Active" />
           <PremiumCard value={l3Analysts} label="L3 Analysts" color="#f59e0b" icon="policy" subtitle="Active" />
+          <PremiumCard value={viewers} label="Viewers" color="#06b6d4" icon="tv" subtitle="Wallboard" />
           <PremiumCard value={mfaEnabled} label="MFA Active" color="#0891b2" icon="security" subtitle="Active" />
         </div>
       )}
@@ -375,7 +437,114 @@ export default function Users() {
               <button onClick={() => setRoleFilter('L1_ANALYST')} style={{ padding: '4px 10px', borderRadius: '4px', background: 'rgba(34,197,94,0.12)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.25)', fontSize: '10px', fontWeight: 700, fontFamily: 'var(--mono)', cursor: 'pointer', transition: 'all .2s', opacity: roleFilter === 'all' || roleFilter === 'L1_ANALYST' ? 1 : 0.4 }}>L1 ANALYSTS</button>
               <button onClick={() => setRoleFilter('L2_ANALYST')} style={{ padding: '4px 10px', borderRadius: '4px', background: 'rgba(236,72,153,0.12)', color: '#ec4899', border: '1px solid rgba(236,72,153,0.25)', fontSize: '10px', fontWeight: 700, fontFamily: 'var(--mono)', cursor: 'pointer', transition: 'all .2s', opacity: roleFilter === 'all' || roleFilter === 'L2_ANALYST' ? 1 : 0.4 }}>L2 ANALYSTS</button>
               <button onClick={() => setRoleFilter('L3_ANALYST')} style={{ padding: '4px 10px', borderRadius: '4px', background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)', fontSize: '10px', fontWeight: 700, fontFamily: 'var(--mono)', cursor: 'pointer', transition: 'all .2s', opacity: roleFilter === 'all' || roleFilter === 'L3_ANALYST' ? 1 : 0.4 }}>L3 ANALYSTS</button>
+              <button onClick={() => setRoleFilter('VIEWER')} style={{ padding: '4px 10px', borderRadius: '4px', background: 'rgba(6,182,212,0.12)', color: '#22d3ee', border: '1px solid rgba(6,182,212,0.25)', fontSize: '10px', fontWeight: 700, fontFamily: 'var(--mono)', cursor: 'pointer', transition: 'all .2s', opacity: roleFilter === 'all' || roleFilter === 'VIEWER' ? 1 : 0.4 }}>VIEWERS</button>
               <button onClick={() => setRoleFilter('all')} style={{ padding: '4px 10px', borderRadius: '4px', background: roleFilter === 'all' ? '#2563eb' : 'transparent', color: roleFilter === 'all' ? '#fff' : 'var(--text)', border: '1px solid ' + (roleFilter === 'all' ? '#2563eb' : 'var(--border)'), fontSize: '10px', fontWeight: 700, fontFamily: 'var(--mono)', cursor: 'pointer', transition: 'all .2s' }}>ALL</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tenant Session Security Policy Configuration */}
+      {currentUser?.role === 'ADMIN' && (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', marginBottom: '14px', boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(90deg, rgba(37,99,235,0.06) 0%, rgba(37,99,235,0) 100%)', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#38bdf8' }}>timer</span>
+              <div>
+                <span style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text)', fontFamily: 'var(--sans)' }}>Tenant Session Security Policy</span>
+                <span style={{ display: 'block', fontSize: '11px', color: 'var(--muted)' }}>Configure the default session lifetime and automatic idle timeout for all users in this tenant workspace</span>
+              </div>
+            </div>
+            <button
+              onClick={handleSaveTenantSessionSettings}
+              disabled={savingTenantPolicy}
+              style={{
+                background: '#2563eb',
+                color: '#fff',
+                border: 'none',
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: savingTenantPolicy ? 'not-allowed' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>save</span>
+              {savingTenantPolicy ? 'Saving...' : 'Save Tenant Policy'}
+            </button>
+          </div>
+
+          <div style={{ padding: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: tenantSessionSettings.session_policy === 'custom' ? '1.5fr 1fr 1fr' : '1fr', gap: '16px', alignItems: 'end' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                  Default Workspace Session Policy
+                </label>
+                <select
+                  className="input-field"
+                  value={tenantSessionSettings.session_policy || 'soc_shift_8h'}
+                  onChange={(e) => {
+                    const pol = e.target.value;
+                    let hrs = tenantSessionSettings.session_lifetime_hours;
+                    let idle = tenantSessionSettings.idle_timeout_mins;
+                    if (pol === 'soc_shift_8h') { hrs = 8; idle = 0; }
+                    else if (pol === 'wallboard_24h') { hrs = 24; idle = 0; }
+                    else if (pol === 'strict_30m') { hrs = 8; idle = 30; }
+                    setTenantSessionSettings(prev => ({
+                      ...prev,
+                      session_policy: pol,
+                      session_lifetime_hours: hrs,
+                      idle_timeout_mins: idle
+                    }));
+                  }}
+                  style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }}
+                >
+                  <option value="soc_shift_8h">SOC Shift Mode (8 Hours, Continuous - No Idle Timeout)</option>
+                  <option value="wallboard_24h">Wallboard Display Mode (24 Hours, Continuous - No Idle Timeout)</option>
+                  <option value="strict_30m">Strict Compliance Mode (8 Hours Max, 30-min Inactivity Timeout)</option>
+                  <option value="custom">Custom Session Policy (Specify Custom Hours & Idle Timeout)</option>
+                </select>
+              </div>
+
+              {tenantSessionSettings.session_policy === 'custom' && (
+                <>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                      Max Session Lifetime (Hours)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="168"
+                      className="input-field"
+                      value={tenantSessionSettings.session_lifetime_hours || 8}
+                      onChange={(e) => setTenantSessionSettings(prev => ({ ...prev, session_lifetime_hours: Math.max(1, parseInt(e.target.value, 10) || 1) }))}
+                      style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                      Idle Inactivity Timeout (Minutes, 0 = None)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="1440"
+                      className="input-field"
+                      value={tenantSessionSettings.idle_timeout_mins ?? 0}
+                      onChange={(e) => setTenantSessionSettings(prev => ({ ...prev, idle_timeout_mins: Math.max(0, parseInt(e.target.value, 10) || 0) }))}
+                      style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+            <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--muted)' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#10b981' }}>check_circle</span>
+              <span>User accounts configured with <strong>"Default (Inherit)"</strong> follow this baseline policy. Specific accounts can also be overridden below.</span>
             </div>
           </div>
         </div>
@@ -414,6 +583,7 @@ export default function Users() {
                     'L1_ANALYST': { bg: 'rgba(34,197,94,.2)', color: '#4ade80', badge: { bg: 'rgba(34,197,94,.12)', color: '#4ade80', border: '1px solid rgba(34,197,94,.25)' } },
                     'L2_ANALYST': { bg: 'rgba(236,72,153,.2)', color: '#ec4899', badge: { bg: 'rgba(236,72,153,.12)', color: '#ec4899', border: '1px solid rgba(236,72,153,.25)' } },
                     'L3_ANALYST': { bg: 'rgba(245,158,11,.2)', color: '#f59e0b', badge: { bg: 'rgba(245,158,11,.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,.25)' } },
+                    'VIEWER': { bg: 'rgba(6,182,212,.2)', color: '#22d3ee', badge: { bg: 'rgba(6,182,212,.12)', color: '#22d3ee', border: '1px solid rgba(6,182,212,.25)' } },
                   };
                   const avatarBg = roleColors[u.role]?.bg || 'rgba(22,163,74,.15)';
                   const avatarColor = roleColors[u.role]?.color || '#4ade80';
@@ -444,6 +614,40 @@ export default function Users() {
                                   <span className="material-symbols-outlined" style={{ fontSize: '9px' }}>{hasMFA ? 'lock' : 'lock_open'}</span>
                                   {hasMFA ? 'MFA' : 'No MFA'}
                                 </span>
+                                {(() => {
+                                  const pol = u.session_policy || 'inherit';
+                                  let label = 'Tenant Default';
+                                  let color = '#94a3b8';
+                                  let bg = 'rgba(148,163,184,0.1)';
+                                  let border = '1px solid rgba(148,163,184,0.2)';
+                                  if (pol === 'wallboard_24h') {
+                                    label = '24h Wallboard';
+                                    color = '#38bdf8';
+                                    bg = 'rgba(56,189,248,0.12)';
+                                    border = '1px solid rgba(56,189,248,0.25)';
+                                  } else if (pol === 'soc_shift_8h') {
+                                    label = '8h Shift';
+                                    color = '#10b981';
+                                    bg = 'rgba(16,185,129,0.12)';
+                                    border = '1px solid rgba(16,185,129,0.25)';
+                                  } else if (pol === 'strict_30m') {
+                                    label = 'Strict (30m Idle)';
+                                    color = '#f59e0b';
+                                    bg = 'rgba(245,158,11,0.12)';
+                                    border = '1px solid rgba(245,158,11,0.25)';
+                                  } else if (pol === 'custom') {
+                                    label = `Custom (${u.custom_session_hours || 8}h / ${u.custom_idle_mins ? u.custom_idle_mins + 'm' : 'No'} idle)`;
+                                    color = '#a855f7';
+                                    bg = 'rgba(168,85,247,0.12)';
+                                    border = '1px solid rgba(168,85,247,0.25)';
+                                  }
+                                  return (
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '.05em', background: bg, color: color, border: border }} title="Session Security Policy">
+                                      <span className="material-symbols-outlined" style={{ fontSize: '9px' }}>timer</span>
+                                      {label}
+                                    </span>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </div>
@@ -543,6 +747,7 @@ export default function Users() {
                                   <div>
                                     <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Role</label>
                                     <select className="input-field" value={editForms[u.id]?.role || 'L1_ANALYST'} onChange={(e) => setEditForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], role: e.target.value } }))} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }}>
+                                      <option value="VIEWER">Viewer (Read-Only / Wallboard)</option>
                                       <option value="L1_ANALYST">L1 Analyst</option>
                                       <option value="L2_ANALYST">L2 Analyst</option>
                                       <option value="L3_ANALYST">L3 Analyst</option>
@@ -551,6 +756,62 @@ export default function Users() {
                                   </div>
                                 )}
                               </div>
+
+                              {currentUser?.role === 'ADMIN' && (
+                                <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
+                                  <div style={{ display: 'grid', gridTemplateColumns: editForms[u.id]?.session_policy === 'custom' ? '1.5fr 1fr 1fr' : '1fr', gap: '10px', maxWidth: '680px', alignItems: 'end' }}>
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                                        User Session Policy
+                                      </label>
+                                      <select
+                                        className="input-field"
+                                        value={editForms[u.id]?.session_policy || 'inherit'}
+                                        onChange={(e) => setEditForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], session_policy: e.target.value } }))}
+                                        style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }}
+                                      >
+                                        <option value="inherit">Default (Inherit Tenant Policy)</option>
+                                        <option value="wallboard_24h">Wallboard Display (24 Hours, No Idle Timeout)</option>
+                                        <option value="soc_shift_8h">SOC Shift Mode (8 Hours, No Idle Timeout)</option>
+                                        <option value="strict_30m">Strict Compliance (8 Hours, 30m Idle Timeout)</option>
+                                        <option value="custom">Custom Policy (Specify Below)...</option>
+                                      </select>
+                                    </div>
+                                    {editForms[u.id]?.session_policy === 'custom' && (
+                                      <>
+                                        <div>
+                                          <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                                            Max Session (Hours)
+                                          </label>
+                                          <input
+                                            type="number"
+                                            min="1"
+                                            max="168"
+                                            className="input-field"
+                                            value={editForms[u.id]?.custom_session_hours ?? 8}
+                                            onChange={(e) => setEditForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], custom_session_hours: e.target.value } }))}
+                                            style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }}
+                                          />
+                                        </div>
+                                        <div>
+                                          <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                                            Idle Inactivity (Mins, 0=None)
+                                          </label>
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            max="1440"
+                                            className="input-field"
+                                            value={editForms[u.id]?.custom_idle_mins ?? 0}
+                                            onChange={(e) => setEditForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], custom_idle_mins: e.target.value } }))}
+                                            style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }}
+                                          />
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
                                 <button onClick={() => saveEdit(u.id)} style={{ background: '#2563eb', color: '#fff', border: '1px solid #2563eb', padding: '5px 11px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>Save</button>
                                 <button onClick={() => setExpandedEditId(null)} style={{ background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)', padding: '5px 11px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
@@ -634,7 +895,7 @@ export default function Users() {
             <span style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)', fontFamily: 'var(--mono)', margin: 0 }}>Add New User</span>
           </div>
           <div style={{ padding: '16px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 120px auto', gap: '16px', alignItems: 'end', width: '100%' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 130px 140px auto', gap: '16px', alignItems: 'end', width: '100%' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Username</label>
                 <input type="text" placeholder="analyst1" className="input-field" value={newForm.username} onChange={(e) => setNewForm(prev => ({ ...prev, username: e.target.value }))} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }} />
@@ -650,6 +911,7 @@ export default function Users() {
               <div>
                 <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Role</label>
                 <select className="input-field" value={newForm.role} onChange={(e) => setNewForm(prev => ({ ...prev, role: e.target.value }))} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }}>
+                   <option value="VIEWER">Viewer (Read-Only / Wallboard)</option>
                    <option value="L1_ANALYST">L1 Analyst</option>
                    <option value="L2_ANALYST">L2 Analyst</option>
                    <option value="L3_ANALYST">L3 Analyst</option>
@@ -657,11 +919,34 @@ export default function Users() {
                  </select>
               </div>
               <div>
+                <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Session Policy</label>
+                <select className="input-field" value={newForm.session_policy} onChange={(e) => setNewForm(prev => ({ ...prev, session_policy: e.target.value }))} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }}>
+                  <option value="inherit">Default (Inherit)</option>
+                  <option value="wallboard_24h">Wallboard (24h)</option>
+                  <option value="soc_shift_8h">SOC Shift (8h)</option>
+                  <option value="strict_30m">Strict (30m Idle)</option>
+                  <option value="custom">Custom Policy</option>
+                </select>
+              </div>
+              <div>
                 <button onClick={handleCreate} style={{ height: '36px', background: '#2563eb', color: '#fff', border: 'none', padding: '0 16px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}>
                   <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>add</span> Create
                 </button>
               </div>
             </div>
+
+            {newForm.session_policy === 'custom' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '12px', maxWidth: '400px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Custom Lifetime (Hours)</label>
+                  <input type="number" min="1" max="168" className="input-field" value={newForm.custom_session_hours} onChange={(e) => setNewForm(prev => ({ ...prev, custom_session_hours: e.target.value }))} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }} />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '10px', fontWeight: 600, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Custom Idle (Minutes, 0=None)</label>
+                  <input type="number" min="0" max="1440" className="input-field" value={newForm.custom_idle_mins} onChange={(e) => setNewForm(prev => ({ ...prev, custom_idle_mins: e.target.value }))} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '7px 11px', fontSize: '13px', outline: 'none', width: '100%', fontFamily: 'var(--sans)' }} />
+                </div>
+              </div>
+            )}
             {newError && <div style={{ marginTop: '12px', color: '#ef4444', fontSize: '12px', fontWeight: 600 }}>{newError}</div>}
           </div>
         </div>

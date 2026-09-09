@@ -205,6 +205,78 @@ function resetLoginRateLimit(req) {
 }
 
 /**
+ * Resolves effective session duration (hours) and idle timeout (minutes)
+ * Hierarchy: User Custom -> User Preset -> Tenant Setting -> Role Smart Default
+ */
+async function resolveSessionPolicy(user, tenantId, queryTenant) {
+  let durationHours = 8;
+  let idleMins = 0;
+
+  // 1. User-level Custom Policy
+  if (user?.session_policy === 'custom') {
+    if (user.custom_session_hours && Number(user.custom_session_hours) > 0) {
+      durationHours = Math.min(168, Math.max(1, Number(user.custom_session_hours)));
+    }
+    if (user.custom_idle_mins !== null && user.custom_idle_mins !== undefined && !isNaN(Number(user.custom_idle_mins))) {
+      idleMins = Math.max(0, Number(user.custom_idle_mins));
+    }
+    return { durationHours, idleMins };
+  }
+
+  // 2. User-level Presets
+  if (user?.session_policy === 'wallboard_24h') {
+    return { durationHours: 24, idleMins: 0 };
+  }
+  if (user?.session_policy === 'soc_shift_8h') {
+    return { durationHours: 8, idleMins: 0 };
+  }
+  if (user?.session_policy === 'strict_30m') {
+    return { durationHours: 8, idleMins: 30 };
+  }
+
+  // 3. Check Tenant-level Setting
+  try {
+    let tenantPolicy = null;
+    if (tenantId && tenantId !== 'default' && tenantId !== 'aggregator') {
+      const tRes = await db.query('SELECT session_policy, session_lifetime_hours, idle_timeout_mins FROM tenants WHERE tenant_id = $1', [tenantId]);
+      if (tRes.rows.length > 0 && tRes.rows[0].session_policy) {
+        tenantPolicy = tRes.rows[0];
+      }
+    } else {
+      const q = queryTenant || db.query.bind(db);
+      const sRes = await q('SELECT session_policy, session_lifetime_hours, idle_timeout_mins FROM settings LIMIT 1');
+      if (sRes.rows.length > 0 && sRes.rows[0].session_policy) {
+        tenantPolicy = sRes.rows[0];
+      }
+    }
+
+    if (tenantPolicy) {
+      if (tenantPolicy.session_policy === 'custom') {
+        return {
+          durationHours: Math.min(168, Math.max(1, Number(tenantPolicy.session_lifetime_hours) || 8)),
+          idleMins: Math.max(0, Number(tenantPolicy.idle_timeout_mins) || 0)
+        };
+      }
+      if (tenantPolicy.session_policy === 'wallboard_24h') return { durationHours: 24, idleMins: 0 };
+      if (tenantPolicy.session_policy === 'soc_shift_8h') return { durationHours: 8, idleMins: 0 };
+      if (tenantPolicy.session_policy === 'strict_30m') return { durationHours: 8, idleMins: 30 };
+    }
+  } catch (_) {}
+
+  // 4. Role Smart Defaults
+  if (user?.role === 'VIEWER') {
+    return { durationHours: 24, idleMins: 0 };
+  }
+  if (user?.role === 'L1_ANALYST') {
+    return { durationHours: 8, idleMins: 30 };
+  }
+  if (user?.role === 'ADMIN') {
+    return { durationHours: 8, idleMins: 60 };
+  }
+  return { durationHours: 8, idleMins: 0 };
+}
+
+/**
  * Helper to record failure and return locked or invalid credentials response.
  */
 async function handleFailedLogin(lockoutKey, res, req = null, user = null, tenant = 'default') {
@@ -411,27 +483,21 @@ async function login(req, res) {
         });
       }
 
-      // Create session in control plane with tenant_id, ip_address, and user_agent
-      const token = crypto.randomBytes(32).toString('hex');
-      const expiresAt = Math.floor(Date.now() / 1000) + 7 * 86400;
+      // Resolve effective session duration & idle timeout
+      const { durationHours, idleMins } = await resolveSessionPolicy(user, tenantId, tenantPool.query.bind(tenantPool));
       const isForcedChange = user.force_password_change === 1 || user.force_password_change === true;
-
-      await db.query(
-        `INSERT INTO sessions (token, user_id, username, role, tenant_id, force_password_change, aggregator_name, display_name, ip_address, user_agent, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [token, user.id, user.username, user.role, tenantId, isForcedChange ? 1 : 0, user.aggregator_name || null, user.display_name || null, clientIp, userAgent, expiresAt]
-      );
+      const token = await User.createSession(user.id, user.username, user.role, tenantId, clientIp, userAgent, isForcedChange ? 1 : 0, durationHours, idleMins);
 
       // Update last login in tenant DB
       await tenantPool.query('UPDATE users SET last_login = $1 WHERE id = $2', [now, user.id]);
 
-      // Set secure session cookie
+      // Set secure session cookie with dynamic policy lifetime
       res.cookie('iochunt_session', token, {
         httpOnly: true,
         secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
         sameSite: 'lax',
         path: '/',
-        maxAge: 7 * 24 * 3600 * 1000
+        maxAge: durationHours * 3600 * 1000
       });
 
       logSecurityEvent({
@@ -440,7 +506,7 @@ async function login(req, res) {
         ip: clientIp,
         user: user.username,
         tenant: tenantId,
-        detail: { role: user.role, company: companyName }
+        detail: { role: user.role, company: companyName, sessionHours: durationHours, idleMins }
       });
 
       return res.status(200).json({
@@ -455,7 +521,9 @@ async function login(req, res) {
           tenant_id: tenantId,
           company_name: companyName,
           instance_mode: 'central_server',
-          deployment_mode: 'cloud'
+          deployment_mode: 'cloud',
+          idle_timeout_mins: idleMins,
+          session_policy: user.session_policy || 'inherit'
         }
       });
     }
@@ -550,16 +618,17 @@ async function login(req, res) {
 
     // Generate authenticated single session
     const isForcedChange = user.force_password_change === 1 || user.force_password_change === true;
-    const token = await User.createSession(user.id, user.username, user.role, targetTenant, clientIp, userAgent, isForcedChange ? 1 : 0);
+    const { durationHours, idleMins } = await resolveSessionPolicy(user, targetTenant, db.query.bind(db));
+    const token = await User.createSession(user.id, user.username, user.role, targetTenant, clientIp, userAgent, isForcedChange ? 1 : 0, durationHours, idleMins);
     await User.updateLastLogin(user.id);
 
-    // Set secure session cookie (7 days)
+    // Set secure session cookie with dynamic policy lifetime
     res.cookie('iochunt_session', token, {
       httpOnly: true,
       secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
       sameSite: 'lax',
       path: '/',
-      maxAge: 7 * 24 * 3600 * 1000 // 7 days
+      maxAge: durationHours * 3600 * 1000
     });
 
     // If logging in as Central Super Admin, ensure instance_mode is central_server
@@ -597,7 +666,9 @@ async function login(req, res) {
         is_aggregator_admin: Boolean(user.aggregator_name || user.role === 'AGGREGATOR_ADMIN'),
         force_password_change: isForcedChange,
         instance_mode: user.aggregator_name ? 'aggregator' : 'central_server',
-        deployment_mode: appMode.getConfig().deploymentMode
+        deployment_mode: appMode.getConfig().deploymentMode,
+        idle_timeout_mins: idleMins,
+        session_policy: user.session_policy || 'inherit'
       }
     });
   } catch (error) {
@@ -773,7 +844,8 @@ async function mfaVerify(req, res) {
 
     // Session is created ONLY AFTER MFA verification succeeds
     const isForcedChange = user.force_password_change === 1 || user.force_password_change === true;
-    const token = await User.createSession(user.id, user.username, user.role, targetTenant, clientIp, userAgent, isForcedChange ? 1 : 0);
+    const { durationHours, idleMins } = await resolveSessionPolicy(user, targetTenant, queryFn);
+    const token = await User.createSession(user.id, user.username, user.role, targetTenant, clientIp, userAgent, isForcedChange ? 1 : 0, durationHours, idleMins);
     await User.updateLastLogin(user.id, queryFn);
 
     res.cookie('iochunt_session', token, {
@@ -781,7 +853,7 @@ async function mfaVerify(req, res) {
       secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
       sameSite: 'lax',
       path: '/',
-      maxAge: 7 * 24 * 3600 * 1000
+      maxAge: durationHours * 3600 * 1000
     });
 
     logSecurityEvent({
@@ -790,7 +862,7 @@ async function mfaVerify(req, res) {
       ip: clientIp,
       user: user.username,
       tenant: targetTenant,
-      detail: { role: user.role }
+      detail: { role: user.role, sessionHours: durationHours, idleMins }
     });
 
     return res.status(200).json({
@@ -801,7 +873,9 @@ async function mfaVerify(req, res) {
         role: user.role,
         force_password_change: isForcedChange,
         instance_mode: appMode.getConfig().mode,
-        deployment_mode: appMode.getConfig().deploymentMode
+        deployment_mode: appMode.getConfig().deploymentMode,
+        idle_timeout_mins: idleMins,
+        session_policy: user.session_policy || 'inherit'
       }
     });
   } catch (error) {
@@ -849,7 +923,10 @@ async function me(req, res) {
         force_password_change: isForcedChange,
         instance_mode: appMode.getConfig().mode,
         deployment_mode: appMode.getConfig().deploymentMode,
-        company_name: appMode.getConfig().companyName
+        company_name: appMode.getConfig().companyName,
+        idle_timeout_mins: Number(req.session.idle_timeout_mins) || 0,
+        session_expires_at: Number(req.session.expires_at) || null,
+        last_activity_at: Number(req.session.last_activity_at) || null
       }
     });
   } catch (error) {
@@ -1041,6 +1118,21 @@ async function getApiKey(req, res) {
   }
 }
 
+async function keepAlive(req, res) {
+  try {
+    const token = req.session?.token || req.cookies?.iochunt_session || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7).trim() : null);
+    if (!token) {
+      return res.status(401).json({ error: 'No active session token' });
+    }
+    const now = Math.floor(Date.now() / 1000);
+    await db.query('UPDATE sessions SET last_activity_at = $1 WHERE token = $2', [now, token]);
+    return res.json({ success: true, last_activity_at: now });
+  } catch (err) {
+    console.error('[AUTH] keepAlive error:', err.message);
+    return res.status(500).json({ error: 'Failed to refresh session activity' });
+  }
+}
+
 module.exports = {
   login,
   setupBranchNode,
@@ -1049,5 +1141,6 @@ module.exports = {
   logout,
   me,
   getApiKey,
+  keepAlive,
   validatePasswordStrength
 };

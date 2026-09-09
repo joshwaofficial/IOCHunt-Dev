@@ -25,13 +25,17 @@ class User {
     await q('UPDATE users SET last_login = $1 WHERE id = $2', [now, id]);
   }
 
-  static async createSession(userId, username, role, tenantId = 'default', ipAddress = '', userAgent = '', forcePasswordChange = 0) {
+  static async createSession(userId, username, role, tenantId = 'default', ipAddress = '', userAgent = '', forcePasswordChange = 0, sessionDurationHours = 8, idleTimeoutMins = 0) {
     const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = Math.floor(Date.now() / 1000) + 7 * 86400; // 7 days
+    const now = Math.floor(Date.now() / 1000);
+    const durationHours = Math.max(1, Number(sessionDurationHours) || 8);
+    const expiresAt = now + (durationHours * 3600);
+    const idleMins = Math.max(0, Number(idleTimeoutMins) || 0);
     
     await db.query(
-      'INSERT INTO sessions (token, user_id, username, role, tenant_id, ip_address, user_agent, force_password_change, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-      [token, userId, username, role, tenantId, ipAddress, userAgent, forcePasswordChange ? 1 : 0, expiresAt]
+      `INSERT INTO sessions (token, user_id, username, role, tenant_id, ip_address, user_agent, force_password_change, expires_at, last_activity_at, idle_timeout_mins)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [token, userId, username, role, tenantId, ipAddress, userAgent, forcePasswordChange ? 1 : 0, expiresAt, now, idleMins]
     );
     return token;
   }
@@ -55,19 +59,20 @@ class User {
   static async getAllUsers(queryFn) {
     const q = queryFn || db.query.bind(db);
     const res = await q(`
-      SELECT id, username, email, role, force_password_change, mfa_enabled, created_at, last_login 
+      SELECT id, username, email, role, force_password_change, mfa_enabled, session_policy, custom_session_hours, custom_idle_mins, created_at, last_login 
       FROM users 
       ORDER BY id ASC
     `);
     return res.rows;
   }
 
-  static async createUser({ username, email, passwordHash, salt, role, forcePasswordChange = 1 }, queryFn) {
+  static async createUser({ username, email, passwordHash, salt, role, forcePasswordChange = 1, sessionPolicy = 'inherit', customSessionHours = null, customIdleMins = null }, queryFn) {
     const now = Math.floor(Date.now() / 1000);
     const q = queryFn || db.query.bind(db);
     const res = await q(
-      'INSERT INTO users (username, email, password_hash, salt, role, force_password_change, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
-      [username.trim().toLowerCase(), email || '', passwordHash, salt, role || 'ADMIN', forcePasswordChange ? 1 : 0, now]
+      `INSERT INTO users (username, email, password_hash, salt, role, force_password_change, session_policy, custom_session_hours, custom_idle_mins, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+      [username.trim().toLowerCase(), email || '', passwordHash, salt, role || 'ADMIN', forcePasswordChange ? 1 : 0, sessionPolicy || 'inherit', customSessionHours || null, customIdleMins || null, now]
     );
     return res.rows[0];
   }
@@ -92,19 +97,51 @@ class User {
     await db.query('UPDATE users SET force_password_change = $1 WHERE id = $2', [value ? 1 : 0, id]);
   }
 
-  static async updateUser(id, { username, email, role, passwordHash, salt, forcePasswordChange }, queryFn) {
+  static async updateUser(id, { username, email, role, passwordHash, salt, forcePasswordChange, sessionPolicy, customSessionHours, customIdleMins }, queryFn) {
     const q = queryFn || db.query.bind(db);
-    if (passwordHash && salt) {
-      await q(
-        'UPDATE users SET username = $1, email = $2, role = $3, password_hash = $4, salt = $5, force_password_change = $6 WHERE id = $7',
-        [username.trim().toLowerCase(), email || '', role, passwordHash, salt, forcePasswordChange !== undefined ? (forcePasswordChange ? 1 : 0) : 0, id]
-      );
-    } else {
-      await q(
-        'UPDATE users SET username = $1, email = $2, role = $3 WHERE id = $4',
-        [username.trim().toLowerCase(), email || '', role, id]
-      );
+    const fields = [];
+    const vals = [];
+    let idx = 1;
+
+    if (username) {
+      fields.push(`username = $${idx++}`);
+      vals.push(username.trim().toLowerCase());
     }
+    if (email !== undefined) {
+      fields.push(`email = $${idx++}`);
+      vals.push(email || '');
+    }
+    if (role) {
+      fields.push(`role = $${idx++}`);
+      vals.push(role);
+    }
+    if (passwordHash && salt) {
+      fields.push(`password_hash = $${idx++}`);
+      vals.push(passwordHash);
+      fields.push(`salt = $${idx++}`);
+      vals.push(salt);
+    }
+    if (forcePasswordChange !== undefined) {
+      fields.push(`force_password_change = $${idx++}`);
+      vals.push(forcePasswordChange ? 1 : 0);
+    }
+    if (sessionPolicy !== undefined) {
+      fields.push(`session_policy = $${idx++}`);
+      vals.push(sessionPolicy || 'inherit');
+    }
+    if (customSessionHours !== undefined) {
+      fields.push(`custom_session_hours = $${idx++}`);
+      vals.push(customSessionHours);
+    }
+    if (customIdleMins !== undefined) {
+      fields.push(`custom_idle_mins = $${idx++}`);
+      vals.push(customIdleMins);
+    }
+
+    if (fields.length === 0) return;
+
+    vals.push(id);
+    await q(`UPDATE users SET ${fields.join(', ')} WHERE id = $${idx}`, vals);
   }
 
   static async deleteUser(id, queryFn) {

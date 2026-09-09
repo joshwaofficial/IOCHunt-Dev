@@ -96,6 +96,7 @@ router.post('/mfa/verify', mfaLimiter, authController.mfaVerify);
 // Protected authentication routes
 router.post('/logout', requireSession, authController.logout);
 router.get('/me', requireSession, authController.me);
+router.post('/keep-alive', requireSession, authController.keepAlive);
 router.post('/change-password', requireSession, changePasswordLimiter, authController.changePassword);
 
 const { requireCentralServer } = require('../middlewares/modeGuard');

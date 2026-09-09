@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS tenants (
     tier VARCHAR(50) DEFAULT 'standard',
     max_eps INTEGER DEFAULT 5000,
     central_url VARCHAR(255) DEFAULT '',
+    session_policy VARCHAR(50) DEFAULT 'soc_shift_8h',
+    session_lifetime_hours INTEGER DEFAULT 8,
+    idle_timeout_mins INTEGER DEFAULT 0,
     created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
     updated_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())
 );
@@ -54,7 +57,10 @@ CREATE TABLE IF NOT EXISTS super_admins (
 CREATE TABLE IF NOT EXISTS super_sessions (
     token VARCHAR(128) PRIMARY KEY,
     admin_id INTEGER REFERENCES super_admins(id) ON DELETE CASCADE,
+    ip_address VARCHAR(45) DEFAULT '',
+    user_agent TEXT DEFAULT '',
     created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
+    last_activity_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
     expires_at BIGINT NOT NULL
 );
 
@@ -72,6 +78,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     ip_address VARCHAR(45) DEFAULT '',
     user_agent TEXT DEFAULT '',
     created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
+    last_activity_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
+    idle_timeout_mins INTEGER DEFAULT 0,
     expires_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_tenant ON sessions(tenant_id);

@@ -334,12 +334,20 @@ const initDB = async (retries = 10, delay = 3000) => {
           ALTER TABLE settings ADD COLUMN IF NOT EXISTS aggregator_name VARCHAR(255) DEFAULT '';
           ALTER TABLE settings ADD COLUMN IF NOT EXISTS agent_api_key_hash VARCHAR(255);
           ALTER TABLE settings ADD COLUMN IF NOT EXISTS agent_api_key_plain VARCHAR(255);
+          ALTER TABLE settings ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'soc_shift_8h';
+          ALTER TABLE settings ADD COLUMN IF NOT EXISTS session_lifetime_hours INTEGER DEFAULT 8;
+          ALTER TABLE settings ADD COLUMN IF NOT EXISTS idle_timeout_mins INTEGER DEFAULT 0;
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT '';
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 0;
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS aggregator_name VARCHAR(255) DEFAULT NULL;
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS display_name VARCHAR(255) DEFAULT NULL;
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ip_address VARCHAR(45) DEFAULT '';
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_agent TEXT DEFAULT '';
+          ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_activity_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW());
+          ALTER TABLE sessions ADD COLUMN IF NOT EXISTS idle_timeout_mins INTEGER DEFAULT 0;
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'inherit';
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_session_hours INTEGER DEFAULT NULL;
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_idle_mins INTEGER DEFAULT NULL;
           ALTER TABLE mfa_pending ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT '';
           CREATE INDEX IF NOT EXISTS idx_events_ts_noise ON events (ts DESC, is_noise);
           CREATE INDEX IF NOT EXISTS idx_events_machine_ts ON events (machine, ts DESC);
@@ -347,6 +355,14 @@ const initDB = async (retries = 10, delay = 3000) => {
           CREATE INDEX IF NOT EXISTS idx_events_aggregator ON events (aggregator_name);
           CREATE INDEX IF NOT EXISTS idx_events_category ON events (category);
         `);
+
+        try {
+          await client.query(`
+            ALTER TABLE tenants ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'soc_shift_8h';
+            ALTER TABLE tenants ADD COLUMN IF NOT EXISTS session_lifetime_hours INTEGER DEFAULT 8;
+            ALTER TABLE tenants ADD COLUMN IF NOT EXISTS idle_timeout_mins INTEGER DEFAULT 0;
+          `);
+        } catch (_) {}
 
         // Instance Configuration Initialization
         const envDeployment = process.env.DEPLOYMENT_MODE || 'onprem';

@@ -27,6 +27,8 @@ export default function Login() {
     const params = new URLSearchParams(location.search);
     if (params.get('reason') === 'session_terminated' || params.get('reason') === 'concurrent_takeover') {
       setTerminatedNotice('You were logged out because this account was accessed from another device.');
+    } else if (params.get('reason') === 'inactivity_timeout') {
+      setTerminatedNotice('You were automatically logged out due to session inactivity.');
     }
   }, [location.search]);
 
