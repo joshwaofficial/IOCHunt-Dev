@@ -88,6 +88,7 @@ app.use(hpp());
 app.use(cookieParser());
 app.use(auditMiddleware);
 
+
 // ── Database Context Middleware ─────────────────────────────────
 app.use(databaseContext);
 

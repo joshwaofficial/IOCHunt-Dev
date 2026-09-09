@@ -6,6 +6,7 @@ const express = require('express');
 const router = express.Router();
 const aggregatorController = require('../controllers/aggregatorController');
 const { requireSession, requireAdmin } = require('../middlewares/authMiddleware');
+const { aggregatorPairLimiter } = require('../middlewares/rateLimiters');
 
 // Admin creating a new aggregator (with separate database)
 router.post('/', requireSession, requireAdmin, aggregatorController.createAggregator);
@@ -14,7 +15,7 @@ router.post('/', requireSession, requireAdmin, aggregatorController.createAggreg
 router.post('/generate-code', requireSession, requireAdmin, aggregatorController.generateCode);
 
 // Aggregator node consuming pairing code (public/unauthenticated endpoint)
-router.post('/pair', aggregatorController.pair);
+router.post('/pair', aggregatorPairLimiter, aggregatorController.pair);
 
 
 // Admin listing aggregators & health
