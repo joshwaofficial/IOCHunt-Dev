@@ -14,7 +14,7 @@ services:
       - NODE_ENV=production
       - SUPER_ADMIN_PORT=4001
       - SERVE_STATIC=true
-      - SUPER_ADMIN_DATABASE_URL=postgres://postgres:iochunt_password@iochunt-db-default:5432/iochunt_db
+      - SUPER_ADMIN_DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-iochunt_password}@iochunt-db-default:5432/${POSTGRES_DB:-iochunt_db}
       - HOST_PWD=${HOST_PWD:-/app}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

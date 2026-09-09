@@ -30,8 +30,7 @@ async function deleteTenant(company_id) {
 
   // 1. Connect to Control Plane to retrieve tenant info and delete it
   const controlPlaneDb = process.env.SUPER_ADMIN_DATABASE_URL
-    || process.env.DATABASE_URL
-    || 'postgres://postgres:iochunt_password@localhost:5433/iochunt_db';
+    || process.env.DATABASE_URL;
 
   const cpPool = new Pool({ connectionString: controlPlaneDb, max: 2 });
   
@@ -57,8 +56,7 @@ async function deleteTenant(company_id) {
   // 2. Connect to postgres (maintenance DB) to drop the database and role
   const provisioningUrl = process.env.PROVISIONING_DB_URL
     || process.env.SUPER_ADMIN_DATABASE_URL
-    || process.env.DATABASE_URL
-    || 'postgres://postgres:iochunt_password@localhost:5433/postgres';
+    || process.env.DATABASE_URL;
 
   const parsedUrl = new URL(provisioningUrl);
   // Force connect to the 'postgres' default database

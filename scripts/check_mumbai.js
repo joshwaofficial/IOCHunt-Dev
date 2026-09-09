@@ -1,12 +1,16 @@
 const { Client } = require('../backend/node_modules/pg');
 
 async function run() {
+  if (!process.env.AGG_DB_PASSWORD) {
+    console.error('ERROR: AGG_DB_PASSWORD env var is required. Set it before running this script.');
+    process.exit(1);
+  }
   const client = new Client({
     user: 'postgres',
     host: 'localhost',
     port: 5433,
     database: 'iochunt_agg_whitehouse_mumbai',
-    password: process.env.AGG_DB_PASSWORD || 'iochunt_password'
+    password: process.env.AGG_DB_PASSWORD
   });
   
   try {

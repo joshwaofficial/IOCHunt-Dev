@@ -21,7 +21,11 @@ const cryptoHelper = require(path.join(__dirname, '../backend/src/utils/cryptoHe
 const DB_HOST = process.env.DB_HOST || 'localhost';
 const DB_PORT = parseInt(process.env.DB_PORT || '5433', 10);
 const DB_USER = process.env.DB_USER || 'postgres';
-const DB_PASSWORD = process.env.DB_PASSWORD || 'iochunt_password';
+const DB_PASSWORD = process.env.DB_PASSWORD;
+if (!DB_PASSWORD) {
+  console.error('ERROR: DB_PASSWORD env var is required. Set it before running this script.');
+  process.exit(1);
+}
 const DB_NAME = process.env.DB_NAME || 'iochunt_db';
 
 async function clearAllDatabases() {

@@ -16,9 +16,9 @@ services:
     image: postgres:16-alpine
     container_name: iochunt-db-aggregator
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: iochunt_password
-      POSTGRES_DB: iochunt_db
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-iochunt_password}
+      POSTGRES_DB: ${POSTGRES_DB:-iochunt_db}
     volumes:
       - pgdata-aggregator:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
@@ -50,7 +50,7 @@ services:
       INSTANCE_MODE: aggregator
       IS_CENTRAL_SERVER: "false"
       TENANT_ID: aggregator
-      DATABASE_URL: postgres://postgres:iochunt_password@iochunt-db-aggregator:5432/iochunt_db
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-iochunt_password}@iochunt-db-aggregator:5432/${POSTGRES_DB:-iochunt_db}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855}
       REDIS_URL: redis://iochunt-redis-aggregator:6379
       DISPLAY_TZ: Asia/Kolkata

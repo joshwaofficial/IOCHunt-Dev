@@ -146,7 +146,7 @@ async function getTenantPool(tenantId) {
   // Build superuser connection string for self-healing operations
   const adminUrl = process.env.CONTROL_PLANE_DB_URL
     || process.env.DATABASE_URL
-    || `postgres://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || 'iochunt_password'}@${tenant.db_host || 'iochunt-db-default'}:${tenant.db_port || 5432}/postgres`;
+    || `postgres://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || ''}@${tenant.db_host || 'iochunt-db-default'}:${tenant.db_port || 5432}/postgres`;
   const parsedUrl = new URL(adminUrl);
 
   // Create a new pool with tenant-specific credentials (NOT superuser)

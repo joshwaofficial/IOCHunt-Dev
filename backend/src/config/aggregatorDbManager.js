@@ -18,7 +18,7 @@ function getDbConnectionConfig(databaseName) {
   let dbUrlHost = 'localhost';
   let dbUrlPort = 5433;
   let dbUrlUser = 'postgres';
-  let dbUrlPassword = 'iochunt_password';
+  let dbUrlPassword = '';
 
   if (process.env.DATABASE_URL) {
     try {

@@ -52,7 +52,7 @@ async function run() {
   }
 
   const cpPool = new Pool({
-    connectionString: process.env.SUPER_ADMIN_DATABASE_URL || 'postgres://postgres:iochunt_password@localhost:5433/iochunt_db'
+    connectionString: process.env.SUPER_ADMIN_DATABASE_URL || process.env.DATABASE_URL
   });
 
   const tenantRes = await cpPool.query("SELECT * FROM tenants WHERE tenant_id = \$1", [tenantId]);

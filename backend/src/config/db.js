@@ -36,7 +36,7 @@ for (const p of envPaths) {
 const connectionString = process.env.CONTROL_PLANE_DB_URL
   || process.env.DATABASE_URL
   || process.env.CENTRAL_DATABASE_URL
-  || `postgres://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || 'iochunt_password'}@${process.env.DB_HOST || 'localhost'}:${process.env.POSTGRES_PORT || 5433}/${process.env.POSTGRES_DB || 'iochunt_db'}`;
+  || `postgres://${process.env.POSTGRES_USER || 'postgres'}:${process.env.POSTGRES_PASSWORD || ''}@${process.env.DB_HOST || 'localhost'}:${process.env.POSTGRES_PORT || 5433}/${process.env.POSTGRES_DB || 'iochunt_db'}`;
 
 const poolConfig = {
   connectionString,

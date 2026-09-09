@@ -72,7 +72,7 @@ const PORT = process.env.SUPER_ADMIN_PORT || 4002;
 
 // Database connection for Super Admin Control Plane
 const pool = new Pool({
-  connectionString: process.env.SUPER_ADMIN_DATABASE_URL || process.env.DATABASE_URL || 'postgres://postgres:iochunt_password@localhost:5433/iochunt_db',
+  connectionString: process.env.SUPER_ADMIN_DATABASE_URL || process.env.DATABASE_URL,
   max: 10
 });
 
@@ -619,7 +619,7 @@ app.get('/api/super/companies', superAuthMiddleware, async (req, res) => {
       'SELECT id, tenant_id AS company_id, company_name, status, central_url, syslog_port, db_name, tier, api_key_encrypted, created_at FROM tenants ORDER BY id DESC'
     );
 
-    const parsedUrl = new URL(process.env.SUPER_ADMIN_DATABASE_URL || 'postgres://postgres:iochunt_password@localhost:5433/iochunt_db');
+    const parsedUrl = new URL(process.env.SUPER_ADMIN_DATABASE_URL || process.env.DATABASE_URL);
 
     // Decrypt API key and query enrolled agent count per active tenant
     const mappedCompanies = await Promise.all(companiesRes.rows.map(async (company) => {
@@ -798,7 +798,7 @@ app.get('/api/super/stats', superAuthMiddleware, async (req, res) => {
       const activeTenantList = await pool.query("SELECT db_name, db_user, db_password_encrypted FROM tenants WHERE status = 'active'");
       for (const t of activeTenantList.rows) {
         try {
-          const parsedUrl = new URL(process.env.SUPER_ADMIN_DATABASE_URL || 'postgres://postgres:iochunt_password@localhost:5433/iochunt_db');
+          const parsedUrl = new URL(process.env.SUPER_ADMIN_DATABASE_URL || process.env.DATABASE_URL);
           const tConnStr = `postgres://${parsedUrl.username}:${parsedUrl.password}@${parsedUrl.hostname}:${parsedUrl.port || 5432}/${t.db_name}`;
           const tPool = new Pool({ connectionString: tConnStr, max: 1, connectionTimeoutMillis: 1500 });
           const mRes = await tPool.query('SELECT COUNT(*) AS count FROM machines');
@@ -882,7 +882,7 @@ app.post('/api/super/companies/:company_id/reset-password', superAuthMiddleware,
     const hash = crypto.pbkdf2Sync(new_password, salt, 100000, 64, 'sha512').toString('hex');
 
     // Connect to tenant DB and update credentials
-    const parsedUrl = new URL(process.env.SUPER_ADMIN_DATABASE_URL || 'postgres://postgres:iochunt_password@localhost:5433/iochunt_db');
+    const parsedUrl = new URL(process.env.SUPER_ADMIN_DATABASE_URL || process.env.DATABASE_URL);
     const tenantConnStr = `postgres://${parsedUrl.username}:${parsedUrl.password}@${parsedUrl.hostname}:${parsedUrl.port || 5432}/${dbName}`;
     const tenantPool = new Pool({ connectionString: tenantConnStr, max: 1 });
 

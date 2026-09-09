@@ -99,8 +99,7 @@ async function provisionTenant({
   // ── STAGE 1: Connect to central PostgreSQL as provisioning admin ──
   const provisioningUrl = process.env.PROVISIONING_DB_URL
     || process.env.SUPER_ADMIN_DATABASE_URL
-    || process.env.DATABASE_URL
-    || 'postgres://postgres:iochunt_password@localhost:5433/postgres';
+    || process.env.DATABASE_URL;
 
   // Parse the provisioning URL to get host/port for connecting to the maintenance DB
   const parsedUrl = new URL(provisioningUrl);
@@ -198,8 +197,7 @@ async function provisionTenant({
 
   // Connect to the control plane database (where tenants table lives)
   const controlPlaneDb = process.env.SUPER_ADMIN_DATABASE_URL
-    || process.env.DATABASE_URL
-    || 'postgres://postgres:iochunt_password@localhost:5433/iochunt_db';
+    || process.env.DATABASE_URL;
 
   const cpPool = new Pool({ connectionString: controlPlaneDb, max: 2 });
 
