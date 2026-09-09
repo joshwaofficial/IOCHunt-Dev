@@ -9,10 +9,10 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy package files first (Docker layer caching)
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc* ./
 
 # Install dependencies
-RUN npm install
+RUN npm ci
 
 # Copy source code
 COPY . .

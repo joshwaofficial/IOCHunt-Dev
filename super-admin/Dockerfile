@@ -2,8 +2,8 @@
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 
-COPY super-admin/frontend/package*.json ./
-RUN npm ci || npm install
+COPY super-admin/frontend/package*.json super-admin/frontend/.npmrc* ./
+RUN npm ci
 
 COPY super-admin/frontend/ ./
 RUN npm run build
@@ -17,9 +17,9 @@ RUN apk add --no-cache docker-cli docker-cli-compose openssl
 WORKDIR /app
 
 # Copy Super Admin backend dependencies (only 5 packages: fast install in seconds)
-COPY super-admin/package*.json ./super-admin/
+COPY super-admin/package*.json super-admin/.npmrc* ./super-admin/
 WORKDIR /app/super-admin
-RUN npm install
+RUN npm ci
 
 # Copy application files
 WORKDIR /app
