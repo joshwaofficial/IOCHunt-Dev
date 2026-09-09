@@ -40,6 +40,10 @@ async function createGroup(req, res) {
 async function deleteGroup(req, res) {
   try {
     if (appMode.isAggregator()) return res.status(403).json({ error: 'Policies are managed centrally. This instance is read-only.' });
+    const existing = await req.queryTenant('SELECT id FROM pol_groups WHERE id=$1', [req.params.id]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
     await req.queryTenant('DELETE FROM pol_groups WHERE id=$1', [req.params.id]);
     await req.queryTenant('DELETE FROM machine_groups WHERE group_id=$1', [req.params.id]);
     res.json({ ok: true });
@@ -52,6 +56,10 @@ async function deleteGroup(req, res) {
 async function updateGroupPolicy(req, res) {
   try {
     if (appMode.isAggregator()) return res.status(403).json({ error: 'Policies are managed centrally. This instance is read-only.' });
+    const existing = await req.queryTenant('SELECT id FROM pol_groups WHERE id=$1', [req.params.id]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
     const { policy } = req.body;
     const now = Math.floor(Date.now() / 1000);
     await req.queryTenant(`
@@ -78,6 +86,10 @@ async function updateGroupMachines(req, res) {
   try {
     if (appMode.isAggregator()) return res.status(403).json({ error: 'Policies are managed centrally. This instance is read-only.' });
     const groupId = req.params.id;
+    const existing = await req.queryTenant('SELECT id FROM pol_groups WHERE id=$1', [groupId]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
     const machines = req.body.machines || [];
     
     const tenantPool = await req.getTenantPool();
@@ -109,6 +121,10 @@ async function removeMachineFromGroup(req, res) {
     if (appMode.isAggregator()) return res.status(403).json({ error: 'Policies are managed centrally. This instance is read-only.' });
     const groupId = req.params.id;
     const machineId = req.params.machine;
+    const existing = await req.queryTenant('SELECT id FROM pol_groups WHERE id=$1', [groupId]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
     
     await req.queryTenant('DELETE FROM machine_groups WHERE group_id=$1 AND machine=$2', [groupId, machineId]);
     await req.queryTenant(`UPDATE pol_groups SET updated_at=EXTRACT(EPOCH FROM NOW())::INTEGER WHERE id=$1`, [groupId]);
