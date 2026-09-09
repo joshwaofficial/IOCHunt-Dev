@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useInstance } from '../context/InstanceContext';
+import { useAuth } from '../context/AuthContext';
 
 const CAT_NAMES = [
   "Process Monitoring", "Registry Run Keys", "Startup Folder", "Service Creation", "Scheduled Tasks",
@@ -15,7 +16,9 @@ const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function Policy() {
   const { isAggregator } = useInstance();
-  const readOnly = isAggregator();
+  const { user } = useAuth();
+  const isAdmin = (user?.role?.toLowerCase().includes('admin') || user?.role?.toLowerCase().includes('superadmin')) && !user?.aggregator_name;
+  const readOnly = isAggregator() || !isAdmin;
 
   const [machines, setMachines] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -106,6 +109,7 @@ export default function Policy() {
   };
 
   const createGroup = () => {
+    if (readOnly) return;
     setPromptDialog({
       isOpen: true,
       title: 'Create Group',
@@ -124,6 +128,7 @@ export default function Policy() {
   };
 
   const deleteGroup = (id) => {
+    if (readOnly) return;
     setConfirmDialog({
       isOpen: true,
       title: 'Delete Group',
@@ -143,6 +148,7 @@ export default function Policy() {
   };
 
   const assignMachineToGroup = async (machine, groupId) => {
+    if (readOnly) return;
     try {
       // Remove from all groups first
       for (let g of groups) {
@@ -181,6 +187,7 @@ export default function Policy() {
   });
 
   const handleSavePolicy = async () => {
+    if (readOnly) return;
     try {
       if (editingGroupId) {
         const pol = buildPolicyObj(groupPolicyData.policy || {});
@@ -201,6 +208,7 @@ export default function Policy() {
   };
 
   const handleClearOverride = async () => {
+    if (readOnly) return;
     setConfirmDialog({
       isOpen: true,
       title: 'Clear Machine Override',
@@ -220,6 +228,7 @@ export default function Policy() {
   };
 
   const updatePolicyField = (field, value) => {
+    if (readOnly) return;
     setHasChanges(true);
     if (editingGroupId) {
       setGroupPolicyData(prev => ({
@@ -572,8 +581,9 @@ export default function Policy() {
         </div>
       </div>
       {readOnly && (
-        <div style={{ background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: '8px', padding: '12px 16px', marginBottom: '24px', fontSize: '13px', color: '#ef4444', fontWeight: 600 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: '16px', verticalAlign: 'middle', marginRight: '6px' }}>lock</span> Policies are managed centrally. This Branch Aggregator is read-only.
+        <div style={{ background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: '8px', padding: '12px 16px', marginBottom: '24px', fontSize: '13px', color: '#ef4444', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>lock</span>
+          <span>{isAggregator() ? 'Policies are managed centrally. This Branch Aggregator is read-only.' : 'Policies are view-only. Modifications require Administrator privileges.'}</span>
         </div>
       )}
 

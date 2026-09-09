@@ -1,5 +1,6 @@
 
 const appMode = require('../config/appMode');
+const { isRoleAboveOrEqual } = require('../config/roles');
 
 const DEFAULT_POLICY = {
   catModes: [3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2],
@@ -103,6 +104,9 @@ async function setMachinePolicy(req, res) {
   try {
     if (appMode.isAggregator()) {
       return res.status(403).json({ error: 'Policies are managed centrally. This instance is read-only.' });
+    }
+    if (req.session && !isRoleAboveOrEqual(req.session.role, 'ADMIN')) {
+      return res.status(403).json({ error: 'Forbidden: Admin privileges required to modify policies' });
     }
     const machine = (req.params.machine || '').trim();
     const policy = req.body?.policy;

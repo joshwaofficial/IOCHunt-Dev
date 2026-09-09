@@ -118,7 +118,7 @@ function App() {
                     <Route path="clients" element={<Clients />} />
                     <Route path="all-logs" element={<AllLogs />} />
                     <Route path="policy" element={
-                      <ProtectedRoute requiredRole="admin">
+                      <ProtectedRoute>
                         <Policy />
                       </ProtectedRoute>
                     } />
