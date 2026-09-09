@@ -47,10 +47,15 @@ fi
 
 # 2. Function to rolling-update Central Server App
 update_central() {
-    echo -e "${YELLOW}[2/3] Building and updating Central Server Application...${RESET}"
+    echo -e "${YELLOW}[2/3] Building and updating Central Server Application & Nginx...${RESET}"
     echo -e "      (PostgreSQL & Redis will NOT be interrupted)"
-    docker compose -p central up -d --build --no-deps app
-    echo -e "${GREEN}✔ Central Server App updated and restarted successfully!${RESET}"
+    # Auto-detect whether containers were started with -p central or default compose
+    if docker ps --filter "name=iochunt-app-" --format '{{.Labels}}' 2>/dev/null | grep -q "com.docker.compose.project=central"; then
+        docker compose -p central up -d --build --no-deps app nginx
+    else
+        docker compose up -d --build --no-deps app nginx
+    fi
+    echo -e "${GREEN}✔ Central Server App & Nginx updated and restarted successfully!${RESET}"
 }
 
 # 3. Function to rolling-update Super Admin
