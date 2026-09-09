@@ -117,6 +117,7 @@ async function createUser(req, res) {
     
     return res.status(201).json({ success: true, message: 'User created successfully' });
   } catch (error) {
+    console.error('[Users] Failed to create user:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

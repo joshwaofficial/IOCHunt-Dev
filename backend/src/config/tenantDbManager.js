@@ -218,24 +218,35 @@ async function getTenantPool(tenantId) {
   // Ensure performance indexes and schema migrations exist (executed once per process lifetime)
   if (!initializedTenantIndexes.has(tenantId)) {
     initializedTenantIndexes.add(tenantId);
-    pool.query(`
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 1;
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS aggregator_name TEXT DEFAULT NULL;
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT DEFAULT NULL;
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'inherit';
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_session_hours INTEGER DEFAULT NULL;
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_idle_mins INTEGER DEFAULT NULL;
-      ALTER TABLE settings ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'soc_shift_8h';
-      ALTER TABLE settings ADD COLUMN IF NOT EXISTS session_lifetime_hours INTEGER DEFAULT 8;
-      ALTER TABLE settings ADD COLUMN IF NOT EXISTS idle_timeout_mins INTEGER DEFAULT 0;
-      CREATE INDEX IF NOT EXISTS idx_events_ts_noise ON events (ts DESC, is_noise);
-      CREATE INDEX IF NOT EXISTS idx_events_machine_ts ON events (machine, ts DESC);
-      CREATE INDEX IF NOT EXISTS idx_events_severity ON events (severity);
-      CREATE INDEX IF NOT EXISTS idx_events_aggregator ON events (aggregator_name);
-      CREATE INDEX IF NOT EXISTS idx_events_category ON events (category);
-    `).catch(idxErr => {
-      console.warn(`[TenantDB:${tenantId}] Schema & index optimization note:`, idxErr.message);
-    });
+    (async () => {
+      try {
+        const tenantAdminConnStr = `postgres://${parsedUrl.username}:${parsedUrl.password}@${parsedUrl.hostname}:${parsedUrl.port || 5432}/${tenant.db_name}`;
+        const adminMigPool = new Pool({ connectionString: tenantAdminConnStr, max: 1 });
+        await adminMigPool.query(`
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 1;
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS aggregator_name TEXT DEFAULT NULL;
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT DEFAULT NULL;
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'inherit';
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_session_hours INTEGER DEFAULT NULL;
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_idle_mins INTEGER DEFAULT NULL;
+          ALTER TABLE settings ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'soc_shift_8h';
+          ALTER TABLE settings ADD COLUMN IF NOT EXISTS session_lifetime_hours INTEGER DEFAULT 8;
+          ALTER TABLE settings ADD COLUMN IF NOT EXISTS idle_timeout_mins INTEGER DEFAULT 0;
+          GRANT ALL ON ALL TABLES IN SCHEMA public TO "${tenant.db_user}";
+          GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "${tenant.db_user}";
+        `);
+        await adminMigPool.end().catch(() => {});
+      } catch (migErr) {
+        console.warn(`[TenantDB:${tenantId}] Superuser schema migration note:`, migErr.message);
+      }
+      pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_events_ts_noise ON events (ts DESC, is_noise);
+        CREATE INDEX IF NOT EXISTS idx_events_machine_ts ON events (machine, ts DESC);
+        CREATE INDEX IF NOT EXISTS idx_events_severity ON events (severity);
+        CREATE INDEX IF NOT EXISTS idx_events_aggregator ON events (aggregator_name);
+        CREATE INDEX IF NOT EXISTS idx_events_category ON events (category);
+      `).catch(() => {});
+    })();
   }
 
   pool.on('error', (err) => {

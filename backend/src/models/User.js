@@ -115,12 +115,22 @@ class User {
           ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_session_hours INTEGER DEFAULT NULL;
           ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_idle_mins INTEGER DEFAULT NULL;
         `).catch(() => {});
-        const retryRes = await q(
-          `INSERT INTO users (username, email, password_hash, salt, role, force_password_change, session_policy, custom_session_hours, custom_idle_mins, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-          [username.trim().toLowerCase(), email || '', passwordHash, salt, role || 'ADMIN', forcePasswordChange ? 1 : 0, sessionPolicy || 'inherit', customSessionHours || null, customIdleMins || null, now]
-        );
-        return retryRes.rows[0];
+        try {
+          const retryRes = await q(
+            `INSERT INTO users (username, email, password_hash, salt, role, force_password_change, session_policy, custom_session_hours, custom_idle_mins, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+            [username.trim().toLowerCase(), email || '', passwordHash, salt, role || 'ADMIN', forcePasswordChange ? 1 : 0, sessionPolicy || 'inherit', customSessionHours || null, customIdleMins || null, now]
+          );
+          return retryRes.rows[0];
+        } catch (retryErr) {
+          console.warn('[User] session_policy column unavailable in tenant DB, falling back to standard user creation:', retryErr.message);
+          const fallbackRes = await q(
+            `INSERT INTO users (username, email, password_hash, salt, role, force_password_change, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+            [username.trim().toLowerCase(), email || '', passwordHash, salt, role || 'ADMIN', forcePasswordChange ? 1 : 0, now]
+          );
+          return fallbackRes.rows[0];
+        }
       }
       throw err;
     }
@@ -199,8 +209,28 @@ class User {
           ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_session_hours INTEGER DEFAULT NULL;
           ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_idle_mins INTEGER DEFAULT NULL;
         `).catch(() => {});
-        await q(`UPDATE users SET ${fields.join(', ')} WHERE id = $${idx}`, vals);
-        return;
+        try {
+          await q(`UPDATE users SET ${fields.join(', ')} WHERE id = $${idx}`, vals);
+          return;
+        } catch (retryErr) {
+          console.warn('[User] session_policy column unavailable in tenant DB, falling back to updating standard fields:', retryErr.message);
+          // Strip policy fields and update standard columns
+          const standardFields = [];
+          const standardVals = [];
+          let sIdx = 1;
+          for (let i = 0; i < fields.length; i++) {
+            const f = fields[i];
+            if (!f.includes('session_policy') && !f.includes('custom_session_hours') && !f.includes('custom_idle_mins')) {
+              standardFields.push(f.split('=')[0].trim() + ` = $${sIdx++}`);
+              standardVals.push(vals[i]);
+            }
+          }
+          if (standardFields.length > 0) {
+            standardVals.push(id);
+            await q(`UPDATE users SET ${standardFields.join(', ')} WHERE id = $${sIdx}`, standardVals);
+          }
+          return;
+        }
       }
       throw err;
     }

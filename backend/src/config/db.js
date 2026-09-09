@@ -370,6 +370,40 @@ const initDB = async (retries = 10, delay = 3000) => {
             ALTER TABLE tenants ADD COLUMN IF NOT EXISTS session_lifetime_hours INTEGER DEFAULT 8;
             ALTER TABLE tenants ADD COLUMN IF NOT EXISTS idle_timeout_mins INTEGER DEFAULT 0;
           `);
+
+          // Proactively auto-migrate all existing tenant databases
+          const tenantsRes = await client.query("SELECT db_name, db_user, db_host, db_port FROM tenants WHERE status = 'active'");
+          for (const t of tenantsRes.rows) {
+            try {
+              const tHost = t.db_host || 'iochunt-db-default';
+              const tPort = t.db_port || 5432;
+              const tPool = new Pool({
+                host: tHost,
+                port: tPort,
+                user: process.env.POSTGRES_USER || 'postgres',
+                password: process.env.POSTGRES_PASSWORD || '',
+                database: t.db_name,
+                max: 1
+              });
+              await tPool.query(`
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 1;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS aggregator_name TEXT DEFAULT NULL;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT DEFAULT NULL;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'inherit';
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_session_hours INTEGER DEFAULT NULL;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_idle_mins INTEGER DEFAULT NULL;
+                ALTER TABLE settings ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'soc_shift_8h';
+                ALTER TABLE settings ADD COLUMN IF NOT EXISTS session_lifetime_hours INTEGER DEFAULT 8;
+                ALTER TABLE settings ADD COLUMN IF NOT EXISTS idle_timeout_mins INTEGER DEFAULT 0;
+                GRANT ALL ON ALL TABLES IN SCHEMA public TO "${t.db_user}";
+                GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "${t.db_user}";
+              `);
+              await tPool.end().catch(() => {});
+              console.log(`[DB] Auto-migrated tenant database: ${t.db_name}`);
+            } catch (tErr) {
+              console.warn(`[DB] Tenant ${t.db_name} migration note:`, tErr.message);
+            }
+          }
         } catch (_) {}
 
         // Instance Configuration Initialization
