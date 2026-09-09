@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const db = require('../config/db');
 const { createAggregatorDatabase, queryAggregator, closeAggregatorPool } = require('../config/aggregatorDbManager');
 const { hashPassword } = require('../utils/cryptoHelper');
+const { isDbIdentifier, isPositiveInteger, parseSafeInt, sanitizeText } = require('../utils/inputValidator');
 
 const hash = (text) => crypto.createHash('sha256').update(text).digest('hex');
 
@@ -20,13 +21,18 @@ const hash = (text) => crypto.createHash('sha256').update(text).digest('hex');
  */
 const createAggregator = async (req, res) => {
   try {
-    const { name, display_name } = req.body;
-    if (!name) return res.status(400).json({ error: 'Aggregator name is required' });
+    const { name, display_name } = req.body || {};
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'Aggregator name is required and must be a string' });
+    }
+
+    const safeName = name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    if (!isDbIdentifier(safeName)) {
+      return res.status(400).json({ error: 'Aggregator name must be 3-63 characters containing only lowercase letters, numbers, and underscores' });
+    }
 
     // Auto-assign tenant_id from the logged-in user's session
     const tenantId = req.session?.tenant_id || req.tenantId || 'default';
-
-    const safeName = name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
     const dbName = `iochunt_agg_${safeName}`;
 
     // Generate pairing code (valid for 48 hours)
@@ -88,10 +94,15 @@ const createAggregator = async (req, res) => {
  */
 const generateCode = async (req, res) => {
   try {
-    const { aggregator_name, display_name } = req.body;
-    if (!aggregator_name) return res.status(400).json({ error: 'aggregator_name required' });
+    const { aggregator_name, display_name } = req.body || {};
+    if (!aggregator_name || typeof aggregator_name !== 'string' || !aggregator_name.trim()) {
+      return res.status(400).json({ error: 'aggregator_name required and must be a string' });
+    }
 
     const safeName = aggregator_name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    if (!isDbIdentifier(safeName)) {
+      return res.status(400).json({ error: 'Aggregator name must be 3-63 characters containing only lowercase letters, numbers, and underscores' });
+    }
 
     // Ensure database exists
     const dbInfo = await createAggregatorDatabase(safeName);
@@ -151,8 +162,10 @@ const generateCode = async (req, res) => {
  */
 const pair = async (req, res) => {
   try {
-    const { pairing_code } = req.body;
-    if (!pairing_code) return res.status(400).json({ error: 'pairing_code required' });
+    const { pairing_code } = req.body || {};
+    if (!pairing_code || typeof pairing_code !== 'string' || !pairing_code.trim()) {
+      return res.status(400).json({ error: 'pairing_code required and must be a string' });
+    }
 
     const codeHash = hash(pairing_code.trim());
 
@@ -237,7 +250,11 @@ const getAggregators = async (req, res) => {
 const getAggregatorLogs = async (req, res) => {
   try {
     const { id } = req.params;
-    const { limit = 100, severity, machine } = req.query;
+    if (!isPositiveInteger(id)) {
+      return res.status(400).json({ error: 'Invalid aggregator ID parameter' });
+    }
+    const safeLimit = parseSafeInt(req.query.limit, 100, 1, 1000);
+    const { severity, machine } = req.query || {};
 
     // Verify the aggregator exists AND belongs to this user's tenant
     const tenantId = req.session?.tenant_id || req.tenantId || 'default';
@@ -263,17 +280,17 @@ const getAggregatorLogs = async (req, res) => {
     const params = [aggName];
     let pIdx = 2;
 
-    if (severity) {
+    if (severity && typeof severity === 'string') {
       queryText += ` AND severity = $${pIdx++}`;
-      params.push(severity);
+      params.push(severity.toLowerCase());
     }
-    if (machine) {
+    if (machine && typeof machine === 'string') {
       queryText += ` AND machine = $${pIdx++}`;
       params.push(machine);
     }
 
     queryText += ` ORDER BY ts DESC LIMIT $${pIdx}`;
-    params.push(parseInt(limit, 10));
+    params.push(safeLimit);
 
     // Use req.queryTenant to route to the correct tenant's isolated DB
     const eventsRes = await req.queryTenant(queryText, params);
@@ -294,6 +311,9 @@ const getAggregatorLogs = async (req, res) => {
 const deleteAggregator = async (req, res) => {
   try {
     const { id } = req.params;
+    if (!isPositiveInteger(id)) {
+      return res.status(400).json({ error: 'Invalid aggregator ID parameter' });
+    }
     const tenantId = req.session?.tenant_id || req.tenantId || 'default';
 
     // Verify the aggregator exists AND belongs to this user's tenant

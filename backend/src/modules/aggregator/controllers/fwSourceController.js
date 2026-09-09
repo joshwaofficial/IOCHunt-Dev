@@ -1,5 +1,6 @@
 const { getDbForRequest } = require('../../../config/aggregatorDbManager');
 const { startWatchingSource, stopWatchingSource } = require('../../../utils/fwWatcher');
+const { isSafeLogPath, sanitizeText, isPositiveInteger } = require('../../../utils/inputValidator');
 
 exports.getSources = async (req, res) => {
   try {
@@ -14,30 +15,37 @@ exports.getSources = async (req, res) => {
 
 exports.addSource = async (req, res) => {
   try {
-    const { name, log_path, source_timezone = 'UTC' } = req.body;
+    const { name, log_path, source_timezone = 'UTC' } = req.body || {};
     
-    if (!name || !log_path) {
-      return res.status(400).json({ error: 'Name and log_path are required.' });
+    if (!name || !log_path || typeof name !== 'string' || typeof log_path !== 'string') {
+      return res.status(400).json({ error: 'Name and log_path are required and must be strings.' });
     }
 
+    if (!isSafeLogPath(log_path)) {
+      return res.status(400).json({
+        error: 'Invalid or restricted log path. Traversal characters (..) and system directories are not allowed. Path must have a log extension (.log, .txt, .csv, .json).'
+      });
+    }
+
+    const cleanName = sanitizeText(name).slice(0, 100);
     const pool = getDbForRequest(req);
 
     // Check if path already exists
-    const existingRes = await pool.query('SELECT id FROM fw_sources WHERE log_path = $1', [log_path]);
+    const existingRes = await pool.query('SELECT id FROM fw_sources WHERE log_path = $1', [log_path.trim()]);
     if (existingRes.rows.length > 0) {
       return res.status(400).json({ error: 'A source with this log path already exists.' });
     }
 
     const infoRes = await pool.query(
       'INSERT INTO fw_sources (name, log_path, source_timezone) VALUES ($1, $2, $3) RETURNING id',
-      [name, log_path, source_timezone]
+      [cleanName, log_path.trim(), typeof source_timezone === 'string' ? source_timezone.trim() : 'UTC']
     );
 
     const newSource = {
       id: infoRes.rows[0].id, 
-      name, 
-      log_path, 
-      source_timezone, 
+      name: cleanName, 
+      log_path: log_path.trim(), 
+      source_timezone: typeof source_timezone === 'string' ? source_timezone.trim() : 'UTC', 
       enabled: 1 
     };
 
@@ -53,6 +61,9 @@ exports.addSource = async (req, res) => {
 exports.toggleSource = async (req, res) => {
   try {
     const { id } = req.params;
+    if (!isPositiveInteger(id)) {
+      return res.status(400).json({ error: 'Invalid source ID parameter' });
+    }
     const pool = getDbForRequest(req);
     
     const currentRes = await pool.query('SELECT * FROM fw_sources WHERE id = $1', [id]);
@@ -81,6 +92,9 @@ exports.toggleSource = async (req, res) => {
 exports.deleteSource = async (req, res) => {
   try {
     const { id } = req.params;
+    if (!isPositiveInteger(id)) {
+      return res.status(400).json({ error: 'Invalid source ID parameter' });
+    }
     const pool = getDbForRequest(req);
     
     stopWatchingSource(id);

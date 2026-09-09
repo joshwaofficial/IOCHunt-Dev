@@ -8,6 +8,14 @@ const totpHelper = require('../utils/totpHelper');
 const QRCodeLib = require('qrcode');
 const db = require('../config/db');
 const { getValidRoles } = require('../config/roles');
+const {
+  isString,
+  isPositiveInteger,
+  isEmail,
+  isIdentifier,
+  validatePasswordComplexity,
+  TOTP_REGEX
+} = require('../utils/inputValidator');
 
 async function getUsers(req, res) {
   try {
@@ -62,9 +70,24 @@ async function getAssignableUsers(req, res) {
 
 async function createUser(req, res) {
   try {
-    const { username, email, password, role, force_password_change = true } = req.body;
-    if (!username || !password || !role) return res.status(400).json({ error: 'Missing required fields' });
-    if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    const { username, email, password, role, force_password_change = true } = req.body || {};
+    if (!username || !password || !role || typeof username !== 'string' || typeof password !== 'string' || typeof role !== 'string') {
+      return res.status(400).json({ error: 'Username, password, and role are required and must be strings' });
+    }
+
+    const trimmedUser = username.trim().toLowerCase();
+    if (!isIdentifier(trimmedUser, 3, 32)) {
+      return res.status(400).json({ error: 'Username must be 3-32 characters long and contain only letters, numbers, hyphens, and underscores' });
+    }
+
+    if (email && (typeof email !== 'string' || !isEmail(email))) {
+      return res.status(400).json({ error: 'Invalid email address format' });
+    }
+
+    const pwdError = validatePasswordComplexity(password);
+    if (pwdError) {
+      return res.status(400).json({ error: pwdError });
+    }
     
     const validRoles = getValidRoles();
     const upperRole = role.toUpperCase();
@@ -94,15 +117,23 @@ async function createUser(req, res) {
 async function updateUser(req, res) {
   try {
     const id = req.params.id;
-    const { username, email, role, password, force_password_change } = req.body;
+    if (!isPositiveInteger(id)) {
+      return res.status(400).json({ error: 'Invalid user ID parameter' });
+    }
+
+    const { username, email, role, password, force_password_change } = req.body || {};
     const existing = await User.findById(id, req.queryTenant);
     if (!existing) return res.status(404).json({ error: 'User not found' });
     
     const isAdmin = req.session.role === 'ADMIN';
-    const isOwnAccount = parseInt(id) === req.session.user_id;
+    const isOwnAccount = parseInt(id, 10) === req.session.user_id;
 
     if (!isAdmin && !isOwnAccount) return res.status(403).json({ error: 'Forbidden' });
     if (role && role !== existing.role && !isAdmin) return res.status(403).json({ error: 'Forbidden' });
+
+    if (email && (typeof email !== 'string' || !isEmail(email))) {
+      return res.status(400).json({ error: 'Invalid email address format' });
+    }
 
     // Restrict username modification
     if (username && username.trim().toLowerCase() !== existing.username.toLowerCase()) {
@@ -121,6 +152,9 @@ async function updateUser(req, res) {
     let enforcedForcePasswordChange = force_password_change;
 
     if (password) {
+      if (typeof password !== 'string') {
+        return res.status(400).json({ error: 'Password must be a string' });
+      }
       if (isOwnAccount) {
         return res.status(400).json({
           error: 'To change your own password, please use the Change Password setting with your current password verification.'
@@ -129,7 +163,10 @@ async function updateUser(req, res) {
       if (!isAdmin) {
         return res.status(403).json({ error: 'Forbidden: Only administrators can reset user passwords.' });
       }
-      if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+      const pwdError = validatePasswordComplexity(password);
+      if (pwdError) {
+        return res.status(400).json({ error: pwdError });
+      }
       const hashed = hashPassword(password);
       passwordHash = hashed.hash;
       salt = hashed.salt;
@@ -166,6 +203,9 @@ async function updateUser(req, res) {
 async function deleteUser(req, res) {
   try {
     const id = req.params.id;
+    if (!isPositiveInteger(id)) {
+      return res.status(400).json({ error: 'Invalid user ID parameter' });
+    }
     const existing = await User.findById(id, req.queryTenant);
     if (!existing) return res.status(404).json({ error: 'User not found' });
 
@@ -186,8 +226,11 @@ async function deleteUser(req, res) {
 async function disableMfa(req, res) {
   try {
     const id = req.params.id;
+    if (!isPositiveInteger(id)) {
+      return res.status(400).json({ error: 'Invalid user ID parameter' });
+    }
     const isAdmin = req.session.role === 'ADMIN';
-    if (!isAdmin && parseInt(id) !== req.session.user_id) return res.status(403).json({ error: 'Forbidden' });
+    if (!isAdmin && parseInt(id, 10) !== req.session.user_id) return res.status(403).json({ error: 'Forbidden' });
     await User.disableMfa(id, req.queryTenant);
     return res.status(200).json({ success: true, message: 'MFA disabled' });
   } catch (error) {
@@ -209,8 +252,14 @@ async function generateMfa(req, res) {
 
 async function verifyMfa(req, res) {
   try {
-    const { secret, totp } = req.body;
-    if (!totpHelper.verifyTOTP(secret, totp)) return res.status(400).json({ error: 'Invalid verification code' });
+    const { secret, totp } = req.body || {};
+    if (!secret || !totp || typeof secret !== 'string' || typeof totp !== 'string') {
+      return res.status(400).json({ error: 'Secret and TOTP code are required and must be strings' });
+    }
+    if (!TOTP_REGEX.test(totp.trim())) {
+      return res.status(400).json({ error: 'TOTP code must be a 6-digit number' });
+    }
+    if (!totpHelper.verifyTOTP(secret, totp.trim())) return res.status(400).json({ error: 'Invalid verification code' });
     await req.queryTenant('UPDATE users SET mfa_enabled=1, mfa_secret=$1 WHERE id=$2', [secret, req.session.user_id]);
     return res.status(200).json({ success: true });
   } catch (error) {

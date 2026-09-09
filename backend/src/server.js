@@ -15,7 +15,7 @@ const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 require('dotenv').config();
 
 // ── Security Configuration Validation (Non-blocking startup audit) ──
@@ -24,6 +24,7 @@ validateSecurityConfig();
 
 const { logSecurityEvent, EVENTS, SEVERITY } = require('./utils/securityLogger');
 const auditMiddleware = require('./middlewares/auditMiddleware');
+const sanitizationMiddleware = require('./middlewares/sanitizationMiddleware');
 
 // ── Auto-Generate SSL Certificates ─────────────────────────────
 try {
@@ -33,7 +34,12 @@ try {
     const keyPath = path.join(sslDir, 'iochunt.key');
     if (!fs.existsSync(crtPath) || !fs.existsSync(keyPath)) {
       console.log('[Setup] SSL certificates missing. Generating self-signed certificates...');
-      execSync(`openssl req -x509 -newkey rsa:4096 -keyout "${keyPath}" -out "${crtPath}" -days 3650 -nodes -subj "/CN=iochunt-platform/O=DefSecOne/C=IN"`, { stdio: 'ignore' });
+      execFileSync('openssl', [
+        'req', '-x509', '-newkey', 'rsa:4096',
+        '-keyout', keyPath, '-out', crtPath,
+        '-days', '3650', '-nodes',
+        '-subj', '/CN=iochunt-platform/O=DefSecOne/C=IN'
+      ], { stdio: 'ignore' });
       console.log('[Setup] SSL certificates generated successfully.');
     }
   }
@@ -86,6 +92,7 @@ app.use(helmet({
 }));
 app.use(hpp());
 app.use(cookieParser());
+app.use(sanitizationMiddleware);
 app.use(auditMiddleware);
 
 

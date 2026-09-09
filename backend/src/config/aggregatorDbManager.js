@@ -53,7 +53,13 @@ function getDbConnectionConfig(databaseName) {
  * Creates a brand-new PostgreSQL database on the database server for an aggregator
  */
 async function createAggregatorDatabase(aggregatorName) {
+  if (!aggregatorName || typeof aggregatorName !== 'string') {
+    throw new Error('Aggregator name must be a non-empty string');
+  }
   const safeName = aggregatorName.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+  if (!/^[a-z0-9_]{1,40}$/.test(safeName)) {
+    throw new Error('Aggregator name contains invalid characters');
+  }
   const dbName = `iochunt_agg_${safeName}`;
 
   // Connect to the default maintenance database 'postgres' to execute CREATE DATABASE
@@ -64,7 +70,7 @@ async function createAggregatorDatabase(aggregatorName) {
     const checkDb = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName]);
     if (checkDb.rows.length === 0) {
       console.log(`[AggregatorDB] Provisioning new PostgreSQL database: ${dbName}...`);
-      await client.query(`CREATE DATABASE ${dbName};`);
+      await client.query(`CREATE DATABASE "${dbName}";`);
       console.log(`[AggregatorDB] Database ${dbName} created successfully.`);
     } else {
       console.log(`[AggregatorDB] Database ${dbName} already exists.`);

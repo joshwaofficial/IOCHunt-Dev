@@ -1,5 +1,7 @@
 
 
+const { parseSafeInt, isIdentifier } = require('../utils/inputValidator');
+
 const generateReport = async (req, res) => {
   try {
     const {
@@ -14,14 +16,19 @@ const generateReport = async (req, res) => {
       action = '',
       include_fw = '1',
       aggregator = '',
-    } = req.query;
+    } = req.query || {};
 
     let fromDate, toDate;
     if (from_date && to_date) {
       fromDate = new Date(from_date);
       toDate = new Date(to_date);
+      if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+        toDate = new Date();
+        fromDate = new Date(toDate.getTime() - 24 * 3600000);
+      }
     } else {
-      const hours = parseFloat(duration) || 24;
+      const rawHours = parseFloat(duration);
+      const hours = (!isNaN(rawHours) && rawHours > 0 && rawHours <= 8760) ? rawHours : 24;
       toDate = new Date();
       fromDate = new Date(toDate.getTime() - hours * 3600000);
     }
@@ -38,7 +45,7 @@ const generateReport = async (req, res) => {
     
     let aggrs = [];
     if (aggregator && aggregator !== 'All Aggregators') {
-      aggrs = aggregator.split(',').filter(a => a.trim() !== '');
+      aggrs = aggregator.split(',').map(a => a.trim()).filter(a => isIdentifier(a, 1, 64));
       if (aggrs.length > 0) {
         const placeholders = aggrs.map(a => {
           evParams.push(a);
@@ -141,14 +148,14 @@ const generateReport = async (req, res) => {
     });
   } catch (e) {
     console.error('[reports]', e.message);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Failed to generate report' });
   }
 };
 
 const generateBaseline = async (req, res) => {
   try {
     const machine = req.query.machine || null;
-    const days = parseInt(req.query.days) || 7;
+    const days = parseSafeInt(req.query.days, 7, 1, 365);
     const from = new Date(Date.now() - days * 86400000)
       .toISOString().slice(0, 19).replace('T', ' ');
 
@@ -228,7 +235,7 @@ const generateBaseline = async (req, res) => {
     });
   } catch (e) {
     console.error('[baseline]', e.message);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Failed to generate baseline' });
   }
 };
 

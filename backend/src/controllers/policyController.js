@@ -1,6 +1,7 @@
 
 const appMode = require('../config/appMode');
 const { isRoleAboveOrEqual } = require('../config/roles');
+const { isIdentifier, sanitizeText } = require('../utils/inputValidator');
 
 const DEFAULT_POLICY = {
   catModes: [3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2],
@@ -14,7 +15,11 @@ const DEFAULT_POLICY = {
 
 async function getMachinePolicy(req, res) {
   try {
-    const machine = (req.params.machine || '').trim();
+    const rawMachine = req.params.machine;
+    if (!isIdentifier(rawMachine, 1, 128)) {
+      return res.status(400).json({ error: 'Invalid machine identifier' });
+    }
+    const machine = rawMachine.trim();
     const rowRes = await req.queryTenant('SELECT * FROM policies WHERE LOWER(machine) = LOWER($1) ORDER BY updated_at DESC LIMIT 1', [machine]);
     const row = rowRes.rows[0];
     
@@ -77,9 +82,15 @@ async function getMachinePolicy(req, res) {
 
 async function updateMachineCurrentPolicy(req, res) {
   try {
-    const machine = (req.params.machine || '').trim();
+    const rawMachine = req.params.machine;
+    if (!isIdentifier(rawMachine, 1, 128)) {
+      return res.status(400).json({ error: 'Invalid machine identifier' });
+    }
+    const machine = rawMachine.trim();
     const policy = req.body?.policy;
-    if (!policy) return res.status(400).json({ error: 'policy required' });
+    if (!policy || typeof policy !== 'object' || Array.isArray(policy)) {
+      return res.status(400).json({ error: 'policy object required' });
+    }
     
     const rowRes = await req.queryTenant('SELECT machine FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1', [machine]);
     const targetMachine = rowRes.rows[0]?.machine || machine;
@@ -108,9 +119,15 @@ async function setMachinePolicy(req, res) {
     if (req.session && !isRoleAboveOrEqual(req.session.role, 'ADMIN')) {
       return res.status(403).json({ error: 'Forbidden: Admin privileges required to modify policies' });
     }
-    const machine = (req.params.machine || '').trim();
+    const rawMachine = req.params.machine;
+    if (!isIdentifier(rawMachine, 1, 128)) {
+      return res.status(400).json({ error: 'Invalid machine identifier' });
+    }
+    const machine = rawMachine.trim();
     const policy = req.body?.policy;
-    if (!policy) return res.status(400).json({ error: 'policy object required' });
+    if (!policy || typeof policy !== 'object' || Array.isArray(policy)) {
+      return res.status(400).json({ error: 'policy object required' });
+    }
     
     const rowRes = await req.queryTenant('SELECT machine FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1', [machine]);
     const targetMachine = rowRes.rows[0]?.machine || machine;
@@ -133,7 +150,11 @@ async function setMachinePolicy(req, res) {
 
 async function ackMachinePolicy(req, res) {
   try {
-    const machine = (req.params.machine || '').trim();
+    const rawMachine = req.params.machine;
+    if (!isIdentifier(rawMachine, 1, 128)) {
+      return res.status(400).json({ error: 'Invalid machine identifier' });
+    }
+    const machine = rawMachine.trim();
     const policy = req.body?.policy;
     
     // Get effective policy to synchronize current_json immediately on ACK
@@ -153,7 +174,7 @@ async function ackMachinePolicy(req, res) {
       }
     }
 
-    const payloadPolicy = (policy && typeof policy === 'object' && Object.keys(policy).length > 0)
+    const payloadPolicy = (policy && typeof policy === 'object' && !Array.isArray(policy) && Object.keys(policy).length > 0)
       ? JSON.stringify(policy)
       : (effectivePolicy || '{}');
 

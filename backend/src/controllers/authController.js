@@ -241,12 +241,25 @@ async function handleFailedLogin(lockoutKey, res, req = null, user = null, tenan
 
 async function login(req, res) {
   try {
-    let { username, password, workspace_id, confirm_takeover } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password are required' });
+    let { username, password, workspace_id, confirm_takeover } = req.body || {};
+    if (!username || !password || typeof username !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Username and password are required and must be strings' });
     }
     
+    username = username.trim();
     password = password.trim();
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password cannot be empty' });
+    }
+
+    if (username.length > 100 || password.length > 256) {
+      return res.status(400).json({ error: 'Username or password exceeds maximum length' });
+    }
+
+    if (workspace_id && typeof workspace_id !== 'string') {
+      return res.status(400).json({ error: 'Workspace ID must be a string' });
+    }
 
     const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
@@ -595,10 +608,11 @@ async function login(req, res) {
 
 async function changePassword(req, res) {
   try {
-    let { current_password, new_password, confirm_password } = req.body;
+    let { current_password, new_password, confirm_password } = req.body || {};
 
-    if (!current_password || !new_password || !confirm_password) {
-      return res.status(400).json({ error: 'All password fields are required' });
+    if (!current_password || !new_password || !confirm_password ||
+        typeof current_password !== 'string' || typeof new_password !== 'string' || typeof confirm_password !== 'string') {
+      return res.status(400).json({ error: 'All password fields are required and must be strings' });
     }
 
     current_password = current_password.trim();
@@ -672,9 +686,9 @@ async function changePassword(req, res) {
 
 async function mfaVerify(req, res) {
   try {
-    const { tempToken, totpToken, workspace_id } = req.body;
-    if (!tempToken || !totpToken) {
-      return res.status(400).json({ message: 'Token and code required' });
+    const { tempToken, totpToken, workspace_id } = req.body || {};
+    if (!tempToken || !totpToken || typeof tempToken !== 'string' || typeof totpToken !== 'string') {
+      return res.status(400).json({ message: 'Token and code required and must be strings' });
     }
 
     let tenantId = (workspace_id && typeof workspace_id === 'string') ? workspace_id.trim().toLowerCase() : null;
@@ -846,9 +860,15 @@ async function me(req, res) {
 
 async function setupBranchNode(req, res) {
   try {
-    const { central_url, username, password } = req.body;
-    if (!central_url || !username || !password) {
-      return res.status(400).json({ error: 'Central Server URL, username, and password are required' });
+    let { central_url, username, password } = req.body || {};
+    if (!central_url || !username || !password ||
+        typeof central_url !== 'string' || typeof username !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Central Server URL, username, and password are required and must be strings' });
+    }
+
+    const { isValidSafeUrl } = require('../utils/inputValidator');
+    if (!isValidSafeUrl(central_url)) {
+      return res.status(400).json({ error: 'Invalid or restricted Central Server URL' });
     }
 
     const https = require('https');

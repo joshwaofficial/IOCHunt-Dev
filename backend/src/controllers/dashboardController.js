@@ -1,6 +1,7 @@
 const Event = require('../models/Event');
 const { parseAdEvent, parseMaliciousEvent, parseUsbEvent, parseUserEvent, parseNetworkEvent } = require('../utils/eventParsers');
 const appMode = require('../config/appMode');
+const { parseSafeInt } = require('../utils/inputValidator');
 
 /**
  * Resolves the effective aggregator to query based on user role and request query parameters.
@@ -110,9 +111,12 @@ const getEvents = async (req, res) => {
     const total = parseInt(countRes.rows[0].count, 10);
     
     // Get paginated events
-    params.push(parseInt(limit, 10));
+    const safeLimit = parseSafeInt(limit, 50, 1, 1000);
+    const safeOffset = parseSafeInt(offset, 0, 0);
+
+    params.push(safeLimit);
     const limitIdx = params.length;
-    params.push(parseInt(offset, 10));
+    params.push(safeOffset);
     const offsetIdx = params.length;
     
     const query = `SELECT * FROM events ${whereString} ORDER BY ts DESC LIMIT $${limitIdx} OFFSET $${offsetIdx}`;
@@ -313,9 +317,8 @@ const getADAttacks = async (req, res) => {
     const action = (req.query.action || '').toLowerCase();
     const isPrivileged = req.query.isPrivileged === 'true';
     const excludeSystem = req.query.excludeSystem === 'true';
-    const incidentLink = req.query.incidentLink || 'all';
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const page = parseSafeInt(req.query.page, 1, 1, 10000);
+    const limit = parseSafeInt(req.query.limit, 10, 1, 500);
     const search = req.query.search ? req.query.search.toLowerCase() : '';
     const actor = (req.query.actor || '').toLowerCase();
     const attackType = (req.query.attackType || '').toLowerCase();
@@ -399,9 +402,8 @@ const getMaliciousEvents = async (req, res) => {
     const search = (req.query.search || '').toLowerCase();
     const processFilter = (req.query.process || '').toLowerCase();
     const sort = req.query.sort || 'newest';
-    const severity = (req.query.severity || 'all').toLowerCase();
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const page = parseSafeInt(req.query.page, 1, 1, 10000);
+    const limit = parseSafeInt(req.query.limit, 10, 1, 500);
     let from, to;
     if (req.query.from && req.query.to) {
       from = req.query.from;
@@ -485,9 +487,8 @@ const getUserEvents = async (req, res) => {
     const sort = req.query.sort || 'newest';
     const severity = (req.query.severity || 'all').toLowerCase();
     const isPrivileged = req.query.isPrivileged === 'true';
-    const excludeSystem = req.query.excludeSystem === 'true';
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const page = parseSafeInt(req.query.page, 1, 1, 10000);
+    const limit = parseSafeInt(req.query.limit, 10, 1, 500);
 
     if (search) {
       out = out.filter(a => Object.values(a).some(v => v !== null && v !== undefined && String(v).toLowerCase().includes(search)));

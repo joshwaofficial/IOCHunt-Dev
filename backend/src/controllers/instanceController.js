@@ -76,7 +76,9 @@ async function completeSetup(req, res) {
       admin_password,
       admin_email,
       central_server_url
-    } = req.body;
+    } = req.body || {};
+
+    const { validatePasswordComplexity, isValidSafeUrl, isIdentifier } = require('../utils/inputValidator');
 
     const normalized = normalizeMode(mode);
     if (!normalized) {
@@ -85,17 +87,24 @@ async function completeSetup(req, res) {
 
     // ── 1. SETUP CENTRAL SERVER ─────────────────────────────────
     if (normalized === MODES.CENTRAL) {
-      if (!admin_username || !admin_password) {
+      if (!admin_username || !admin_password || typeof admin_username !== 'string' || typeof admin_password !== 'string') {
         return res.status(400).json({ error: 'Admin username and password are required for Central Server setup' });
       }
-      if (admin_password.length < 6) {
-        return res.status(400).json({ error: 'Admin password must be at least 6 characters long' });
+
+      const trimmedUser = admin_username.trim().toLowerCase();
+      if (!isIdentifier(trimmedUser, 3, 32)) {
+        return res.status(400).json({ error: 'Admin username must be 3-32 characters long and contain only letters, numbers, hyphens, and underscores' });
       }
 
-      const safeInstanceName = (instance_name || '').trim() || 'IOC Hunt Central Command Hub';
+      const pwdError = validatePasswordComplexity(admin_password);
+      if (pwdError) {
+        return res.status(400).json({ error: pwdError });
+      }
+
+      const safeInstanceName = (typeof instance_name === 'string' ? instance_name.trim() : '') || 'IOC Hunt Central Command Hub';
       const { hash, salt } = cryptoHelper.hashPassword(admin_password);
       const createdAt = Math.floor(Date.now() / 1000);
-      const username = admin_username.trim().toLowerCase();
+      const username = trimmedUser;
 
       // Ensure tables exist
       await initDB();
@@ -118,7 +127,7 @@ async function completeSetup(req, res) {
           email = EXCLUDED.email,
           force_password_change = 0
         RETURNING id, username, role
-      `, [username, hash, salt, admin_email || '', createdAt]);
+      `, [username, hash, salt, typeof admin_email === 'string' ? admin_email.trim() : '', createdAt]);
 
       const adminUser = userInsertRes.rows[0];
 
@@ -170,8 +179,13 @@ async function completeSetup(req, res) {
 
     // ── 2. SETUP BRANCH AGGREGATOR ──────────────────────────────
     if (normalized === MODES.AGGREGATOR) {
-      if (!central_server_url || !admin_username || !admin_password) {
+      if (!central_server_url || !admin_username || !admin_password ||
+          typeof central_server_url !== 'string' || typeof admin_username !== 'string' || typeof admin_password !== 'string') {
         return res.status(400).json({ error: 'Central Server URL, username, and password are required' });
+      }
+
+      if (!isValidSafeUrl(central_server_url)) {
+        return res.status(400).json({ error: 'Invalid or restricted Central Server URL' });
       }
 
       const httpsAgent = new https.Agent({ rejectUnauthorized: false });

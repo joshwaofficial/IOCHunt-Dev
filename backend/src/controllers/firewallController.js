@@ -2,6 +2,7 @@
 
 const { DateTime } = require('luxon');
 const appMode = require('../config/appMode');
+const { parseSafeInt } = require('../utils/inputValidator');
 const displayTz = process.env.DISPLAY_TZ || 'UTC';
 
 function displayTs(tsStr) {
@@ -81,15 +82,19 @@ exports.getFirewallStats = async (req, res) => {
     const topSrc = (await req.queryTenant('SELECT src_ip,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY src_ip ORDER BY n DESC LIMIT 10', p)).rows;
     const topDst = (await req.queryTenant('SELECT dst_ip,dst_port,service,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY dst_ip,dst_port,service ORDER BY n DESC LIMIT 10', p)).rows;
     
-    const eventsRes = await req.queryTenant(`SELECT * FROM fw_events ${w} ORDER BY ts DESC LIMIT $${pIdx} OFFSET $${pIdx+1}`, [...p, Number(limit), Number(offset)]);
+    const safeLimit = parseSafeInt(limit, 200, 1, 1000);
+    const safeOffset = parseSafeInt(offset, 0, 0);
+
+    const eventsRes = await req.queryTenant(`SELECT * FROM fw_events ${w} ORDER BY ts DESC LIMIT $${pIdx} OFFSET $${pIdx+1}`, [...p, safeLimit, safeOffset]);
     const events = eventsRes.rows.map(e => ({ ...e, ts: displayTs(e.ts) }));
 
     res.json({
       total, bySev, byAction, byService, topSrc, topDst, events,
-      has_more: Number(offset) + events.length < total
+      has_more: safeOffset + events.length < total
     });
   } catch (e) { 
-    res.status(500).json({ error: e.message }); 
+    console.error('[Firewall Error]', e.message);
+    res.status(500).json({ error: 'Failed to retrieve firewall stats' }); 
   }
 };
 
@@ -148,7 +153,8 @@ exports.getTopology = async (req, res) => {
 
     res.json({ devices, connections: grouped });
   } catch (e) { 
-    res.status(500).json({ error: e.message }); 
+    console.error('[Firewall Error]', e.message);
+    res.status(500).json({ error: 'Failed to retrieve network topology' }); 
   }
 };
 
@@ -159,7 +165,8 @@ exports.getDevices = async (req, res) => {
     );
     res.json(rowsRes.rows.map(r => r.devname));
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error('[Firewall Error]', e.message);
+    res.status(500).json({ error: 'Failed to retrieve firewall devices' });
   }
 };
 
@@ -180,7 +187,8 @@ exports.getLiveEvents = async (req, res) => {
     const events = eventsRes.rows;
     res.json({ events, last_id: events.length ? events[events.length - 1].id : Number(last_id) });
   } catch (e) { 
-    res.status(500).json({ error: e.message }); 
+    console.error('[Firewall Error]', e.message);
+    res.status(500).json({ error: 'Failed to retrieve live firewall events' }); 
   }
 };
 
@@ -398,7 +406,8 @@ exports.getSecurityAlerts = async (req, res) => {
 
     res.json({ counts, events: outEvents });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error('[Firewall Error]', e.message);
+    res.status(500).json({ error: 'Failed to retrieve security alerts' });
   }
 };
 

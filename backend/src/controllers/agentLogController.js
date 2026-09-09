@@ -9,33 +9,46 @@ const sseBroadcaster = require('../services/sseBroadcaster');
 const { detectNoise, classifySeverity, parseCategory, normalizeToUTC } = require('../utils/ingestHelpers');
 const { isAggregator } = require('../config/appMode');
 const syncService = require('../modules/aggregator/services/syncService');
+const { isIdentifier, isString, sanitizeText } = require('../utils/inputValidator');
 
 async function ingestAgentLogs(req, res) {
   try {
     const { machine, label, events } = req.body;
-    if (!machine || !Array.isArray(events)) {
-      return res.status(400).json({ error: 'machine+events[] required' });
+    if (!isIdentifier(machine, 1, 128)) {
+      return res.status(400).json({ error: 'Invalid machine identifier' });
+    }
+    if (!Array.isArray(events)) {
+      return res.status(400).json({ error: 'events must be an array' });
+    }
+    if (events.length > 2000) {
+      return res.status(400).json({ error: 'Exceeded maximum events per batch (2000)' });
     }
 
+    const safeLabel = typeof label === 'string' ? sanitizeText(label).slice(0, 128) : machine;
+
     const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '')
-      .split(',')[0].trim().replace(/^::ffff:/, '');
+      .split(',')[0].trim().replace(/^::ffff:/, '').slice(0, 45);
 
     const displayTimezone = 'UTC';
     const isAggNode = isAggregator();
     const aggregatorName = isAggNode ? (process.env.INSTANCE_NAME || 'aggregator') : 'direct';
 
-    const rows = events.filter(e => e.ts && e.message).map(e => {
-      const sev = classifySeverity(e.tag, e.message);
-      return {
-        machine,
-        ts: normalizeToUTC(e.ts, displayTimezone),
-        tag: e.tag || '',
-        severity: sev,
-        category: e.category || parseCategory(e.tag, e.message),
-        message: e.message.slice(0, 2000),
-        is_noise: detectNoise(e.tag, e.message, sev),
-      };
-    });
+    const rows = events
+      .filter(e => e && typeof e === 'object' && e.ts && typeof e.message === 'string')
+      .map(e => {
+        const rawMsg = String(e.message).slice(0, 2000);
+        const rawTag = typeof e.tag === 'string' ? e.tag.slice(0, 128) : '';
+        const sev = classifySeverity(rawTag, rawMsg);
+        return {
+          machine,
+          ts: normalizeToUTC(e.ts, displayTimezone),
+          tag: rawTag,
+          severity: sev,
+          category: typeof e.category === 'string' ? e.category.slice(0, 64) : parseCategory(rawTag, rawMsg),
+          message: rawMsg,
+          is_noise: detectNoise(rawTag, rawMsg, sev),
+        };
+      });
 
     const tenantPool = await req.getTenantPool();
     const client = await tenantPool.connect();

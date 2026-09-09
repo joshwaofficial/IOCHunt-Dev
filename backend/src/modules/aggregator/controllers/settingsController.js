@@ -2,6 +2,7 @@ const { getDbForRequest, getAggregatorPool } = require('../../../config/aggregat
 const db = require('../../../config/db');
 const axios = require('axios');
 const https = require('https');
+const { isValidSafeUrl, parseSafeInt, isString } = require('../../../utils/inputValidator');
 
 // For development/internal networks, we accept self-signed certs when communicating with Central Server
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
@@ -41,10 +42,16 @@ const getSettings = async (req, res) => {
 const pairCentral = async (req, res) => {
   try {
     const { url, pairing_code } = req.body;
-    if (!url || !pairing_code) return res.status(400).json({ error: 'URL and pairing code required' });
+    if (!isString(url, 1, 2048) || !isString(pairing_code, 1, 64)) {
+      return res.status(400).json({ error: 'URL and pairing code are required strings' });
+    }
+
+    if (!isValidSafeUrl(url)) {
+      return res.status(400).json({ error: 'Invalid or prohibited central server URL' });
+    }
 
     // Ensure URL is clean
-    const cleanUrl = url.replace(/\/$/, '');
+    const cleanUrl = url.trim().replace(/\/$/, '');
     const aggregatorName = req.session?.aggregator_name || req.user?.aggregator_name || process.env.AGGREGATOR_NAME || process.env.TENANT_ID || 'branch-1';
     const pool = getDbForRequest(req);
 
@@ -106,8 +113,10 @@ const disconnectCentral = async (req, res) => {
 const updateRetention = async (req, res) => {
   try {
     const { local_retention_days } = req.body;
-    const days = parseInt(local_retention_days, 10);
-    if (isNaN(days)) return res.status(400).json({ error: 'Invalid days value' });
+    const days = parseSafeInt(local_retention_days, null, 1, 3650);
+    if (days === null) {
+      return res.status(400).json({ error: 'Retention days must be an integer between 1 and 3650' });
+    }
 
     const pool = getDbForRequest(req);
     const existing = await pool.query('SELECT id FROM settings LIMIT 1');
@@ -119,7 +128,7 @@ const updateRetention = async (req, res) => {
     res.json({ success: true, message: 'Retention policy updated successfully' });
   } catch (error) {
     console.error('[Settings] Update retention error:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Failed to update retention policy' });
   }
 };
 

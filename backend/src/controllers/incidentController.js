@@ -1,15 +1,40 @@
 const { sendAssignmentEmail } = require('../utils/emailHelper');
+const {
+  isString,
+  isPositiveInteger,
+  parseSafeInt,
+  isEnum,
+  sanitizeText
+} = require('../utils/inputValidator');
+
+const VALID_STATUSES = ['new', 'investigating', 'contained', 'resolved', 'closed'];
+const VALID_PRIORITIES = ['P1', 'P2', 'P3', 'P4'];
+
 async function getIncidents(req, res) {
   try {
+    const { status, priority, assigned_to, search } = req.query || {};
+    const limit = parseSafeInt(req.query.limit, 100, 1, 1000);
+    const offset = parseSafeInt(req.query.offset, 0, 0);
 
-    const { status, priority, assigned_to, search, limit = 100, offset = 0 } = req.query;
     const conds = [];
     const p = [];
     
     let paramIndex = 1;
     
-    if (status) { conds.push(`status=$${paramIndex++}`); p.push(status); }
-    if (priority) { conds.push(`priority=$${paramIndex++}`); p.push(priority); }
+    if (status) {
+      if (!VALID_STATUSES.includes(status.toLowerCase())) {
+        return res.status(400).json({ error: `Invalid status. Allowed: ${VALID_STATUSES.join(', ')}` });
+      }
+      conds.push(`status=$${paramIndex++}`);
+      p.push(status.toLowerCase());
+    }
+    if (priority) {
+      if (!VALID_PRIORITIES.includes(priority.toUpperCase())) {
+        return res.status(400).json({ error: `Invalid priority. Allowed: ${VALID_PRIORITIES.join(', ')}` });
+      }
+      conds.push(`priority=$${paramIndex++}`);
+      p.push(priority.toUpperCase());
+    }
     if (assigned_to) { conds.push(`assigned_to=$${paramIndex++}`); p.push(assigned_to); }
     if (search) { 
       conds.push(`(title ILIKE $${paramIndex} OR description ILIKE $${paramIndex} OR machine ILIKE $${paramIndex} OR assigned_to ILIKE $${paramIndex} OR id::text = $${paramIndex})`); 
@@ -35,7 +60,7 @@ async function getIncidents(req, res) {
       FROM incidents i ${w}
       ORDER BY i.updated_at DESC
       LIMIT $${paramIndex} OFFSET $${paramIndex+1}
-    `, [...p, Number(limit), Number(offset)]);
+    `, [...p, limit, offset]);
     
     return res.status(200).json({ total, incidents: rowsRes.rows });
   } catch (error) {
@@ -92,23 +117,31 @@ async function getIncidentSummary(req, res) {
 
 async function createIncident(req, res) {
   try {
-
     const {
       title, description = '', status = 'new', priority = 'P2',
       assigned_to = null, machine = '', source_chain_id = null, event_ids = []
-    } = req.body;
+    } = req.body || {};
     
     const created_by = req.session && req.session.username ? req.session.username : 'dashboard';
     
-    if (!title) {
-      return res.status(400).json({ error: 'title required' });
+    if (!title || typeof title !== 'string' || !title.trim()) {
+      return res.status(400).json({ error: 'Title is required and must be a non-empty string' });
+    }
+
+    const cleanTitle = sanitizeText(title).slice(0, 255);
+    const cleanDesc = typeof description === 'string' ? sanitizeText(description).slice(0, 10000) : '';
+    const cleanStatus = typeof status === 'string' && VALID_STATUSES.includes(status.toLowerCase()) ? status.toLowerCase() : 'new';
+    const cleanPriority = typeof priority === 'string' && VALID_PRIORITIES.includes(priority.toUpperCase()) ? priority.toUpperCase() : 'P2';
+
+    if (event_ids && !Array.isArray(event_ids)) {
+      return res.status(400).json({ error: 'event_ids must be an array' });
     }
 
     const info = await req.queryTenant(`
       INSERT INTO incidents (title, description, status, priority, assigned_to, machine, created_by, source_chain_id)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING id
-    `, [title, description, status, priority, assigned_to || null, machine, created_by, source_chain_id]);
+    `, [cleanTitle, cleanDesc, cleanStatus, cleanPriority, assigned_to || null, machine || '', created_by, source_chain_id]);
     
     const incId = info.rows[0].id;
 
@@ -145,8 +178,10 @@ async function createIncident(req, res) {
 
 async function getIncident(req, res) {
   try {
-
     const { id } = req.params;
+    if (!isPositiveInteger(id)) {
+      return res.status(400).json({ error: 'Invalid incident ID parameter' });
+    }
     const incRes = await req.queryTenant('SELECT * FROM incidents WHERE id=$1', [id]);
     const inc = incRes.rows[0];
     if (!inc) {
@@ -195,8 +230,10 @@ async function getIncident(req, res) {
 
 async function updateIncident(req, res) {
   try {
-
     const { id } = req.params;
+    if (!isPositiveInteger(id)) {
+      return res.status(400).json({ error: 'Invalid incident ID parameter' });
+    }
     const incRes = await req.queryTenant('SELECT * FROM incidents WHERE id=$1', [id]);
     const inc = incRes.rows[0];
     if (!inc) {
@@ -283,11 +320,17 @@ async function updateIncident(req, res) {
 
 async function addNote(req, res) {
   try {
-
     const { id } = req.params;
-    const { body, note_type = 'comment' } = req.body;
+    if (!isPositiveInteger(id)) {
+      return res.status(400).json({ error: 'Invalid incident ID parameter' });
+    }
+    const { body, note_type = 'comment' } = req.body || {};
     const author = req.session && req.session.username ? req.session.username : 'dashboard';
-    if (!body) return res.status(400).json({ error: 'body required' });
+    if (!body || typeof body !== 'string' || !body.trim()) {
+      return res.status(400).json({ error: 'Note body is required and must be a string' });
+    }
+    const cleanBody = sanitizeText(body).slice(0, 5000);
+    const cleanNoteType = typeof note_type === 'string' && ['comment', 'system'].includes(note_type) ? note_type : 'comment';
 
     const incRes = await req.queryTenant('SELECT * FROM incidents WHERE id=$1', [id]);
     const inc = incRes.rows[0];
@@ -316,11 +359,15 @@ async function addNote(req, res) {
 
 async function linkEvents(req, res) {
   try {
-
     const { id } = req.params;
-    const { event_ids = [] } = req.body;
+    if (!isPositiveInteger(id)) {
+      return res.status(400).json({ error: 'Invalid incident ID parameter' });
+    }
+    const { event_ids = [] } = req.body || {};
     const linked_by = req.session && req.session.username ? req.session.username : 'dashboard';
-    if (!event_ids.length) return res.status(400).json({ error: 'event_ids required' });
+    if (!Array.isArray(event_ids) || !event_ids.length) {
+      return res.status(400).json({ error: 'event_ids must be a non-empty array' });
+    }
 
     const incRes = await req.queryTenant('SELECT * FROM incidents WHERE id=$1', [id]);
     const inc = incRes.rows[0];
@@ -356,9 +403,14 @@ async function linkEvents(req, res) {
 
 async function assignIncident(req, res) {
   try {
-
     const { id } = req.params;
-    const { assignee } = req.body;
+    if (!isPositiveInteger(id)) {
+      return res.status(400).json({ error: 'Invalid incident ID parameter' });
+    }
+    const { assignee } = req.body || {};
+    if (!assignee || typeof assignee !== 'string' || !assignee.trim()) {
+      return res.status(400).json({ error: 'Assignee username is required' });
+    }
     
     const incRes = await req.queryTenant('SELECT * FROM incidents WHERE id=$1', [id]);
     const inc = incRes.rows[0];

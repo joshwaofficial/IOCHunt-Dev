@@ -11,26 +11,28 @@ const crypto = require('crypto');
 const sseBroadcaster = require('../services/sseBroadcaster');
 const { publishToStream } = require('../services/redisIngestion');
 const { normalizeToUTC } = require('../utils/ingestHelpers');
+const { isString, isPositiveInteger, parseSafeInt, isIdentifier, isEnum } = require('../utils/inputValidator');
 
 const hash = (text) => crypto.createHash('sha256').update(text).digest('hex');
 
 const batchIngest = async (req, res) => {
   try {
     // 1. Verify aggregator API key
-    const apiKey = req.headers['x-aggregator-key'] || req.headers['x-api-key'];
-    if (!apiKey) return res.status(401).json({ error: 'Missing API key header' });
+    const rawApiKey = req.headers['x-aggregator-key'] || req.headers['x-api-key'];
+    if (!isString(rawApiKey, 1, 256)) return res.status(401).json({ error: 'Missing or invalid API key header' });
+    const apiKey = rawApiKey.trim();
 
     let isAggregatorClient = false;
     let aggregatorName = null;
     let aggResult = await req.queryControlPlane(
       'SELECT tenant_id as id, status FROM tenants WHERE api_key_hash = $1',
-      [hash(apiKey.trim())]
+      [hash(apiKey)]
     );
 
     if (aggResult.rows.length === 0) {
       aggResult = await req.queryControlPlane(
         'SELECT name as id, tenant_id, status FROM aggregators WHERE api_key_hash = $1',
-        [hash(apiKey.trim())]
+        [hash(apiKey)]
       );
       if (aggResult.rows.length > 0) {
         isAggregatorClient = true;
@@ -55,17 +57,38 @@ const batchIngest = async (req, res) => {
       req.tenantId = tenant.id;
     }
 
-    // 2. Decompress gzip
-    let raw;
-    try {
-      raw = zlib.gunzipSync(req.body);
-    } catch (e) {
-      return res.status(400).json({ error: 'Invalid gzip payload' });
+    // 2. Decompress gzip with size limits to prevent zip bombs
+    if (!Buffer.isBuffer(req.body)) {
+      return res.status(400).json({ error: 'Payload must be a binary gzip stream' });
+    }
+    if (req.body.length > 25 * 1024 * 1024) {
+      return res.status(413).json({ error: 'Payload exceeds maximum compressed size of 25MB' });
     }
 
-    const data = JSON.parse(raw);
-    if (!data.events || !data.machines) {
-      return res.status(400).json({ error: 'Payload must contain events and machines' });
+    let raw;
+    try {
+      raw = zlib.gunzipSync(req.body, { maxOutputLength: 100 * 1024 * 1024 });
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid gzip payload or uncompressed size exceeded' });
+    }
+
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (e) {
+      return res.status(400).json({ error: 'Payload is not valid JSON' });
+    }
+
+    if (!data || typeof data !== 'object') {
+      return res.status(400).json({ error: 'JSON payload must be an object' });
+    }
+
+    if (!Array.isArray(data.events) || !Array.isArray(data.machines)) {
+      return res.status(400).json({ error: 'Payload must contain events[] and machines[] arrays' });
+    }
+
+    if (data.events.length > 10000 || data.machines.length > 5000) {
+      return res.status(400).json({ error: 'Batch limits exceeded (max 10000 events, 5000 machines)' });
     }
 
     // 3. Bulk insert events
@@ -168,6 +191,9 @@ const ingestEvents = async (req, res) => {
       return res.status(401).json({ error: 'Missing or invalid Authorization header' });
     }
     const apiKey = authHeader.split(' ')[1];
+    if (!apiKey) {
+      return res.status(401).json({ error: 'Invalid Authorization header format' });
+    }
 
     const aggResult = await req.queryControlPlane(
       'SELECT * FROM tenants WHERE api_key_hash = $1 AND status = $2',
@@ -182,15 +208,23 @@ const ingestEvents = async (req, res) => {
     req.tenantId = tenant.tenant_id;
 
     const { machine, label, events } = req.body;
-    if (!machine || !Array.isArray(events)) {
-      return res.status(400).json({ error: 'Payload must contain machine and events[]' });
+    if (!isIdentifier(machine, 1, 128)) {
+      return res.status(400).json({ error: 'Invalid machine identifier' });
     }
+    if (!Array.isArray(events)) {
+      return res.status(400).json({ error: 'Payload must contain events[] array' });
+    }
+    if (events.length > 2000) {
+      return res.status(400).json({ error: 'Exceeded maximum events per batch (2000)' });
+    }
+
+    const safeLabel = typeof label === 'string' ? label.slice(0, 128) : machine;
 
     if (events.length > 0) {
       await publishToStream('ingest:agent', tenant.tenant_id, events.map(e => ({
         ...e,
         machine,
-        label: label || machine,
+        label: safeLabel,
         aggregator_name: 'direct',
         ts: normalizeToUTC(e.ts) || new Date()
       })));
@@ -198,7 +232,7 @@ const ingestEvents = async (req, res) => {
 
     events.forEach(e => {
       if (!e.is_noise) {
-        sseBroadcaster.broadcast('new_event', { ...e, machine, label: label || machine, aggregator_name: 'direct' });
+        sseBroadcaster.broadcast('new_event', { ...e, machine, label: safeLabel, aggregator_name: 'direct' });
       }
     });
 
@@ -217,26 +251,40 @@ const getAggregatorIncidents = async (req, res) => {
     let pIdx = 1;
 
     if (aggregator_name) {
+      if (!isString(aggregator_name, 1, 64)) {
+        return res.status(400).json({ error: 'Invalid aggregator_name' });
+      }
       queryText += ` AND aggregator_name = $${pIdx++}`;
-      params.push(aggregator_name);
+      params.push(aggregator_name.trim());
     }
     if (severity) {
+      const validSeverities = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
+      const sevUpper = String(severity).toUpperCase().trim();
+      if (!validSeverities.includes(sevUpper)) {
+        return res.status(400).json({ error: 'Invalid severity value' });
+      }
       queryText += ` AND severity = $${pIdx++}`;
-      params.push(severity);
+      params.push(sevUpper);
     }
     if (status) {
+      const validStatuses = ['OPEN', 'INVESTIGATING', 'RESOLVED', 'CLOSED'];
+      const statUpper = String(status).toUpperCase().trim();
+      if (!validStatuses.includes(statUpper)) {
+        return res.status(400).json({ error: 'Invalid status value' });
+      }
       queryText += ` AND status = $${pIdx++}`;
-      params.push(status);
+      params.push(statUpper);
     }
 
+    const safeLimit = parseSafeInt(limit, 50, 1, 500);
     queryText += ` ORDER BY created_at DESC LIMIT $${pIdx}`;
-    params.push(parseInt(limit, 10));
+    params.push(safeLimit);
 
     const result = await req.queryTenant(queryText, params);
     res.json({ incidents: result.rows });
   } catch (error) {
     console.error('[Get Aggregator Incidents Error]', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Failed to retrieve aggregator incidents' });
   }
 };
 
@@ -255,18 +303,23 @@ const getAggregatorIncidentSummary = async (req, res) => {
     res.json(result.rows[0] || {});
   } catch (error) {
     console.error('[Incident Summary Error]', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Failed to retrieve incident summary' });
   }
 };
 
 const getAggregatorIncident = async (req, res) => {
   try {
-    const result = await req.queryTenant('SELECT * FROM incidents WHERE id = $1', [req.params.id]);
+    if (!isPositiveInteger(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid incident ID' });
+    }
+    const incidentId = parseInt(req.params.id, 10);
+
+    const result = await req.queryTenant('SELECT * FROM incidents WHERE id = $1', [incidentId]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Incident not found' });
     res.json(result.rows[0]);
   } catch (error) {
     console.error('[Get Incident Error]', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Failed to retrieve incident' });
   }
 };
 

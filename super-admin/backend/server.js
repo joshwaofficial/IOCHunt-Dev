@@ -15,7 +15,15 @@ const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 const crypto = require('crypto');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
+const {
+  isString,
+  isInteger,
+  parseSafeInt,
+  isDbIdentifier,
+  validatePasswordComplexity,
+  superSanitizationMiddleware
+} = require('./inputValidator');
 
 // ── Auto-Generate SSL Certificates Helper ──────────────────────
 function generateFreshCerts(targetDir) {
@@ -29,7 +37,12 @@ function generateFreshCerts(targetDir) {
     try { if (fs.existsSync(keyPath)) fs.unlinkSync(keyPath); } catch (_) { }
 
     console.log('[SuperAdmin] Generating fresh self-signed TLS certificates in:', targetDir);
-    execSync(`openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${crtPath}" -days 3650 -nodes -subj "/CN=iochunt-superadmin/O=DefSecOne/C=IN"`, { stdio: 'ignore' });
+    execFileSync('openssl', [
+      'req', '-x509', '-newkey', 'rsa:2048',
+      '-keyout', keyPath, '-out', crtPath,
+      '-days', '3650', '-nodes',
+      '-subj', '/CN=iochunt-superadmin/O=DefSecOne/C=IN'
+    ], { stdio: 'ignore' });
 
     return { crtPath, keyPath };
   } catch (err) {
@@ -90,6 +103,7 @@ app.use((req, res, next) => {
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
+app.use(superSanitizationMiddleware);
 
 // Initialize Super Admin Schema & Default Credentials
 async function initSuperAdminDB() {
@@ -436,8 +450,10 @@ app.get('/api/super/stream', superAuthMiddleware, (req, res) => {
 
 app.post('/api/super/login', superLoginLimiter, async (req, res) => {
   try {
-    const { username, password, confirm_takeover } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+    const { username, password, confirm_takeover } = req.body || {};
+    if (!username || !password || typeof username !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
 
     const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket?.remoteAddress || req.ip || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
@@ -554,10 +570,14 @@ app.post('/api/super/logout', superAuthMiddleware, async (req, res) => {
 
 app.post('/api/super/change-password', superAuthMiddleware, superPasswordLimiter, async (req, res) => {
   try {
-    const { current_password, new_password, confirm_password } = req.body;
-    const finalPassword = new_password || req.body.password;
-    if (!finalPassword || finalPassword.length < 8) {
-      return res.status(400).json({ error: 'New password must be at least 8 characters long' });
+    const { current_password, new_password, confirm_password } = req.body || {};
+    const finalPassword = new_password || req.body?.password;
+    if (!finalPassword || typeof finalPassword !== 'string') {
+      return res.status(400).json({ error: 'New password must be provided as a string' });
+    }
+    const pwdErr = validatePasswordComplexity(finalPassword);
+    if (pwdErr) {
+      return res.status(400).json({ error: pwdErr });
     }
     if (confirm_password && finalPassword !== confirm_password) {
       return res.status(400).json({ error: 'Passwords do not match' });
@@ -664,11 +684,23 @@ app.get('/api/super/companies', superAuthMiddleware, async (req, res) => {
 // ── Provision New Tenant ────────────────────────────────────────
 app.post('/api/super/companies', superAuthMiddleware, async (req, res) => {
   try {
-    const { company_name, company_id, admin_username, admin_password } = req.body;
-    if (!company_name || !company_id) return res.status(400).json({ error: 'Company Name and ID are required' });
-    if (!admin_username || !admin_password) return res.status(400).json({ error: 'Admin Username and Password are required' });
+    const { company_name, company_id, admin_username, admin_password } = req.body || {};
+    if (!company_name || !company_id || typeof company_name !== 'string' || typeof company_id !== 'string') {
+      return res.status(400).json({ error: 'Company Name and ID are required' });
+    }
+    if (!admin_username || !admin_password || typeof admin_username !== 'string' || typeof admin_password !== 'string') {
+      return res.status(400).json({ error: 'Admin Username and Password are required' });
+    }
 
     const safeId = company_id.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    if (!isDbIdentifier(safeId)) {
+      return res.status(400).json({ error: 'Company ID must be 3-63 characters containing only lowercase letters, numbers, and underscores.' });
+    }
+
+    const pwdError = validatePasswordComplexity(admin_password);
+    if (pwdError) {
+      return res.status(400).json({ error: pwdError });
+    }
 
     // Check if tenant ID already exists
     const checkIdRes = await pool.query('SELECT id FROM tenants WHERE tenant_id = $1', [safeId]);
@@ -927,7 +959,10 @@ app.post('/api/super/companies/:company_id/reset-password', superAuthMiddleware,
 // ── Get Immutable Audit Logs ────────────────────────────────────
 app.get('/api/super/audit-logs', superAuthMiddleware, async (req, res) => {
   try {
-    const { limit = 50, offset = 0, search = '' } = req.query;
+    const limit = parseSafeInt(req.query.limit, 50, 1, 500);
+    const offset = parseSafeInt(req.query.offset, 0, 0);
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+
     let query = 'SELECT * FROM audit_log';
     const params = [];
 
@@ -937,7 +972,7 @@ app.get('/api/super/audit-logs', superAuthMiddleware, async (req, res) => {
     }
 
     query += ` ORDER BY id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    params.push(parseInt(limit, 10), parseInt(offset, 10));
+    params.push(limit, offset);
 
     const logsRes = await pool.query(query, params);
     const totalRes = await pool.query('SELECT COUNT(*) AS total FROM audit_log' + (search ? ' WHERE action ILIKE $1 OR username ILIKE $1 OR tenant_id ILIKE $1 OR detail ILIKE $1' : ''), search ? [`%${search}%`] : []);

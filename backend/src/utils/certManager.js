@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const crypto = require('crypto');
 
 /**
@@ -93,9 +93,12 @@ function ensureCertificates() {
     // Try generating with openssl
     let generated = false;
     try {
-      execSync(
-        `openssl req -x509 -newkey rsa:4096 -keyout "${keyPath}" -out "${certPath}" -days 3650 -nodes -subj "/CN=iochunt-platform/O=DefSecOne/C=IN" 2>/dev/null`
-      );
+      execFileSync('openssl', [
+        'req', '-x509', '-newkey', 'rsa:4096',
+        '-keyout', keyPath, '-out', certPath,
+        '-days', '3650', '-nodes',
+        '-subj', '/CN=iochunt-platform/O=DefSecOne/C=IN'
+      ], { stdio: 'ignore' });
       generated = true;
     } catch (cmdErr) {
       console.log(`[SSL] OpenSSL CLI not found or failed, generating with Node crypto fallback...`);
