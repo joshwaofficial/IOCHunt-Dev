@@ -3,7 +3,7 @@ FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 COPY super-admin/frontend/package*.json super-admin/frontend/.npmrc* ./
-RUN npm ci
+RUN npm ci || npm install
 
 COPY super-admin/frontend/ ./
 RUN npm run build
@@ -19,7 +19,7 @@ WORKDIR /app
 # Copy Super Admin backend dependencies (only 5 packages: fast install in seconds)
 COPY super-admin/package*.json super-admin/.npmrc* ./super-admin/
 WORKDIR /app/super-admin
-RUN npm ci
+RUN npm ci || npm install
 
 # Copy application files
 WORKDIR /app

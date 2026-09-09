@@ -12,7 +12,7 @@ WORKDIR /app
 COPY package.json package-lock.json .npmrc* ./
 
 # Install dependencies
-RUN npm ci
+RUN npm ci || npm install
 
 # Copy source code
 COPY . .

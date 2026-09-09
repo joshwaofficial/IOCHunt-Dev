@@ -8,7 +8,7 @@ FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 COPY frontend/package*.json frontend/.npmrc* ./
-RUN npm ci
+RUN npm ci || npm install
 
 COPY frontend/ ./
 RUN npm run build
@@ -23,7 +23,7 @@ RUN apk add --no-cache openssl curl
 # Install backend dependencies
 COPY backend/package*.json backend/.npmrc* ./backend/
 WORKDIR /app/backend
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev || npm install --omit=dev
 
 # Copy backend source code
 COPY backend/ /app/backend/
