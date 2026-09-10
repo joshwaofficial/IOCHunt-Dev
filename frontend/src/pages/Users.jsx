@@ -39,6 +39,7 @@ const formatDuration = (seconds) => {
 
 export default function Users() {
   const { user: currentUser, setUser, logout } = useAuth();
+  const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'AGGREGATOR_ADMIN';
   
   // Navigation Tabs
   const [activeTab, setActiveTab] = useState('users'); // 'users' | 'sessions' | 'policies' | 'audit'
@@ -218,27 +219,33 @@ export default function Users() {
   // Initial load
   useEffect(() => {
     fetchData();
-    fetchSessions(false);
-  }, []);
+    if (isAdmin) {
+      fetchSessions(false);
+    }
+  }, [isAdmin]);
 
   // Tab change triggers
   useEffect(() => {
+    if (!isAdmin && activeTab !== 'users') {
+      setActiveTab('users');
+      return;
+    }
     if (activeTab === 'sessions') {
       fetchSessions();
     } else if (activeTab === 'audit') {
       fetchAuditLogs();
     }
-  }, [activeTab]);
+  }, [activeTab, isAdmin]);
 
   // Live auto-refresh for Sessions tab
   useEffect(() => {
-    if (activeTab === 'sessions' && sessionsAutoRefresh) {
+    if (isAdmin && activeTab === 'sessions' && sessionsAutoRefresh) {
       const timer = setInterval(() => {
         fetchSessions(false);
       }, 15000);
       return () => clearInterval(timer);
     }
-  }, [activeTab, sessionsAutoRefresh]);
+  }, [activeTab, sessionsAutoRefresh, isAdmin]);
 
   // Build active user status map: username -> session info
   const activeUserMap = useMemo(() => {
@@ -423,7 +430,7 @@ export default function Users() {
   };
 
   const filteredData = data.filter(u => {
-    if (currentUser?.role === 'L1_ANALYST' || currentUser?.role === 'L2_ANALYST') {
+    if (!isAdmin) {
       if (String(u.id) !== String(currentUser?.id)) return false;
     }
     if (searchTerm) {
@@ -531,29 +538,33 @@ export default function Users() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
         <div>
           <h1 style={{ fontSize: '24px', fontWeight: 800, margin: '0 0 6px 0', letterSpacing: '-0.5px', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: '28px', color: '#3b82f6' }}>admin_panel_settings</span>
-            User Accounts & Security Hub
+            <span className="material-symbols-outlined" style={{ fontSize: '28px', color: '#3b82f6' }}>
+              {isAdmin ? 'admin_panel_settings' : 'account_circle'}
+            </span>
+            {isAdmin ? 'User Accounts & Security Hub' : 'My Account Profile'}
           </h1>
           <p style={{ margin: 0, fontSize: '13px', color: 'var(--muted)' }}>
-            Manage analyst credentials, monitor live active sessions, and enforce session security policies
+            {isAdmin 
+              ? 'Manage analyst credentials, monitor live active sessions, and enforce session security policies' 
+              : 'Manage your personal account credentials, active session, and security settings'}
           </p>
         </div>
 
-        {/* Live System Status Badges */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)', padding: '5px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 700, color: '#4ade80' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e' }} />
-            {sessionsSummary.online_count} Online Now
-          </div>
-
-          {sessionsSummary.idle_count > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', padding: '5px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 700, color: '#f59e0b' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b' }} />
-              {sessionsSummary.idle_count} Idle
+        {/* Live System Status Badges (Admin Only) */}
+        {isAdmin && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)', padding: '5px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 700, color: '#4ade80' }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 8px #22c55e' }} />
+              {sessionsSummary.online_count} Online Now
             </div>
-          )}
 
-          {currentUser?.role === 'ADMIN' && (
+            {sessionsSummary.idle_count > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', padding: '5px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 700, color: '#f59e0b' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b' }} />
+                {sessionsSummary.idle_count} Idle
+              </div>
+            )}
+
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--surface)', border: '1px solid var(--border)', padding: '5px 12px', borderRadius: '8px', fontSize: '12px', color: 'var(--text)' }}>
               <span className="material-symbols-outlined" style={{ fontSize: '15px', color: '#2563eb' }}>vpn_key</span>
               <span style={{ fontFamily: 'var(--mono)', fontSize: '11px', color: 'var(--muted)' }}>API Key:</span>
@@ -572,105 +583,107 @@ export default function Users() {
                 </button>
               )}
             </div>
-          )}
+          </div>
+        )}
+      </div>
+
+      {/* Navigation Tabs Bar (Admin Only) */}
+      {isAdmin && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', borderBottom: '1px solid var(--border)', marginBottom: '20px', paddingBottom: '2px', overflowX: 'auto' }}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('users')}
+            style={{
+              background: activeTab === 'users' ? 'rgba(37,99,235,0.15)' : 'transparent',
+              color: activeTab === 'users' ? '#60a5fa' : 'var(--muted)',
+              border: activeTab === 'users' ? '1px solid rgba(37,99,235,0.4)' : '1px solid transparent',
+              padding: '9px 18px',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s'
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>group</span>
+            Users & Roles ({data.length})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('sessions')}
+            style={{
+              background: activeTab === 'sessions' ? 'rgba(37,99,235,0.15)' : 'transparent',
+              color: activeTab === 'sessions' ? '#60a5fa' : 'var(--muted)',
+              border: activeTab === 'sessions' ? '1px solid rgba(37,99,235,0.4)' : '1px solid transparent',
+              padding: '9px 18px',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s'
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '18px', color: sessionsSummary.online_count > 0 ? '#10b981' : 'var(--muted)' }}>
+              sensors
+            </span>
+            Live Sessions ({sessionsSummary.total_sessions})
+            {sessionsSummary.online_count > 0 && (
+              <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('policies')}
+            style={{
+              background: activeTab === 'policies' ? 'rgba(37,99,235,0.15)' : 'transparent',
+              color: activeTab === 'policies' ? '#60a5fa' : 'var(--muted)',
+              border: activeTab === 'policies' ? '1px solid rgba(37,99,235,0.4)' : '1px solid transparent',
+              padding: '9px 18px',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s'
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>security</span>
+            Security Policies
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('audit')}
+            style={{
+              background: activeTab === 'audit' ? 'rgba(37,99,235,0.15)' : 'transparent',
+              color: activeTab === 'audit' ? '#60a5fa' : 'var(--muted)',
+              border: activeTab === 'audit' ? '1px solid rgba(37,99,235,0.4)' : '1px solid transparent',
+              padding: '9px 18px',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s'
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>history</span>
+            Session Audit Logs
+          </button>
         </div>
-      </div>
-
-      {/* Navigation Tabs Bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', borderBottom: '1px solid var(--border)', marginBottom: '20px', paddingBottom: '2px', overflowX: 'auto' }}>
-        <button
-          type="button"
-          onClick={() => setActiveTab('users')}
-          style={{
-            background: activeTab === 'users' ? 'rgba(37,99,235,0.15)' : 'transparent',
-            color: activeTab === 'users' ? '#60a5fa' : 'var(--muted)',
-            border: activeTab === 'users' ? '1px solid rgba(37,99,235,0.4)' : '1px solid transparent',
-            padding: '9px 18px',
-            borderRadius: '8px',
-            fontSize: '13px',
-            fontWeight: 700,
-            cursor: 'pointer',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '8px',
-            transition: 'all 0.2s'
-          }}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>group</span>
-          Users & Roles ({data.length})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('sessions')}
-          style={{
-            background: activeTab === 'sessions' ? 'rgba(37,99,235,0.15)' : 'transparent',
-            color: activeTab === 'sessions' ? '#60a5fa' : 'var(--muted)',
-            border: activeTab === 'sessions' ? '1px solid rgba(37,99,235,0.4)' : '1px solid transparent',
-            padding: '9px 18px',
-            borderRadius: '8px',
-            fontSize: '13px',
-            fontWeight: 700,
-            cursor: 'pointer',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '8px',
-            transition: 'all 0.2s'
-          }}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: '18px', color: sessionsSummary.online_count > 0 ? '#10b981' : 'var(--muted)' }}>
-            sensors
-          </span>
-          Live Sessions ({sessionsSummary.total_sessions})
-          {sessionsSummary.online_count > 0 && (
-            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('policies')}
-          style={{
-            background: activeTab === 'policies' ? 'rgba(37,99,235,0.15)' : 'transparent',
-            color: activeTab === 'policies' ? '#60a5fa' : 'var(--muted)',
-            border: activeTab === 'policies' ? '1px solid rgba(37,99,235,0.4)' : '1px solid transparent',
-            padding: '9px 18px',
-            borderRadius: '8px',
-            fontSize: '13px',
-            fontWeight: 700,
-            cursor: 'pointer',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '8px',
-            transition: 'all 0.2s'
-          }}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>security</span>
-          Security Policies
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('audit')}
-          style={{
-            background: activeTab === 'audit' ? 'rgba(37,99,235,0.15)' : 'transparent',
-            color: activeTab === 'audit' ? '#60a5fa' : 'var(--muted)',
-            border: activeTab === 'audit' ? '1px solid rgba(37,99,235,0.4)' : '1px solid transparent',
-            padding: '9px 18px',
-            borderRadius: '8px',
-            fontSize: '13px',
-            fontWeight: 700,
-            cursor: 'pointer',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '8px',
-            transition: 'all 0.2s'
-          }}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>history</span>
-          Session Audit Logs
-        </button>
-      </div>
+      )}
 
       {/* ─────────────────────────────────────────────────────────────────────────── */}
       {/* TAB 1: USERS & ROLES                                                        */}
@@ -723,18 +736,22 @@ export default function Users() {
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', marginBottom: '16px', boxShadow: '0 1px 3px rgba(0,0,0,.08)' }}>
             <div style={{ padding: '11px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.01)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span className="material-symbols-outlined text-muted" style={{ fontSize: '16px', color: 'var(--muted)' }}>group</span>
+                <span className="material-symbols-outlined text-muted" style={{ fontSize: '16px', color: 'var(--muted)' }}>
+                  {isAdmin ? 'group' : 'person'}
+                </span>
                 <span style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted)', fontFamily: 'var(--mono)', margin: 0 }}>
-                  User Accounts ({filteredData.length})
+                  {isAdmin ? `User Accounts (${filteredData.length})` : 'My Account Credentials'}
                 </span>
               </div>
-              <a
-                href="#create-user-section"
-                style={{ fontSize: '11px', color: '#3b82f6', textDecoration: 'none', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>add</span>
-                Create User
-              </a>
+              {isAdmin && (
+                <a
+                  href="#create-user-section"
+                  style={{ fontSize: '11px', color: '#3b82f6', textDecoration: 'none', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>add</span>
+                  Create User
+                </a>
+              )}
             </div>
             
             {loading ? (
@@ -862,7 +879,7 @@ export default function Users() {
 
                             <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                                {sessionInfo && (
+                                {isAdmin && sessionInfo && (
                                   <button
                                     onClick={() => {
                                       setSessionSearch(u.username);
@@ -961,62 +978,66 @@ export default function Users() {
                                       style={{ width: '100%', padding: '7px 10px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px' }}
                                     />
                                   </div>
-                                  <div>
-                                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, marginBottom: '4px', textTransform: 'uppercase', color: 'var(--muted)' }}>Role</label>
-                                    <select 
-                                      className="input-field" 
-                                      value={editForms[u.id]?.role || 'L1_ANALYST'} 
-                                      onChange={(e) => setEditForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], role: e.target.value } }))}
-                                      style={{ width: '100%', padding: '7px 10px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px' }}
-                                    >
-                                      <option value="VIEWER">Viewer (Read-Only / Wallboard)</option>
-                                      <option value="L1_ANALYST">L1 Analyst</option>
-                                      <option value="L2_ANALYST">L2 Analyst</option>
-                                      <option value="L3_ANALYST">L3 Analyst</option>
-                                      <option value="ADMIN">Admin</option>
-                                    </select>
-                                  </div>
-                                  <div>
-                                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, marginBottom: '4px', textTransform: 'uppercase', color: 'var(--muted)' }}>Session Policy</label>
-                                    <select 
-                                      className="input-field" 
-                                      value={editForms[u.id]?.session_policy || 'inherit'} 
-                                      onChange={(e) => setEditForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], session_policy: e.target.value } }))}
-                                      style={{ width: '100%', padding: '7px 10px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px' }}
-                                    >
-                                      <option value="inherit">Default (Inherit)</option>
-                                      <option value="soc_shift_8h">SOC Shift (8h)</option>
-                                      <option value="wallboard_24h">Wallboard (24h)</option>
-                                      <option value="strict_30m">Strict (30m Idle)</option>
-                                      <option value="custom">Custom Policy</option>
-                                    </select>
-                                  </div>
-                                  {editForms[u.id]?.session_policy === 'custom' && (
+                                  {isAdmin && (
                                     <>
                                       <div>
-                                        <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, marginBottom: '4px', textTransform: 'uppercase', color: 'var(--muted)' }}>Lifetime (Hours)</label>
-                                        <input 
-                                          type="number" 
-                                          min="1" 
-                                          max="168" 
+                                        <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, marginBottom: '4px', textTransform: 'uppercase', color: 'var(--muted)' }}>Role</label>
+                                        <select 
                                           className="input-field" 
-                                          value={editForms[u.id]?.custom_session_hours ?? 8} 
-                                          onChange={(e) => setEditForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], custom_session_hours: e.target.value } }))} 
-                                          style={{ width: '100%', padding: '7px 10px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px' }} 
-                                        />
+                                          value={editForms[u.id]?.role || 'L1_ANALYST'} 
+                                          onChange={(e) => setEditForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], role: e.target.value } }))}
+                                          style={{ width: '100%', padding: '7px 10px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px' }}
+                                        >
+                                          <option value="VIEWER">Viewer (Read-Only / Wallboard)</option>
+                                          <option value="L1_ANALYST">L1 Analyst</option>
+                                          <option value="L2_ANALYST">L2 Analyst</option>
+                                          <option value="L3_ANALYST">L3 Analyst</option>
+                                          <option value="ADMIN">Admin</option>
+                                        </select>
                                       </div>
                                       <div>
-                                        <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, marginBottom: '4px', textTransform: 'uppercase', color: 'var(--muted)' }}>Idle Timeout (Mins, 0=None)</label>
-                                        <input 
-                                          type="number" 
-                                          min="0" 
-                                          max="1440" 
+                                        <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, marginBottom: '4px', textTransform: 'uppercase', color: 'var(--muted)' }}>Session Policy</label>
+                                        <select 
                                           className="input-field" 
-                                          value={editForms[u.id]?.custom_idle_mins ?? 0} 
-                                          onChange={(e) => setEditForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], custom_idle_mins: e.target.value } }))} 
-                                          style={{ width: '100%', padding: '7px 10px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px' }} 
-                                        />
+                                          value={editForms[u.id]?.session_policy || 'inherit'} 
+                                          onChange={(e) => setEditForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], session_policy: e.target.value } }))}
+                                          style={{ width: '100%', padding: '7px 10px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px' }}
+                                        >
+                                          <option value="inherit">Default (Inherit)</option>
+                                          <option value="soc_shift_8h">SOC Shift (8h)</option>
+                                          <option value="wallboard_24h">Wallboard (24h)</option>
+                                          <option value="strict_30m">Strict (30m Idle)</option>
+                                          <option value="custom">Custom Policy</option>
+                                        </select>
                                       </div>
+                                      {editForms[u.id]?.session_policy === 'custom' && (
+                                        <>
+                                          <div>
+                                            <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, marginBottom: '4px', textTransform: 'uppercase', color: 'var(--muted)' }}>Lifetime (Hours)</label>
+                                            <input 
+                                              type="number" 
+                                              min="1" 
+                                              max="168" 
+                                              className="input-field" 
+                                              value={editForms[u.id]?.custom_session_hours ?? 8} 
+                                              onChange={(e) => setEditForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], custom_session_hours: e.target.value } }))} 
+                                              style={{ width: '100%', padding: '7px 10px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px' }} 
+                                            />
+                                          </div>
+                                          <div>
+                                            <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, marginBottom: '4px', textTransform: 'uppercase', color: 'var(--muted)' }}>Idle Timeout (Mins, 0=None)</label>
+                                            <input 
+                                              type="number" 
+                                              min="0" 
+                                              max="1440" 
+                                              className="input-field" 
+                                              value={editForms[u.id]?.custom_idle_mins ?? 0} 
+                                              onChange={(e) => setEditForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], custom_idle_mins: e.target.value } }))} 
+                                              style={{ width: '100%', padding: '7px 10px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px' }} 
+                                            />
+                                          </div>
+                                        </>
+                                      )}
                                     </>
                                   )}
                                   <div style={{ display: 'flex', gap: '8px' }}>

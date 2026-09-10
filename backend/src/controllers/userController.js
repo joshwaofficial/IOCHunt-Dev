@@ -138,6 +138,9 @@ async function updateUser(req, res) {
 
     if (!isAdmin && !isOwnAccount) return res.status(403).json({ error: 'Forbidden' });
     if (role && role !== existing.role && !isAdmin) return res.status(403).json({ error: 'Forbidden' });
+    if ((session_policy !== undefined || custom_session_hours !== undefined || custom_idle_mins !== undefined) && !isAdmin) {
+      return res.status(403).json({ error: 'Forbidden: Only administrators can modify session policies.' });
+    }
 
     if (email && (typeof email !== 'string' || !isEmail(email))) {
       return res.status(400).json({ error: 'Invalid email address format' });
@@ -358,8 +361,8 @@ async function getActiveSessions(req, res) {
   try {
     if (!req.session || !req.session.user_id) return res.status(401).json({ error: 'Unauthenticated' });
     
-    // Only Admin, Aggregator Admin, or L3 Analysts can monitor sessions
-    const allowedRoles = ['ADMIN', 'AGGREGATOR_ADMIN', 'L3_ANALYST'];
+    // Only Admin or Aggregator Admin can monitor sessions
+    const allowedRoles = ['ADMIN', 'AGGREGATOR_ADMIN'];
     if (!allowedRoles.includes(req.session.role)) {
       return res.status(403).json({ error: 'Forbidden: Insufficient permissions to view active sessions' });
     }
@@ -551,7 +554,7 @@ async function getSessionAuditLogs(req, res) {
   try {
     if (!req.session || !req.session.user_id) return res.status(401).json({ error: 'Unauthenticated' });
 
-    const allowedRoles = ['ADMIN', 'AGGREGATOR_ADMIN', 'L3_ANALYST'];
+    const allowedRoles = ['ADMIN', 'AGGREGATOR_ADMIN'];
     if (!allowedRoles.includes(req.session.role)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
