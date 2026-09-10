@@ -24,11 +24,11 @@ export default function Login() {
   const serverMode = instanceInfo?.mode || 'central_server';
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    if (params.get('reason') === 'session_terminated' || params.get('reason') === 'concurrent_takeover') {
+    const reason = params.get('reason');
+    if (reason === 'session_terminated' || reason === 'concurrent_takeover') {
       setTerminatedNotice('You were logged out because this account was accessed from another device.');
-    } else if (params.get('reason') === 'inactivity_timeout') {
-      setTerminatedNotice('You were automatically logged out due to session inactivity.');
+    } else if (reason === 'inactivity_timeout' || reason === 'idle_timeout') {
+      setTerminatedNotice('Session Idle Timeout: You were automatically logged out due to inactivity.');
     }
     try {
       localStorage.removeItem('iochunt_last_active');
@@ -451,9 +451,11 @@ export default function Login() {
             color: '#facc15',
             lineHeight: 1.4
           }}>
-            <span className="material-symbols-outlined" style={{ fontSize: '18px', flexShrink: 0, marginTop: '2px' }}>warning</span>
+            <span className="material-symbols-outlined" style={{ fontSize: '18px', flexShrink: 0, marginTop: '2px', color: '#fbbf24' }}>
+              {location.search.includes('idle') || location.search.includes('inactivity') ? 'timer_off' : 'warning'}
+            </span>
             <div>
-              <strong>Session Terminated:</strong> {terminatedNotice}
+              {terminatedNotice}
             </div>
           </div>
         )}

@@ -12,8 +12,15 @@ axios.interceptors.response.use((response) => response, (error) => {
   if (error.response && error.response.status === 401) {
     // Only redirect if not already on the login page
     if (window.location.pathname !== '/login') {
+      const reason = error.response?.data?.reason;
       localStorage.removeItem('iochunt_user');
-      window.location.href = '/login';
+      if (reason === 'inactivity_timeout' || reason === 'idle_timeout') {
+        window.location.href = '/login?reason=idle_timeout';
+      } else if (reason) {
+        window.location.href = `/login?reason=${encodeURIComponent(reason)}`;
+      } else {
+        window.location.href = '/login';
+      }
     }
   }
   return Promise.reject(error);
