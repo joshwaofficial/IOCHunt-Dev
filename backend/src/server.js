@@ -219,7 +219,14 @@ app.use((err, req, res, next) => {
 // Static Frontend Serving
 const staticPath = path.join(__dirname, '../../frontend/dist');
 if (process.env.SERVE_STATIC === 'true' || fs.existsSync(staticPath)) {
-  app.use(express.static(staticPath));
+  app.use(express.static(staticPath, {
+    maxAge: '1d',
+    setHeaders: (res, filePath) => {
+      if (filePath.includes('/assets/') || filePath.match(/\.[a-f0-9]{8,}\.(js|css|png|jpg|svg|woff2?)$/i)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+    }
+  }));
   app.use((req, res, next) => {
     // Only send index.html for navigation requests that expect HTML
     // Exclude API requests and direct requests for files with extensions (like .js, .css, .png)

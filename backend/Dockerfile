@@ -17,8 +17,8 @@ RUN npm ci --omit=dev || npm install --omit=dev
 COPY . .
 
 # Health check — hits the /api/ping endpoint
-HEALTHCHECK --interval=30s --timeout=5s --retries=5 --start-period=15s \
-  CMD wget -qO- http://127.0.0.1:${CENTRAL_PORT:-4001}/api/ping || exit 1
+HEALTHCHECK --interval=30s --timeout=8s --retries=5 --start-period=20s \
+  CMD wget --no-check-certificate -qO- https://127.0.0.1:${PORT:-4001}/api/ping || wget -qO- http://127.0.0.1:${PORT:-4001}/api/ping || exit 1
 
 EXPOSE 4001
 

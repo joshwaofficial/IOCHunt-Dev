@@ -77,6 +77,7 @@ export function AuthProvider({ children }) {
     }
     if (res.data.user) {
       localStorage.setItem('iochunt_user', JSON.stringify(res.data.user));
+      localStorage.setItem('iochunt_last_active', String(Date.now()));
       setUser(res.data.user);
     }
     return { success: true };
@@ -89,6 +90,7 @@ export function AuthProvider({ children }) {
       console.warn('Logout API failed:', e);
     } finally {
       localStorage.removeItem('iochunt_user');
+      localStorage.removeItem('iochunt_last_active');
       setUser(null);
     }
   };

@@ -42,16 +42,23 @@ export default function Navbar() {
   }, []);
 
   useEffect(() => {
+    let consecutiveFails = 0;
+
     const checkPing = async () => {
       try {
         const start = Date.now();
-        await axios.get('/api/ping', { timeout: 5000 });
+        await axios.get('/api/ping', { timeout: 12000 });
         const end = Date.now();
         setLatency(end - start);
+        consecutiveFails = 0;
         setIsOnline(true);
       } catch (err) {
-        setIsOnline(false);
-        setLatency('--');
+        consecutiveFails++;
+        // Require 2 consecutive failed pings to mark offline, avoiding false alarms during heavy queries
+        if (consecutiveFails >= 2) {
+          setIsOnline(false);
+          setLatency('--');
+        }
       }
     };
 

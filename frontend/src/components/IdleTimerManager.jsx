@@ -48,6 +48,7 @@ export default function IdleTimerManager() {
   const handleManualLogout = async () => {
     setShowWarning(false);
     try {
+      localStorage.removeItem('iochunt_last_active');
       await logout();
     } catch (_) {}
     window.location.href = '/login?reason=inactivity_timeout';
@@ -60,10 +61,22 @@ export default function IdleTimerManager() {
       return;
     }
 
-    // Initialize last active timestamp
+    // Initialize last active timestamp safely
+    const now = Date.now();
     const stored = localStorage.getItem('iochunt_last_active');
     const parsed = stored ? parseInt(stored, 10) : NaN;
-    lastActiveRef.current = (!isNaN(parsed) && parsed > 0) ? parsed : Date.now();
+    const maxAllowedAgeMs = idleTimeoutMins * 60 * 1000;
+
+    // Only accept stored timestamp if it is recent (within the active idle window)
+    if (!isNaN(parsed) && parsed > 0 && (now - parsed) < maxAllowedAgeMs) {
+      lastActiveRef.current = parsed;
+    } else {
+      // Stale or expired timestamp from a previous session — reset immediately to now
+      lastActiveRef.current = now;
+      try {
+        localStorage.setItem('iochunt_last_active', String(now));
+      } catch (_) {}
+    }
 
     const events = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'];
     const handleEvent = () => {
@@ -94,7 +107,7 @@ export default function IdleTimerManager() {
       events.forEach(evt => window.removeEventListener(evt, handleEvent));
       window.removeEventListener('storage', handleStorage);
     };
-  }, [user, idleTimeoutMins, showWarning, updateActivity]);
+  }, [user?.id, idleTimeoutMins, showWarning, updateActivity]);
 
   // Interval check every second
   useEffect(() => {
@@ -110,6 +123,9 @@ export default function IdleTimerManager() {
       if (remaining <= 0) {
         clearInterval(interval);
         setShowWarning(false);
+        try {
+          localStorage.removeItem('iochunt_last_active');
+        } catch (_) {}
         if (logout) {
           logout().catch(() => {});
         } else {
@@ -125,7 +141,7 @@ export default function IdleTimerManager() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [user, idleTimeoutMins, logout]);
+  }, [user?.id, idleTimeoutMins, logout]);
 
   if (!showWarning || idleTimeoutMins <= 0) return null;
 

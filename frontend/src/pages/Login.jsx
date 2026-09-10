@@ -30,6 +30,9 @@ export default function Login() {
     } else if (params.get('reason') === 'inactivity_timeout') {
       setTerminatedNotice('You were automatically logged out due to session inactivity.');
     }
+    try {
+      localStorage.removeItem('iochunt_last_active');
+    } catch (_) {}
   }, [location.search]);
 
   useEffect(() => {

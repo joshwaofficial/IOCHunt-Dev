@@ -111,16 +111,19 @@ const AGENT_PATH_PREFIXES = [
   '/api/challenge',
   '/api/ping',
   '/api/status',
+  '/api/instance/info',
+  '/api/auth/keep-alive',
+  '/api/stream',
 ];
 
 const globalApiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,   // 15 minutes
-  max: 500,                    // 500 requests per 15 min per IP (generous for UIs)
+  max: 3000,                   // 3000 requests per 15 min per IP (supports busy SOC dashboards & live polling)
   standardHeaders: true,
   legacyHeaders: false,
   validate: { xForwardedForHeader: false },
   skip: (req) => {
-    // Skip rate limiting for agent pipeline routes
+    // Skip rate limiting for agent pipeline and health/heartbeat routes
     return AGENT_PATH_PREFIXES.some((prefix) => req.path.startsWith(prefix));
   },
   handler: rateLimitHandler('Too many requests. Please slow down'),
