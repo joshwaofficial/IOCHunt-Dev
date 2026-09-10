@@ -206,6 +206,16 @@ async function updateUser(req, res) {
 
     if (password) {
       await req.queryControlPlane('DELETE FROM sessions WHERE user_id = $1 AND tenant_id = $2', [id, req.tenantId]);
+    } else if (custom_idle_mins !== undefined || session_policy !== undefined) {
+      let effectiveIdle = 0;
+      if (session_policy === 'custom' || (!session_policy && existing.session_policy === 'custom')) {
+        effectiveIdle = custom_idle_mins !== undefined && custom_idle_mins !== null && custom_idle_mins !== '' ? Math.max(0, Number(custom_idle_mins)) : (Number(existing.custom_idle_mins) || 0);
+      } else if (session_policy === 'strict_30m') {
+        effectiveIdle = 30;
+      } else if (session_policy === 'soc_shift_8h' || session_policy === 'wallboard_24h') {
+        effectiveIdle = 0;
+      }
+      await req.queryControlPlane('UPDATE sessions SET idle_timeout_mins = $1 WHERE user_id = $2 AND tenant_id = $3', [effectiveIdle, id, req.tenantId]);
     }
 
     return res.status(200).json({ success: true, message: 'User updated successfully' });
@@ -340,6 +350,13 @@ async function updateSessionSettings(req, res) {
       await q(
         'UPDATE settings SET session_policy = $1, session_lifetime_hours = $2, idle_timeout_mins = $3',
         [session_policy, hours, idle]
+      );
+    } catch (_) {}
+
+    try {
+      await req.queryControlPlane(
+        'UPDATE sessions SET idle_timeout_mins = $1 WHERE (tenant_id = $2 OR tenant_id IS NULL OR tenant_id = \'\')',
+        [idle, req.tenantId || 'default']
       );
     } catch (_) {}
 

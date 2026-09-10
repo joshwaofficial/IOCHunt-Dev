@@ -10,6 +10,10 @@ export default function IdleTimerManager() {
   const [isExtending, setIsExtending] = useState(false);
   const lastActiveRef = useRef(Date.now());
   const lastWriteRef = useRef(0);
+  const lastMousePosRef = useRef({ x: 0, y: 0 });
+  const showWarningRef = useRef(false);
+
+  showWarningRef.current = showWarning;
 
   const idleTimeoutMins = Number(user?.idle_timeout_mins) || 0;
 
@@ -76,26 +80,33 @@ export default function IdleTimerManager() {
     if (!isNaN(parsed) && parsed > 0 && (now - parsed) < maxAllowedAgeMs) {
       lastActiveRef.current = parsed;
     } else {
-      // Stale or expired timestamp from a previous session — reset immediately to now
       lastActiveRef.current = now;
       try {
         localStorage.setItem('iochunt_last_active', String(now));
       } catch (_) {}
     }
 
-    // When the warning popup is active, clicking ANYWHERE on the page, typing, or scrolling
+    // When the warning popup is active, clicking ANYWHERE on the page, typing, or moving mouse
     // immediately dismisses the notification and resumes the active session!
     const events = ['mousedown', 'click', 'keydown', 'scroll', 'touchstart'];
     const handleInteraction = () => {
-      if (showWarning) {
+      if (showWarningRef.current) {
         handleActivityResume();
       } else {
         updateActivity();
       }
     };
 
-    const handleMouseMove = () => {
-      if (!showWarning) {
+    const handleMouseMove = (e) => {
+      // Require > 5px movement to filter out desk vibrations / sensor micro-jitter
+      const dx = Math.abs(e.clientX - lastMousePosRef.current.x);
+      const dy = Math.abs(e.clientY - lastMousePosRef.current.y);
+      if (dx < 5 && dy < 5) return;
+      lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+
+      if (showWarningRef.current) {
+        handleActivityResume();
+      } else {
         updateActivity();
       }
     };
@@ -109,7 +120,7 @@ export default function IdleTimerManager() {
         const val = parseInt(e.newValue, 10);
         if (!isNaN(val)) {
           lastActiveRef.current = val;
-          if (showWarning) {
+          if (showWarningRef.current) {
             setShowWarning(false);
           }
         }
@@ -122,7 +133,7 @@ export default function IdleTimerManager() {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('storage', handleStorage);
     };
-  }, [user?.id, idleTimeoutMins, showWarning, updateActivity, handleActivityResume]);
+  }, [user?.id, idleTimeoutMins, updateActivity, handleActivityResume]);
 
   // Interval check every second
   useEffect(() => {

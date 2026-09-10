@@ -267,13 +267,13 @@ async function resolveSessionPolicy(user, tenantId, queryTenant) {
   if (user?.role === 'VIEWER') {
     return { durationHours: 24, idleMins: 0 };
   }
-  if (user?.role === 'L1_ANALYST') {
+  if (user?.role === 'L1_ANALYST' || user?.role === 'L2_ANALYST' || user?.role === 'L3_ANALYST') {
     return { durationHours: 8, idleMins: 30 };
   }
   if (user?.role === 'ADMIN') {
     return { durationHours: 8, idleMins: 60 };
   }
-  return { durationHours: 8, idleMins: 0 };
+  return { durationHours: 8, idleMins: 30 };
 }
 
 /**
