@@ -354,6 +354,273 @@ async function updateSessionSettings(req, res) {
   }
 }
 
+function parseUserAgent(ua) {
+  if (!ua || typeof ua !== 'string') return { browser: 'Unknown', os: 'Unknown', device: 'Desktop' };
+  
+  let browser = 'Browser';
+  if (ua.includes('Edg/')) browser = 'Edge';
+  else if (ua.includes('Chrome/')) browser = 'Chrome';
+  else if (ua.includes('Firefox/')) browser = 'Firefox';
+  else if (ua.includes('Safari/') && !ua.includes('Chrome')) browser = 'Safari';
+  else if (ua.includes('OPR/') || ua.includes('Opera/')) browser = 'Opera';
+
+  let os = 'Unknown OS';
+  if (ua.includes('Windows NT 10.0')) os = 'Windows 10/11';
+  else if (ua.includes('Windows')) os = 'Windows';
+  else if (ua.includes('Mac OS X')) os = 'macOS';
+  else if (ua.includes('Android')) os = 'Android';
+  else if (ua.includes('iPhone') || ua.includes('iPad')) os = 'iOS';
+  else if (ua.includes('Linux')) os = 'Linux';
+
+  const isMobile = ua.includes('Mobile') || ua.includes('Android') || ua.includes('iPhone') || ua.includes('iPad');
+  return { browser, os, device: isMobile ? 'Mobile' : 'Desktop' };
+}
+
+async function getActiveSessions(req, res) {
+  try {
+    if (!req.session || !req.session.user_id) return res.status(401).json({ error: 'Unauthenticated' });
+    
+    // Only Admin, Aggregator Admin, or L3 Analysts can monitor sessions
+    const allowedRoles = ['ADMIN', 'AGGREGATOR_ADMIN', 'L3_ANALYST'];
+    if (!allowedRoles.includes(req.session.role)) {
+      return res.status(403).json({ error: 'Forbidden: Insufficient permissions to view active sessions' });
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const q = req.queryControlPlane || db.query.bind(db);
+
+    let sql = 'SELECT * FROM sessions WHERE expires_at > $1';
+    let params = [now];
+
+    if (req.tenantId && req.tenantId !== 'default' && req.tenantId !== 'aggregator') {
+      sql += ' AND (tenant_id = $2 OR tenant_id = \'\' OR tenant_id IS NULL)';
+      params.push(req.tenantId);
+    }
+
+    sql += ' ORDER BY last_activity_at DESC';
+
+    const sessionRes = await q(sql, params);
+    const rawSessions = sessionRes.rows || [];
+
+    // Retrieve user details from tenant db to enrich email and policy
+    let userMap = {};
+    try {
+      const uRes = await (req.queryTenant || q)('SELECT id, username, email, role, session_policy FROM users');
+      if (uRes && uRes.rows) {
+        for (const u of uRes.rows) {
+          userMap[u.username] = u;
+        }
+      }
+    } catch (_) {}
+
+    let onlineCount = 0;
+    let idleCount = 0;
+
+    const formattedSessions = rawSessions.map(s => {
+      const lastAct = Number(s.last_activity_at || s.created_at || now);
+      const idleSec = Math.max(0, now - lastAct);
+      const isOnline = idleSec < 120; // Active within last 2 minutes
+      const isIdle = !isOnline;
+      if (isOnline) onlineCount++;
+      else idleCount++;
+
+      const expiresInSec = Math.max(0, Number(s.expires_at) - now);
+      const device = parseUserAgent(s.user_agent);
+      const uInfo = userMap[s.username] || {};
+
+      return {
+        token: s.token,
+        token_preview: s.token.substring(0, 10) + '...',
+        user_id: s.user_id,
+        username: s.username,
+        email: uInfo.email || '',
+        role: s.role || uInfo.role || 'USER',
+        display_name: s.display_name || s.username,
+        tenant_id: s.tenant_id || 'default',
+        ip_address: s.ip_address || '127.0.0.1',
+        user_agent: s.user_agent || '',
+        browser: device.browser,
+        os: device.os,
+        device_type: device.device,
+        is_online: isOnline,
+        is_idle: isIdle,
+        idle_seconds: idleSec,
+        idle_timeout_mins: Number(s.idle_timeout_mins || 0),
+        created_at: Number(s.created_at || now),
+        last_activity_at: lastAct,
+        expires_at: Number(s.expires_at),
+        expires_in_seconds: expiresInSec,
+        session_policy: uInfo.session_policy || 'inherit',
+        is_current: (req.session && req.session.token === s.token)
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      total_sessions: formattedSessions.length,
+      online_count: onlineCount,
+      idle_count: idleCount,
+      sessions: formattedSessions
+    });
+  } catch (error) {
+    console.error('[Users] Failed to get active sessions:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+async function terminateSession(req, res) {
+  try {
+    if (!req.session || !req.session.user_id) return res.status(401).json({ error: 'Unauthenticated' });
+
+    const allowedRoles = ['ADMIN', 'AGGREGATOR_ADMIN'];
+    if (!allowedRoles.includes(req.session.role)) {
+      return res.status(403).json({ error: 'Forbidden: Only administrators can revoke sessions' });
+    }
+
+    const targetToken = req.params.token || req.body.token;
+    if (!targetToken || typeof targetToken !== 'string') {
+      return res.status(400).json({ error: 'Valid session token required' });
+    }
+
+    const q = req.queryControlPlane || db.query.bind(db);
+
+    const sRes = await q('SELECT * FROM sessions WHERE token = $1', [targetToken]);
+    if (sRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found or already terminated' });
+    }
+
+    const targetSession = sRes.rows[0];
+
+    // Delete session immediately
+    await q('DELETE FROM sessions WHERE token = $1', [targetToken]);
+
+    // Record in audit log
+    try {
+      await q(
+        'INSERT INTO audit_log (tenant_id, user_id, username, action, resource, detail, ip_address, user_agent, result) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+        [
+          targetSession.tenant_id || req.tenantId || '',
+          targetSession.user_id,
+          targetSession.username,
+          'AUTH_SESSION_TERMINATED',
+          'sessions',
+          `Session revoked by administrator ${req.session.username}`,
+          req.ip || '127.0.0.1',
+          req.headers['user-agent'] || '',
+          'SUCCESS'
+        ]
+      );
+    } catch (_) {}
+
+    return res.status(200).json({
+      success: true,
+      message: `Session for "${targetSession.username}" was terminated successfully.`
+    });
+  } catch (error) {
+    console.error('[Users] Failed to terminate session:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+async function terminateAllOtherSessions(req, res) {
+  try {
+    if (!req.session || !req.session.user_id) return res.status(401).json({ error: 'Unauthenticated' });
+
+    const allowedRoles = ['ADMIN', 'AGGREGATOR_ADMIN'];
+    if (!allowedRoles.includes(req.session.role)) {
+      return res.status(403).json({ error: 'Forbidden: Only administrators can revoke sessions' });
+    }
+
+    const q = req.queryControlPlane || db.query.bind(db);
+    const currentToken = req.session.token;
+
+    let sql = 'DELETE FROM sessions WHERE token != $1';
+    let params = [currentToken];
+
+    if (req.tenantId && req.tenantId !== 'default' && req.tenantId !== 'aggregator') {
+      sql += ' AND (tenant_id = $2 OR tenant_id = \'\' OR tenant_id IS NULL)';
+      params.push(req.tenantId);
+    }
+
+    const delRes = await q(sql, params);
+    const deletedCount = delRes.rowCount || 0;
+
+    // Record in audit log
+    try {
+      await q(
+        'INSERT INTO audit_log (tenant_id, user_id, username, action, resource, detail, ip_address, user_agent, result) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+        [
+          req.tenantId || '',
+          req.session.user_id,
+          req.session.username,
+          'AUTH_MASS_SESSION_TERMINATED',
+          'sessions',
+          `Administrator ${req.session.username} terminated ${deletedCount} other active session(s)`,
+          req.ip || '127.0.0.1',
+          req.headers['user-agent'] || '',
+          'SUCCESS'
+        ]
+      );
+    } catch (_) {}
+
+    return res.status(200).json({
+      success: true,
+      count: deletedCount,
+      message: `Successfully terminated ${deletedCount} active session(s). Your current session remains active.`
+    });
+  } catch (error) {
+    console.error('[Users] Failed to terminate other sessions:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+async function getSessionAuditLogs(req, res) {
+  try {
+    if (!req.session || !req.session.user_id) return res.status(401).json({ error: 'Unauthenticated' });
+
+    const allowedRoles = ['ADMIN', 'AGGREGATOR_ADMIN', 'L3_ANALYST'];
+    if (!allowedRoles.includes(req.session.role)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const q = req.queryControlPlane || db.query.bind(db);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const search = req.query.search ? String(req.query.search).trim().toLowerCase() : '';
+
+    let sql = 'SELECT * FROM audit_log WHERE 1=1';
+    let params = [];
+
+    if (req.tenantId && req.tenantId !== 'default' && req.tenantId !== 'aggregator') {
+      params.push(req.tenantId);
+      sql += ` AND (tenant_id = $${params.length} OR tenant_id = '' OR tenant_id IS NULL)`;
+    }
+
+    if (search) {
+      params.push(`%${search}%`);
+      sql += ` AND (LOWER(username) LIKE $${params.length} OR LOWER(action) LIKE $${params.length} OR LOWER(detail) LIKE $${params.length} OR ip_address LIKE $${params.length})`;
+    }
+
+    sql += ` ORDER BY created_at DESC LIMIT ${limit}`;
+
+    let logs = [];
+    try {
+      const r = await q(sql, params);
+      logs = r.rows || [];
+    } catch (_) {
+      logs = [];
+    }
+
+    return res.status(200).json({
+      success: true,
+      count: logs.length,
+      logs
+    });
+  } catch (error) {
+    console.error('[Users] Failed to get session audit logs:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
 module.exports = {
   getUsers,
   getAssignableUsers,
@@ -364,6 +631,11 @@ module.exports = {
   generateMfa,
   verifyMfa,
   getSessionSettings,
-  updateSessionSettings
+  updateSessionSettings,
+  getActiveSessions,
+  terminateSession,
+  terminateAllOtherSessions,
+  getSessionAuditLogs
 };
+
 

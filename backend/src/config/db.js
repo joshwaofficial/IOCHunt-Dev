@@ -310,6 +310,25 @@ function getTableSchemaSQL() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id BIGSERIAL PRIMARY KEY,
+      tenant_id VARCHAR(64) DEFAULT '',
+      user_id INTEGER,
+      username VARCHAR(255) NOT NULL,
+      action VARCHAR(100) NOT NULL,
+      resource VARCHAR(100) DEFAULT 'sessions',
+      detail TEXT DEFAULT '',
+      ip_address VARCHAR(45) DEFAULT '',
+      user_agent TEXT DEFAULT '',
+      result VARCHAR(50) DEFAULT 'SUCCESS',
+      created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_audit_log_tenant_created ON audit_log (tenant_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_username ON audit_log (username);
+    CREATE INDEX IF NOT EXISTS idx_sessions_tenant_expires ON sessions (tenant_id, expires_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id);
+
     INSERT INTO smtp_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
     INSERT INTO settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
   `;
@@ -362,6 +381,23 @@ const initDB = async (retries = 10, delay = 3000) => {
           CREATE INDEX IF NOT EXISTS idx_events_severity ON events (severity);
           CREATE INDEX IF NOT EXISTS idx_events_aggregator ON events (aggregator_name);
           CREATE INDEX IF NOT EXISTS idx_events_category ON events (category);
+          CREATE TABLE IF NOT EXISTS audit_log (
+            id BIGSERIAL PRIMARY KEY,
+            tenant_id VARCHAR(64) DEFAULT '',
+            user_id INTEGER,
+            username VARCHAR(255) NOT NULL,
+            action VARCHAR(100) NOT NULL,
+            resource VARCHAR(100) DEFAULT 'sessions',
+            detail TEXT DEFAULT '',
+            ip_address VARCHAR(45) DEFAULT '',
+            user_agent TEXT DEFAULT '',
+            result VARCHAR(50) DEFAULT 'SUCCESS',
+            created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())
+          );
+          CREATE INDEX IF NOT EXISTS idx_audit_log_tenant_created ON audit_log (tenant_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_audit_log_username ON audit_log (username);
+          CREATE INDEX IF NOT EXISTS idx_sessions_tenant_expires ON sessions (tenant_id, expires_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id);
         `);
 
         try {
