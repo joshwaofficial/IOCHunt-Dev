@@ -456,11 +456,13 @@ async function login(req, res) {
         await db.query('DELETE FROM sessions WHERE user_id = $1 AND tenant_id = $2', [user.id, tenantId]);
         
         // Push real-time event to terminate the old session immediately
-        sseBroadcaster.broadcast('session_revoked', {
-          user_id: user.id,
-          tenant_id: tenantId,
-          reason: 'concurrent_takeover'
-        });
+        try {
+          sseBroadcaster.broadcast('session_revoked', {
+            user_id: user.id,
+            tenant_id: tenantId,
+            reason: 'concurrent_takeover'
+          });
+        } catch (_) {}
 
         // Email notification
         if (user.email) {
@@ -473,14 +475,16 @@ async function login(req, res) {
           }).catch(() => {});
         }
 
-        logSecurityEvent({
-          event: EVENTS.AUTH_SESSION_TAKEOVER,
-          severity: SEVERITY.WARN,
-          ip: clientIp,
-          user: user.username,
-          tenant: tenantId,
-          detail: { message: 'Terminated previous session due to new login takeover' }
-        });
+        try {
+          logSecurityEvent({
+            event: EVENTS.AUTH_SESSION_TAKEOVER,
+            severity: SEVERITY.WARN,
+            ip: clientIp,
+            user: user.username,
+            tenant: tenantId,
+            detail: { message: 'Terminated previous session due to new login takeover' }
+          });
+        } catch (_) {}
       }
 
       // Resolve effective session duration & idle timeout
@@ -501,7 +505,9 @@ async function login(req, res) {
       });
 
       // Clear any prior idle signout flag upon new successful login
-      await (queryTenant || db.query)('UPDATE users SET last_idle_signout = NULL WHERE id = $1', [user.id]).catch(() => {});
+      try {
+        await tenantPool.query('UPDATE users SET last_idle_signout = NULL WHERE id = $1', [user.id]);
+      } catch (_) {}
 
       logSecurityEvent({
         event: EVENTS.AUTH_LOGIN_SUCCESS,
@@ -593,11 +599,13 @@ async function login(req, res) {
         [user.id, targetTenant]
       );
 
-      sseBroadcaster.broadcast('session_revoked', {
-        user_id: user.id,
-        tenant_id: targetTenant,
-        reason: 'concurrent_takeover'
-      });
+      try {
+        sseBroadcaster.broadcast('session_revoked', {
+          user_id: user.id,
+          tenant_id: targetTenant,
+          reason: 'concurrent_takeover'
+        });
+      } catch (_) {}
 
       if (user.email) {
         sendSecurityAlertEmail({
@@ -609,14 +617,16 @@ async function login(req, res) {
         }).catch(() => {});
       }
 
-      logSecurityEvent({
-        event: EVENTS.AUTH_SESSION_TAKEOVER,
-        severity: SEVERITY.WARN,
-        ip: clientIp,
-        user: user.username,
-        tenant: targetTenant,
-        detail: { message: 'Terminated previous session due to new login takeover' }
-      });
+      try {
+        logSecurityEvent({
+          event: EVENTS.AUTH_SESSION_TAKEOVER,
+          severity: SEVERITY.WARN,
+          ip: clientIp,
+          user: user.username,
+          tenant: targetTenant,
+          detail: { message: 'Terminated previous session due to new login takeover' }
+        });
+      } catch (_) {}
     }
 
     // Generate authenticated single session
@@ -650,7 +660,9 @@ async function login(req, res) {
     }
 
     // Clear any prior idle signout flag upon new successful login
-    await (req.queryTenant || db.query)('UPDATE users SET last_idle_signout = NULL WHERE id = $1', [user.id]).catch(() => {});
+    try {
+      await db.query('UPDATE users SET last_idle_signout = NULL WHERE id = $1', [user.id]);
+    } catch (_) {}
 
     logSecurityEvent({
       event: EVENTS.AUTH_LOGIN_SUCCESS,
@@ -862,6 +874,11 @@ async function mfaVerify(req, res) {
       maxAge: durationHours * 3600 * 1000
     });
 
+    // Clear any prior idle signout flag upon new successful login
+    try {
+      await queryFn('UPDATE users SET last_idle_signout = NULL WHERE id = $1', [user.id]);
+    } catch (_) {}
+
     logSecurityEvent({
       event: EVENTS.AUTH_MFA_SUCCESS,
       severity: SEVERITY.INFO,
@@ -907,7 +924,7 @@ async function logout(req, res) {
         if (isIdle) {
           await q('UPDATE users SET last_idle_signout = $1 WHERE id = $2', [Math.floor(Date.now() / 1000), req.session.user_id]);
         } else {
-          await q('UPDATE users SET last_idle_signout = NULL WHERE id = $2', [req.session.user_id]);
+          await q('UPDATE users SET last_idle_signout = NULL WHERE id = $1', [req.session.user_id]);
         }
       } catch (_) {}
     }

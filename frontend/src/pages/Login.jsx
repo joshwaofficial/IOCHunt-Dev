@@ -647,10 +647,25 @@ export default function Login() {
                 fontSize: '12px',
                 color: '#f87171',
                 lineHeight: 1.4,
-                marginBottom: '22px'
+                marginBottom: error ? '12px' : '22px'
               }}>
                 <strong>Warning:</strong> Logging in here will terminate that active session immediately and notify the account owner.
               </div>
+
+              {error && (
+                <div style={{
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  borderRadius: '8px',
+                  padding: '10px 14px',
+                  fontSize: '12px',
+                  color: '#fca5a5',
+                  lineHeight: 1.4,
+                  marginBottom: '22px'
+                }}>
+                  {error}
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
