@@ -17,6 +17,8 @@ const {
   TOTP_REGEX
 } = require('../utils/inputValidator');
 const { purgeIdleSessions } = require('../services/sessionReaper');
+const sseBroadcaster = require('../services/sseBroadcaster');
+const { logSecurityEvent, EVENTS, SEVERITY } = require('../utils/securityLogger');
 
 async function getUsers(req, res) {
   try {
@@ -206,12 +208,46 @@ async function updateUser(req, res) {
       customIdleMins: custom_idle_mins !== undefined ? (custom_idle_mins !== null && custom_idle_mins !== '' ? Math.max(0, Number(custom_idle_mins)) : null) : existing.custom_idle_mins
     }, req.queryTenant);
 
+    const isRoleChanged = role && upperRole !== existing.role;
+    if (isRoleChanged) {
+      // Invalidate all active sessions for this user so they must re-authenticate with new privileges
+      await req.queryControlPlane('DELETE FROM sessions WHERE user_id = $1 AND tenant_id = $2', [id, req.tenantId]);
+      try {
+        sseBroadcaster.broadcast('session_revoked', {
+          user_id: parseInt(id, 10),
+          tenant_id: req.tenantId,
+          reason: 'privilege_change'
+        });
+      } catch (_) {}
+
+      logSecurityEvent({
+        event: 'AUTH_PRIVILEGE_CHANGED',
+        severity: SEVERITY.WARN,
+        ip: (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown',
+        user: targetUsername,
+        tenant: req.tenantId || 'default',
+        detail: {
+          previousRole: existing.role,
+          newRole: upperRole,
+          modifiedBy: req.session.username,
+          message: 'Active sessions revoked due to privilege/role change'
+        }
+      });
+    }
+
     if (targetUsername !== existing.username) {
       await req.queryControlPlane('UPDATE sessions SET username = $1 WHERE user_id = $2 AND tenant_id = $3', [targetUsername, id, req.tenantId]);
     }
 
     if (password) {
       await req.queryControlPlane('DELETE FROM sessions WHERE user_id = $1 AND tenant_id = $2', [id, req.tenantId]);
+      try {
+        sseBroadcaster.broadcast('session_revoked', {
+          user_id: parseInt(id, 10),
+          tenant_id: req.tenantId,
+          reason: 'password_reset'
+        });
+      } catch (_) {}
     } else if (custom_idle_mins !== undefined || session_policy !== undefined) {
       let effectiveIdle = 0;
       if (session_policy === 'custom' || (!session_policy && existing.session_policy === 'custom')) {
@@ -247,6 +283,13 @@ async function deleteUser(req, res) {
     }
     await User.deleteUser(id, req.queryTenant);
     await req.queryControlPlane('DELETE FROM sessions WHERE user_id = $1 AND tenant_id = $2', [id, req.tenantId]);
+    try {
+      sseBroadcaster.broadcast('session_revoked', {
+        user_id: parseInt(id, 10),
+        tenant_id: req.tenantId,
+        reason: 'user_deleted'
+      });
+    } catch (_) {}
     return res.status(200).json({ success: true, message: 'User deleted successfully' });
   } catch (error) {
     return res.status(500).json({ error: 'Internal server error' });
@@ -495,6 +538,13 @@ async function terminateSession(req, res) {
 
     // Delete session immediately
     await q('DELETE FROM sessions WHERE token = $1', [targetToken]);
+    try {
+      sseBroadcaster.broadcast('session_revoked', {
+        user_id: targetSession.user_id,
+        tenant_id: targetSession.tenant_id,
+        reason: 'admin_terminated'
+      });
+    } catch (_) {}
 
     // Record in audit log
     try {

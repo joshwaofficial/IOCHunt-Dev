@@ -5,7 +5,7 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
-const { requireSession } = require('../middlewares/authMiddleware');
+const { requireSession, optionalSession } = require('../middlewares/authMiddleware');
 const rateLimit = require('express-rate-limit');
 
 function formatRemainingTime(ms) {
@@ -94,7 +94,7 @@ router.post('/setup-branch', loginLimiter, authController.setupBranchNode);
 router.post('/mfa/verify', mfaLimiter, authController.mfaVerify);
 
 // Protected authentication routes
-router.post('/logout', requireSession, authController.logout);
+router.post('/logout', optionalSession, authController.logout);
 router.get('/me', requireSession, authController.me);
 router.post('/keep-alive', requireSession, authController.keepAlive);
 router.post('/change-password', requireSession, changePasswordLimiter, authController.changePassword);

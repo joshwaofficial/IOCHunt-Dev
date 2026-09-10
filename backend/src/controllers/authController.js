@@ -12,6 +12,7 @@ const appMode = require('../config/appMode');
 const sseBroadcaster = require('../services/sseBroadcaster');
 const { sendSecurityAlertEmail } = require('../utils/emailHelper');
 const { logSecurityEvent, EVENTS, SEVERITY } = require('../utils/securityLogger');
+const { getSessionCookieOptions, getClearCookieOptions } = require('../utils/cookieHelper');
 
 /**
  * Validates password complexity
@@ -496,13 +497,9 @@ async function login(req, res) {
       await tenantPool.query('UPDATE users SET last_login = $1 WHERE id = $2', [now, user.id]);
 
       // Set secure session cookie with dynamic policy lifetime
-      res.cookie('iochunt_session', token, {
-        httpOnly: true,
-        secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
-        sameSite: 'lax',
-        path: '/',
+      res.cookie('iochunt_session', token, getSessionCookieOptions(req, {
         maxAge: durationHours * 3600 * 1000
-      });
+      }));
 
       // Clear any prior idle signout flag upon new successful login
       try {
@@ -636,13 +633,9 @@ async function login(req, res) {
     await User.updateLastLogin(user.id);
 
     // Set secure session cookie with dynamic policy lifetime
-    res.cookie('iochunt_session', token, {
-      httpOnly: true,
-      secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
-      sameSite: 'lax',
-      path: '/',
+    res.cookie('iochunt_session', token, getSessionCookieOptions(req, {
       maxAge: durationHours * 3600 * 1000
-    });
+    }));
 
     // If logging in as Central Super Admin, ensure instance_mode is central_server
     if (user.role === 'ADMIN' && !user.aggregator_name) {
@@ -751,7 +744,7 @@ async function changePassword(req, res) {
     await User.deleteSessionsByUserId(user.id, req.tenantId);
 
     // Clear session cookie so existing token cannot be reused
-    res.clearCookie('iochunt_session', { path: '/' });
+    res.clearCookie('iochunt_session', getClearCookieOptions(req));
 
     logSecurityEvent({
       event: EVENTS.AUTH_PASSWORD_CHANGED,
@@ -866,13 +859,9 @@ async function mfaVerify(req, res) {
     const token = await User.createSession(user.id, user.username, user.role, targetTenant, clientIp, userAgent, isForcedChange ? 1 : 0, durationHours, idleMins);
     await User.updateLastLogin(user.id, queryFn);
 
-    res.cookie('iochunt_session', token, {
-      httpOnly: true,
-      secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
-      sameSite: 'lax',
-      path: '/',
+    res.cookie('iochunt_session', token, getSessionCookieOptions(req, {
       maxAge: durationHours * 3600 * 1000
-    });
+    }));
 
     // Clear any prior idle signout flag upon new successful login
     try {
@@ -911,10 +900,10 @@ async function logout(req, res) {
   try {
     const token = req.cookies?.iochunt_session || req.headers['x-session-token'] || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7).trim() : null) || req.session?.token;
     if (token) {
-      await User.deleteSession(token);
+      await User.deleteSession(token).catch(() => {});
     }
     
-    res.clearCookie('iochunt_session', { path: '/' });
+    res.clearCookie('iochunt_session', getClearCookieOptions(req));
 
     const isIdle = req.query?.reason === 'inactivity_timeout' || req.body?.reason === 'inactivity_timeout';
     
@@ -941,7 +930,10 @@ async function logout(req, res) {
     return res.status(200).json({ message: 'Logout successful' });
   } catch (error) {
     console.error('[Auth Error] Logout failed:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    try {
+      res.clearCookie('iochunt_session', getClearCookieOptions(req));
+    } catch (_) {}
+    return res.status(200).json({ message: 'Logout successful' });
   }
 }
 
@@ -1084,14 +1076,10 @@ async function setupBranchNode(req, res) {
     const token = await User.createSession(localUser.id, localUser.username, localUser.role);
     await User.updateLastLogin(localUser.id);
 
-    // Set secure session cookie (7 days)
-    res.cookie('iochunt_session', token, {
-      httpOnly: true,
-      secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 7 * 24 * 3600 * 1000
-    });
+    // Set secure session cookie (8 hours default)
+    res.cookie('iochunt_session', token, getSessionCookieOptions(req, {
+      maxAge: 8 * 3600 * 1000
+    }));
 
     return res.status(200).json({
       message: `Branch Node successfully connected to Central Server as '${aggregator_name}'`,

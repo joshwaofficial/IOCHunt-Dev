@@ -9,6 +9,7 @@ const cryptoHelper = require('../utils/cryptoHelper');
 const User = require('../models/User');
 const axios = require('axios');
 const https = require('https');
+const { getSessionCookieOptions } = require('../utils/cookieHelper');
 
 /**
  * Returns current instance setup status and metadata dynamically from DB
@@ -141,18 +142,15 @@ async function completeSetup(req, res) {
           setup_complete = TRUE
       `, [safeInstanceName]);
 
-      // Create session
+      // Rotate session: invalidate prior sessions and create fresh session
+      await User.deleteSessionsByUserId(adminUser.id);
       const token = await User.createSession(adminUser.id, adminUser.username, adminUser.role);
       await User.updateLastLogin(adminUser.id);
 
-      // Set cookie
-      res.cookie('iochunt_session', token, {
-        httpOnly: true,
-        secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 7 * 24 * 3600 * 1000
-      });
+      // Set secure session cookie (8 hours default)
+      res.cookie('iochunt_session', token, getSessionCookieOptions(req, {
+        maxAge: 8 * 3600 * 1000
+      }));
 
       setConfig({
         mode: MODES.CENTRAL,
@@ -264,18 +262,15 @@ async function completeSetup(req, res) {
           updated_at = CURRENT_TIMESTAMP
       `, [normalizedCentralUrl, api_key || '', aggregator_name]);
 
-      // 5. Create local session
+      // 5. Rotate session: invalidate prior sessions and create fresh local session
+      await User.deleteSessionsByUserId(localUser.id);
       const token = await User.createSession(localUser.id, localUser.username, localUser.role);
       await User.updateLastLogin(localUser.id);
 
-      // Set session cookie
-      res.cookie('iochunt_session', token, {
-        httpOnly: true,
-        secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 7 * 24 * 3600 * 1000
-      });
+      // Set secure session cookie (8 hours default)
+      res.cookie('iochunt_session', token, getSessionCookieOptions(req, {
+        maxAge: 8 * 3600 * 1000
+      }));
 
       setConfig({
         mode: MODES.AGGREGATOR,

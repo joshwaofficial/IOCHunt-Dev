@@ -154,6 +154,26 @@ async function requireSession(req, res, next) {
 }
 
 /**
+ * Permissive session extractor middleware.
+ * Attaches req.session and req.tenantId if a valid session exists, but never
+ * rejects the request with 401. Ideal for logout routes where cleanup should
+ * proceed regardless of session validity.
+ */
+async function optionalSession(req, res, next) {
+  try {
+    const token = parseSessionCookie(req) || req.cookies?.iochunt_session;
+    if (token) {
+      const session = await getSession(token);
+      if (session) {
+        req.session = session;
+        req.tenantId = session.tenant_id || null;
+      }
+    }
+  } catch (_) {}
+  next();
+}
+
+/**
  * Express middleware to validate API key for agent log ingestion and aggregator syncing.
  * Queries the control plane `tenants` table to map the API key to a specific tenant database.
  */
@@ -299,6 +319,7 @@ module.exports = {
   parseSessionCookie,
   getSession,
   requireSession,
+  optionalSession,
   requireAdmin,
   requireAnalyst,
   requireKey,

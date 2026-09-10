@@ -327,7 +327,7 @@ async function superAuthMiddleware(req, res, next) {
   const lastAct = Number(req.superAdmin.last_activity_at) || 0;
   if (lastAct > 0 && (now - lastAct) > (idleTimeoutMins * 60)) {
     await pool.query('DELETE FROM super_sessions WHERE token = $1', [token]).catch(() => {});
-    res.clearCookie('super_session');
+    res.clearCookie('super_session', { path: '/', httpOnly: true, secure: true, sameSite: 'strict' });
     return res.status(401).json({ error: 'Session expired due to inactivity' });
   }
 
@@ -622,6 +622,9 @@ app.post('/api/super/login', superLoginLimiter, async (req, res) => {
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = now + (sessionTimeoutMins * 60);
 
+    // Terminate previous sessions for this super admin upon new login (token rotation)
+    await pool.query('DELETE FROM super_sessions WHERE admin_id = $1', [admin.id]);
+
     await pool.query(
       'INSERT INTO super_sessions (token, admin_id, ip_address, user_agent, expires_at, last_activity_at) VALUES ($1, $2, $3, $4, $5, $6)',
       [token, admin.id, clientIp, userAgent, expiresAt, now]
@@ -636,6 +639,7 @@ app.post('/api/super/login', superLoginLimiter, async (req, res) => {
       httpOnly: true,
       secure: true,
       sameSite: 'strict',
+      path: '/',
       maxAge: sessionTimeoutMins * 60 * 1000
     });
     return res.json({
@@ -657,17 +661,20 @@ app.get('/api/super/session-check', superAuthMiddleware, (req, res) => {
   });
 });
 
-app.post('/api/super/logout', superAuthMiddleware, async (req, res) => {
+app.post('/api/super/logout', async (req, res) => {
   try {
     const token = req.cookies?.super_session || req.headers['authorization']?.replace('Bearer ', '');
     if (token) {
-      await pool.query('DELETE FROM super_sessions WHERE token = $1', [token]);
+      await pool.query('DELETE FROM super_sessions WHERE token = $1', [token]).catch(() => {});
     }
-    res.clearCookie('super_session');
-    res.json({ success: true });
+    res.clearCookie('super_session', { path: '/', httpOnly: true, secure: true, sameSite: 'strict' });
+    res.json({ success: true, message: 'Logged out successfully' });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    try {
+      res.clearCookie('super_session', { path: '/', httpOnly: true, secure: true, sameSite: 'strict' });
+    } catch (_) {}
+    res.json({ success: true, message: 'Logged out' });
   }
 });
 
@@ -720,7 +727,7 @@ app.post('/api/super/change-password', superAuthMiddleware, superPasswordLimiter
 
     // Invalidate all active sessions for this super admin
     await pool.query('DELETE FROM super_sessions WHERE admin_id = $1', [admin.id]);
-    res.clearCookie('super_session', { httpOnly: true, secure: true, sameSite: 'strict' });
+    res.clearCookie('super_session', { path: '/', httpOnly: true, secure: true, sameSite: 'strict' });
 
     await pool.query(
       `INSERT INTO audit_log (username, action, resource, detail, ip_address, result)

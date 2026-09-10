@@ -45,7 +45,6 @@ export default function SetupPassword() {
         new_password: newPassword,
         confirm_password: confirmPassword
       });
-      document.cookie = "super_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
       navigate('/login');
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to update permanent master password');
@@ -58,7 +57,6 @@ export default function SetupPassword() {
     try {
       await axios.post('/api/super/logout');
     } catch (_) {}
-    document.cookie = "super_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
     navigate('/login');
   };
 

@@ -100,7 +100,6 @@ export default function Settings() {
       showAlert('success', res.data?.message || 'Master password updated! Active sessions terminated. Redirecting to login...');
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
       setTimeout(() => {
-        document.cookie = "super_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
         navigate('/login');
       }, 1500);
     } catch (err) {

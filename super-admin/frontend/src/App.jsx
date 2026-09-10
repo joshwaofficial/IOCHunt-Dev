@@ -25,7 +25,6 @@ function Sidebar({ tenantCount }) {
 
   const handleLogout = async () => {
     try { await axios.post('/api/super/logout'); } catch (e) {}
-    document.cookie = "super_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
     navigate('/login');
   };
 
@@ -241,7 +240,6 @@ function ProtectedRoute({ children }) {
           sse = new EventSource('/api/super/stream', { withCredentials: true });
           sse.addEventListener('session_revoked', () => {
             if (sse) sse.close();
-            document.cookie = "super_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
             setSessionState({ isAuthenticated: false, forcePasswordChange: false });
             window.location.href = '/login?reason=session_terminated';
           });
@@ -261,7 +259,6 @@ function ProtectedRoute({ children }) {
       }).catch((err) => {
         if (err.response?.status === 401) {
           if (sse) sse.close();
-          document.cookie = "super_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
           setSessionState({ isAuthenticated: false, forcePasswordChange: false });
           navigate('/login?reason=session_terminated');
         }

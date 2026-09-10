@@ -6,7 +6,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "db:reset": "node ../scripts/clear_all_databases.js",
-    "test": "node ../scripts/test_input_security.js && node ../scripts/test_cors_security_headers.js"
+    "test": "node ../scripts/test_input_security.js && node ../scripts/test_cors_security_headers.js && node ../scripts/test_session_cookie_security.js"
   },
   "keywords": [],
   "author": "",
