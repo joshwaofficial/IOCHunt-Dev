@@ -6,7 +6,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "db:reset": "node ../scripts/clear_all_databases.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node ../scripts/test_input_security.js && node ../scripts/test_cors_security_headers.js"
   },
   "keywords": [],
   "author": "",

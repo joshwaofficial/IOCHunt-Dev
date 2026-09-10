@@ -36,10 +36,16 @@ function validateSecurityConfig() {
     warnings.push(`POSTGRES_PASSWORD is set to a common default ("${dbPassword}"). Update with a strong random secret.`);
   }
 
-  // 4. CORS Wildcard in Production
-  const frontendUrl = process.env.CENTRAL_FRONTEND_URL || process.env.FRONTEND_URL;
-  if (isProduction && (!frontendUrl || frontendUrl === '*')) {
-    warnings.push('CORS allows wildcard origins in production. Set FRONTEND_URL to your specific domain.');
+  // 4. CORS Origins Audit
+  const frontendUrl = process.env.CENTRAL_FRONTEND_URL || process.env.FRONTEND_URL || process.env.ALLOWED_ORIGINS;
+  if (isProduction) {
+    if (!frontendUrl) {
+      warnings.push('FRONTEND_URL is not configured in production. Cross-origin requests with credentials will be blocked.');
+    } else if (frontendUrl.includes('*')) {
+      warnings.push('CORS configuration specifies wildcard (*) which is strictly rejected when credentials are enabled. Set FRONTEND_URL to your exact domain (e.g. https://iochunt.yourdomain.com).');
+    }
+  } else if (frontendUrl && frontendUrl.includes('*')) {
+    warnings.push('CORS configuration specifies wildcard (*). Wildcards cannot be used when credentials are enabled.');
   }
 
   // Output all warnings cleanly

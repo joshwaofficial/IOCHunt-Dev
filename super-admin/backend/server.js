@@ -94,13 +94,68 @@ app.use((req, res, next) => {
   res.removeHeader('X-Powered-By');
   res.removeHeader('Server');
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), display-capture=(), screen-wake-lock=()');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self';"
+  );
+  if (process.env.NODE_ENV === 'production' || req.secure || req.headers['x-forwarded-proto'] === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  }
   next();
 });
 
-app.use(cors({ origin: true, credentials: true }));
+// Strict CORS Configuration (Trusted Domains Only — No Wildcards)
+const superAdminTrustedOrigins = new Set();
+const rawSuperOrigins = [
+  process.env.SUPER_ADMIN_FRONTEND_URL,
+  process.env.FRONTEND_URL,
+  process.env.ALLOWED_ORIGINS
+];
+
+rawSuperOrigins.forEach(src => {
+  if (!src) return;
+  src.split(',').forEach(p => {
+    const trimmed = p.trim().replace(/\/+$/, '').toLowerCase();
+    if (trimmed && trimmed !== '*') {
+      superAdminTrustedOrigins.add(trimmed);
+    }
+  });
+});
+
+if (process.env.NODE_ENV !== 'production') {
+  [
+    'http://localhost:8083',
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:4000',
+    'http://localhost:4001',
+    'http://localhost:4002',
+    'http://127.0.0.1:8083',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:4002'
+  ].forEach(o => superAdminTrustedOrigins.add(o));
+}
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    const norm = origin.trim().replace(/\/+$/, '').toLowerCase();
+    if (superAdminTrustedOrigins.has(norm)) {
+      return callback(null, true);
+    }
+    console.warn(`[Super-Admin CORS Blocked] Untrusted origin: ${origin}`);
+    return callback(null, false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Content-Length', 'Content-Type'],
+  maxAge: 86400,
+  optionsSuccessStatus: 204
+}));
 app.use(express.json());
 app.use(cookieParser());
 app.use(superSanitizationMiddleware);

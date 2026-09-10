@@ -9,13 +9,13 @@
 // ════════════════════════════════════════════════════════════════
 
 const express = require('express');
-const helmet = require('helmet');
 const hpp = require('hpp');
 const cookieParser = require('cookie-parser');
-const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
+const { createSecurityHeadersMiddleware } = require('./middlewares/securityHeaders');
+const { createCorsMiddleware } = require('./middlewares/corsConfig');
 require('dotenv').config();
 
 // ── Security Configuration Validation (Non-blocking startup audit) ──
@@ -68,28 +68,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// Security & Header Sanitization Middleware
-app.use((req, res, next) => {
-  res.removeHeader('X-Powered-By');
-  res.removeHeader('Server');
-  next();
-});
+// ── Security Headers Middleware (CSP, nosniff, DENY, HSTS, Referrer, Permissions) ──
+app.use(createSecurityHeadersMiddleware());
 
-// ── CORS Configuration ─────────────────────────────────────────
-const frontendUrl = process.env.CENTRAL_FRONTEND_URL || process.env.FRONTEND_URL || '*';
-app.use(cors({
-  origin: frontendUrl === '*' ? true : [frontendUrl, 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:9090', 'http://localhost:4000', 'http://localhost:4001', 'http://localhost:80'],
-  credentials: true
-}));
-
-app.use(helmet({
-  contentSecurityPolicy: false, // Allows inline assets for frontend dashboard
-  hidePoweredBy: true,
-  hsts: {
-    maxAge: 31536000,
-    includeSubDomains: true
-  }
-}));
+// ── Secure CORS Configuration (Restricted Trusted Origins, No Wildcards) ──
+app.use(createCorsMiddleware());
 app.use(hpp());
 app.use(cookieParser());
 app.use(sanitizationMiddleware);
