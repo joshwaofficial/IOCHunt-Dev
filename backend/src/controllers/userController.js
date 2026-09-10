@@ -354,28 +354,6 @@ async function updateSessionSettings(req, res) {
   }
 }
 
-function parseUserAgent(ua) {
-  if (!ua || typeof ua !== 'string') return { browser: 'Unknown', os: 'Unknown', device: 'Desktop' };
-  
-  let browser = 'Browser';
-  if (ua.includes('Edg/')) browser = 'Edge';
-  else if (ua.includes('Chrome/')) browser = 'Chrome';
-  else if (ua.includes('Firefox/')) browser = 'Firefox';
-  else if (ua.includes('Safari/') && !ua.includes('Chrome')) browser = 'Safari';
-  else if (ua.includes('OPR/') || ua.includes('Opera/')) browser = 'Opera';
-
-  let os = 'Unknown OS';
-  if (ua.includes('Windows NT 10.0')) os = 'Windows 10/11';
-  else if (ua.includes('Windows')) os = 'Windows';
-  else if (ua.includes('Mac OS X')) os = 'macOS';
-  else if (ua.includes('Android')) os = 'Android';
-  else if (ua.includes('iPhone') || ua.includes('iPad')) os = 'iOS';
-  else if (ua.includes('Linux')) os = 'Linux';
-
-  const isMobile = ua.includes('Mobile') || ua.includes('Android') || ua.includes('iPhone') || ua.includes('iPad');
-  return { browser, os, device: isMobile ? 'Mobile' : 'Desktop' };
-}
-
 async function getActiveSessions(req, res) {
   try {
     if (!req.session || !req.session.user_id) return res.status(401).json({ error: 'Unauthenticated' });
@@ -425,7 +403,6 @@ async function getActiveSessions(req, res) {
       else idleCount++;
 
       const expiresInSec = Math.max(0, Number(s.expires_at) - now);
-      const device = parseUserAgent(s.user_agent);
       const uInfo = userMap[s.username] || {};
 
       return {
@@ -438,10 +415,6 @@ async function getActiveSessions(req, res) {
         display_name: s.display_name || s.username,
         tenant_id: s.tenant_id || 'default',
         ip_address: s.ip_address || '127.0.0.1',
-        user_agent: s.user_agent || '',
-        browser: device.browser,
-        os: device.os,
-        device_type: device.device,
         is_online: isOnline,
         is_idle: isIdle,
         idle_seconds: idleSec,

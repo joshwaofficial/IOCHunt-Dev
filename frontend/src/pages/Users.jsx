@@ -448,9 +448,7 @@ export default function Users() {
     const term = sessionSearch.toLowerCase();
     return (
       s.username.toLowerCase().includes(term) ||
-      s.ip_address.toLowerCase().includes(term) ||
-      s.browser.toLowerCase().includes(term) ||
-      s.os.toLowerCase().includes(term)
+      (s.role || '').toLowerCase().includes(term)
     );
   });
 
@@ -1243,7 +1241,7 @@ export default function Users() {
                 className="tb-search"
                 value={sessionSearch}
                 onChange={(e) => setSessionSearch(e.target.value)}
-                placeholder="Search by user, IP address, OS, browser..." 
+                placeholder="Search active sessions by user, role..." 
                 style={{ width: '100%' }}
               />
             </div>
@@ -1340,7 +1338,6 @@ export default function Users() {
                     <tr style={{ borderBottom: '1px solid var(--border)', background: 'linear-gradient(90deg, rgba(37,99,235,0.06) 0%, rgba(37,99,235,0) 100%)' }}>
                       <th style={{ padding: '10px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'var(--mono)' }}>User & Account</th>
                       <th style={{ padding: '10px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'var(--mono)' }}>Activity Status</th>
-                      <th style={{ padding: '10px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'var(--mono)' }}>Device & Location</th>
                       <th style={{ padding: '10px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'var(--mono)' }}>Started At</th>
                       <th style={{ padding: '10px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'var(--mono)' }}>Expires In</th>
                       <th style={{ padding: '10px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'var(--mono)', textAlign: 'right' }}>Actions</th>
@@ -1392,21 +1389,7 @@ export default function Users() {
                           )}
                         </td>
 
-                        <td style={{ padding: '12px 16px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)' }}>
-                              {s.device_type === 'Mobile' ? 'smartphone' : 'laptop_mac'}
-                            </span>
-                            <div>
-                              <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: '12px' }}>
-                                {s.browser} on {s.os}
-                              </div>
-                              <div style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-                                IP: {s.ip_address}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
+
 
                         <td style={{ padding: '12px 16px', fontSize: '12px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
                           {formatLocalTime(s.created_at)}
