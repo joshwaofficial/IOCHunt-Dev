@@ -24,6 +24,7 @@ export default function Login() {
   const serverMode = instanceInfo?.mode || 'central_server';
 
   useEffect(() => {
+    const params = new URLSearchParams(location.search);
     const reason = params.get('reason');
     if (reason === 'session_terminated' || reason === 'concurrent_takeover') {
       setTerminatedNotice('You were logged out because this account was accessed from another device.');
