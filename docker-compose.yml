@@ -57,7 +57,7 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855}
       API_KEY: ${API_KEY:-iochunt-change-me}
       REDIS_URL: ${REDIS_URL:-redis://iochunt-redis-${TENANT_ID:-default}:6379}
-      FRONTEND_URL: ${FRONTEND_URL:-*}
+      FRONTEND_URL: ${FRONTEND_URL:-}
       DISPLAY_TZ: ${DISPLAY_TZ:-Asia/Kolkata}
       APP_VERSION: ${APP_VERSION:-2.0.0}
       SMTP_HOST: ${SMTP_HOST:-}
