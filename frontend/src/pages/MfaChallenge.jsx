@@ -61,8 +61,7 @@ export default function MfaChallenge() {
 
       const { user } = response.data;
       if (user) localStorage.setItem('iochunt_user', JSON.stringify(user));
-      setUser(user);
-      navigate('/dashboard', { replace: true });
+      window.location.href = '/dashboard';
     } catch (err) {
       if (err.response?.status === 429 && err.response?.data?.retryAfter) {
         setRetryAfterSeconds(err.response.data.retryAfter);

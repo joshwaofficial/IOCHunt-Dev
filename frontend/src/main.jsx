@@ -26,6 +26,40 @@ axios.interceptors.response.use((response) => response, (error) => {
   return Promise.reject(error);
 });
 
+// Auto-recover from stale chunks after a new frontend deployment
+function handleChunkLoadError(event) {
+  const error = event?.reason || event?.error || event;
+  const message = error?.message || String(error || '');
+  if (
+    message.includes('Failed to fetch dynamically imported module') ||
+    message.includes('error loading dynamically imported module') ||
+    message.includes('Importing a module script failed') ||
+    message.includes('error loading chunk')
+  ) {
+    if (event?.preventDefault) event.preventDefault();
+    const last = sessionStorage.getItem('chunk_reload_retry');
+    const now = Date.now();
+    if (!last || now - parseInt(last, 10) > 15000) {
+      sessionStorage.setItem('chunk_reload_retry', String(now));
+      console.warn('[Vite] Dynamic chunk 404 detected after deployment. Auto-refreshing to latest build...');
+      window.location.reload();
+    }
+  }
+}
+
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault();
+  const last = sessionStorage.getItem('chunk_reload_retry');
+  const now = Date.now();
+  if (!last || now - parseInt(last, 10) > 15000) {
+    sessionStorage.setItem('chunk_reload_retry', String(now));
+    window.location.reload();
+  }
+});
+
+window.addEventListener('error', handleChunkLoadError);
+window.addEventListener('unhandledrejection', handleChunkLoadError);
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <App />

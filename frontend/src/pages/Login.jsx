@@ -87,7 +87,7 @@ export default function Login() {
       } else {
         await refreshInstanceInfo();
         const from = location.state?.from?.pathname || '/dashboard';
-        navigate(from, { replace: true });
+        window.location.href = from;
       }
     } catch (err) {
       console.error('[Login Error]', err);

@@ -31,6 +31,7 @@ import Aggregators from './pages/Aggregators';
 import AggregatorSettings from './pages/AggregatorSettings';
 import Layout from './components/Layout';
 import IdleTimerManager from './components/IdleTimerManager';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Protected Route Wrapper with Setup Check
 const ProtectedRoute = ({ children, requiredRole }) => {
@@ -83,7 +84,8 @@ function App() {
               <IdleTimerManager />
               <Toaster position="top-right" toastOptions={{ style: { background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' } }} />
               <Router>
-                <Routes>
+                <ErrorBoundary>
+                  <Routes>
                   {/* Auth Routes */}
                   <Route path="/login" element={<Login />} />
                   <Route path="/force-password-reset" element={
@@ -137,7 +139,8 @@ function App() {
                   
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
-              </Router>
+              </ErrorBoundary>
+            </Router>
             </FilterProvider>
           </AuthProvider>
         </InstanceProvider>

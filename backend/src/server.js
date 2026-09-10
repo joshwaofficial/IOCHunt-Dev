@@ -232,6 +232,9 @@ if (process.env.SERVE_STATIC === 'true' || fs.existsSync(staticPath)) {
     // Exclude API requests and direct requests for files with extensions (like .js, .css, .png)
     if (req.method === 'GET' && !req.path.startsWith('/api') && req.accepts('html') && !req.path.match(/\.[a-z0-9]+$/i)) {
       const indexPath = path.join(staticPath, 'index.html');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
       return res.sendFile(indexPath, err => {
         if (err) next();
       });

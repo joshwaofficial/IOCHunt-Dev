@@ -3,18 +3,19 @@ import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { useFilter } from '../context/FilterContext';
 import { useThreatStore } from '../store/useThreatStore';
+import lazyRetry from '../utils/lazyRetry';
 
-// Lazy loaded widgets to reduce initial bundle size
-const ThreatSummaryCards = React.lazy(() => import('../components/dashboard/ThreatSummaryCards'));
-const EventTimeline = React.lazy(() => import('../components/dashboard/EventTimeline'));
-const SeverityChart = React.lazy(() => import('../components/dashboard/SeverityChart'));
-const EventsByCategory = React.lazy(() => import('../components/dashboard/EventsByCategory'));
-const Heatmap24h = React.lazy(() => import('../components/dashboard/Heatmap24h'));
-const LiveThreatFeed = React.lazy(() => import('../components/dashboard/LiveThreatFeed'));
-const MachineStatusTable = React.lazy(() => import('../components/dashboard/MachineStatusTable'));
-const ADAttackSummary = React.lazy(() => import('../components/dashboard/ADAttackSummary'));
-const NetworkTopology = React.lazy(() => import('../components/NetworkTopology'));
-const AllEventsModal = React.lazy(() => import('../components/dashboard/AllEventsModal'));
+// Lazy loaded widgets with auto-recovery on new deployment version mismatch
+const ThreatSummaryCards = lazyRetry(() => import('../components/dashboard/ThreatSummaryCards'));
+const EventTimeline = lazyRetry(() => import('../components/dashboard/EventTimeline'));
+const SeverityChart = lazyRetry(() => import('../components/dashboard/SeverityChart'));
+const EventsByCategory = lazyRetry(() => import('../components/dashboard/EventsByCategory'));
+const Heatmap24h = lazyRetry(() => import('../components/dashboard/Heatmap24h'));
+const LiveThreatFeed = lazyRetry(() => import('../components/dashboard/LiveThreatFeed'));
+const MachineStatusTable = lazyRetry(() => import('../components/dashboard/MachineStatusTable'));
+const ADAttackSummary = lazyRetry(() => import('../components/dashboard/ADAttackSummary'));
+const NetworkTopology = lazyRetry(() => import('../components/NetworkTopology'));
+const AllEventsModal = lazyRetry(() => import('../components/dashboard/AllEventsModal'));
 
 import NewIncidentModal from '../components/incidents/NewIncidentModal';
 
