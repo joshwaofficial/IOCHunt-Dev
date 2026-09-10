@@ -109,6 +109,15 @@ async function requireSession(req, res, next) {
     const idleSeconds = now - lastActivity;
     if (idleSeconds > idleTimeoutMins * 60) {
       await db.query('DELETE FROM sessions WHERE token = $1', [token]);
+      const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown';
+      logSecurityEvent({
+        event: 'SESSION_IDLE_TIMEOUT',
+        severity: SEVERITY.WARN,
+        ip: clientIp,
+        user: session.username,
+        tenant: session.tenant_id || req.tenantId || 'default',
+        detail: `Session automatically invalidated after ${Math.floor(idleSeconds / 60)}m inactivity (threshold: ${idleTimeoutMins}m)`
+      });
       return res.status(401).json({ error: 'Session expired due to inactivity', reason: 'inactivity_timeout' });
     }
   }

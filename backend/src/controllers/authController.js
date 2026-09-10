@@ -893,12 +893,14 @@ async function logout(req, res) {
     
     res.clearCookie('iochunt_session', { path: '/' });
 
+    const isIdle = req.query?.reason === 'inactivity_timeout' || req.body?.reason === 'inactivity_timeout';
     logSecurityEvent({
-      event: EVENTS.AUTH_LOGOUT,
+      event: isIdle ? 'SESSION_IDLE_LOGOUT' : EVENTS.AUTH_LOGOUT,
       severity: SEVERITY.INFO,
       ip: (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown',
       user: req.session?.username || null,
-      tenant: req.tenantId || req.session?.tenant_id || 'default'
+      tenant: req.tenantId || req.session?.tenant_id || 'default',
+      detail: isIdle ? 'Automatic logout due to user inactivity timeout' : 'User signed out manually'
     });
 
     return res.status(200).json({ message: 'Logout successful' });

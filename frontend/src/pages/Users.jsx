@@ -5,16 +5,24 @@ import { useAuth } from '../context/AuthContext';
 
 const esc = (s) => (s || '').toString().replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'");
 
-const formatLocalDate = (unixSeconds) => {
-  if (!unixSeconds) return '—';
-  const d = new Date(unixSeconds * 1000);
+const formatLocalDate = (val) => {
+  if (!val) return '—';
+  const num = Number(val);
+  const d = !isNaN(num) && num > 0
+    ? new Date(num > 1e11 ? num : num * 1000)
+    : new Date(val);
+  if (isNaN(d.getTime())) return '—';
   const pad = (n) => n.toString().padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
 
-const formatLocalTime = (unixSeconds) => {
-  if (!unixSeconds) return '—';
-  const d = new Date(unixSeconds * 1000);
+const formatLocalTime = (val) => {
+  if (!val) return '—';
+  const num = Number(val);
+  const d = !isNaN(num) && num > 0
+    ? new Date(num > 1e11 ? num : num * 1000)
+    : new Date(val);
+  if (isNaN(d.getTime())) return '—';
   const pad = (n) => n.toString().padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
@@ -449,7 +457,11 @@ export default function Users() {
   // Filtered audit logs in Tab 4
   const filteredAuditLogs = auditLogs.filter(l => {
     if (auditFilterAction !== 'all') {
-      if (!l.action.toLowerCase().includes(auditFilterAction.toLowerCase())) return false;
+      if (auditFilterAction === 'IDLE') {
+        if (!l.action.includes('IDLE') && l.result !== 'IDLE') return false;
+      } else if (!l.action.toLowerCase().includes(auditFilterAction.toLowerCase())) {
+        return false;
+      }
     }
     if (!auditSearch) return true;
     const term = auditSearch.toLowerCase();
@@ -515,7 +527,7 @@ export default function Users() {
   );
 
   return (
-    <div className="page-wrap" style={{ padding: '24px', maxWidth: '1440px', margin: '0 auto' }}>
+    <div style={{ width: '100%', paddingBottom: '40px', position: 'relative' }}>
       
       {/* Page Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
@@ -781,11 +793,22 @@ export default function Users() {
                                   )}
                                 </div>
                                 <div>
-                                  <div style={{ fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    {u.username}
-                                    {isSelf && <span style={{ fontSize: '10px', background: 'rgba(37,99,235,0.15)', color: '#3b82f6', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>YOU</span>}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                    <span style={{ fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--mono)' }}>{esc(u.username)}</span>
+                                    {isSelf && <span style={{ fontSize: '10px', background: 'rgba(37,99,235,0.15)', color: '#3b82f6', border: '1px solid rgba(37,99,235,0.3)', padding: '2px 7px', borderRadius: '20px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em' }}>YOU</span>}
+                                    <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '.05em', ...rc.badge }}>{esc(u.role)}</span>
+                                    {Boolean(u.force_password_change) && (
+                                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '.05em', background: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}>
+                                        <span className="material-symbols-outlined" style={{ fontSize: '9px' }}>key</span>
+                                        Reset Required
+                                      </span>
+                                    )}
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '.05em', ...(hasMFA ? { background: 'rgba(6,182,212,.12)', color: '#22d3ee', border: '1px solid rgba(6,182,212,.25)' } : { background: 'rgba(148,163,184,.08)', color: '#8d90a0', border: '1px solid rgba(148,163,184,.2)' }) }}>
+                                      <span className="material-symbols-outlined" style={{ fontSize: '9px' }}>{hasMFA ? 'lock' : 'lock_open'}</span>
+                                      {hasMFA ? 'MFA' : 'NO MFA'}
+                                    </span>
                                   </div>
-                                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>{u.email || 'No email specified'}</div>
+                                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px', fontFamily: 'var(--mono)' }}>{u.email || 'No email specified'}</div>
                                 </div>
                               </div>
                             </td>
@@ -840,41 +863,75 @@ export default function Users() {
                             </td>
 
                             <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                                 {sessionInfo && (
                                   <button
                                     onClick={() => {
                                       setSessionSearch(u.username);
                                       setActiveTab('sessions');
                                     }}
-                                    style={{ background: 'rgba(37,99,235,0.1)', color: '#60a5fa', border: '1px solid rgba(37,99,235,0.25)', padding: '4px 8px', borderRadius: '5px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                    style={{ background: 'rgba(37,99,235,0.1)', color: '#60a5fa', border: '1px solid rgba(37,99,235,0.25)', padding: '5px 9px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                                     title="View active session in Live Sessions tab"
                                   >
-                                    <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>sensors</span>
+                                    <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>sensors</span>
                                     Session
                                   </button>
                                 )}
 
                                 <button
                                   onClick={() => openEdit(u)}
-                                  style={{ background: 'var(--background)', color: 'var(--text)', border: '1px solid var(--border)', padding: '4px 8px', borderRadius: '5px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                                  style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '5px 11px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                                 >
-                                  Edit
+                                  <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>edit</span> Edit
                                 </button>
 
                                 <button
                                   onClick={() => openPw(u)}
-                                  style={{ background: 'var(--background)', color: 'var(--text)', border: '1px solid var(--border)', padding: '4px 8px', borderRadius: '5px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                                  style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '5px 11px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                                 >
-                                  Password
+                                  <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>key</span> Password
                                 </button>
 
                                 {currentUser?.role === 'ADMIN' && !isSelf && (
                                   <button
-                                    onClick={() => handleDelete(u.id, u.username)}
-                                    style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)', padding: '4px 8px', borderRadius: '5px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                                    onClick={() => toggleRole(u)}
+                                    style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '5px 11px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
                                   >
-                                    Delete
+                                    <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>swap_vert</span> Switch Role
+                                  </button>
+                                )}
+
+                                {hasMFA > 0 ? (
+                                  (currentUser?.role === 'ADMIN' || isSelf) ? (
+                                    <button
+                                      onClick={() => handleDisableMfa(u)}
+                                      style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '5px 11px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                                    >
+                                      <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>lock_open</span> Revoke MFA
+                                    </button>
+                                  ) : (
+                                    <span style={{ fontSize: '11px', padding: '0 6px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>—</span>
+                                  )
+                                ) : isSelf ? (
+                                  <a
+                                    href="/mfa-setup"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '5px 11px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px', textDecoration: 'none' }}
+                                  >
+                                    <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>lock</span> Enable MFA
+                                  </a>
+                                ) : (
+                                  !(currentUser?.role === 'ADMIN' || isSelf) ? null : <span style={{ fontSize: '11px', padding: '0 6px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>—</span>
+                                )}
+
+                                {currentUser?.role === 'ADMIN' && !isSelf && (
+                                  <button
+                                    onClick={() => handleDelete(u.id, u.username)}
+                                    title="Delete user"
+                                    style={{ background: 'transparent', border: '1px solid rgba(239,68,68,0.35)', color: '#ef4444', padding: '5px 11px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                                  >
+                                    <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>delete</span>
                                   </button>
                                 )}
                               </div>
@@ -936,6 +993,34 @@ export default function Users() {
                                       <option value="custom">Custom Policy</option>
                                     </select>
                                   </div>
+                                  {editForms[u.id]?.session_policy === 'custom' && (
+                                    <>
+                                      <div>
+                                        <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, marginBottom: '4px', textTransform: 'uppercase', color: 'var(--muted)' }}>Lifetime (Hours)</label>
+                                        <input 
+                                          type="number" 
+                                          min="1" 
+                                          max="168" 
+                                          className="input-field" 
+                                          value={editForms[u.id]?.custom_session_hours ?? 8} 
+                                          onChange={(e) => setEditForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], custom_session_hours: e.target.value } }))} 
+                                          style={{ width: '100%', padding: '7px 10px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px' }} 
+                                        />
+                                      </div>
+                                      <div>
+                                        <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, marginBottom: '4px', textTransform: 'uppercase', color: 'var(--muted)' }}>Idle Timeout (Mins, 0=None)</label>
+                                        <input 
+                                          type="number" 
+                                          min="0" 
+                                          max="1440" 
+                                          className="input-field" 
+                                          value={editForms[u.id]?.custom_idle_mins ?? 0} 
+                                          onChange={(e) => setEditForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], custom_idle_mins: e.target.value } }))} 
+                                          style={{ width: '100%', padding: '7px 10px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px' }} 
+                                        />
+                                      </div>
+                                    </>
+                                  )}
                                   <div style={{ display: 'flex', gap: '8px' }}>
                                     <button onClick={() => handleSaveEdit(u.id)} style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '7px 16px', borderRadius: '6px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
                                       Save
@@ -1574,6 +1659,7 @@ export default function Users() {
                 <option value="all">All Security Events</option>
                 <option value="LOGIN">Login Events</option>
                 <option value="LOGOUT">Logout Events</option>
+                <option value="IDLE">Idle & Inactivity Events</option>
                 <option value="TERMINATED">Session Revocations</option>
                 <option value="MFA">MFA Verification</option>
               </select>
@@ -1636,6 +1722,8 @@ export default function Users() {
                       let badgeColor = { bg: 'rgba(34,197,94,0.12)', color: '#4ade80', border: 'rgba(34,197,94,0.3)' };
                       if (l.action.includes('FAILED') || l.action.includes('LOCKED') || l.result === 'FAILURE') {
                         badgeColor = { bg: 'rgba(239,68,68,0.12)', color: '#ef4444', border: 'rgba(239,68,68,0.3)' };
+                      } else if (l.action.includes('IDLE') || l.result === 'IDLE') {
+                        badgeColor = { bg: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: 'rgba(245,158,11,0.3)' };
                       } else if (l.action.includes('TERMINATED') || l.action.includes('TAKEOVER')) {
                         badgeColor = { bg: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: 'rgba(245,158,11,0.3)' };
                       } else if (l.action.includes('LOGOUT')) {

@@ -610,6 +610,59 @@ async function getSessionAuditLogs(req, res) {
       logs = [];
     }
 
+    // Also include real-time Idle events for active sessions that are currently away from keyboard
+    const now = Math.floor(Date.now() / 1000);
+    try {
+      let sessionSql = 'SELECT * FROM sessions WHERE expires_at > $1';
+      let sessionParams = [now];
+      if (req.tenantId && req.tenantId !== 'default' && req.tenantId !== 'aggregator') {
+        sessionParams.push(req.tenantId);
+        sessionSql += ` AND (tenant_id = $2 OR tenant_id = '' OR tenant_id IS NULL)`;
+      }
+      const activeRes = await q(sessionSql, sessionParams);
+      const activeSessions = activeRes.rows || [];
+
+      activeSessions.forEach(s => {
+        const lastAct = Number(s.last_activity_at || s.created_at || now);
+        const idleSec = now - lastAct;
+        if (idleSec >= 120) {
+          const hrs = Math.floor(idleSec / 3600);
+          const mins = Math.floor((idleSec % 3600) / 60);
+          const dur = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+          const idleRecord = {
+            id: `idle-${s.token.substring(0, 8)}`,
+            tenant_id: s.tenant_id,
+            username: s.username,
+            action: 'SESSION_IDLE_DETECTED',
+            resource: 'sessions',
+            detail: `User away from keyboard: idle for ${dur} (last active: ${new Date(lastAct * 1000).toISOString().replace('T', ' ').substring(0, 16)})`,
+            ip_address: s.ip_address || '—',
+            result: 'IDLE',
+            created_at: lastAct
+          };
+
+          if (!search ||
+              idleRecord.username.toLowerCase().includes(search) ||
+              idleRecord.action.toLowerCase().includes(search) ||
+              idleRecord.detail.toLowerCase().includes(search) ||
+              idleRecord.ip_address.toLowerCase().includes(search)) {
+            logs.push(idleRecord);
+          }
+        }
+      });
+    } catch (_) {}
+
+    // Sort combined logs by timestamp descending
+    logs.sort((a, b) => {
+      const timeA = typeof a.created_at === 'number' ? a.created_at : Math.floor(new Date(a.created_at).getTime() / 1000);
+      const timeB = typeof b.created_at === 'number' ? b.created_at : Math.floor(new Date(b.created_at).getTime() / 1000);
+      return timeB - timeA;
+    });
+
+    if (logs.length > limit) {
+      logs = logs.slice(0, limit);
+    }
+
     return res.status(200).json({
       success: true,
       count: logs.length,
