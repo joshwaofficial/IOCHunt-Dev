@@ -375,6 +375,7 @@ const initDB = async (retries = 10, delay = 3000) => {
           ALTER TABLE users ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'inherit';
           ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_session_hours INTEGER DEFAULT NULL;
           ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_idle_mins INTEGER DEFAULT NULL;
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS last_idle_signout BIGINT DEFAULT NULL;
           ALTER TABLE mfa_pending ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT '';
           CREATE INDEX IF NOT EXISTS idx_events_ts_noise ON events (ts DESC, is_noise);
           CREATE INDEX IF NOT EXISTS idx_events_machine_ts ON events (machine, ts DESC);
@@ -428,6 +429,7 @@ const initDB = async (retries = 10, delay = 3000) => {
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'inherit';
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_session_hours INTEGER DEFAULT NULL;
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_idle_mins INTEGER DEFAULT NULL;
+                ALTER TABLE users ADD COLUMN IF NOT EXISTS last_idle_signout BIGINT DEFAULT NULL;
                 ALTER TABLE settings ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'soc_shift_8h';
                 ALTER TABLE settings ADD COLUMN IF NOT EXISTS session_lifetime_hours INTEGER DEFAULT 8;
                 ALTER TABLE settings ADD COLUMN IF NOT EXISTS idle_timeout_mins INTEGER DEFAULT 0;

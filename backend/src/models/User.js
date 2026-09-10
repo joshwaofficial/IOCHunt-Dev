@@ -60,21 +60,22 @@ class User {
     const q = queryFn || db.query.bind(db);
     try {
       const res = await q(`
-        SELECT id, username, email, role, force_password_change, mfa_enabled, session_policy, custom_session_hours, custom_idle_mins, created_at, last_login 
+        SELECT id, username, email, role, force_password_change, mfa_enabled, session_policy, custom_session_hours, custom_idle_mins, created_at, last_login, last_idle_signout 
         FROM users 
         ORDER BY id ASC
       `);
       return res.rows;
     } catch (err) {
-      if (err && err.message && (err.message.includes('session_policy') || err.message.includes('column'))) {
+      if (err && err.message && (err.message.includes('session_policy') || err.message.includes('column') || err.message.includes('last_idle_signout'))) {
         try {
           await q(`
             ALTER TABLE users ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'inherit';
             ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_session_hours INTEGER DEFAULT NULL;
             ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_idle_mins INTEGER DEFAULT NULL;
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS last_idle_signout BIGINT DEFAULT NULL;
           `);
           const retryRes = await q(`
-            SELECT id, username, email, role, force_password_change, mfa_enabled, session_policy, custom_session_hours, custom_idle_mins, created_at, last_login 
+            SELECT id, username, email, role, force_password_change, mfa_enabled, session_policy, custom_session_hours, custom_idle_mins, created_at, last_login, last_idle_signout 
             FROM users 
             ORDER BY id ASC
           `);
@@ -91,7 +92,8 @@ class User {
           ...u,
           session_policy: 'inherit',
           custom_session_hours: null,
-          custom_idle_mins: null
+          custom_idle_mins: null,
+          last_idle_signout: null
         }));
       }
       throw err;

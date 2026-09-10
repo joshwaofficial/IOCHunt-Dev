@@ -780,6 +780,7 @@ export default function Users() {
                       const sessionInfo = activeUserMap[u.username];
                       const isOnline = sessionInfo?.is_online;
                       const isIdle = sessionInfo?.is_idle;
+                      const isIdleSignout = !sessionInfo && Boolean(u.last_idle_signout) && (!u.last_login || Number(u.last_idle_signout) >= Number(u.last_login));
 
                       const roleColors = {
                         'ADMIN': { bg: 'rgba(139,92,246,.2)', color: '#a78bfa', badge: { bg: 'rgba(139,92,246,.15)', color: '#a78bfa', border: '1px solid rgba(139,92,246,.3)' } },
@@ -803,6 +804,8 @@ export default function Users() {
                                     <span title="Online (Active)" style={{ position: 'absolute', bottom: 0, right: 0, width: '10px', height: '10px', borderRadius: '50%', background: '#22c55e', border: '2px solid var(--surface)', boxShadow: '0 0 6px #22c55e' }} />
                                   ) : isIdle ? (
                                     <span title="Idle (Away)" style={{ position: 'absolute', bottom: 0, right: 0, width: '10px', height: '10px', borderRadius: '50%', background: '#f59e0b', border: '2px solid var(--surface)' }} />
+                                  ) : isIdleSignout ? (
+                                    <span title="Signed out due to idle timeout" style={{ position: 'absolute', bottom: 0, right: 0, width: '10px', height: '10px', borderRadius: '50%', background: '#fb923c', border: '2px solid var(--surface)' }} />
                                   ) : (
                                     <span title="Offline" style={{ position: 'absolute', bottom: 0, right: 0, width: '9px', height: '9px', borderRadius: '50%', background: '#64748b', border: '2px solid var(--surface)' }} />
                                   )}
@@ -838,6 +841,11 @@ export default function Users() {
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, color: '#f59e0b', background: 'rgba(245,158,11,0.1)', padding: '3px 9px', borderRadius: '20px', border: '1px solid rgba(245,158,11,0.3)' }}>
                                   <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#f59e0b' }} />
                                   Idle ({formatDuration(sessionInfo.idle_seconds)})
+                                </span>
+                              ) : isIdleSignout ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 700, color: '#fb923c', background: 'rgba(251,146,60,0.12)', padding: '3px 9px', borderRadius: '20px', border: '1px solid rgba(251,146,60,0.35)' }} title={`Signed out automatically due to inactivity at ${formatLocalTime(u.last_idle_signout)}`}>
+                                  <span className="material-symbols-outlined" style={{ fontSize: '13px', color: '#fb923c' }}>timer_off</span>
+                                  Idle Signout
                                 </span>
                               ) : (
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 600, color: 'var(--muted)' }}>

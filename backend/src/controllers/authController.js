@@ -500,6 +500,9 @@ async function login(req, res) {
         maxAge: durationHours * 3600 * 1000
       });
 
+      // Clear any prior idle signout flag upon new successful login
+      await (queryTenant || db.query)('UPDATE users SET last_idle_signout = NULL WHERE id = $1', [user.id]).catch(() => {});
+
       logSecurityEvent({
         event: EVENTS.AUTH_LOGIN_SUCCESS,
         severity: SEVERITY.INFO,
@@ -645,6 +648,9 @@ async function login(req, res) {
         source: 'database'
       });
     }
+
+    // Clear any prior idle signout flag upon new successful login
+    await (req.queryTenant || db.query)('UPDATE users SET last_idle_signout = NULL WHERE id = $1', [user.id]).catch(() => {});
 
     logSecurityEvent({
       event: EVENTS.AUTH_LOGIN_SUCCESS,
@@ -894,6 +900,18 @@ async function logout(req, res) {
     res.clearCookie('iochunt_session', { path: '/' });
 
     const isIdle = req.query?.reason === 'inactivity_timeout' || req.body?.reason === 'inactivity_timeout';
+    
+    if (req.session?.user_id) {
+      try {
+        const q = req.queryTenant || db.query.bind(db);
+        if (isIdle) {
+          await q('UPDATE users SET last_idle_signout = $1 WHERE id = $2', [Math.floor(Date.now() / 1000), req.session.user_id]);
+        } else {
+          await q('UPDATE users SET last_idle_signout = NULL WHERE id = $2', [req.session.user_id]);
+        }
+      } catch (_) {}
+    }
+
     logSecurityEvent({
       event: isIdle ? 'SESSION_IDLE_LOGOUT' : EVENTS.AUTH_LOGOUT,
       severity: SEVERITY.INFO,

@@ -266,16 +266,17 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: 'Internal server error' });
 });
 
-// ── Background Session Cleaner (every 15 minutes) ───────────────
+// ── Background Session & Inactivity Reaper (every 10 seconds) ─────
+const { purgeIdleSessions } = require('./services/sessionReaper');
 setInterval(async () => {
   try {
+    await purgeIdleSessions();
     const now = Math.floor(Date.now() / 1000);
-    await db.query('DELETE FROM sessions WHERE expires_at < $1', [now]);
     await db.query('DELETE FROM mfa_pending WHERE expires_at < $1', [now]);
   } catch (e) {
-    console.error('[Cleanup Error]', e.message);
+    console.error('[Session Reaper Error]', e.message);
   }
-}, 15 * 60 * 1000);
+}, 10 * 1000);
 
 // ── Server Bootstrap & Background Services Initialization ───────
 const PORT = process.env.PORT || process.env.CENTRAL_PORT || process.env.AGGREGATOR_PORT || 4001;

@@ -229,6 +229,7 @@ async function getTenantPool(tenantId) {
           ALTER TABLE users ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'inherit';
           ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_session_hours INTEGER DEFAULT NULL;
           ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_idle_mins INTEGER DEFAULT NULL;
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS last_idle_signout BIGINT DEFAULT NULL;
           ALTER TABLE settings ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'soc_shift_8h';
           ALTER TABLE settings ADD COLUMN IF NOT EXISTS session_lifetime_hours INTEGER DEFAULT 8;
           ALTER TABLE settings ADD COLUMN IF NOT EXISTS idle_timeout_mins INTEGER DEFAULT 0;

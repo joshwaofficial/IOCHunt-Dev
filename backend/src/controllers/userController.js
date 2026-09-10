@@ -16,10 +16,15 @@ const {
   validatePasswordComplexity,
   TOTP_REGEX
 } = require('../utils/inputValidator');
+const { purgeIdleSessions } = require('../services/sessionReaper');
 
 async function getUsers(req, res) {
   try {
     if (!req.session || !req.session.user_id) return res.status(401).json({ error: 'Unauthenticated' });
+
+    // Clean up any idle or expired sessions first
+    await purgeIdleSessions(req.queryControlPlane, req.queryTenant);
+
     let users;
     if (req.session.role === 'ADMIN' || req.session.role === 'AGGREGATOR_ADMIN') {
       users = await User.getAllUsers(req.queryTenant);
@@ -35,6 +40,7 @@ async function getUsers(req, res) {
       force_password_change: u.force_password_change === 1 || u.force_password_change === true,
       created_at: u.created_at,
       last_login: u.last_login,
+      last_idle_signout: u.last_idle_signout ? Number(u.last_idle_signout) : null,
       mfa_enabled: u.mfa_enabled,
       session_policy: u.session_policy || 'inherit',
       custom_session_hours: u.custom_session_hours !== null && u.custom_session_hours !== undefined ? Number(u.custom_session_hours) : null,
@@ -383,6 +389,9 @@ async function getActiveSessions(req, res) {
     if (!allowedRoles.includes(req.session.role)) {
       return res.status(403).json({ error: 'Forbidden: Insufficient permissions to view active sessions' });
     }
+
+    // Purge any idle or expired sessions so live monitoring is 100% accurate
+    await purgeIdleSessions(req.queryControlPlane, req.queryTenant);
 
     const now = Math.floor(Date.now() / 1000);
     const q = req.queryControlPlane || db.query.bind(db);
