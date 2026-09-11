@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useFilter } from '../context/FilterContext';
+import { useTheme } from '../context/ThemeContext';
 import BloodHoundNodeDiagram from './graph/BloodHoundNodeDiagram';
+import { getSimulatedTopologyData } from './graph/simulatedTopologyData';
 
 function isPrivate(ip) {
   return /^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.)/.test(ip);
@@ -11,6 +13,8 @@ function isPrivate(ip) {
 export default function NetworkTopology({ initialData } = {}) {
   const rawDataRef = useRef({ inbound: [], outbound: [], lateral: [], ad_attacks: [], machines: [] });
 
+  const { theme } = useTheme();
+  const [isSimulated, setIsSimulated] = useState(false);
   const { machine } = useFilter();
   const [counts, setCounts] = useState({ in: 0, out: 0, lat: 0, ad: 0 });
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -151,8 +155,8 @@ export default function NetworkTopology({ initialData } = {}) {
   }, []);
 
   const applyFilter = useCallback(() => {
-    const raw = rawDataRef.current;
-    if (!raw.inbound) return;
+    const raw = isSimulated ? getSimulatedTopologyData() : rawDataRef.current;
+    if (!raw || !raw.inbound) return;
 
     const src = filterSrc.trim().toLowerCase();
     const dst = filterDst.trim().toLowerCase();
@@ -198,26 +202,42 @@ export default function NetworkTopology({ initialData } = {}) {
     setFilterCountMsg(`${total} connection${total !== 1 ? 's' : ''} shown`);
 
     updateActiveDatasets(ib, ob, ad, lat, raw.machines);
-  }, [filterSrc, filterDst, filterPort, filterProto, filterDir, updateActiveDatasets]);
+  }, [filterSrc, filterDst, filterPort, filterProto, filterDir, isSimulated, updateActiveDatasets]);
 
   const fetchTopology = useCallback(async () => {
     try {
       const res = await axios.get(`/api/events/network/topology?hours=${localRange}&machine=${machine}`);
       rawDataRef.current = res.data || { inbound: [], outbound: [], lateral: [], ad_attacks: [], machines: [] };
 
-      const { inbound = [], outbound = [], lateral = [], ad_attacks = [] } = rawDataRef.current;
-      setCounts({
-        in: inbound.length,
-        out: outbound.length,
-        lat: lateral.length,
-        ad: ad_attacks.length
-      });
-
-      applyFilter();
+      if (!isSimulated) {
+        const { inbound = [], outbound = [], lateral = [], ad_attacks = [] } = rawDataRef.current;
+        setCounts({
+          in: inbound.length,
+          out: outbound.length,
+          lat: lateral.length,
+          ad: ad_attacks.length
+        });
+        applyFilter();
+      }
     } catch (err) {
       console.error('Failed to load topology', err);
     }
-  }, [localRange, machine, applyFilter]);
+  }, [localRange, machine, applyFilter, isSimulated]);
+
+  // Sync simulation toggle with active dataset
+  useEffect(() => {
+    const raw = isSimulated ? getSimulatedTopologyData() : rawDataRef.current;
+    if (raw) {
+      const { inbound = [], outbound = [], lateral = [], ad_attacks = [] } = raw;
+      setCounts({
+        in: (inbound || []).length,
+        out: (outbound || []).length,
+        lat: (lateral || []).length,
+        ad: (ad_attacks || []).length
+      });
+    }
+    applyFilter();
+  }, [isSimulated, applyFilter]);
 
   useEffect(() => {
     if (initialData && (!rawDataRef.current.inbound || rawDataRef.current.inbound.length === 0)) {
@@ -425,6 +445,32 @@ export default function NetworkTopology({ initialData } = {}) {
             <span style={{ color: '#a855f7' }}><span style={{ display: 'inline-block', width: '8px', height: '2px', background: '#a855f7', marginRight: '4px', verticalAlign: 'middle' }}></span>{counts.ad} AD</span>
 
             <button
+              onClick={() => setIsSimulated(prev => !prev)}
+              title={isSimulated ? "Simulation active. Click to return to real live database data" : "Simulate 60+ nodes and attack paths"}
+              style={{
+                background: isSimulated ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'var(--surface2)',
+                border: isSimulated ? '1px solid #f59e0b' : '1px solid var(--border)',
+                color: isSimulated ? '#000000' : 'var(--text)',
+                borderRadius: '4px',
+                padding: '3px 10px',
+                cursor: 'pointer',
+                fontSize: '11px',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                marginLeft: '6px',
+                transition: 'all 0.2s',
+                boxShadow: isSimulated ? '0 0 10px rgba(245, 158, 11, 0.4)' : 'none'
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>
+                {isSimulated ? 'bolt' : 'science'}
+              </span>
+              {isSimulated ? 'Simulation (60+ Nodes)' : 'Simulate 60+ Nodes'}
+            </button>
+
+            <button
               onClick={toggleFullscreen}
               style={{
                 background: 'var(--surface2)',
@@ -524,7 +570,7 @@ export default function NetworkTopology({ initialData } = {}) {
               flex: 1,
               minHeight: isFullscreen ? 0 : '520px',
               position: 'relative',
-              background: '#0d111d',
+              background: theme === 'light' ? '#f8fafc' : '#0b1326',
               borderRadius: '8px',
               border: '1px solid var(--border)',
               overflow: 'hidden',
@@ -540,6 +586,7 @@ export default function NetworkTopology({ initialData } = {}) {
                 lateral={filteredData.lateral}
                 adAttacks={filteredData.ad_attacks}
                 machines={filteredData.machines}
+                theme={theme}
                 onSelectNode={(n) => {
                   setInfoText(`HOST / NODE: ${n.label} (${n.subLabel || ''}) — ${n.rows.length} connection(s)`);
                   if (n.rows.length) {
@@ -631,7 +678,7 @@ export default function NetworkTopology({ initialData } = {}) {
                           <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <div style={{ flex: 1, height: '2px', background: `linear-gradient(90deg, ${f.color}22, ${f.color})` }}></div>
                             <span style={{
-                              background: '#0b0f19',
+                              background: theme === 'light' ? '#ffffff' : '#0b0f19',
                               border: `1px solid ${f.color}`,
                               color: f.color,
                               fontSize: '11px',

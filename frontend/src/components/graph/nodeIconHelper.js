@@ -58,6 +58,7 @@ export const KIND_COLORS = {
 export function drawBloodHoundNode(context, data) {
   if (!data.x || !data.y) return;
 
+  const isLight = data.theme === 'light';
   const x = data.x;
   const y = data.y;
   const size = Math.max(data.size || 14, 8);
@@ -72,23 +73,23 @@ export function drawBloodHoundNode(context, data) {
     context.arc(x, y, size + 5, 0, Math.PI * 2);
     context.strokeStyle = color;
     context.lineWidth = 3;
-    context.shadowColor = color;
-    context.shadowBlur = 12;
+    context.shadowColor = isLight ? 'rgba(37, 99, 235, 0.35)' : color;
+    context.shadowBlur = isLight ? 8 : 12;
     context.stroke();
     context.shadowBlur = 0;
   }
 
-  // 2. Node dark inner circular body
+  // 2. Node inner circular body (White in light mode, Dark in dark mode)
   context.beginPath();
   context.arc(x, y, size, 0, Math.PI * 2);
-  context.fillStyle = '#111526';
+  context.fillStyle = isLight ? '#ffffff' : '#111526';
   context.fill();
 
   // 3. Colored border perimeter ring (BloodHound kind color)
   context.beginPath();
   context.arc(x, y, size, 0, Math.PI * 2);
   context.strokeStyle = color;
-  context.lineWidth = isSelected ? 3 : 2.2;
+  context.lineWidth = isSelected ? 3.2 : 2.4;
   context.stroke();
 
   // 4. Centered FontAwesome Vector Icon
@@ -97,23 +98,23 @@ export function drawBloodHoundNode(context, data) {
 
   if (path && iconDef.icon) {
     const [iconW, iconH] = [iconDef.icon[0], iconDef.icon[1]];
-    // Fit icon nicely inside node circle (approx 55% of diameter)
     const targetSize = size * 1.15;
     const scale = targetSize / Math.max(iconW, iconH);
 
     context.save();
     context.translate(x - (iconW * scale) / 2, y - (iconH * scale) / 2);
     context.scale(scale, scale);
-    context.fillStyle = isSelected ? '#ffffff' : (data.iconColor || '#e2e8f0');
+    context.fillStyle = isSelected
+      ? (isLight ? '#0f172a' : '#ffffff')
+      : (data.iconColor || (isLight ? '#334155' : '#e2e8f0'));
     context.fill(path);
     context.restore();
   }
 
   // 5. Node Label with High-Contrast Pill (NEVER vanishes on zoom out or minimize)
   if (data.label) {
-    // Keep font size legible even when zoomed out (min 10px, max 14px)
     const fontSize = Math.max(10, Math.min(13, Math.round(size * 0.75)));
-    context.font = `600 ${fontSize}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
+    context.font = `700 ${fontSize}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
 
@@ -124,7 +125,7 @@ export function drawBloodHoundNode(context, data) {
     const pillWidth = textWidth + 12;
     const pillY = y + size + 7 + pillHeight / 2;
 
-    // Draw dark rounded pill background
+    // Draw rounded pill background
     const rx = 4;
     const px = x - pillWidth / 2;
     const py = pillY - pillHeight / 2;
@@ -135,21 +136,23 @@ export function drawBloodHoundNode(context, data) {
     } else {
       context.rect(px, py, pillWidth, pillHeight);
     }
-    context.fillStyle = 'rgba(11, 15, 25, 0.92)';
+    context.fillStyle = isLight ? 'rgba(255, 255, 255, 0.96)' : 'rgba(11, 15, 25, 0.92)';
     context.fill();
-    context.strokeStyle = isSelected ? color : 'rgba(255, 255, 255, 0.12)';
+    context.strokeStyle = isSelected
+      ? color
+      : (isLight ? 'rgba(0, 0, 0, 0.16)' : 'rgba(255, 255, 255, 0.12)');
     context.lineWidth = 1;
     context.stroke();
 
     // Draw text inside pill
-    context.fillStyle = isSelected ? '#ffffff' : '#f1f5f9';
+    context.fillStyle = isLight ? '#0f172a' : (isSelected ? '#ffffff' : '#f1f5f9');
     context.fillText(text, x, pillY);
 
-    // Optional secondary subLabel (e.g. OS, attack count, or status)
+    // Optional secondary subLabel
     if (data.subLabel) {
       const subFontSize = Math.max(9, fontSize - 2);
-      context.font = `500 ${subFontSize}px ui-monospace, monospace`;
-      context.fillStyle = color;
+      context.font = `600 ${subFontSize}px ui-monospace, monospace`;
+      context.fillStyle = isLight ? (color === '#94a3b8' ? '#475569' : color) : color;
       context.fillText(data.subLabel, x, pillY + pillHeight - 1);
     }
   }
@@ -164,6 +167,7 @@ export function drawBloodHoundNode(context, data) {
 export function drawBloodHoundEdgeLabel(context, edgeData, sourceData, targetData) {
   if (!edgeData.label || !sourceData || !targetData) return;
 
+  const isLight = edgeData.theme === 'light';
   const sx = sourceData.x;
   const sy = sourceData.y;
   const tx = targetData.x;
@@ -173,10 +177,9 @@ export function drawBloodHoundEdgeLabel(context, edgeData, sourceData, targetDat
   const mx = (sx + tx) / 2;
   const my = (sy + ty) / 2;
 
-  // Minimum readable font size regardless of zoom
   const fontSize = 10;
   context.save();
-  context.font = `700 ${fontSize}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
+  context.font = `800 ${fontSize}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
 
@@ -198,10 +201,10 @@ export function drawBloodHoundEdgeLabel(context, edgeData, sourceData, targetDat
   } else {
     context.rect(px, py, pillWidth, pillHeight);
   }
-  context.fillStyle = '#080c16';
+  context.fillStyle = isLight ? '#ffffff' : '#080c16';
   context.fill();
   context.strokeStyle = edgeColor;
-  context.lineWidth = 1;
+  context.lineWidth = 1.2;
   context.stroke();
 
   // Draw protocol / relationship label text

@@ -42,6 +42,7 @@ export default function BloodHoundNodeDiagram({
   lateral = [],
   adAttacks = [],
   machines = [],
+  theme = 'dark',
   onSelectNode,
   onSelectEdge,
   onClearSelection
@@ -50,10 +51,18 @@ export default function BloodHoundNodeDiagram({
   const sigmaRef = useRef(null);
   const graphRef = useRef(null);
   const callbacksRef = useRef({ onSelectNode, onSelectEdge, onClearSelection });
+  const themeRef = useRef(theme);
 
   useEffect(() => {
     callbacksRef.current = { onSelectNode, onSelectEdge, onClearSelection };
   }, [onSelectNode, onSelectEdge, onClearSelection]);
+
+  useEffect(() => {
+    themeRef.current = theme;
+    if (sigmaRef.current) {
+      sigmaRef.current.refresh();
+    }
+  }, [theme]);
 
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
@@ -339,6 +348,8 @@ export default function BloodHoundNodeDiagram({
       stagePadding: 50,
       nodeReducer: (node, attrs) => {
         const res = { ...attrs };
+        const isLt = themeRef.current === 'light';
+        res.theme = themeRef.current;
         const sel = selectedNodeRef.current;
         if (sel) {
           if (node === sel) {
@@ -349,15 +360,17 @@ export default function BloodHoundNodeDiagram({
             res.highlighted = true;
             res.selected = false;
           } else {
-            res.color = '#1e293b';
-            res.borderColor = 'rgba(255,255,255,0.1)';
-            res.iconColor = '#475569';
+            res.color = isLt ? '#e2e8f0' : '#1e293b';
+            res.borderColor = isLt ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.1)';
+            res.iconColor = isLt ? '#94a3b8' : '#475569';
           }
         }
         return res;
       },
       edgeReducer: (edge, attrs) => {
         const res = { ...attrs };
+        const isLt = themeRef.current === 'light';
+        res.theme = themeRef.current;
         const sel = selectedNodeRef.current;
         if (sel) {
           const [src, tgt] = graph.extremities(edge);
@@ -366,7 +379,7 @@ export default function BloodHoundNodeDiagram({
             res.size = (attrs.size || 2) * 1.5;
             res.zIndex = 10;
           } else {
-            res.color = 'rgba(255,255,255,0.04)';
+            res.color = isLt ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.04)';
             res.label = '';
           }
         }
@@ -509,6 +522,19 @@ export default function BloodHoundNodeDiagram({
     if (onClearSelection) onClearSelection();
   };
 
+  const isLight = theme === 'light';
+  const controlBg = isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(15, 23, 42, 0.85)';
+  const controlBorder = isLight ? 'rgba(0, 0, 0, 0.14)' : 'rgba(255, 255, 255, 0.12)';
+  const controlColor = isLight ? '#0f172a' : '#f8fafc';
+  const controlHoverBg = isLight ? '#f1f5f9' : '#1e293b';
+  const badgeBg = isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(15, 23, 42, 0.85)';
+  const badgeBorder = isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.08)';
+  const badgeText = isLight ? '#0f172a' : 'var(--text)';
+  const legendBg = isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(15, 23, 42, 0.85)';
+  const legendBorder = isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.08)';
+  const legendText = isLight ? '#334155' : 'var(--muted)';
+  const legendNodeCore = isLight ? '#ffffff' : '#111526';
+
   return (
     <div
       style={{
@@ -516,10 +542,11 @@ export default function BloodHoundNodeDiagram({
         width: '100%',
         height: '100%',
         minHeight: '480px',
-        background: '#0d111d',
+        background: isLight ? '#f8fafc' : '#0b1326',
         borderRadius: '8px',
         overflow: 'hidden',
-        userSelect: 'none'
+        userSelect: 'none',
+        border: isLight ? '1px solid rgba(0, 0, 0, 0.08)' : '1px solid var(--border)'
       }}
     >
       {/* WebGL Sigma Canvas Container */}
@@ -561,9 +588,10 @@ export default function BloodHoundNodeDiagram({
           position: 'absolute',
           top: '12px',
           left: '14px',
-          background: 'rgba(15, 23, 42, 0.85)',
+          background: badgeBg,
           backdropFilter: 'blur(8px)',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
+          border: `1px solid ${badgeBorder}`,
+          boxShadow: isLight ? '0 2px 8px rgba(0,0,0,0.06)' : 'none',
           borderRadius: '6px',
           padding: '4px 10px',
           display: 'flex',
@@ -571,7 +599,7 @@ export default function BloodHoundNodeDiagram({
           gap: '12px',
           fontSize: '11px',
           fontFamily: 'var(--mono)',
-          color: 'var(--text)',
+          color: badgeText,
           pointerEvents: 'none',
           zIndex: 5
         }}
@@ -580,7 +608,7 @@ export default function BloodHoundNodeDiagram({
           <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }}></span>
           <span style={{ color: 'var(--muted)' }}>Nodes:</span> <strong>{counts.nodes}</strong>
         </div>
-        <div style={{ width: '1px', height: '12px', background: 'rgba(255,255,255,0.1)' }}></div>
+        <div style={{ width: '1px', height: '12px', background: isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)' }}></div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
           <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#3b82f6', display: 'inline-block' }}></span>
           <span style={{ color: 'var(--muted)' }}>Edges:</span> <strong>{counts.edges}</strong>
@@ -605,11 +633,12 @@ export default function BloodHoundNodeDiagram({
           style={{
             width: '32px',
             height: '32px',
-            background: 'rgba(15, 23, 42, 0.85)',
+            background: controlBg,
             backdropFilter: 'blur(8px)',
-            border: '1px solid rgba(255, 255, 255, 0.12)',
+            border: `1px solid ${controlBorder}`,
+            boxShadow: isLight ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
             borderRadius: '6px',
-            color: '#f8fafc',
+            color: controlColor,
             cursor: 'pointer',
             fontSize: '16px',
             fontWeight: 800,
@@ -618,8 +647,8 @@ export default function BloodHoundNodeDiagram({
             justifyContent: 'center',
             transition: 'all 0.15s'
           }}
-          onMouseOver={(e) => { e.currentTarget.style.background = '#1e293b'; e.currentTarget.style.borderColor = '#3b82f6'; }}
-          onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(15, 23, 42, 0.85)'; e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.12)'; }}
+          onMouseOver={(e) => { e.currentTarget.style.background = controlHoverBg; e.currentTarget.style.borderColor = '#3b82f6'; }}
+          onMouseOut={(e) => { e.currentTarget.style.background = controlBg; e.currentTarget.style.borderColor = controlBorder; }}
         >
           +
         </button>
@@ -630,11 +659,12 @@ export default function BloodHoundNodeDiagram({
           style={{
             width: '32px',
             height: '32px',
-            background: 'rgba(15, 23, 42, 0.85)',
+            background: controlBg,
             backdropFilter: 'blur(8px)',
-            border: '1px solid rgba(255, 255, 255, 0.12)',
+            border: `1px solid ${controlBorder}`,
+            boxShadow: isLight ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
             borderRadius: '6px',
-            color: '#f8fafc',
+            color: controlColor,
             cursor: 'pointer',
             fontSize: '16px',
             fontWeight: 800,
@@ -643,8 +673,8 @@ export default function BloodHoundNodeDiagram({
             justifyContent: 'center',
             transition: 'all 0.15s'
           }}
-          onMouseOver={(e) => { e.currentTarget.style.background = '#1e293b'; e.currentTarget.style.borderColor = '#3b82f6'; }}
-          onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(15, 23, 42, 0.85)'; e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.12)'; }}
+          onMouseOver={(e) => { e.currentTarget.style.background = controlHoverBg; e.currentTarget.style.borderColor = '#3b82f6'; }}
+          onMouseOut={(e) => { e.currentTarget.style.background = controlBg; e.currentTarget.style.borderColor = controlBorder; }}
         >
           −
         </button>
@@ -655,19 +685,20 @@ export default function BloodHoundNodeDiagram({
           style={{
             width: '32px',
             height: '32px',
-            background: 'rgba(15, 23, 42, 0.85)',
+            background: controlBg,
             backdropFilter: 'blur(8px)',
-            border: '1px solid rgba(255, 255, 255, 0.12)',
+            border: `1px solid ${controlBorder}`,
+            boxShadow: isLight ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
             borderRadius: '6px',
-            color: '#f8fafc',
+            color: controlColor,
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             transition: 'all 0.15s'
           }}
-          onMouseOver={(e) => { e.currentTarget.style.background = '#1e293b'; e.currentTarget.style.borderColor = '#3b82f6'; }}
-          onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(15, 23, 42, 0.85)'; e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.12)'; }}
+          onMouseOver={(e) => { e.currentTarget.style.background = controlHoverBg; e.currentTarget.style.borderColor = '#3b82f6'; }}
+          onMouseOut={(e) => { e.currentTarget.style.background = controlBg; e.currentTarget.style.borderColor = controlBorder; }}
         >
           <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>filter_center_focus</span>
         </button>
@@ -679,9 +710,10 @@ export default function BloodHoundNodeDiagram({
           style={{
             height: '32px',
             padding: '0 8px',
-            background: 'rgba(15, 23, 42, 0.85)',
+            background: controlBg,
             backdropFilter: 'blur(8px)',
-            border: '1px solid rgba(255, 255, 255, 0.12)',
+            border: `1px solid ${controlBorder}`,
+            boxShadow: isLight ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
             borderRadius: '6px',
             color: layoutMode === 'dagre' ? '#a855f7' : '#3b82f6',
             cursor: 'pointer',
@@ -693,8 +725,8 @@ export default function BloodHoundNodeDiagram({
             fontFamily: 'var(--mono)',
             transition: 'all 0.15s'
           }}
-          onMouseOver={(e) => { e.currentTarget.style.background = '#1e293b'; e.currentTarget.style.borderColor = '#3b82f6'; }}
-          onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(15, 23, 42, 0.85)'; e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.12)'; }}
+          onMouseOver={(e) => { e.currentTarget.style.background = controlHoverBg; e.currentTarget.style.borderColor = '#3b82f6'; }}
+          onMouseOut={(e) => { e.currentTarget.style.background = controlBg; e.currentTarget.style.borderColor = controlBorder; }}
         >
           <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
             {layoutMode === 'force' ? 'scatter_plot' : 'account_tree'}
@@ -709,8 +741,8 @@ export default function BloodHoundNodeDiagram({
             style={{
               height: '28px',
               padding: '0 8px',
-              background: 'rgba(239, 68, 68, 0.2)',
-              border: '1px solid rgba(239, 68, 68, 0.4)',
+              background: 'rgba(239, 68, 68, 0.15)',
+              border: '1px solid rgba(239, 68, 68, 0.35)',
               borderRadius: '6px',
               color: '#ef4444',
               cursor: 'pointer',
@@ -734,31 +766,32 @@ export default function BloodHoundNodeDiagram({
           bottom: '10px',
           left: '50%',
           transform: 'translateX(-50%)',
-          background: 'rgba(15, 23, 42, 0.85)',
+          background: legendBg,
           backdropFilter: 'blur(8px)',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
+          border: `1px solid ${legendBorder}`,
+          boxShadow: isLight ? '0 2px 8px rgba(0,0,0,0.06)' : 'none',
           borderRadius: '6px',
           padding: '5px 14px',
           display: 'flex',
           gap: '14px',
           fontSize: '10px',
           fontFamily: 'var(--mono)',
-          color: 'var(--muted)',
+          color: legendText,
           pointerEvents: 'none',
           zIndex: 5
         }}
       >
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #3b82f6', background: '#111526' }}></span> Host
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #3b82f6', background: legendNodeCore }}></span> Host
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #22c55e', background: '#111526' }}></span> User
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #22c55e', background: legendNodeCore }}></span> User
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #a855f7', background: '#111526' }}></span> AD Attack
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #a855f7', background: legendNodeCore }}></span> AD Attack
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #94a3b8', background: '#111526' }}></span> WAN IP
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #94a3b8', background: legendNodeCore }}></span> WAN IP
         </span>
       </div>
     </div>
