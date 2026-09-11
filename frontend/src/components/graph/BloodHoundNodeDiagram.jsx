@@ -277,7 +277,8 @@ export default function BloodHoundNodeDiagram({
       if (fromId && toId && graph.hasNode(fromId) && graph.hasNode(toId)) {
         const proto = (c.protocol || '') + (c.port ? `:${c.port}` : '');
         const bl = c.blocked > 0;
-        const col = '#ef4444';
+        const isMemberOf = c.protocol === 'MemberOf';
+        const col = bl ? '#ef4444' : (isMemberOf ? '#3b82f6' : (c.severity === 'critical' ? '#ef4444' : '#f97316'));
 
         const detailRow = {
           first_seen: c.first_seen,
@@ -395,24 +396,36 @@ export default function BloodHoundNodeDiagram({
         const res = { ...attrs };
         res.theme = themeRef.current;
         const sel = selectedNodeRef.current;
+        // Keep the original edge color (Red, Blue, Purple, Orange, etc.) - NEVER turn to gray!
+        res.color = attrs.color || '#3b82f6';
         if (sel) {
           const [src, tgt] = graph.extremities(edge);
           if (src === sel || tgt === sel) {
-            res.color = attrs.color || '#3b82f6';
-            res.size = (attrs.size || 2) * 2;
+            // Highlight connected edges with bold thickness and top z-index
+            res.size = Math.max((attrs.size || 2.5) * 2.2, 5);
             res.zIndex = 10;
           } else {
-            // Keep edge visible with subtle opacity so topology context remains visible
-            res.size = 1.2;
-            res.color = themeRef.current === 'light' ? 'rgba(148, 163, 184, 0.4)' : 'rgba(71, 85, 105, 0.4)';
+            // Unselected edges retain their full original color and normal arrow visibility!
+            res.size = attrs.size || 2;
             res.zIndex = 1;
           }
+        } else {
+          res.size = attrs.size || 2;
+          res.zIndex = 1;
         }
         return res;
       }
     });
 
     sigmaRef.current = sigma;
+
+    // Immediately fit and center camera so the entire network topology is perfectly framed with generous padding
+    requestAnimationFrame(() => {
+      if (sigmaRef.current) {
+        sigmaRef.current.refresh();
+        sigmaRef.current.getCamera().animatedReset({ duration: 300 });
+      }
+    });
 
     // Node Interaction / Dragging
     let isDragging = false;
