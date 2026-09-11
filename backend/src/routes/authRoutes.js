@@ -22,33 +22,29 @@ function formatRemainingTime(ms) {
   }
 }
 
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 7,
-  standardHeaders: true,
-  legacyHeaders: false,
-  validate: { xForwardedForHeader: false },
-  handler: (req, res) => {
-    const resetTime = req.rateLimit?.resetTime ? new Date(req.rateLimit.resetTime).getTime() : (Date.now() + 15 * 60 * 1000);
-    const msRemaining = Math.max(1000, resetTime - Date.now());
-    const formatted = formatRemainingTime(msRemaining);
-    const retrySec = Math.ceil(msRemaining / 1000);
-    const errorMsg = `Too many login attempts. Please try again in ${formatted}.`;
-    res.setHeader('Retry-After', retrySec);
-    return res.status(429).json({
-      error: errorMsg,
-      message: errorMsg,
-      retryAfter: retrySec
-    });
-  }
-});
+// ── Login Rate Limiting ──────────────────────────────────────────
+// Handled strictly at the User-Account level in authController.js
+// (keyed by workspace:username) so one user failing attempts cannot lock out
+// other users in the same organization sharing a corporate NAT/proxy IP.
+// A pass-through stub is exported for backwards compatibility.
+const loginLimiter = (req, res, next) => next();
+loginLimiter.resetKey = () => {};
 
 const mfaLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 7,
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false },
+  keyGenerator: (req) => {
+    // Key by session user_id (for authenticated users) or challenge token (for pending login MFA)
+    if (req.session?.user_id) return `mfa_user_${req.session.user_id}`;
+    if (req.body?.tempToken) {
+      const token = req.body.tempToken.includes(':') ? req.body.tempToken.split(':')[1] : req.body.tempToken;
+      return `mfa_token_${token}`;
+    }
+    return req.ip || 'unknown';
+  },
+  validate: { default: true, ip: false, keyGeneratorIpFallback: false },
   handler: (req, res) => {
     const resetTime = req.rateLimit?.resetTime ? new Date(req.rateLimit.resetTime).getTime() : (Date.now() + 15 * 60 * 1000);
     const msRemaining = Math.max(1000, resetTime - Date.now());
@@ -89,8 +85,8 @@ const changePasswordLimiter = rateLimit({
 });
 
 // Public authentication routes
-router.post('/login', loginLimiter, authController.login);
-router.post('/setup-branch', loginLimiter, authController.setupBranchNode);
+router.post('/login', authController.login);
+router.post('/setup-branch', authController.setupBranchNode);
 router.post('/mfa/verify', mfaLimiter, authController.mfaVerify);
 
 // Protected authentication routes

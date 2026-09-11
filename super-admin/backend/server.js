@@ -389,17 +389,20 @@ function formatRemainingTime(ms) {
   }
 }
 
-// Rate limiter for super-admin login (7 attempts per 15 minutes per IP)
+// Rate limiter for super-admin login (7 attempts per 15 minutes per User/Account)
 const superLoginAttempts = new Map();
 function superLoginLimiter(req, res, next) {
-  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+  const username = (req.body?.username && typeof req.body.username === 'string')
+    ? req.body.username.trim().toLowerCase()
+    : (req.ip || 'unknown');
+  const key = `super_user_${username}`;
   const now = Date.now();
   const windowMs = 15 * 60 * 1000;
   const maxAttempts = 7;
 
-  const record = superLoginAttempts.get(ip);
+  const record = superLoginAttempts.get(key);
   if (!record || now - record.startTime > windowMs) {
-    superLoginAttempts.set(ip, { count: 1, startTime: now });
+    superLoginAttempts.set(key, { count: 1, startTime: now });
     return next();
   }
 
@@ -420,12 +423,11 @@ function superLoginLimiter(req, res, next) {
   return next();
 }
 
-// Rate limiter for super-admin password changes (7 attempts per 15 minutes per IP/Admin)
+// Rate limiter for super-admin password changes (7 attempts per 15 minutes per Admin account)
 const superPasswordAttempts = new Map();
 function superPasswordLimiter(req, res, next) {
-  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
   const adminId = req.superAdmin?.admin_id || req.superAdmin?.id || 'anon';
-  const key = `${ip}_admin_${adminId}`;
+  const key = `super_admin_${adminId}`;
   const now = Date.now();
   const windowMs = 15 * 60 * 1000;
   const maxAttempts = 7;
@@ -568,6 +570,7 @@ app.post('/api/super/login', superLoginLimiter, async (req, res) => {
     }
 
     // Clear failed rate limit attempts on successful authentication
+    if (username) superLoginAttempts.delete(`super_user_${username.trim().toLowerCase()}`);
     superLoginAttempts.delete(clientIp);
     if (req.ip) superLoginAttempts.delete(req.ip);
 
