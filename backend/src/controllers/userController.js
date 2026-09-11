@@ -3,7 +3,8 @@
 // ════════════════════════════════════════════════════════════════
 
 const User = require('../models/User');
-const { hashPassword } = require('../utils/cryptoHelper');
+const { hashPassword, verifyPassword } = require('../utils/cryptoHelper');
+const { getClearCookieOptions } = require('../utils/cookieHelper');
 const totpHelper = require('../utils/totpHelper');
 const QRCodeLib = require('qrcode');
 const db = require('../config/db');
@@ -137,7 +138,7 @@ async function updateUser(req, res) {
       return res.status(400).json({ error: 'Invalid user ID parameter' });
     }
 
-    const { username, email, role, password, force_password_change, session_policy, custom_session_hours, custom_idle_mins } = req.body || {};
+    const { username, email, role, password, current_password, force_password_change, session_policy, custom_session_hours, custom_idle_mins } = req.body || {};
     const existing = await User.findById(id, req.queryTenant);
     if (!existing) return res.status(404).json({ error: 'User not found' });
     
@@ -175,12 +176,25 @@ async function updateUser(req, res) {
         return res.status(400).json({ error: 'Password must be a string' });
       }
       if (isOwnAccount) {
-        return res.status(400).json({
-          error: 'To change your own password, please use the Change Password setting with your current password verification.'
-        });
-      }
-      if (!isAdmin) {
-        return res.status(403).json({ error: 'Forbidden: Only administrators can reset user passwords.' });
+        if (!current_password || typeof current_password !== 'string') {
+          return res.status(400).json({
+            error: 'Current password is required to change your own password.'
+          });
+        }
+        const isCurrentValid = verifyPassword(current_password.trim(), existing.password_hash, existing.salt);
+        if (!isCurrentValid) {
+          return res.status(400).json({ error: 'Current password is incorrect' });
+        }
+        if (current_password.trim() === password.trim()) {
+          return res.status(400).json({ error: 'New password cannot be identical to the current password' });
+        }
+        enforcedForcePasswordChange = 0;
+      } else {
+        if (!isAdmin) {
+          return res.status(403).json({ error: 'Forbidden: Only administrators can reset user passwords.' });
+        }
+        // Admin reset always forces the employee to set their own password on next login
+        enforcedForcePasswordChange = 1;
       }
       const pwdError = validatePasswordComplexity(password);
       if (pwdError) {
@@ -189,8 +203,6 @@ async function updateUser(req, res) {
       const hashed = hashPassword(password);
       passwordHash = hashed.hash;
       salt = hashed.salt;
-      // Admin reset always forces the employee to set their own password on next login
-      enforcedForcePasswordChange = 1;
     }
 
     const upperRole = role ? role.toUpperCase() : existing.role;
@@ -245,9 +257,12 @@ async function updateUser(req, res) {
         sseBroadcaster.broadcast('session_revoked', {
           user_id: parseInt(id, 10),
           tenant_id: req.tenantId,
-          reason: 'password_reset'
+          reason: isOwnAccount ? 'password_changed' : 'password_reset'
         });
       } catch (_) {}
+      if (isOwnAccount) {
+        res.clearCookie('iochunt_session', getClearCookieOptions(req));
+      }
     } else if (custom_idle_mins !== undefined || session_policy !== undefined) {
       let effectiveIdle = 0;
       if (session_policy === 'custom' || (!session_policy && existing.session_policy === 'custom')) {

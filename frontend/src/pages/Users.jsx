@@ -312,9 +312,26 @@ export default function Users() {
   };
 
   // Existing Save Password Handler
-  const handleSavePw = async (id) => {
-    const form = pwForms[id];
+  const handleSavePw = async (id, isSelf) => {
+    const form = pwForms[id] || {};
     setPwErrors(prev => ({ ...prev, [id]: '' }));
+
+    const resolvedIsSelf = isSelf !== undefined ? isSelf : (
+      String(id) === String(currentUser?.id) ||
+      (Boolean(currentUser?.username) && data.find(x => String(x.id) === String(id))?.username?.toLowerCase() === currentUser?.username?.toLowerCase())
+    );
+
+    if (resolvedIsSelf) {
+      if (!form.currentPw || !form.currentPw.trim()) {
+        setPwErrors(prev => ({ ...prev, [id]: 'Current password is required' }));
+        return;
+      }
+      if (form.currentPw.trim() === (form.newPw || '').trim()) {
+        setPwErrors(prev => ({ ...prev, [id]: 'New password cannot be identical to the current password' }));
+        return;
+      }
+    }
+
     if (!form.newPw) {
       setPwErrors(prev => ({ ...prev, [id]: 'New password is required' }));
       return;
@@ -323,15 +340,50 @@ export default function Users() {
       setPwErrors(prev => ({ ...prev, [id]: 'Password must be at least 8 characters' }));
       return;
     }
+    if (!/[A-Z]/.test(form.newPw)) {
+      setPwErrors(prev => ({ ...prev, [id]: 'Password must contain at least one uppercase letter' }));
+      return;
+    }
+    if (!/[a-z]/.test(form.newPw)) {
+      setPwErrors(prev => ({ ...prev, [id]: 'Password must contain at least one lowercase letter' }));
+      return;
+    }
+    if (!/[0-9]/.test(form.newPw)) {
+      setPwErrors(prev => ({ ...prev, [id]: 'Password must contain at least one number' }));
+      return;
+    }
+    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/.test(form.newPw)) {
+      setPwErrors(prev => ({ ...prev, [id]: 'Password must contain at least one special character (!@#$%^&* etc.)' }));
+      return;
+    }
     if (form.newPw !== form.confirmPw) {
       setPwErrors(prev => ({ ...prev, [id]: 'Passwords do not match' }));
       return;
     }
+
     try {
-      await axios.patch(`/api/users/${id}`, { password: form.newPw });
-      setExpandedPwId(null);
-      fetchData();
-      toast.success('Password updated successfully');
+      if (resolvedIsSelf) {
+        const res = await axios.post('/api/auth/change-password', {
+          current_password: form.currentPw.trim(),
+          new_password: form.newPw.trim(),
+          confirm_password: form.confirmPw.trim()
+        });
+        setExpandedPwId(null);
+        toast.success(res.data?.message || 'Password successfully updated! All active sessions terminated. Please log in again.');
+        setTimeout(() => {
+          if (logout) {
+            logout();
+          } else {
+            localStorage.removeItem('iochunt_user');
+            window.location.href = '/login';
+          }
+        }, 1500);
+      } else {
+        await axios.patch(`/api/users/${id}`, { password: form.newPw });
+        setExpandedPwId(null);
+        fetchData();
+        toast.success('Password updated successfully');
+      }
     } catch (e) {
       setPwErrors(prev => ({ ...prev, [id]: e.response?.data?.error || 'Failed to update password' }));
     }
@@ -775,7 +827,7 @@ export default function Users() {
                   </thead>
                   <tbody>
                     {filteredData.map((u) => {
-                      const isSelf = String(u.id) === String(currentUser?.id);
+                      const isSelf = String(u.id) === String(currentUser?.id) || (Boolean(currentUser?.username) && u.username?.toLowerCase() === currentUser?.username?.toLowerCase());
                       const hasMFA = u.mfa_enabled;
                       const sessionInfo = activeUserMap[u.username];
                       const isOnline = sessionInfo?.is_online;
@@ -1066,34 +1118,57 @@ export default function Users() {
                           {expandedPwId === u.id && (
                             <tr>
                               <td colSpan={6} style={{ padding: '16px 20px', background: 'rgba(37,99,235,0.03)', borderBottom: '1px solid var(--border)' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', alignItems: 'end' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: isSelf ? 'repeat(auto-fit, minmax(180px, 1fr))' : 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', alignItems: 'end' }}>
+                                  {isSelf && (
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, marginBottom: '4px', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                                        Current Password <span style={{ color: '#ef4444' }}>*</span>
+                                      </label>
+                                      <input 
+                                        type="password" 
+                                        placeholder="Enter current password"
+                                        className="input-field" 
+                                        value={pwForms[u.id]?.currentPw || ''} 
+                                        onChange={(e) => setPwForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], currentPw: e.target.value } }))}
+                                        onKeyDown={(e) => { if (e.key === 'Enter') handleSavePw(u.id, isSelf); }}
+                                        style={{ width: '100%', padding: '7px 10px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px' }}
+                                        autoFocus
+                                      />
+                                    </div>
+                                  )}
                                   <div>
-                                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, marginBottom: '4px', textTransform: 'uppercase', color: 'var(--muted)' }}>New Password</label>
+                                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, marginBottom: '4px', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                                      New Password <span style={{ color: '#ef4444' }}>*</span>
+                                    </label>
                                     <input 
                                       type="password" 
                                       placeholder="Min 8 chars"
                                       className="input-field" 
                                       value={pwForms[u.id]?.newPw || ''} 
                                       onChange={(e) => setPwForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], newPw: e.target.value } }))}
+                                      onKeyDown={(e) => { if (e.key === 'Enter') handleSavePw(u.id, isSelf); }}
                                       style={{ width: '100%', padding: '7px 10px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px' }}
                                     />
                                   </div>
                                   <div>
-                                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, marginBottom: '4px', textTransform: 'uppercase', color: 'var(--muted)' }}>Confirm Password</label>
+                                    <label style={{ display: 'block', fontSize: '10px', fontWeight: 700, marginBottom: '4px', textTransform: 'uppercase', color: 'var(--muted)' }}>
+                                      Confirm Password <span style={{ color: '#ef4444' }}>*</span>
+                                    </label>
                                     <input 
                                       type="password" 
                                       placeholder="Repeat password"
                                       className="input-field" 
                                       value={pwForms[u.id]?.confirmPw || ''} 
                                       onChange={(e) => setPwForms(prev => ({ ...prev, [u.id]: { ...prev[u.id], confirmPw: e.target.value } }))}
+                                      onKeyDown={(e) => { if (e.key === 'Enter') handleSavePw(u.id, isSelf); }}
                                       style={{ width: '100%', padding: '7px 10px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px' }}
                                     />
                                   </div>
                                   <div style={{ display: 'flex', gap: '8px' }}>
-                                    <button onClick={() => handleSavePw(u.id)} style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '7px 16px', borderRadius: '6px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                                    <button onClick={() => handleSavePw(u.id, isSelf)} style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '7px 16px', borderRadius: '6px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                                       Update Password
                                     </button>
-                                    <button onClick={() => setExpandedPwId(null)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '7px 12px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}>
+                                    <button onClick={() => setExpandedPwId(null)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '7px 12px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                                       Cancel
                                     </button>
                                   </div>
