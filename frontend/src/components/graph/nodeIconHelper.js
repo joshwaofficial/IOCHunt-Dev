@@ -144,7 +144,7 @@ export function drawBloodHoundNode(context, data) {
 
   // 6. Node Label (Matching Clean BloodHound Style from Reference Image 3)
   if (data.label) {
-    const fontSize = 11;
+    const fontSize = 10;
     context.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif`;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
@@ -152,11 +152,11 @@ export function drawBloodHoundNode(context, data) {
     const text = String(data.label);
     const metrics = context.measureText(text);
     const textWidth = metrics.width;
-    const pillHeight = fontSize + 6;
-    const pillWidth = textWidth + 10;
-    const pillY = y + size + 7 + pillHeight / 2;
+    const pillHeight = fontSize + 4;
+    const pillWidth = textWidth + 8;
+    const pillY = y + size + 5 + pillHeight / 2;
 
-    const rx = 4;
+    const rx = 3;
     const px = x - pillWidth / 2;
     const py = pillY - pillHeight / 2;
 
@@ -208,7 +208,7 @@ export function drawBloodHoundEdgeLabel(context, edgeData, sourceData, targetDat
   const mx = (sx + tx) / 2;
   const my = (sy + ty) / 2;
 
-  const fontSize = 10;
+  const fontSize = 9;
   context.save();
   context.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace`;
   context.textAlign = 'center';
@@ -217,8 +217,8 @@ export function drawBloodHoundEdgeLabel(context, edgeData, sourceData, targetDat
   const labelText = String(edgeData.label);
   const metrics = context.measureText(labelText);
   const textWidth = metrics.width;
-  const pillHeight = fontSize + 5;
-  const pillWidth = textWidth + 8;
+  const pillHeight = fontSize + 4;
+  const pillWidth = textWidth + 6;
   const edgeColor = edgeData.color || (isLight ? '#475569' : '#94a3b8');
 
   const rx = 3;

@@ -21,67 +21,78 @@ export function initializePositions(graph) {
 }
 
 /**
- * Precise coordinate blueprint matching User Reference Image 1:
- * - Wide spacing between all nodes (200px - 280px spoke length)
- * - Huge whitespace between clusters (600px - 1000px separation)
- * - Tree/step ladder hierarchy in bottom-left (NOT a star pattern!)
- * - Clean horizontal/diagonal pairs on outer perimeter
- * - Spacious multi-node fan in lower right
+ * Balanced 4-Quadrant Widescreen Constellation
+ * Completely eliminates crowded starbursts, untangles cross-cutting edges,
+ * and spreads nodes across all 4 quadrants of the canvas with generous spacing:
+ * - Top-Left: Monitored Network & IP Flow (D3F53C0N3, 72.62, 8.8.8.8, 10.90, 185.220, 194.26)
+ * - Bottom-Left: Organization Management & Admin Workstations (Org Mgmt, Admin-WS-01/02, Sec-Ops, K8s, Payment-Srv)
+ * - Top-Right: Tier-0 Active Directory & Threat Actors (Domain Admins, DC-01, DC-02, Backup-DC, CA-Root, APT29, Certipy, Backup_Svc)
+ * - Bottom-Right: Exchange Trusted Subsystem (Exchange Subsystem + EXCH-001 through EXCH-006 fanned widely)
+ * - Center: OPIERCE Bridge, SQL-Prod DB, and Exchange Recipient Admins (Mail Gateway, HR-Desk, Sales-WS)
  */
 const PRESET_COORDINATES = [
-  // --- 1. Top-Left 4-Spoke Cluster (Organization Management) ---
-  { match: l => l.includes('ORGANIZATION MANAGEMENT'), x: -560, y: -360 },
-  { match: l => l.includes('FS-CORP-01'), x: -730, y: -510 },
-  { match: l => l.includes('ADMIN-WS-02'), x: -450, y: -530 },
-  { match: l => l.includes('SEC-OPS-01'), x: -330, y: -360 },
-  { match: l => l.includes('ADMIN-WS-01'), x: -720, y: -220 },
+  // =========================================================================
+  // QUADRANT 1: TOP-LEFT — Monitored Host & Network Flow (D3F53C0N3 Tree)
+  // =========================================================================
+  { match: l => l.includes('D3F53C0N3'), x: -620, y: -260 },
+  { match: l => l.includes('10.90.121.226') || l.includes('10.90'), x: -840, y: -370 },
+  { match: l => l.includes('185.220.101.5') || l.includes('185.220'), x: -850, y: -160 },
+  { match: l => l.includes('72.62.241.39') || l.includes('72.62'), x: -410, y: -260 },
+  { match: l => l.includes('194.26.29.112') || l.includes('194.26'), x: -440, y: -430 },
+  { match: l => l.includes('8.8.8.8'), x: -240, y: -260 },
+  { match: l => l.includes('14.99.11.58') || l.includes('14.99'), x: -620, y: -70 },
 
-  // --- 2. Center Hub (OPIERCE & Lateral Escalations) ---
-  { match: l => l.includes('OPIERCE'), x: -10, y: -30 },
-  { match: l => l.includes('EXCHANGE RECIPIENT ADMINS') || l.includes('RECIPIENT ADMINS'), x: 90, y: -200 },
-  { match: l => l.includes('SQL-PROD-01') || l.includes('SQL-PROD'), x: -20, y: 160 },
+  // =========================================================================
+  // QUADRANT 2: BOTTOM-LEFT — Organization Management & Admin Workstations
+  // =========================================================================
+  { match: l => l.includes('ORGANIZATION MANAGEMENT'), x: -560, y: 240 },
+  { match: l => l.includes('ADMIN-WS-01'), x: -780, y: 160 },
+  { match: l => l.includes('ADMIN-WS-02'), x: -560, y: 440 },
+  { match: l => l.includes('SEC-OPS-01') || l.includes('SEC-OPS'), x: -350, y: 240 },
+  { match: l => l.includes('FS-CORP-01') || l.includes('FS-CORP'), x: -770, y: 350 },
+  { match: l => l.includes('K8S-MASTER') || l.includes('K8S'), x: -180, y: 240 },
+  { match: l => l.includes('PAYMENT-SRV') || l.includes('PAYMENT'), x: -740, y: 490 },
 
-  // --- 3. Lower-Right Multi-Node Wide Fan (Exchange Subsystem) ---
-  { match: l => l.includes('EXCHANGE TRUSTED') || l.includes('SUBSYSTEM'), x: 490, y: 240 },
-  { match: l => l.includes('EXCH-001'), x: 370, y: 70 },
-  { match: l => l.includes('EXCH-002'), x: 490, y: 0 },
-  { match: l => l.includes('EXCH-003'), x: 610, y: 10 },
-  { match: l => l.includes('EXCH-004'), x: 720, y: 90 },
-  { match: l => l.includes('EXCH-005'), x: 780, y: 240 },
-  { match: l => l.includes('EXCH-006'), x: 720, y: 390 },
-  { match: l => l.includes('MAIL-GATEWAY'), x: 560, y: 460 },
-  { match: l => l.includes('45.33.32.156'), x: 410, y: 460 },
-  { match: l => l.includes('HR-DESK'), x: 280, y: 380 },
-  { match: l => l.includes('SALES-WS'), x: 230, y: 230 },
+  // =========================================================================
+  // CENTER ZONE — Bridge Attacker, Databases & Identity Groups
+  // =========================================================================
+  { match: l => l.includes('OPIERCE'), x: 0, y: 0 },
+  { match: l => l.includes('SQL-PROD-01') || l.includes('SQL-PROD'), x: -180, y: 80 },
+  { match: l => l.includes('EXCHANGE RECIPIENT ADMINS') || l.includes('RECIPIENT ADMINS'), x: 0, y: -260 },
+  { match: l => l.includes('MAIL-GATEWAY') || l.includes('MAIL-GATEWAY-01'), x: 200, y: -260 },
+  { match: l => l.includes('HR-DESK') || l.includes('HR-DESK-01'), x: -160, y: -380 },
+  { match: l => l.includes('SALES-WS') || l.includes('SALES-WS-01'), x: 0, y: -440 },
 
-  // --- 4. Bottom-Left Network Flow / Tree (Pure Branching Hierarchy - NOT A STAR!) ---
-  { match: l => l.includes('8.8.8.8'), x: -200, y: 220 },
-  { match: l => l.includes('72.62.241.39'), x: -290, y: 410 },
-  { match: l => l.includes('194.26.29.112'), x: -480, y: 290 },
-  { match: l => l.includes('D3F53C0N3'), x: -240, y: 630 },
-  { match: l => l.includes('185.220.101.5'), x: -660, y: 470 },
-  { match: l => l.includes('10.90.121.226') || l.includes('10.90'), x: -480, y: 620 },
-  { match: l => l.includes('K8S-MASTER'), x: -20, y: 660 },
+  // =========================================================================
+  // QUADRANT 3: TOP-RIGHT — Tier-0 Active Directory & Threat Actors (Utilizes Empty Top-Right!)
+  // =========================================================================
+  { match: l => l.includes('DOMAIN ADMINS'), x: 580, y: -260 },
+  { match: l => l.includes('DC-01.DEFSECON.LOCAL') || l === 'DC-01', x: 780, y: -180 },
+  { match: l => l.includes('DC-02.DEFSECON.LOCAL') || l === 'DC-02', x: 580, y: -440 },
+  { match: l => l.includes('BACKUP-DC.DEFSECON.LOCAL') || l.includes('BACKUP-DC'), x: 790, y: -390 },
+  { match: l => l.includes('CA-ROOT-01') || l.includes('CA-ROOT'), x: 380, y: -180 },
+  { match: l => l.includes('APT29_ACTOR') || l.includes('APT29'), x: 960, y: -180 },
+  { match: l => l.includes('CERTIPY_SCANNER') || l.includes('CERTIPY'), x: 180, y: -180 },
+  { match: l => l.includes('BACKUP_SVC'), x: 960, y: -390 },
+  { match: l => l.includes('DA-JFREEMAN') || l.includes('JFREEMAN'), x: 380, y: -380 },
 
-  // --- 5. Right Flank & Perimeter Flanks (Clean Linear / Diagonal Pairs) ---
-  { match: l => l.includes('CERTIPY_SCANNER') || l.includes('CERTIPY'), x: 410, y: -540 },
-  { match: l => l.includes('CA-ROOT-01') || l.includes('CA-ROOT'), x: 640, y: -540 },
-  { match: l => l.includes('DOMAIN ADMINS'), x: 520, y: -270 },
-  { match: l => l.includes('DC-01'), x: 680, y: -120 },
-  { match: l => l.includes('APT29'), x: 650, y: -270 },
-  { match: l => l.includes('DC-02'), x: 740, y: -380 },
-  { match: l => l.includes('BACKUP_SVC'), x: 820, y: -320 },
-  { match: l => l.includes('BACKUP-DC'), x: 930, y: -140 },
-  { match: l => l.includes('DA-JFREEMAN') || l.includes('JFREEMAN'), x: 890, y: -440 },
-  { match: l => l.includes('PAYMENT-SRV'), x: -650, y: 20 },
-  { match: l => l.includes('14.99.11.58') || l.includes('14.99'), x: -820, y: 180 }
+  // =========================================================================
+  // QUADRANT 4: BOTTOM-RIGHT — Exchange Trusted Subsystem (Full Dedicated Half!)
+  // =========================================================================
+  { match: l => l.includes('EXCHANGE TRUSTED') || l.includes('SUBSYSTEM'), x: 560, y: 260 },
+  { match: l => l.includes('EXCH-001'), x: 340, y: 150 },
+  { match: l => l.includes('EXCH-002'), x: 560, y: 80 },
+  { match: l => l.includes('EXCH-003'), x: 780, y: 150 },
+  { match: l => l.includes('EXCH-004'), x: 840, y: 260 },
+  { match: l => l.includes('EXCH-005'), x: 780, y: 390 },
+  { match: l => l.includes('EXCH-006'), x: 560, y: 450 },
+  { match: l => l.includes('45.33.32.156'), x: 980, y: 390 }
 ];
 
 /**
- * BloodHound Open Constellation Layout (Direct 1-to-1 Match to Reference Image 1)
- * - Eliminates crowded star patterns and dense central clumps.
- * - Distributes independent clusters, trees, and peripheral pairs across the canvas.
- * - Enforces minimum 220px horizontal and 130px vertical separation between EVERY node pair.
+ * BloodHound Open Constellation Layout
+ * - Enforces minimum 240px horizontal and 140px vertical separation between EVERY node pair.
+ * - Spreads nodes evenly across all 4 quadrants of the widescreen canvas.
  * - Mathematically GUARANTEES ZERO OVERLAPPING NODES OR LABELS!
  */
 export function applyBloodHoundClusterLayout(graph) {
@@ -120,15 +131,15 @@ export function applyBloodHoundClusterLayout(graph) {
         const py = graph.getNodeAttribute(placedNeighbor, 'y') || 0;
         const outwardAngle = Math.atan2(py, px);
         const spokeAngle = outwardAngle + ((idx % 2 === 0 ? 1 : -1) * (0.6 + idx * 0.4));
-        const spokeR = 240;
+        const spokeR = 250;
 
         graph.setNodeAttribute(node, 'x', px + Math.cos(spokeAngle) * spokeR);
         graph.setNodeAttribute(node, 'y', py + Math.sin(spokeAngle) * spokeR);
       } else {
-        // Position along the open perimeter ring (radius 800 - 1000px)
+        // Position along the open perimeter ring (radius 900 - 1100px)
         const angle = (2 * Math.PI * idx) / unplaced.length;
-        const radiusX = 900;
-        const radiusY = 600;
+        const radiusX = 950;
+        const radiusY = 650;
         graph.setNodeAttribute(node, 'x', Math.cos(angle) * radiusX);
         graph.setNodeAttribute(node, 'y', Math.sin(angle) * radiusY);
       }
@@ -137,16 +148,16 @@ export function applyBloodHoundClusterLayout(graph) {
   }
 
   // Step 3: Strict Elliptical Collision Prevention:
-  // Enforces at least 220px horizontal and 130px vertical clearance between EVERY pair of nodes!
+  // Enforces at least 240px horizontal and 140px vertical clearance between EVERY pair of nodes!
   // Prevents any two labels or node pills from ever touching or overlapping on initial load!
-  preventEllipticalCollisions(graph, 220, 130, 40);
+  preventEllipticalCollisions(graph, 240, 140, 45);
 }
 
 /**
  * Robust elliptical pair-wise collision prevention
  * Handles rectangular label widths (wide horizontally, compact vertically)
  */
-function preventEllipticalCollisions(graph, minDx = 220, minDy = 130, iterations = 40) {
+function preventEllipticalCollisions(graph, minDx = 240, minDy = 140, iterations = 45) {
   const nodes = graph.nodes();
   const n = nodes.length;
   if (n <= 1) return;
@@ -220,7 +231,7 @@ export function applyForceAtlas2(graph, iterations = 250) {
     return;
   }
 
-  preventEllipticalCollisions(graph, 220, 130, 25);
+  preventEllipticalCollisions(graph, 240, 140, 30);
 }
 
 /**
@@ -233,8 +244,8 @@ export function applyDagreLayout(graph, direction = 'LR') {
     const g = new dagre.graphlib.Graph();
     g.setGraph({
       rankdir: direction,
-      nodesep: 170,
-      ranksep: 280,
+      nodesep: 180,
+      ranksep: 290,
       marginx: 100,
       marginy: 100
     });
@@ -259,7 +270,7 @@ export function applyDagreLayout(graph, direction = 'LR') {
       }
     });
 
-    preventEllipticalCollisions(graph, 200, 120, 20);
+    preventEllipticalCollisions(graph, 220, 130, 25);
   } catch (err) {
     console.warn('[BloodHound Layout] Dagre layout failed:', err);
     applyBloodHoundClusterLayout(graph);
@@ -272,7 +283,7 @@ export function applyDagreLayout(graph, direction = 'LR') {
 export function applyCircular(graph) {
   if (!graph || graph.order === 0) return;
   const count = graph.order;
-  const radius = Math.max(280, count * 55);
+  const radius = Math.max(300, count * 60);
   let idx = 0;
   graph.forEachNode((node) => {
     const angle = (2 * Math.PI * idx) / count;
@@ -280,5 +291,5 @@ export function applyCircular(graph) {
     graph.setNodeAttribute(node, 'y', Math.sin(angle) * radius);
     idx++;
   });
-  preventEllipticalCollisions(graph, 200, 120, 20);
+  preventEllipticalCollisions(graph, 220, 130, 25);
 }

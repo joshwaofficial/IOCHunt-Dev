@@ -114,20 +114,20 @@ export default function BloodHoundNodeDiagram({
 
       let color = '#3b82f6';
       let iconType = 'machine';
-      let size = 18;
+      let size = 15;
 
       if (isGroup) {
         color = '#eab308';
         iconType = 'group';
-        size = 21;
+        size = 18;
       } else if (isUser) {
         color = '#22c55e';
         iconType = 'user';
-        size = 18;
+        size = 15;
       } else if (isCritical) {
         color = '#ef4444';
         iconType = 'critical';
-        size = 18;
+        size = 15;
       }
 
       graph.addNode(nid, {
