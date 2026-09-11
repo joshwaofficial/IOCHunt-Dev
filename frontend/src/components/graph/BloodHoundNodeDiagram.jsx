@@ -369,7 +369,7 @@ export default function BloodHoundNodeDiagram({
       defaultDrawEdgeLabel: drawBloodHoundEdgeLabel,
       enableEdgeEvents: true,
       allowInvalidContainer: true,
-      stagePadding: 50,
+      stagePadding: 75,
       nodeReducer: (node, attrs) => {
         const res = { ...attrs };
         res.theme = themeRef.current;
