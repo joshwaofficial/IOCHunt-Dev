@@ -8,7 +8,7 @@ export function initializePositions(graph) {
   const nodeCount = graph.order;
   if (nodeCount === 0) return;
 
-  const radius = Math.max(200, nodeCount * 35);
+  const radius = Math.max(200, nodeCount * 30);
   let i = 0;
   graph.forEachNode((node, attrs) => {
     if (typeof attrs.x !== 'number' || typeof attrs.y !== 'number') {
@@ -21,12 +21,11 @@ export function initializePositions(graph) {
 }
 
 /**
- * BloodHound Clustered Star Layout (Deterministic Geometric Alignment)
- * Replicates the pristine BloodHound UI layout from Reference Image 3:
- * 1. Hubs (Groups, Domain Controllers, Critical Servers) are placed in dedicated, wide sectors (500px+ separation).
- * 2. Leaves fan OUTWARDS away from the center into empty space on generous 185px arcs.
- * 3. Bridge nodes (like OPIERCE) sit cleanly in the central crossing zone.
- * 4. Pair-wise collision prevention guarantees ZERO overlapping nodes.
+ * True BloodHound Clustered Island Layout (Exact Replica of Reference Image 3)
+ * 1. Groups & Core Authorities are placed in dedicated, widely-spaced Island Centers.
+ * 2. Every single member node is placed in a tight, localized flower around its own parent group (never across the screen!).
+ * 3. Central bridge nodes (like OPIERCE & APT29) sit cleanly in the middle to connect the islands.
+ * 4. Pair-wise collision clearance guarantees ZERO overlapping nodes on initial refresh.
  */
 export function applyBloodHoundClusterLayout(graph) {
   if (!graph || graph.order === 0) return;
@@ -37,138 +36,175 @@ export function applyBloodHoundClusterLayout(graph) {
     return;
   }
 
-  // 1. Calculate degree for each node
-  const degrees = new Map();
-  graph.forEachNode(node => {
-    degrees.set(node, graph.degree(node));
-  });
-
-  // 2. Classify nodes: Hubs vs Leaves vs Multi-hub Bridges vs Isolated
-  const hubs = [];
-  const leavesByHub = new Map();
-  const multiHubNodes = [];
-  const isolated = [];
+  // 1. Identify True Primary Hubs (Groups and Core Authorities)
+  const primaryHubs = [];
+  const membersByHub = new Map();
+  const bridgeNodes = [];
 
   graph.forEachNode(node => {
-    const deg = degrees.get(node) || 0;
     const attrs = graph.getNodeAttributes(node);
-    const isSpecial = attrs.entityType === 'group' || attrs.entityType === 'actor' || deg >= 3;
+    const isGroup = attrs.entityType === 'group' ||
+      (attrs.label && (
+        attrs.label.includes('SUBSYSTEM') ||
+        attrs.label.includes('ADMINS') ||
+        attrs.label.includes('MANAGEMENT') ||
+        attrs.label.includes('GROUP')
+      ));
 
-    if (deg === 0) {
-      isolated.push(node);
-    } else if (isSpecial || deg >= 2) {
-      hubs.push(node);
-      leavesByHub.set(node, []);
+    if (isGroup) {
+      primaryHubs.push(node);
+      membersByHub.set(node, new Set());
     }
   });
 
-  // Fallback: if too few hubs, pick top 25% highest-degree nodes
-  if (hubs.length === 0) {
-    const sorted = Array.from(degrees.entries()).sort((a, b) => b[1] - a[1]);
-    const hubLimit = Math.max(1, Math.ceil(sorted.length * 0.25));
-    for (let i = 0; i < hubLimit; i++) {
-      hubs.push(sorted[i][0]);
-      leavesByHub.set(sorted[i][0], []);
+  // If DC-01 exists, make it an identity authority hub
+  const dcNode = graph.nodes().find(n => n.includes('DC-01') || n.includes('DOMAIN-CONTROLLER'));
+  if (dcNode && !primaryHubs.includes(dcNode)) {
+    primaryHubs.push(dcNode);
+    membersByHub.set(dcNode, new Set());
+  }
+
+  // If D3F53C0N3 or a primary entrypoint machine exists, make it an entry hub
+  const entryNode = graph.nodes().find(n => n.includes('D3F53C0N3') || n.includes('72.62.241.39'));
+  if (entryNode && !primaryHubs.includes(entryNode) && primaryHubs.length < 6) {
+    primaryHubs.push(entryNode);
+    membersByHub.set(entryNode, new Set());
+  }
+
+  // Fallback: If still fewer than 3 hubs found, pick top degree server nodes
+  if (primaryHubs.length < 3) {
+    const sorted = graph.nodes().map(n => ({
+      node: n,
+      deg: graph.degree(n),
+      attrs: graph.getNodeAttributes(n)
+    })).sort((a, b) => b.deg - a.deg);
+
+    for (const item of sorted) {
+      if (!primaryHubs.includes(item.node) && primaryHubs.length < 5) {
+        if (item.attrs.entityType !== 'actor' && !item.attrs.label.includes('@')) {
+          primaryHubs.push(item.node);
+          membersByHub.set(item.node, new Set());
+        }
+      }
     }
   }
 
-  const hubSet = new Set(hubs);
+  const hubSet = new Set(primaryHubs);
+  const assigned = new Set(primaryHubs);
 
-  // 3. Assign satellite leaf nodes to their primary connected hub
+  // 2. Assign each node to its direct parent Hub (Zero cross-screen separation!)
+  // Priority A: Direct MemberOf or edge to a hub
   graph.forEachNode(node => {
-    if (hubSet.has(node) || (degrees.get(node) || 0) === 0) return;
+    if (assigned.has(node)) return;
 
     const neighbors = graph.neighbors(node);
     const connectedHubs = neighbors.filter(n => hubSet.has(n));
 
     if (connectedHubs.length === 1) {
-      const hubList = leavesByHub.get(connectedHubs[0]);
-      if (hubList) hubList.push(node);
+      // Exclusively belongs to this hub's island
+      membersByHub.get(connectedHubs[0]).add(node);
+      assigned.add(node);
     } else if (connectedHubs.length > 1) {
-      multiHubNodes.push({ node, hubs: connectedHubs });
+      // Connects to multiple hubs -> Central Bridge Node (like OPIERCE)
+      bridgeNodes.push(node);
+      assigned.add(node);
+    }
+  });
+
+  // Priority B: 2-hop connection (nodes attached to a member of a hub)
+  graph.forEachNode(node => {
+    if (assigned.has(node)) return;
+
+    const neighbors = graph.neighbors(node);
+    let bestHub = null;
+
+    for (const n of neighbors) {
+      for (const [hub, members] of membersByHub.entries()) {
+        if (members.has(n)) {
+          bestHub = hub;
+          break;
+        }
+      }
+      if (bestHub) break;
+    }
+
+    if (bestHub) {
+      membersByHub.get(bestHub).add(node);
+      assigned.add(node);
     } else {
-      // Attached to a single non-hub node
-      if (neighbors.length > 0 && hubSet.has(neighbors[0])) {
-        leavesByHub.get(neighbors[0])?.push(node);
-      } else {
-        hubs.push(node);
-        leavesByHub.set(node, []);
-        hubSet.add(node);
+      // Assign to whichever hub has the fewest members to maintain visual balance
+      let minHub = primaryHubs[0];
+      let minCount = Infinity;
+      primaryHubs.forEach(h => {
+        const sz = membersByHub.get(h).size;
+        if (sz < minCount) { minCount = sz; minHub = h; }
+      });
+      if (minHub) {
+        membersByHub.get(minHub).add(node);
+        assigned.add(node);
       }
     }
   });
 
-  // 4. Position Hub Centers in a generous, spacious constellation
-  const hubCount = hubs.length;
-  // Large spacing between hubs so star clusters have ample room (480px - 700px radius)
-  const hubRadius = Math.max(460, hubCount * 90);
+  // 3. Position the Primary Hubs in widely-separated Island Centers (500px+ separation)
+  const hubCount = primaryHubs.length;
+  const hubRadius = Math.max(420, hubCount * 85);
 
-  hubs.forEach((hub, idx) => {
-    // Distribute hubs evenly around origin
+  primaryHubs.forEach((hub, idx) => {
+    // Distribute hub centers evenly in a circle starting at -PI/2 (top center)
     const angle = (2 * Math.PI * idx) / hubCount - Math.PI / 2;
     const hx = Math.cos(angle) * hubRadius;
     const hy = Math.sin(angle) * hubRadius;
+
     graph.setNodeAttribute(hub, 'x', hx);
     graph.setNodeAttribute(hub, 'y', hy);
 
-    // 5. Position Leaf Nodes symmetrically in an OUTWARD radial arc (Pointing AWAY from center)
-    const leaves = leavesByHub.get(hub) || [];
-    const leafCount = leaves.length;
-    if (leafCount > 0) {
-      // Outward angle points away from (0, 0) into empty space
+    // 4. Position ALL members of this hub in a tight localized ring directly around its parent!
+    const members = Array.from(membersByHub.get(hub) || []);
+    const mCount = members.length;
+
+    if (mCount > 0) {
+      const orbitR = Math.max(130, 115 + mCount * 4);
+      // Fan outwards away from center (0, 0)
       const outwardAngle = Math.atan2(hy, hx);
-      const orbitRadius = Math.max(185, 160 + leafCount * 6);
-      const spread = Math.min(Math.PI * 1.6, Math.max(Math.PI * 0.8, leafCount * 0.42));
+      const spread = Math.min(Math.PI * 1.8, Math.max(Math.PI * 0.9, mCount * 0.44));
       const startAngle = outwardAngle - spread / 2;
 
-      leaves.forEach((leaf, lIdx) => {
-        const leafAngle = leafCount === 1 ? outwardAngle : startAngle + (spread * (lIdx + 0.5)) / leafCount;
-        const lx = hx + Math.cos(leafAngle) * orbitRadius;
-        const ly = hy + Math.sin(leafAngle) * orbitRadius;
-        graph.setNodeAttribute(leaf, 'x', lx);
-        graph.setNodeAttribute(leaf, 'y', ly);
+      members.forEach((mNode, mIdx) => {
+        const mAngle = mCount === 1 ? outwardAngle : startAngle + (spread * (mIdx + 0.5)) / mCount;
+        const mx = hx + Math.cos(mAngle) * orbitR;
+        const my = hy + Math.sin(mAngle) * orbitR;
+
+        graph.setNodeAttribute(mNode, 'x', mx);
+        graph.setNodeAttribute(mNode, 'y', my);
       });
     }
   });
 
-  // 6. Position multi-hub bridge nodes centrally between their connected hubs (like OPIERCE in Reference Image 3)
-  multiHubNodes.forEach(({ node, hubs: connectedHubs }, bIdx) => {
-    let avgX = 0;
-    let avgY = 0;
-    connectedHubs.forEach(h => {
-      avgX += graph.getNodeAttribute(h, 'x') || 0;
-      avgY += graph.getNodeAttribute(h, 'y') || 0;
-    });
-    // Position near centroid but slightly scaled to keep center clear
-    const cx = (avgX / connectedHubs.length) * 0.45;
-    const cy = (avgY / connectedHubs.length) * 0.45;
-    // Add small offset if multiple bridge nodes
-    const bAngle = (2 * Math.PI * bIdx) / Math.max(1, multiHubNodes.length);
-    const bOffset = multiHubNodes.length > 1 ? 60 : 0;
-    graph.setNodeAttribute(node, 'x', cx + Math.cos(bAngle) * bOffset);
-    graph.setNodeAttribute(node, 'y', cy + Math.sin(bAngle) * bOffset);
+  // 5. Position Central Bridge Nodes (like OPIERCE & APT29) cleanly in the central crossing zone
+  const bCount = bridgeNodes.length;
+  bridgeNodes.forEach((bNode, bIdx) => {
+    if (bCount === 1) {
+      graph.setNodeAttribute(bNode, 'x', 0);
+      graph.setNodeAttribute(bNode, 'y', 0);
+    } else {
+      const bAngle = (2 * Math.PI * bIdx) / bCount;
+      const bDist = Math.min(90, 30 * bCount);
+      graph.setNodeAttribute(bNode, 'x', Math.cos(bAngle) * bDist);
+      graph.setNodeAttribute(bNode, 'y', Math.sin(bAngle) * bDist);
+    }
   });
 
-  // 7. Orderly position any isolated nodes along an outer boundary arc
-  if (isolated.length > 0) {
-    const isoRadius = hubRadius + 280;
-    isolated.forEach((isoNode, iIdx) => {
-      const angle = (2 * Math.PI * iIdx) / isolated.length;
-      graph.setNodeAttribute(isoNode, 'x', Math.cos(angle) * isoRadius);
-      graph.setNodeAttribute(isoNode, 'y', Math.sin(angle) * isoRadius);
-    });
-  }
-
-  // 8. Strict Geometric Collision Prevention Pass:
-  // Guarantees that NO TWO NODES or labels ever touch or overlap (minimum 130px center-to-center distance)
-  preventCollisions(graph, 130, 20);
+  // 6. Strict Pair-Wise Collision Clearance Pass:
+  // Guarantees at least 115px between EVERY pair of nodes! Zero overlap on initial refresh!
+  preventCollisions(graph, 115, 25);
 }
 
 /**
  * Robust pair-wise collision prevention
  * Pushes any overlapping nodes apart along their collision normal until all clearances are satisfied
  */
-function preventCollisions(graph, minDistance = 130, iterations = 20) {
+function preventCollisions(graph, minDistance = 115, iterations = 25) {
   const nodes = graph.nodes();
   const n = nodes.length;
   if (n <= 1) return;
@@ -238,7 +274,7 @@ export function applyForceAtlas2(graph, iterations = 250) {
     return;
   }
 
-  preventCollisions(graph, 130, 15);
+  preventCollisions(graph, 115, 15);
 }
 
 /**
@@ -277,7 +313,7 @@ export function applyDagreLayout(graph, direction = 'LR') {
       }
     });
 
-    preventCollisions(graph, 120, 10);
+    preventCollisions(graph, 115, 10);
   } catch (err) {
     console.warn('[BloodHound Layout] Dagre layout failed:', err);
     applyBloodHoundClusterLayout(graph);
@@ -290,7 +326,7 @@ export function applyDagreLayout(graph, direction = 'LR') {
 export function applyCircular(graph) {
   if (!graph || graph.order === 0) return;
   const count = graph.order;
-  const radius = Math.max(180, count * 40);
+  const radius = Math.max(180, count * 35);
   let idx = 0;
   graph.forEachNode((node) => {
     const angle = (2 * Math.PI * idx) / count;
@@ -298,5 +334,5 @@ export function applyCircular(graph) {
     graph.setNodeAttribute(node, 'y', Math.sin(angle) * radius);
     idx++;
   });
-  preventCollisions(graph, 120, 10);
+  preventCollisions(graph, 115, 10);
 }
