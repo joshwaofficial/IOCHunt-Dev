@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import Sigma from 'sigma';
 import { MultiDirectedGraph } from 'graphology';
 import { drawBloodHoundNode, drawBloodHoundEdgeLabel } from './nodeIconHelper';
-import { applyForceAtlas2, applyDagreLayout } from './layoutManager';
+import { applyBloodHoundClusterLayout, applyForceAtlas2, applyDagreLayout } from './layoutManager';
 
 const AD_COL = {
   DCSync: '#ef4444',
@@ -72,7 +72,7 @@ export default function BloodHoundNodeDiagram({
     selectedNodeRef.current = selectedNode;
   }, [selectedNode]);
 
-  const [layoutMode, setLayoutMode] = useState('force'); // 'force' | 'dagre'
+  const [layoutMode, setLayoutMode] = useState('cluster'); // 'cluster' | 'force' | 'dagre'
   const [counts, setCounts] = useState({ nodes: 0, edges: 0 });
 
   // Build and render graph
@@ -108,17 +108,37 @@ export default function BloodHoundNodeDiagram({
       if (graph.hasNode(nid)) return nid;
 
       const mData = machinesMap.get(id) || {};
+      const isGroup = mData.entityType === 'group' || id.includes('SUBSYSTEM') || id.includes('ADMINS') || id.includes('MANAGEMENT');
+      const isUser = mData.entityType === 'user' || id.includes('@');
       const isCritical = mData.has_threat || (mData.threat_count && mData.threat_count > 0);
-      const color = isCritical ? '#ef4444' : '#3b82f6';
+
+      let color = '#3b82f6';
+      let iconType = 'machine';
+      let size = 18;
+
+      if (isGroup) {
+        color = '#eab308';
+        iconType = 'group';
+        size = 21;
+      } else if (isUser) {
+        color = '#22c55e';
+        iconType = 'user';
+        size = 18;
+      } else if (isCritical) {
+        color = '#ef4444';
+        iconType = 'critical';
+        size = 18;
+      }
 
       graph.addNode(nid, {
         label: id,
-        subLabel: mData.ip || 'Monitored Host',
-        iconType: isCritical ? 'critical' : 'machine',
+        subLabel: mData.ip || (isGroup ? 'Active Directory Group' : isUser ? 'User Account' : 'Monitored Host'),
+        iconType: iconType,
         borderColor: color,
         color: color,
-        size: 18,
-        entityType: 'machine',
+        size: size,
+        entityType: isGroup ? 'group' : isUser ? 'user' : 'machine',
+        memberCount: mData.memberCount || 0,
         raw: mData
       });
       return nid;
@@ -150,15 +170,16 @@ export default function BloodHoundNodeDiagram({
       const nid = 'a:' + key;
       if (graph.hasNode(nid)) return nid;
 
-      const col = adCol(type);
+      const isUser = label.includes('@') || label.startsWith('DA-');
+      const col = isUser ? '#22c55e' : adCol(type);
       graph.addNode(nid, {
         label: label,
-        subLabel: type || 'AD Actor',
-        iconType: 'actor',
+        subLabel: type || (isUser ? 'Domain Account' : 'AD Actor'),
+        iconType: isUser ? 'user' : 'actor',
         borderColor: col,
         color: col,
-        size: 16,
-        entityType: 'actor',
+        size: 18,
+        entityType: isUser ? 'user' : 'actor',
         raw: { actor: label, attack_type: type }
       });
       return nid;
@@ -328,8 +349,10 @@ export default function BloodHoundNodeDiagram({
     // Apply layout based on active mode
     if (layoutMode === 'dagre') {
       applyDagreLayout(graph);
+    } else if (layoutMode === 'force') {
+      applyForceAtlas2(graph, 250);
     } else {
-      applyForceAtlas2(graph, 120);
+      applyBloodHoundClusterLayout(graph);
     }
 
     // Initialize Sigma with BloodHound configuration
@@ -348,39 +371,41 @@ export default function BloodHoundNodeDiagram({
       stagePadding: 50,
       nodeReducer: (node, attrs) => {
         const res = { ...attrs };
-        const isLt = themeRef.current === 'light';
         res.theme = themeRef.current;
         const sel = selectedNodeRef.current;
         if (sel) {
           if (node === sel) {
             res.highlighted = true;
             res.selected = true;
-            res.size = (attrs.size || 15) * 1.25;
+            res.size = (attrs.size || 16) * 1.35;
           } else if (graph.areNeighbors(node, sel)) {
             res.highlighted = true;
-            res.selected = false;
+            res.isNeighbor = true;
+            res.size = (attrs.size || 16) * 1.1;
           } else {
-            res.color = isLt ? '#e2e8f0' : '#1e293b';
-            res.borderColor = isLt ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.1)';
-            res.iconColor = isLt ? '#94a3b8' : '#475569';
+            // NEVER TURN TO GRAY! Keep original colors, borders, and icons 100% intact!
+            res.highlighted = false;
+            res.selected = false;
+            res.isNeighbor = false;
           }
         }
         return res;
       },
       edgeReducer: (edge, attrs) => {
         const res = { ...attrs };
-        const isLt = themeRef.current === 'light';
         res.theme = themeRef.current;
         const sel = selectedNodeRef.current;
         if (sel) {
           const [src, tgt] = graph.extremities(edge);
           if (src === sel || tgt === sel) {
             res.color = attrs.color || '#3b82f6';
-            res.size = (attrs.size || 2) * 1.5;
+            res.size = (attrs.size || 2) * 2;
             res.zIndex = 10;
           } else {
-            res.color = isLt ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.04)';
-            res.label = '';
+            // Keep edge visible with subtle opacity so topology context remains visible
+            res.size = 1.2;
+            res.color = themeRef.current === 'light' ? 'rgba(148, 163, 184, 0.4)' : 'rgba(71, 85, 105, 0.4)';
+            res.zIndex = 1;
           }
         }
         return res;
@@ -512,8 +537,12 @@ export default function BloodHoundNodeDiagram({
   };
 
   const toggleLayout = () => {
-    const nextMode = layoutMode === 'force' ? 'dagre' : 'force';
-    setLayoutMode(nextMode);
+    const cycle = {
+      cluster: 'force',
+      force: 'dagre',
+      dagre: 'cluster'
+    };
+    setLayoutMode(cycle[layoutMode] || 'cluster');
   };
 
   const handleClearSelection = () => {
@@ -703,10 +732,10 @@ export default function BloodHoundNodeDiagram({
           <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>filter_center_focus</span>
         </button>
 
-        {/* Layout Switcher (ForceAtlas2 vs Dagre Tree) */}
+        {/* Layout Switcher (Star Clusters vs Physics vs Dagre Tree) */}
         <button
           onClick={toggleLayout}
-          title={`Switch Layout (Current: ${layoutMode === 'force' ? 'ForceAtlas2 Physics' : 'Dagre Tree'})`}
+          title={`Switch Layout (Current: ${layoutMode === 'cluster' ? 'BloodHound Star Clusters' : layoutMode === 'force' ? 'Physics ForceAtlas2' : 'Hierarchical Tree'})`}
           style={{
             height: '32px',
             padding: '0 8px',
@@ -715,7 +744,7 @@ export default function BloodHoundNodeDiagram({
             border: `1px solid ${controlBorder}`,
             boxShadow: isLight ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
             borderRadius: '6px',
-            color: layoutMode === 'dagre' ? '#a855f7' : '#3b82f6',
+            color: layoutMode === 'cluster' ? '#eab308' : layoutMode === 'dagre' ? '#a855f7' : '#3b82f6',
             cursor: 'pointer',
             fontSize: '11px',
             fontWeight: 700,
@@ -725,13 +754,13 @@ export default function BloodHoundNodeDiagram({
             fontFamily: 'var(--mono)',
             transition: 'all 0.15s'
           }}
-          onMouseOver={(e) => { e.currentTarget.style.background = controlHoverBg; e.currentTarget.style.borderColor = '#3b82f6'; }}
-          onMouseOut={(e) => { e.currentTarget.style.background = controlBg; e.currentTarget.style.borderColor = controlBorder; }}
+          onMouseOver={(e) => { e.currentTarget.style.background = controlHoverBg; }}
+          onMouseOut={(e) => { e.currentTarget.style.background = controlBg; }}
         >
           <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
-            {layoutMode === 'force' ? 'scatter_plot' : 'account_tree'}
+            {layoutMode === 'cluster' ? 'hub' : layoutMode === 'force' ? 'scatter_plot' : 'account_tree'}
           </span>
-          {layoutMode === 'force' ? 'Physics' : 'Tree'}
+          {layoutMode === 'cluster' ? 'Stars' : layoutMode === 'force' ? 'Physics' : 'Tree'}
         </button>
 
         {selectedNode && (
@@ -786,6 +815,9 @@ export default function BloodHoundNodeDiagram({
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
           <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #22c55e', background: legendNodeCore }}></span> User
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #eab308', background: legendNodeCore }}></span> Group
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
           <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #a855f7', background: legendNodeCore }}></span> AD Attack
