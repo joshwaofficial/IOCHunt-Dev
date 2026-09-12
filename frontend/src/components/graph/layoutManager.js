@@ -63,7 +63,7 @@ export function getConnectedComponents(graph) {
 export function applyAutomatedClusteredLayout(graph) {
   if (!graph || graph.order === 0) return;
 
-  // Step 1: Automatic Louvain Community Detection
+  // Step 1: Automatic Louvain Community Detection (Modularity clustering like Gephi)
   try {
     louvain.assign(graph);
   } catch (err) {
@@ -83,31 +83,49 @@ export function applyAutomatedClusteredLayout(graph) {
   const numComm = commList.length;
 
   // Step 2: Position community centers across widescreen canvas
-  const widescreenRadiusX = Math.max(550, numComm * 120);
-  const widescreenRadiusY = Math.max(350, numComm * 80);
+  const widescreenRadiusX = Math.max(800, numComm * 170);
+  const widescreenRadiusY = Math.max(480, numComm * 110);
 
   commList.forEach(([commId, members], cIdx) => {
+    // Identify community hub: prioritize Group entities or highest degree node
+    members.sort((a, b) => {
+      const labelA = (graph.getNodeAttribute(a, 'label') || a).toUpperCase();
+      const labelB = (graph.getNodeAttribute(b, 'label') || b).toUpperCase();
+      const isGroupA = labelA.includes('MANAGEMENT') || labelA.includes('ADMINS') || labelA.includes('SUBSYSTEM');
+      const isGroupB = labelB.includes('MANAGEMENT') || labelB.includes('ADMINS') || labelB.includes('SUBSYSTEM');
+      if (isGroupA && !isGroupB) return -1;
+      if (!isGroupA && isGroupB) return 1;
+      return graph.degree(b) - graph.degree(a);
+    });
+
+    const hub = members[0];
+    const otherMembers = members.slice(1);
+
     const angle = (2 * Math.PI * cIdx) / numComm - Math.PI / 2;
     const cx = Math.cos(angle) * widescreenRadiusX;
     const cy = Math.sin(angle) * widescreenRadiusY;
 
-    // Distribute members locally around community center
-    const mCount = members.length;
-    const localR = Math.max(160, 60 * Math.sqrt(mCount));
+    // Place central hub at community centroid
+    graph.setNodeAttribute(hub, 'x', cx);
+    graph.setNodeAttribute(hub, 'y', cy);
 
-    members.forEach((node, mIdx) => {
+    // Place member nodes radially around hub (BloodHound Star Constellation)
+    const mCount = otherMembers.length;
+    const spokeR = Math.max(240, 85 * Math.sqrt(mCount));
+
+    otherMembers.forEach((node, mIdx) => {
       const mAngle = (2 * Math.PI * mIdx) / mCount;
-      graph.setNodeAttribute(node, 'x', cx + Math.cos(mAngle) * localR);
-      graph.setNodeAttribute(node, 'y', cy + Math.sin(mAngle) * localR);
+      graph.setNodeAttribute(node, 'x', cx + Math.cos(mAngle) * spokeR);
+      graph.setNodeAttribute(node, 'y', cy + Math.sin(mAngle) * spokeR);
     });
   });
 
   // Step 3: ForceAtlas2 Continuous Physics Relaxation
   try {
     forceAtlas2.assign(graph, {
-      iterations: 150,
+      iterations: 120,
       settings: {
-        gravity: 0.0015,
+        gravity: 0.001,
         scalingRatio: 350,
         slowDown: 3.5,
         barnesHutOptimize: graph.order > 100,
@@ -122,8 +140,8 @@ export function applyAutomatedClusteredLayout(graph) {
   // Step 4: Center layout symmetrically at (0, 0)
   centerGraphAtOrigin(graph);
 
-  // Step 5: Strict Elliptical Noverlap pass
-  preventEllipticalCollisions(graph, 230, 135, 45);
+  // Step 5: Strict Elliptical Noverlap pass (guarantees zero overlapping pills or labels)
+  preventEllipticalCollisions(graph, 220, 130, 60);
 }
 
 /**
@@ -301,29 +319,14 @@ function applyPresetCorridorLayout(graph) {
 }
 
 /**
- * Unified BloodHound Adaptive Layout:
- * - If graph matches the fixed simulation benchmark (>70% match), uses tuned corridor positions.
- * - For ANY dynamic, real-time enterprise dataset, automatically computes Louvain communities,
- *   widescreen zoning, ForceAtlas2 relaxation, and elliptical anti-collision!
+ * BloodHound Automated Clustered Layout:
+ * Automatically computes Louvain modularity communities, places central hubs and radial star spokes,
+ * executes ForceAtlas2 continuous physics relaxation, and applies strict elliptical anti-collision!
+ * 100% Dynamic & Automatic — Works for arbitrary live networks, simulation data, and Active Directory domains.
  */
 export function applyBloodHoundClusterLayout(graph) {
   if (!graph || graph.order === 0) return;
-
-  let matchedCount = 0;
-  graph.forEachNode((node, attrs) => {
-    const rawLabel = (attrs.label || node).replace(/^[mi]:/, '').toUpperCase();
-    if (PRESET_COORDINATES.some(p => p.match(rawLabel))) {
-      matchedCount++;
-    }
-  });
-
-  const matchRatio = matchedCount / graph.order;
-
-  if (matchRatio >= 0.7) {
-    applyPresetCorridorLayout(graph);
-  } else {
-    applyAutomatedClusteredLayout(graph);
-  }
+  applyAutomatedClusteredLayout(graph);
 }
 
 /**
