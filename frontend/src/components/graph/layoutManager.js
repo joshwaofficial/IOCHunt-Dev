@@ -118,7 +118,57 @@ export function applyBloodHoundClusterLayout(graph) {
     }
   });
 
-  // Step 2: Dynamically place any remaining or arbitrary nodes with generous spacing
+  // Step 2: If no preset nodes matched (e.g. AD sample file or arbitrary network):
+  // Detect primary hubs and organize into clean, spacious community star clusters!
+  if (placed.size === 0) {
+    const nodesByDegree = graph.nodes().map(n => {
+      const attrs = graph.getNodeAttributes(n);
+      const label = (attrs.label || n).toUpperCase();
+      const isGroup = attrs.entityType === 'group' || label.includes('ADMINS') || label.includes('OPERATORS');
+      return {
+        node: n,
+        deg: graph.degree(n),
+        isGroup
+      };
+    });
+
+    nodesByDegree.sort((a, b) => {
+      if (a.isGroup && !b.isGroup) return -1;
+      if (!a.isGroup && b.isGroup) return 1;
+      return b.deg - a.deg;
+    });
+
+    const primaryHubs = nodesByDegree.filter(item => item.deg >= 1).slice(0, 10).map(item => item.node);
+    const hubCount = primaryHubs.length;
+
+    if (hubCount > 0) {
+      const radiusX = Math.max(620, hubCount * 130);
+      const radiusY = Math.max(390, hubCount * 85);
+
+      primaryHubs.forEach((hub, hIdx) => {
+        const angle = (2 * Math.PI * hIdx) / hubCount - Math.PI / 2;
+        const hx = Math.cos(angle) * radiusX;
+        const hy = Math.sin(angle) * radiusY;
+        graph.setNodeAttribute(hub, 'x', hx);
+        graph.setNodeAttribute(hub, 'y', hy);
+        placed.add(hub);
+
+        const neighbors = graph.neighbors(hub).filter(n => !placed.has(n));
+        const nCount = neighbors.length;
+        if (nCount > 0) {
+          const spokeR = Math.max(220, 50 * Math.sqrt(nCount));
+          neighbors.forEach((nbr, nIdx) => {
+            const nAngle = angle + ((2 * Math.PI * nIdx) / nCount);
+            graph.setNodeAttribute(nbr, 'x', hx + Math.cos(nAngle) * spokeR);
+            graph.setNodeAttribute(nbr, 'y', hy + Math.sin(nAngle) * spokeR);
+            placed.add(nbr);
+          });
+        }
+      });
+    }
+  }
+
+  // Step 3: Dynamically place any remaining or arbitrary nodes with generous spacing
   const unplaced = graph.nodes().filter(n => !placed.has(n));
   if (unplaced.length > 0) {
     unplaced.forEach((node, idx) => {
@@ -147,10 +197,31 @@ export function applyBloodHoundClusterLayout(graph) {
     });
   }
 
-  // Step 3: Strict Elliptical Collision Prevention:
+  // Step 4: Strict Elliptical Collision Prevention:
   // Enforces at least 240px horizontal and 140px vertical clearance between EVERY pair of nodes!
-  // Prevents any two labels or node pills from ever touching or overlapping on initial load!
   preventEllipticalCollisions(graph, 240, 140, 45);
+  centerGraphAtOrigin(graph);
+}
+
+/**
+ * Centers graph bounding box symmetrically at origin (0, 0)
+ */
+function centerGraphAtOrigin(graph) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  graph.forEachNode((node, attrs) => {
+    if (attrs.x < minX) minX = attrs.x;
+    if (attrs.x > maxX) maxX = attrs.x;
+    if (attrs.y < minY) minY = attrs.y;
+    if (attrs.y > maxY) maxY = attrs.y;
+  });
+
+  const midX = (minX + maxX) / 2;
+  const midY = (minY + maxY) / 2;
+
+  graph.forEachNode((node, attrs) => {
+    graph.setNodeAttribute(node, 'x', attrs.x - midX);
+    graph.setNodeAttribute(node, 'y', attrs.y - midY);
+  });
 }
 
 /**

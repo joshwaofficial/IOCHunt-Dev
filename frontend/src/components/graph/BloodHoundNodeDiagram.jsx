@@ -308,7 +308,10 @@ export default function BloodHoundNodeDiagram({
     adAttacks.forEach(a => {
       const toId = ensureMachine(a.target_machine);
       let fromId;
-      if (a.remote_ip && isPrivate(a.remote_ip)) {
+      const mActorId = a.actor ? ('m:' + a.actor) : null;
+      if (mActorId && graph.hasNode(mActorId)) {
+        fromId = mActorId;
+      } else if (a.remote_ip && isPrivate(a.remote_ip)) {
         fromId = ensureIp(a.remote_ip);
       } else {
         const ak = (a.actor || '?') + '|' + a.attack_type;

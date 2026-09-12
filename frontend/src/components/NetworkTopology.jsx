@@ -5,6 +5,7 @@ import { useFilter } from '../context/FilterContext';
 import { useTheme } from '../context/ThemeContext';
 import BloodHoundNodeDiagram from './graph/BloodHoundNodeDiagram';
 import { getSimulatedTopologyData } from './graph/simulatedTopologyData';
+import { getADSampleManifest, getADSidMap, loadADSampleFile } from './graph/adSampleParser';
 
 function isPrivate(ip) {
   return /^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.)/.test(ip);
@@ -15,6 +16,13 @@ export default function NetworkTopology({ initialData } = {}) {
 
   const { theme } = useTheme();
   const [isSimulated, setIsSimulated] = useState(false);
+  const [adSampleActive, setAdSampleActive] = useState(false);
+  const [adSampleIndex, setAdSampleIndex] = useState(0);
+  const [adManifest, setAdManifest] = useState([]);
+  const [adSampleLoading, setAdSampleLoading] = useState(false);
+  const [adSampleMeta, setAdSampleMeta] = useState(null);
+  const adSampleDataRef = useRef(null);
+
   const { machine } = useFilter();
   const [counts, setCounts] = useState({ in: 0, out: 0, lat: 0, ad: 0 });
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -154,7 +162,127 @@ export default function NetworkTopology({ initialData } = {}) {
     setActiveFlows(flowRows);
   }, []);
 
+  // Load AD Sample manifest on mount
+  useEffect(() => {
+    getADSampleManifest().then(manifest => {
+      if (Array.isArray(manifest) && manifest.length > 0) {
+        setAdManifest(manifest);
+      }
+    });
+  }, []);
+
+  const loadSampleByIndex = useCallback(async (index, manifestList) => {
+    const list = manifestList || adManifest;
+    if (!list || list.length === 0) return;
+    const target = list[index];
+    if (!target) return;
+
+    setAdSampleLoading(true);
+    try {
+      const sMap = await getADSidMap();
+      const parsed = await loadADSampleFile(target.filename, sMap);
+      adSampleDataRef.current = parsed;
+      setAdSampleMeta(parsed.meta);
+
+      setCounts({
+        in: 0,
+        out: 0,
+        lat: (parsed.lateral || []).length,
+        ad: (parsed.ad_attacks || []).length
+      });
+
+      updateActiveDatasets(
+        [],
+        [],
+        parsed.ad_attacks || [],
+        parsed.lateral || [],
+        parsed.machines || []
+      );
+    } catch (err) {
+      console.error('Failed to load AD sample file:', err);
+    } finally {
+      setAdSampleLoading(false);
+    }
+  }, [adManifest, updateActiveDatasets]);
+
+  const toggleADSample = useCallback(async () => {
+    if (!adSampleActive) {
+      setIsSimulated(false);
+      setAdSampleActive(true);
+      let list = adManifest;
+      if (!list || list.length === 0) {
+        list = await getADSampleManifest();
+        setAdManifest(list);
+      }
+      loadSampleByIndex(adSampleIndex, list);
+    } else {
+      setAdSampleActive(false);
+      adSampleDataRef.current = null;
+      setAdSampleMeta(null);
+      const raw = rawDataRef.current || { inbound: [], outbound: [], lateral: [], ad_attacks: [], machines: [] };
+      setCounts({
+        in: (raw.inbound || []).length,
+        out: (raw.outbound || []).length,
+        lat: (raw.lateral || []).length,
+        ad: (raw.ad_attacks || []).length
+      });
+      applyFilter();
+    }
+  }, [adSampleActive, adManifest, adSampleIndex, loadSampleByIndex, applyFilter]);
+
+  const handleNextADSample = useCallback(() => {
+    if (!adManifest || adManifest.length === 0) return;
+    const nextIdx = (adSampleIndex + 1) % adManifest.length;
+    setAdSampleIndex(nextIdx);
+    loadSampleByIndex(nextIdx);
+  }, [adManifest, adSampleIndex, loadSampleByIndex]);
+
+  const handlePrevADSample = useCallback(() => {
+    if (!adManifest || adManifest.length === 0) return;
+    const prevIdx = (adSampleIndex - 1 + adManifest.length) % adManifest.length;
+    setAdSampleIndex(prevIdx);
+    loadSampleByIndex(prevIdx);
+  }, [adManifest, adSampleIndex, loadSampleByIndex]);
+
+  const handleSelectADSample = useCallback((idx) => {
+    setAdSampleIndex(idx);
+    loadSampleByIndex(idx);
+  }, [loadSampleByIndex]);
+
   const applyFilter = useCallback(() => {
+    if (adSampleActive && adSampleDataRef.current) {
+      const raw = adSampleDataRef.current;
+      const src = filterSrc.trim().toLowerCase();
+      const dst = filterDst.trim().toLowerCase();
+      const proto = filterProto.trim().toLowerCase();
+      const dir = filterDir.trim();
+
+      const noFilter = !src && !dst && !proto && !dir;
+      if (noFilter) {
+        setFilterCountMsg('');
+        updateActiveDatasets([], [], raw.ad_attacks, raw.lateral, raw.machines);
+        return;
+      }
+
+      const lat = (dir === 'in' || dir === 'out' || dir === 'ad') ? [] : (raw.lateral || []).filter(c =>
+        (!src || (c.source || '').toLowerCase().includes(src)) &&
+        (!dst || (c.target || '').toLowerCase().includes(dst)) &&
+        (!proto || (c.protocol || '').toLowerCase().includes(proto))
+      );
+
+      const ad = (dir === 'in' || dir === 'out') ? [] : (raw.ad_attacks || []).filter(c =>
+        (!src || (c.actor || '').toLowerCase().includes(src)) &&
+        (!dst || (c.target_machine || '').toLowerCase().includes(dst)) &&
+        (!proto || (c.attack_type || '').toLowerCase().includes(proto))
+      );
+
+      const total = lat.length + ad.length;
+      setFilterCountMsg(`${total} connection${total !== 1 ? 's' : ''} shown`);
+
+      updateActiveDatasets([], [], ad, lat, raw.machines);
+      return;
+    }
+
     const raw = isSimulated ? getSimulatedTopologyData() : rawDataRef.current;
     if (!raw || !raw.inbound) return;
 
@@ -202,14 +330,14 @@ export default function NetworkTopology({ initialData } = {}) {
     setFilterCountMsg(`${total} connection${total !== 1 ? 's' : ''} shown`);
 
     updateActiveDatasets(ib, ob, ad, lat, raw.machines);
-  }, [filterSrc, filterDst, filterPort, filterProto, filterDir, isSimulated, updateActiveDatasets]);
+  }, [filterSrc, filterDst, filterPort, filterProto, filterDir, isSimulated, adSampleActive, updateActiveDatasets]);
 
   const fetchTopology = useCallback(async () => {
     try {
       const res = await axios.get(`/api/events/network/topology?hours=${localRange}&machine=${machine}`);
       rawDataRef.current = res.data || { inbound: [], outbound: [], lateral: [], ad_attacks: [], machines: [] };
 
-      if (!isSimulated) {
+      if (!isSimulated && !adSampleActive) {
         const { inbound = [], outbound = [], lateral = [], ad_attacks = [] } = rawDataRef.current;
         setCounts({
           in: inbound.length,
@@ -222,10 +350,11 @@ export default function NetworkTopology({ initialData } = {}) {
     } catch (err) {
       console.error('Failed to load topology', err);
     }
-  }, [localRange, machine, applyFilter, isSimulated]);
+  }, [localRange, machine, applyFilter, isSimulated, adSampleActive]);
 
   // Sync simulation toggle with active dataset
   useEffect(() => {
+    if (adSampleActive) return;
     const raw = isSimulated ? getSimulatedTopologyData() : rawDataRef.current;
     if (raw) {
       const { inbound = [], outbound = [], lateral = [], ad_attacks = [] } = raw;
@@ -237,24 +366,28 @@ export default function NetworkTopology({ initialData } = {}) {
       });
     }
     applyFilter();
-  }, [isSimulated, applyFilter]);
+  }, [isSimulated, applyFilter, adSampleActive]);
 
   useEffect(() => {
     if (initialData && (!rawDataRef.current.inbound || rawDataRef.current.inbound.length === 0)) {
       rawDataRef.current = initialData;
-      const { inbound = [], outbound = [], lateral = [], ad_attacks = [] } = initialData;
-      setCounts({
-        in: inbound.length,
-        out: outbound.length,
-        lat: lateral.length,
-        ad: ad_attacks.length
-      });
-      applyFilter();
+      if (!isSimulated && !adSampleActive) {
+        const { inbound = [], outbound = [], lateral = [], ad_attacks = [] } = initialData;
+        setCounts({
+          in: inbound.length,
+          out: outbound.length,
+          lat: lateral.length,
+          ad: ad_attacks.length
+        });
+        applyFilter();
+      }
       return;
     }
     localStorage.setItem('topoRange', localRange);
-    fetchTopology();
-  }, [localRange, machine, initialData, applyFilter, fetchTopology]);
+    if (!isSimulated && !adSampleActive) {
+      fetchTopology();
+    }
+  }, [localRange, machine, initialData, applyFilter, fetchTopology, isSimulated, adSampleActive]);
 
   const isMountedRef = useRef(false);
   useEffect(() => {
@@ -445,7 +578,14 @@ export default function NetworkTopology({ initialData } = {}) {
             <span style={{ color: '#a855f7' }}><span style={{ display: 'inline-block', width: '8px', height: '2px', background: '#a855f7', marginRight: '4px', verticalAlign: 'middle' }}></span>{counts.ad} AD</span>
 
             <button
-              onClick={() => setIsSimulated(prev => !prev)}
+              onClick={() => {
+                if (adSampleActive) {
+                  setAdSampleActive(false);
+                  adSampleDataRef.current = null;
+                  setAdSampleMeta(null);
+                }
+                setIsSimulated(prev => !prev);
+              }}
               title={isSimulated ? "Simulation active. Click to return to real live database data" : "Simulate 60+ nodes and attack paths"}
               style={{
                 background: isSimulated ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'var(--surface2)',
@@ -469,6 +609,121 @@ export default function NetworkTopology({ initialData } = {}) {
               </span>
               {isSimulated ? 'Simulation (60+ Nodes)' : 'Simulate 60+ Nodes'}
             </button>
+
+            {/* AD Sample Files Simulation Browser */}
+            <button
+              onClick={toggleADSample}
+              title={adSampleActive ? "AD Sample simulation active. Click to return to live data" : "Simulate and browse 31 real BloodHound AD sample data files"}
+              style={{
+                background: adSampleActive ? 'linear-gradient(135deg, #8b5cf6, #6366f1)' : 'var(--surface2)',
+                border: adSampleActive ? '1px solid #8b5cf6' : '1px solid var(--border)',
+                color: adSampleActive ? '#ffffff' : 'var(--text)',
+                borderRadius: '4px',
+                padding: '3px 10px',
+                cursor: 'pointer',
+                fontSize: '11px',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                marginLeft: '6px',
+                transition: 'all 0.2s',
+                boxShadow: adSampleActive ? '0 0 10px rgba(139, 92, 246, 0.4)' : 'none'
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>
+                {adSampleActive ? 'folder_open' : 'folder'}
+              </span>
+              {adSampleActive ? 'AD Samples Active' : 'AD Samples (31 Files)'}
+            </button>
+
+            {adSampleActive && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginLeft: '4px' }}>
+                <button
+                  onClick={handlePrevADSample}
+                  disabled={adSampleLoading}
+                  title="Previous AD sample file"
+                  style={{
+                    background: 'var(--surface2)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text)',
+                    borderRadius: '4px',
+                    padding: '3px 7px',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '2px'
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>chevron_left</span>
+                  Prev
+                </button>
+
+                <button
+                  onClick={handleNextADSample}
+                  disabled={adSampleLoading}
+                  title="Next AD sample file — Click to step through files one by one"
+                  style={{
+                    background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
+                    border: '1px solid #8b5cf6',
+                    color: '#ffffff',
+                    borderRadius: '4px',
+                    padding: '3px 9px',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '2px',
+                    boxShadow: '0 0 8px rgba(139, 92, 246, 0.35)'
+                  }}
+                >
+                  Next
+                  <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>chevron_right</span>
+                </button>
+
+                <select
+                  value={adSampleIndex}
+                  onChange={e => handleSelectADSample(Number(e.target.value))}
+                  style={{
+                    background: 'var(--surface-solid)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text)',
+                    borderRadius: '4px',
+                    padding: '3px 6px',
+                    fontSize: '11px',
+                    fontFamily: 'var(--sans)',
+                    maxWidth: '220px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {adManifest.map((item, idx) => (
+                    <option key={item.id ?? idx} value={idx}>
+                      [{idx + 1}/31] {item.title || item.filename}
+                    </option>
+                  ))}
+                </select>
+
+                {adSampleMeta && (
+                  <span
+                    style={{
+                      fontSize: '10px',
+                      color: 'var(--muted)',
+                      fontFamily: 'var(--mono)',
+                      background: 'var(--surface-solid)',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      border: '1px solid var(--border)',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {adSampleMeta.displayedNodes} nodes · {adSampleMeta.displayedEdges} edges
+                  </span>
+                )}
+              </div>
+            )}
 
             <button
               onClick={toggleFullscreen}
