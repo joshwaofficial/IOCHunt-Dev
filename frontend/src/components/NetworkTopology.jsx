@@ -441,8 +441,8 @@ export default function NetworkTopology({ initialData } = {}) {
         id="networkTopoContainer"
         style={{
           background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: '12px',
+          border: isFullscreen ? 'none' : '1px solid var(--border)',
+          borderRadius: isFullscreen ? '0' : '12px',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
@@ -450,13 +450,13 @@ export default function NetworkTopology({ initialData } = {}) {
           ...(isFullscreen
             ? {
                 position: 'fixed',
-                top: '2vh',
-                left: '2vw',
-                width: '96vw',
-                height: '96vh',
+                top: '0',
+                left: '0',
+                width: '100vw',
+                height: '100vh',
                 zIndex: 99999,
                 margin: 0,
-                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)'
+                boxShadow: 'none'
               }
             : { flex: 1 })
         }}
