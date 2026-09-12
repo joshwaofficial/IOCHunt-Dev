@@ -162,6 +162,89 @@ export default function NetworkTopology({ initialData } = {}) {
     setActiveFlows(flowRows);
   }, []);
 
+  const applyFilter = useCallback(() => {
+    if (adSampleActive && adSampleDataRef.current) {
+      const raw = adSampleDataRef.current;
+      const src = filterSrc.trim().toLowerCase();
+      const dst = filterDst.trim().toLowerCase();
+      const proto = filterProto.trim().toLowerCase();
+      const dir = filterDir.trim();
+
+      const noFilter = !src && !dst && !proto && !dir;
+      if (noFilter) {
+        setFilterCountMsg('');
+        updateActiveDatasets([], [], raw.ad_attacks, raw.lateral, raw.machines);
+        return;
+      }
+
+      const lat = (dir === 'in' || dir === 'out' || dir === 'ad') ? [] : (raw.lateral || []).filter(c =>
+        (!src || (c.source || '').toLowerCase().includes(src)) &&
+        (!dst || (c.target || '').toLowerCase().includes(dst)) &&
+        (!proto || (c.protocol || '').toLowerCase().includes(proto))
+      );
+
+      const ad = (dir === 'in' || dir === 'out') ? [] : (raw.ad_attacks || []).filter(c =>
+        (!src || (c.actor || '').toLowerCase().includes(src)) &&
+        (!dst || (c.target_machine || '').toLowerCase().includes(dst)) &&
+        (!proto || (c.attack_type || '').toLowerCase().includes(proto))
+      );
+
+      const total = lat.length + ad.length;
+      setFilterCountMsg(`${total} connection${total !== 1 ? 's' : ''} shown`);
+
+      updateActiveDatasets([], [], ad, lat, raw.machines);
+      return;
+    }
+
+    const raw = isSimulated ? getSimulatedTopologyData() : rawDataRef.current;
+    if (!raw || !raw.inbound) return;
+
+    const src = filterSrc.trim().toLowerCase();
+    const dst = filterDst.trim().toLowerCase();
+    const port = filterPort.trim();
+    const proto = filterProto.trim().toLowerCase();
+    const dir = filterDir.trim();
+
+    const noFilter = !src && !dst && !port && !proto && !dir;
+    if (noFilter) {
+      setFilterCountMsg('');
+      updateActiveDatasets(raw.inbound, raw.outbound, raw.ad_attacks, raw.lateral, raw.machines);
+      return;
+    }
+
+    const matchPort = (c) => !port || String(c.port || '') === port;
+    const matchProto = (p) => !proto || (p || '').toLowerCase().includes(proto);
+
+    const ib = (dir === 'out' || dir === 'ad') ? [] : raw.inbound.filter(c =>
+      (!src || (c.from_ip || c.from_machine || '').toLowerCase().includes(src)) &&
+      (!dst || (c.to_machine || '').toLowerCase().includes(dst)) &&
+      matchPort(c) && matchProto(c.protocol)
+    );
+
+    const ob = (dir === 'in' || dir === 'ad') ? [] : raw.outbound.filter(c =>
+      (!src || (c.from_machine || '').toLowerCase().includes(src)) &&
+      (!dst || (c.to_ip || c.to_machine || '').toLowerCase().includes(dst)) &&
+      matchPort(c) && matchProto(c.protocol)
+    );
+
+    const lat = (dir === 'in' || dir === 'out' || dir === 'ad') ? [] : raw.lateral.filter(c =>
+      (!src || (c.source || '').toLowerCase().includes(src)) &&
+      (!dst || (c.target || '').toLowerCase().includes(dst)) &&
+      matchPort(c) && matchProto(c.protocol)
+    );
+
+    const ad = (dir === 'in' || dir === 'out') ? [] : raw.ad_attacks.filter(c =>
+      (!src || (c.actor || c.remote_ip || '').toLowerCase().includes(src)) &&
+      (!dst || (c.target_machine || '').toLowerCase().includes(dst)) &&
+      matchProto(c.protocol)
+    );
+
+    const total = ib.length + ob.length + lat.length + ad.length;
+    setFilterCountMsg(`${total} connection${total !== 1 ? 's' : ''} shown`);
+
+    updateActiveDatasets(ib, ob, ad, lat, raw.machines);
+  }, [filterSrc, filterDst, filterPort, filterProto, filterDir, isSimulated, adSampleActive, updateActiveDatasets]);
+
   // Load AD Sample manifest on mount
   useEffect(() => {
     getADSampleManifest().then(manifest => {
@@ -248,89 +331,6 @@ export default function NetworkTopology({ initialData } = {}) {
     setAdSampleIndex(idx);
     loadSampleByIndex(idx);
   }, [loadSampleByIndex]);
-
-  const applyFilter = useCallback(() => {
-    if (adSampleActive && adSampleDataRef.current) {
-      const raw = adSampleDataRef.current;
-      const src = filterSrc.trim().toLowerCase();
-      const dst = filterDst.trim().toLowerCase();
-      const proto = filterProto.trim().toLowerCase();
-      const dir = filterDir.trim();
-
-      const noFilter = !src && !dst && !proto && !dir;
-      if (noFilter) {
-        setFilterCountMsg('');
-        updateActiveDatasets([], [], raw.ad_attacks, raw.lateral, raw.machines);
-        return;
-      }
-
-      const lat = (dir === 'in' || dir === 'out' || dir === 'ad') ? [] : (raw.lateral || []).filter(c =>
-        (!src || (c.source || '').toLowerCase().includes(src)) &&
-        (!dst || (c.target || '').toLowerCase().includes(dst)) &&
-        (!proto || (c.protocol || '').toLowerCase().includes(proto))
-      );
-
-      const ad = (dir === 'in' || dir === 'out') ? [] : (raw.ad_attacks || []).filter(c =>
-        (!src || (c.actor || '').toLowerCase().includes(src)) &&
-        (!dst || (c.target_machine || '').toLowerCase().includes(dst)) &&
-        (!proto || (c.attack_type || '').toLowerCase().includes(proto))
-      );
-
-      const total = lat.length + ad.length;
-      setFilterCountMsg(`${total} connection${total !== 1 ? 's' : ''} shown`);
-
-      updateActiveDatasets([], [], ad, lat, raw.machines);
-      return;
-    }
-
-    const raw = isSimulated ? getSimulatedTopologyData() : rawDataRef.current;
-    if (!raw || !raw.inbound) return;
-
-    const src = filterSrc.trim().toLowerCase();
-    const dst = filterDst.trim().toLowerCase();
-    const port = filterPort.trim();
-    const proto = filterProto.trim().toLowerCase();
-    const dir = filterDir.trim();
-
-    const noFilter = !src && !dst && !port && !proto && !dir;
-    if (noFilter) {
-      setFilterCountMsg('');
-      updateActiveDatasets(raw.inbound, raw.outbound, raw.ad_attacks, raw.lateral, raw.machines);
-      return;
-    }
-
-    const matchPort = (c) => !port || String(c.port || '') === port;
-    const matchProto = (p) => !proto || (p || '').toLowerCase().includes(proto);
-
-    const ib = (dir === 'out' || dir === 'ad') ? [] : raw.inbound.filter(c =>
-      (!src || (c.from_ip || c.from_machine || '').toLowerCase().includes(src)) &&
-      (!dst || (c.to_machine || '').toLowerCase().includes(dst)) &&
-      matchPort(c) && matchProto(c.protocol)
-    );
-
-    const ob = (dir === 'in' || dir === 'ad') ? [] : raw.outbound.filter(c =>
-      (!src || (c.from_machine || '').toLowerCase().includes(src)) &&
-      (!dst || (c.to_ip || c.to_machine || '').toLowerCase().includes(dst)) &&
-      matchPort(c) && matchProto(c.protocol)
-    );
-
-    const lat = (dir === 'in' || dir === 'out' || dir === 'ad') ? [] : raw.lateral.filter(c =>
-      (!src || (c.source || '').toLowerCase().includes(src)) &&
-      (!dst || (c.target || '').toLowerCase().includes(dst)) &&
-      matchPort(c) && matchProto(c.protocol)
-    );
-
-    const ad = (dir === 'in' || dir === 'out') ? [] : raw.ad_attacks.filter(c =>
-      (!src || (c.actor || c.remote_ip || '').toLowerCase().includes(src)) &&
-      (!dst || (c.target_machine || '').toLowerCase().includes(dst)) &&
-      matchProto(c.protocol)
-    );
-
-    const total = ib.length + ob.length + lat.length + ad.length;
-    setFilterCountMsg(`${total} connection${total !== 1 ? 's' : ''} shown`);
-
-    updateActiveDatasets(ib, ob, ad, lat, raw.machines);
-  }, [filterSrc, filterDst, filterPort, filterProto, filterDir, isSimulated, adSampleActive, updateActiveDatasets]);
 
   const fetchTopology = useCallback(async () => {
     try {
