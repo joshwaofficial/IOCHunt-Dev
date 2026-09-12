@@ -89,50 +89,14 @@ function getFullPathHighlightedEntities(graph, highlightedItem) {
 
 /**
  * BloodHound camera auto-framing:
- * Centers and scales camera so all graph nodes fit with 25% safety padding.
+ * Resets camera to fit all graph nodes cleanly inside the viewport with padding.
  */
 function centerCameraOnGraph(sigma) {
   if (!sigma) return;
   const graph = sigma.getGraph();
   if (graph.order === 0) return;
-
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  graph.forEachNode((node, attrs) => {
-    if (typeof attrs.x === 'number' && typeof attrs.y === 'number') {
-      if (attrs.x < minX) minX = attrs.x;
-      if (attrs.x > maxX) maxX = attrs.x;
-      if (attrs.y < minY) minY = attrs.y;
-      if (attrs.y > maxY) maxY = attrs.y;
-    }
-  });
-
-  if (!isFinite(minX)) return;
-
-  const graphWidth = Math.max(maxX - minX, 80);
-  const graphHeight = Math.max(maxY - minY, 80);
-  const { width: frameWidth, height: frameHeight } = sigma.getDimensions();
-
-  const ratioX = graphWidth / Math.max(frameWidth, 1);
-  const ratioY = graphHeight / Math.max(frameHeight, 1);
-  let targetRatio = Math.max(ratioX, ratioY) * 1.25;
-
-  targetRatio = Math.max(0.05, Math.min(15, targetRatio));
-
   const camera = sigma.getCamera();
-  camera.animate(
-    {
-      x: 0.5,
-      y: 0.5,
-      ratio: targetRatio
-    },
-    {
-      easing: 'quadraticOut',
-      duration: 350
-    },
-    () => {
-      sigma.refresh();
-    }
-  );
+  camera.animatedReset({ duration: 350 });
 }
 
 export default function BloodHoundNodeDiagram({
@@ -213,37 +177,62 @@ export default function BloodHoundNodeDiagram({
       if (graph.hasNode(nid)) return nid;
 
       const mData = machinesMap.get(id) || {};
-      const isGroup = mData.entityType === 'group' || id.includes('SUBSYSTEM') || id.includes('ADMINS') || id.includes('MANAGEMENT');
-      const isUser = mData.entityType === 'user' || id.includes('@');
-      const isCritical = mData.has_threat || (mData.threat_count && mData.threat_count > 0);
+      const rawType = (mData.entityType || '').toLowerCase();
+      const uId = id.toUpperCase();
 
-      let color = '#3b82f6';
       let iconType = 'machine';
-      let size = 14;
+      let color = KIND_COLORS.machine || '#E67873';
 
-      if (isGroup) {
-        color = '#eab308';
-        iconType = 'group';
-        size = 14;
-      } else if (isUser) {
-        color = '#22c55e';
+      if (rawType === 'user' || (uId.includes('@') && !uId.includes('-CA'))) {
         iconType = 'user';
-        size = 13;
-      } else if (isCritical) {
-        color = '#ef4444';
+        color = KIND_COLORS.user; // #17E625
+      } else if (rawType === 'group' || uId.includes('ADMINS') || uId.includes('OPERATORS') || uId.includes('SUBSYSTEM') || uId.includes('MANAGEMENT')) {
+        iconType = 'group';
+        color = KIND_COLORS.group; // #DBE617
+      } else if (rawType === 'container' || uId.includes('CONTAINER') || uId.includes('CN=') || uId.includes('SYSTEM VOLUME')) {
+        iconType = 'container';
+        color = KIND_COLORS.container; // #F79A78
+      } else if (rawType === 'gpo' || uId.includes('GPO') || uId.includes('POLICY')) {
+        iconType = 'gpo';
+        color = KIND_COLORS.gpo; // #998EFD
+      } else if (rawType === 'ou') {
+        iconType = 'ou';
+        color = KIND_COLORS.ou; // #FFAA00
+      } else if (rawType === 'domain' || uId.endsWith('.CORP') || uId.endsWith('.LOCAL')) {
+        iconType = 'domain';
+        color = KIND_COLORS.domain; // #17E6B9
+      } else if (rawType === 'enterpriseca' || uId.includes('-CA') || uId.includes('ENTERPRISECA')) {
+        iconType = 'enterpriseca';
+        color = KIND_COLORS.enterpriseca; // #4696E9
+      } else if (rawType === 'rootca' || uId.includes('ROOTCA')) {
+        iconType = 'rootca';
+        color = KIND_COLORS.rootca; // #6968E8
+      } else if (rawType === 'certtemplate' || uId.includes('TEMPLATE')) {
+        iconType = 'certtemplate';
+        color = KIND_COLORS.certtemplate; // #B153F3
+      } else if (rawType === 'aiaca') {
+        iconType = 'aiaca';
+        color = KIND_COLORS.aiaca; // #9769F0
+      } else if (rawType === 'ntauthstore') {
+        iconType = 'ntauthstore';
+        color = KIND_COLORS.ntauthstore; // #D575F5
+      } else if (mData.has_threat || (mData.threat_count && mData.threat_count > 0)) {
         iconType = 'critical';
-        size = 14;
+        color = '#ef4444';
+      } else {
+        iconType = 'machine';
+        color = KIND_COLORS.machine; // #E67873
       }
 
       graph.addNode(nid, {
         label: id,
-        subLabel: mData.ip || (isGroup ? 'Active Directory Group' : isUser ? 'User Account' : 'Monitored Host'),
+        subLabel: mData.ip || (rawType ? `AD ${rawType.toUpperCase()}` : (iconType === 'group' ? 'AD Group' : iconType === 'user' ? 'AD User' : 'AD Host')),
         iconType: iconType,
         borderColor: color,
         iconColor: color,
-        color: theme === 'dark' ? '#0f172a' : '#ffffff', // Clean white/dark base, NEVER solid yellow!
-        size: size,
-        entityType: isGroup ? 'group' : isUser ? 'user' : 'machine',
+        color: theme === 'dark' ? '#0f172a' : '#ffffff',
+        size: 14,
+        entityType: iconType,
         memberCount: mData.memberCount || 0,
         raw: mData
       });
@@ -256,7 +245,7 @@ export default function BloodHoundNodeDiagram({
       if (graph.hasNode(nid)) return nid;
 
       const priv = isPrivate(ip);
-      const color = priv ? '#84cc16' : '#94a3b8';
+      const color = priv ? KIND_COLORS.ip_private : KIND_COLORS.ip_external;
 
       graph.addNode(nid, {
         label: ip,
@@ -278,7 +267,7 @@ export default function BloodHoundNodeDiagram({
       if (graph.hasNode(nid)) return nid;
 
       const isUser = label.includes('@') || label.startsWith('DA-');
-      const col = isUser ? '#22c55e' : adCol(type);
+      const col = isUser ? KIND_COLORS.user : (adCol(type) || KIND_COLORS.actor);
       graph.addNode(nid, {
         label: label,
         subLabel: type || (isUser ? 'Domain Account' : 'AD Actor'),

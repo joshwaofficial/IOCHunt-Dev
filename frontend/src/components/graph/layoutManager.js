@@ -74,9 +74,11 @@ const PRESET_COORDINATES = [
  * 1. BloodHound Hierarchical Tree Layout (Tree Mode)
  * Uses @dagrejs/dagre — the EXACT algorithm and parameters BloodHound CE uses:
  * - Left-to-Right (LR) DAG progression from roots → targets
- * - Virtual 25x25 node sizing for Dagre to pack ranks cleanly
+ * - Virtual 30x30 node sizing for Dagre to pack ranks cleanly
  * - ranksep: 480, nodesep: 120
- * - Proper multigraph edge mapping and automatic cycle resolution
+ * - Multi-edges collapsed for Dagre layout to eliminate parallel edge routing crashes
+ * - Smart Rank Packing: wide ranks (> 8 nodes) distributed across staggered sub-columns
+ *   to maintain optimal 16:9 widescreen layout without vertical clumping
  */
 export function applyBloodHoundTreeLayout(graph) {
   if (!graph || graph.order === 0) return;
@@ -102,19 +104,68 @@ export function applyBloodHoundTreeLayout(graph) {
     const attrs = graph.getNodeAttributes(node);
     graphlibGraph.setNode(node, {
       label: attrs.label || '',
-      width: 25,
-      height: 25
+      width: 30,
+      height: 30
     });
   });
 
+  // Exactly like BloodHound CE (dagre.ts:102): DO NOT pass 4th argument (edge key)
+  // This collapses parallel multi-edges into 1 directed edge between (source, target),
+  // completely preventing Dagre's 'Not possible to find intersection' crash!
   graph.forEachEdge((edge, attrs, source, target) => {
     if (graph.hasNode(source) && graph.hasNode(target)) {
-      graphlibGraph.setEdge(source, target, { label: attrs.label || '', points: [] }, edge);
+      graphlibGraph.setEdge(source, target, { label: attrs.label || '', points: [] });
     }
   });
 
-  dagre.layout(graphlibGraph);
+  try {
+    dagre.layout(graphlibGraph);
+  } catch (err) {
+    console.warn('[BloodHound Layout] Dagre error, falling back to Physics layout:', err);
+    applyBloodHoundPhysicsLayout(graph);
+    return;
+  }
 
+  // Group nodes by Dagre computed rank
+  const rankMap = new Map();
+  graphlibGraph.nodes().forEach(node => {
+    const pos = graphlibGraph.node(node);
+    if (!pos) return;
+    const r = pos.rank ?? 0;
+    if (!rankMap.has(r)) rankMap.set(r, []);
+    rankMap.get(r).push({ node, pos });
+  });
+
+  // Smart Rank Packing: For any rank with > 8 nodes (e.g. 75 containers/GPOs/users),
+  // distribute into a 2D staggered sub-column grid to maintain a 16:9 widescreen aspect ratio
+  rankMap.forEach((rankNodes) => {
+    rankNodes.sort((a, b) => (a.pos.y || 0) - (b.pos.y || 0));
+    const n = rankNodes.length;
+    const colCount = n > 8 ? Math.ceil(Math.sqrt(n * 1.5)) : 1;
+    const maxPerCol = Math.ceil(n / colCount);
+    const colWidth = 260;
+    const rowHeight = 120;
+
+    rankNodes.forEach((item, idx) => {
+      const col = Math.floor(idx / maxPerCol);
+      const row = idx % maxPerCol;
+      const staggerY = (col % 2) * (rowHeight * 0.3);
+      item.pos.x += col * colWidth;
+      item.pos.y = row * rowHeight + staggerY;
+    });
+  });
+
+  // Center all ranks vertically along the horizontal midline
+  rankMap.forEach((rankNodes) => {
+    const rankMinY = Math.min(...rankNodes.map(n => n.pos.y));
+    const rankMaxY = Math.max(...rankNodes.map(n => n.pos.y));
+    const rankMid = (rankMinY + rankMaxY) / 2;
+    rankNodes.forEach(item => {
+      item.pos.y -= rankMid;
+    });
+  });
+
+  // Apply layout positions from graphlib into sigma graph
   graphlibGraph.nodes().forEach(node => {
     const pos = graphlibGraph.node(node);
     if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
@@ -123,6 +174,7 @@ export function applyBloodHoundTreeLayout(graph) {
     }
   });
 
+  preventEllipticalCollisions(graph, 240, 110, 25);
   centerGraphAtOrigin(graph);
 }
 
@@ -193,10 +245,10 @@ export function applyBloodHoundStarLayout(graph) {
 
 /**
  * 3. BloodHound Physics Layout (Physics Mode)
- * Gephi ForceAtlas2 organic layout tuned for large attack graphs:
- * - High repulsion scaling ratio pushes clusters far apart into distinct territories
- * - Low gravity prevents nodes from condensing into a center ball
- * - Barnes-Hut optimization ensures 60fps responsiveness
+ * Matches BloodHound CE standardLayout (forceAtlas2 with scalingRatio: 1000):
+ * - iterations: 128
+ * - scalingRatio: 1000
+ * - barnesHutOptimize: true
  */
 export function applyBloodHoundPhysicsLayout(graph) {
   if (!graph || graph.order === 0) return;
@@ -207,24 +259,23 @@ export function applyBloodHoundPhysicsLayout(graph) {
     return;
   }
 
-  // Initialize in wide circular dispersion
+  // Initialize in circular dispersion
   let i = 0;
-  const initR = Math.max(800, nodeCount * 55);
+  const initR = Math.max(600, nodeCount * 45);
   graph.forEachNode(node => {
     const angle = (2 * Math.PI * i) / nodeCount;
     graph.setNodeAttribute(node, 'x', Math.cos(angle) * initR);
-    graph.setNodeAttribute(node, 'y', Math.sin(angle) * initR * 0.75);
+    graph.setNodeAttribute(node, 'y', Math.sin(angle) * initR * 0.72);
     i++;
   });
 
   try {
     forceAtlas2.assign(graph, {
-      iterations: 350,
+      iterations: 128,
       settings: {
-        gravity: 0.0003,
-        scalingRatio: Math.max(2600, nodeCount * 180),
-        slowDown: 3.5,
-        barnesHutOptimize: nodeCount > 20,
+        gravity: 0.0005,
+        scalingRatio: 1000,
+        barnesHutOptimize: true,
         adjustSizes: true
       }
     });
@@ -234,19 +285,7 @@ export function applyBloodHoundPhysicsLayout(graph) {
     return;
   }
 
-  // Post-simulation scaling expansion so nodes spread out widely across the canvas
-  const expansionFactor = Math.max(1.6, Math.sqrt(nodeCount / 10));
-  graph.forEachNode(n => {
-    const cx = graph.getNodeAttribute(n, 'x') || 0;
-    const cy = graph.getNodeAttribute(n, 'y') || 0;
-    graph.setNodeAttribute(n, 'x', cx * expansionFactor);
-    graph.setNodeAttribute(n, 'y', cy * expansionFactor);
-  });
-
-  const scale = Math.max(1.0, Math.sqrt(nodeCount / 10));
-  const minDx = Math.max(320, Math.min(500, 260 * scale * 0.7));
-  const minDy = Math.max(160, Math.min(260, 140 * scale * 0.7));
-  preventEllipticalCollisions(graph, minDx, minDy, 40);
+  preventEllipticalCollisions(graph, 240, 120, 25);
   centerGraphAtOrigin(graph);
 }
 

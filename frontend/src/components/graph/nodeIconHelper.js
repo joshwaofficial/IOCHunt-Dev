@@ -8,7 +8,15 @@ import {
   faUsers,
   faShieldHalved,
   faKey,
-  faServer
+  faServer,
+  faList,
+  faArrowsLeftRightToLine,
+  faLandmark,
+  faBuilding,
+  faStore,
+  faIdCard,
+  faSitemap,
+  faBox
 } from '@fortawesome/free-solid-svg-icons';
 
 // Pre-parse and cache Path2D objects for 60fps canvas rendering
@@ -29,9 +37,19 @@ function getPath2D(iconDef) {
 
 export const NODE_ICONS = {
   machine: faDesktop,
+  computer: faDesktop,
   user: faUser,
   actor: faUser,
   group: faUsers,
+  domain: faGlobe,
+  gpo: faList,
+  container: faBox,
+  ou: faSitemap,
+  enterpriseca: faBuilding,
+  rootca: faLandmark,
+  certtemplate: faIdCard,
+  aiaca: faArrowsLeftRightToLine,
+  ntauthstore: faStore,
   ip_external: faGlobe,
   ip_private: faNetworkWired,
   ad_attack: faBolt,
@@ -41,14 +59,27 @@ export const NODE_ICONS = {
   server: faServer
 };
 
+/**
+ * Authentic BloodHound CE node kind colors (SpecterOps BloodHound CE palette)
+ */
 export const KIND_COLORS = {
-  machine: '#ef4444',      // BloodHound computer: coral / red ring
-  user: '#22c55e',         // BloodHound user: vibrant green ring
-  group: '#eab308',        // BloodHound group: gold / amber ring
-  actor: '#a855f7',        // Attacker / AD Actor: violet
-  ad_attack: '#ef4444',    // AD Attack: crimson
-  ip_external: '#94a3b8',  // External WAN: slate
-  ip_private: '#3b82f6',   // Private IP: blue
+  machine: '#E67873',        // BloodHound Computer: #E67873
+  computer: '#E67873',
+  user: '#17E625',           // BloodHound User: #17E625
+  group: '#DBE617',          // BloodHound Group: #DBE617
+  domain: '#17E6B9',         // BloodHound Domain: #17E6B9
+  gpo: '#998EFD',            // BloodHound GPO: #998EFD
+  container: '#F79A78',      // BloodHound Container: #F79A78
+  ou: '#FFAA00',             // BloodHound OU: #FFAA00
+  enterpriseca: '#4696E9',   // BloodHound EnterpriseCA: #4696E9
+  rootca: '#6968E8',         // BloodHound RootCA: #6968E8
+  certtemplate: '#B153F3',   // BloodHound CertTemplate: #B153F3
+  aiaca: '#9769F0',          // BloodHound AIACA: #9769F0
+  ntauthstore: '#D575F5',    // BloodHound NTAuthStore: #D575F5
+  actor: '#a855f7',          // Attacker / AD Actor: violet
+  ad_attack: '#ef4444',      // AD Attack: crimson
+  ip_external: '#94a3b8',    // External WAN: slate
+  ip_private: '#3b82f6',     // Private IP: blue
   default: '#3b82f6'
 };
 

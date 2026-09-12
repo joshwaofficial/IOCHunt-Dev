@@ -56,18 +56,39 @@ export async function loadADSampleFile(filename, sidMap) {
   const adAttacks = [];
   const seenNodes = new Map();
 
-  function ensureNode(name, defaultType = 'machine', raw = {}) {
+  const fnLower = filename.toLowerCase();
+  let defaultKind = 'group';
+  if (fnLower.includes('user')) defaultKind = 'user';
+  else if (fnLower.includes('computer')) defaultKind = 'machine';
+  else if (fnLower.includes('container')) defaultKind = 'container';
+  else if (fnLower.includes('gpo')) defaultKind = 'gpo';
+  else if (fnLower.includes('ou')) defaultKind = 'ou';
+  else if (fnLower.includes('domain')) defaultKind = 'domain';
+  else if (fnLower.includes('enterpriseca')) defaultKind = 'enterpriseca';
+  else if (fnLower.includes('rootca')) defaultKind = 'rootca';
+  else if (fnLower.includes('certtemplate')) defaultKind = 'certtemplate';
+  else if (fnLower.includes('aiaca') || fnLower.includes('aioca')) defaultKind = 'aiaca';
+  else if (fnLower.includes('ntauthstore')) defaultKind = 'ntauthstore';
+  else if (fnLower.includes('group')) defaultKind = 'group';
+
+  function ensureNode(name, defaultType = defaultKind, raw = {}) {
     if (!name) return null;
     const cleanName = resolveSidName(name, sMap);
     if (!seenNodes.has(cleanName)) {
       const uName = cleanName.toUpperCase();
-      const isGroup = defaultType === 'group' || uName.includes('ADMINS') || uName.includes('OPERATORS') || uName.includes('USERS') || uName.includes('COMPUTERS') || uName.includes('CONTAINERS');
-      const isUser = defaultType === 'user' || cleanName.includes('@');
+      let nodeType = defaultType;
+      if (cleanName.includes('@') && !uName.includes('-CA')) {
+        nodeType = 'user';
+      } else if (uName.includes('ADMINS') || uName.includes('OPERATORS')) {
+        nodeType = 'group';
+      } else if (uName.includes('-CA')) {
+        nodeType = 'enterpriseca';
+      }
       const isCritical = raw.admincount || raw.has_threat || ['KRBTGT', 'ADMINISTRATOR'].some(k => uName.includes(k));
 
       const nodeObj = {
         name: cleanName,
-        entityType: isGroup ? 'group' : (isUser ? 'user' : defaultType),
+        entityType: nodeType,
         memberCount: raw.memberCount || 0,
         has_threat: isCritical,
         threat_count: isCritical ? 2 : 0,
@@ -79,11 +100,6 @@ export async function loadADSampleFile(filename, sidMap) {
     return cleanName;
   }
 
-  const isGroups = filename.includes('groups');
-  const isUsers = filename.includes('users');
-  const isComputers = filename.includes('computers');
-  const isDomains = filename.includes('domains');
-
   // Limit processing to first 75 objects to keep graph responsive & crystal-clear
   const sampleSlice = data.slice(0, 75);
 
@@ -92,8 +108,7 @@ export async function loadADSampleFile(filename, sidMap) {
     const name = p.name || item.ObjectIdentifier;
     if (!name) return;
 
-    let eType = isGroups ? 'group' : (isUsers ? 'user' : (isComputers ? 'machine' : (isDomains ? 'group' : 'group')));
-    ensureNode(name, eType, {
+    ensureNode(name, defaultKind, {
       ...p,
       memberCount: item.Members ? item.Members.length : 0,
       has_threat: p.admincount || p.dontreqpreauth || p.hasspn
