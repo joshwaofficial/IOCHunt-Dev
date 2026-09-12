@@ -174,18 +174,42 @@ export function applyBloodHoundTreeLayout(graph) {
 
     let compMinY = Infinity, compMaxY = -Infinity;
 
-    // BloodHound CE Style: Each rank is a dedicated vertical column!
-    // Vertical height expands with NO limit based on number of nodes in that rank!
+    // Widescreen 2D Balanced Layout:
+    // Small ranks (<= 6 nodes) stay in a single vertical column (perfect for small diagrams!).
+    // Large ranks (e.g. 10 to 75 nodes) spread out across BOTH height AND width into a balanced widescreen grid!
+    // Edge length between ranks is extended (750px - 1100px) so arrows stretch across with clear separation!
     const sortedRanks = Array.from(byRank.keys()).sort((a, b) => a - b);
+    const subColWidth = 480; // Ample horizontal space for long labels
+    const edgeLength = Math.max(750, Math.round(550 * Math.min(scale, 2.2))); // Extended edge arrow length
+    const rankStartX = new Map();
+    let currentX = 0;
+
+    sortedRanks.forEach(r => {
+      rankStartX.set(r, currentX);
+      const rNodes = byRank.get(r);
+      const count = rNodes.length;
+      // If count <= 6: 1 column. If large, spread into balanced widescreen columns:
+      const numCols = count <= 6 ? 1 : Math.max(2, Math.min(8, Math.ceil(Math.sqrt(count * 0.75))));
+      const rankWidth = (numCols - 1) * subColWidth;
+      currentX += rankWidth + edgeLength;
+    });
 
     sortedRanks.forEach(r => {
       const rNodes = byRank.get(r);
       const count = rNodes.length;
-      const x = r * rankSep;
+      const numCols = count <= 6 ? 1 : Math.max(2, Math.min(8, Math.ceil(Math.sqrt(count * 0.75))));
+      const maxPerCol = Math.ceil(count / numCols);
+      const startX = rankStartX.get(r) || 0;
 
       rNodes.forEach((node, idx) => {
-        // Center the column vertically around currentOffsetY
-        const y = currentOffsetY + (idx - (count - 1) / 2) * nodeSep;
+        const col = Math.floor(idx / maxPerCol);
+        const row = idx % maxPerCol;
+        const totalInThisCol = Math.min(maxPerCol, count - col * maxPerCol);
+
+        const x = startX + col * subColWidth;
+        // Stagger alternating sub-columns by half a row for clear visibility & honeycomb spacing
+        const staggerY = (numCols > 1 && col % 2 === 1) ? (nodeSep * 0.45) : 0;
+        const y = currentOffsetY + (row - (totalInThisCol - 1) / 2) * nodeSep + staggerY;
 
         graph.setNodeAttribute(node, 'x', x);
         graph.setNodeAttribute(node, 'y', y);
