@@ -37,8 +37,49 @@ function adCol(t) {
   return AD_COL[t] || '#a855f7';
 }
 
-function isPrivate(ip) {
-  return /^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.)/.test(ip);
+/**
+ * Fast BFS traversal to trace the full connected attack path chain (upstream ancestors & downstream targets)
+ */
+function getConnectedChain(graph, startNode) {
+  const chainNodes = new Set();
+  const chainEdges = new Set();
+  if (!graph || !startNode || !graph.hasNode(startNode)) {
+    return { chainNodes, chainEdges };
+  }
+
+  chainNodes.add(startNode);
+
+  // 1. Trace upstream (ancestors / attackers leading into startNode)
+  const upQueue = [startNode];
+  const upVisited = new Set([startNode]);
+  while (upQueue.length > 0) {
+    const curr = upQueue.shift();
+    graph.forEachInEdge(curr, (edge, edgeAttrs, source) => {
+      chainEdges.add(edge);
+      if (!upVisited.has(source)) {
+        upVisited.add(source);
+        chainNodes.add(source);
+        upQueue.push(source);
+      }
+    });
+  }
+
+  // 2. Trace downstream (descendants / targets reachable from startNode)
+  const downQueue = [startNode];
+  const downVisited = new Set([startNode]);
+  while (downQueue.length > 0) {
+    const curr = downQueue.shift();
+    graph.forEachOutEdge(curr, (edge, edgeAttrs, source, target) => {
+      chainEdges.add(edge);
+      if (!downVisited.has(target)) {
+        downVisited.add(target);
+        chainNodes.add(target);
+        downQueue.push(target);
+      }
+    });
+  }
+
+  return { chainNodes, chainEdges };
 }
 
 export default function BloodHoundNodeDiagram({
@@ -57,6 +98,7 @@ export default function BloodHoundNodeDiagram({
   const graphRef = useRef(null);
   const callbacksRef = useRef({ onSelectNode, onSelectEdge, onClearSelection });
   const themeRef = useRef(theme);
+  const chainStateRef = useRef({ chainNodes: new Set(), chainEdges: new Set() });
 
   useEffect(() => {
     callbacksRef.current = { onSelectNode, onSelectEdge, onClearSelection };
@@ -75,6 +117,11 @@ export default function BloodHoundNodeDiagram({
 
   useEffect(() => {
     selectedNodeRef.current = selectedNode;
+    if (graphRef.current && selectedNode) {
+      chainStateRef.current = getConnectedChain(graphRef.current, selectedNode);
+    } else {
+      chainStateRef.current = { chainNodes: new Set(), chainEdges: new Set() };
+    }
   }, [selectedNode]);
 
   const [layoutMode, setLayoutMode] = useState('dagre'); // 'dagre' (Tree) | 'cluster' (Stars) | 'force' (Physics)
@@ -389,57 +436,46 @@ export default function BloodHoundNodeDiagram({
         const sel = selectedNodeRef.current;
 
         // CRITICAL: WebGL base fill is ALWAYS pure clean white in light mode, dark slate in dark mode.
-        // NEVER fill with solid yellow, red, or any color!
         res.color = isLight ? '#ffffff' : '#0f172a';
 
-        // Dynamic node size based on node count:
-        // <= 15 nodes: 15px (large, easy to read in small graph)
-        // 16-45 nodes: 12.5px (balanced)
-        // 46-85 nodes: 10.5px (compact)
-        // 86+ nodes: 9.5px (sleek BloodHound CE large-topology style)
+        // Keep node size crisp and visible (12.5px - 15px so it NEVER disappears or turns blank when zoomed out!)
         const order = graph.order;
-        const baseSize = order <= 15 ? 15 : (order <= 45 ? 12.5 : (order <= 85 ? 10.5 : 9.5));
-        const typeOffset = attrs.entityType === 'group' ? 0.5 : (attrs.entityType === 'user' ? -0.5 : (attrs.entityType === 'ip_external' ? -1 : 0));
-        res.size = Math.max(8, baseSize + typeOffset);
+        const baseSize = order <= 25 ? 15 : (order <= 60 ? 13.5 : 12.5);
+        res.size = baseSize;
 
         if (sel) {
           if (node === sel) {
             // Clicked Node: clean selection ring, fully opaque, top z-index
             res.selected = true;
-            res.highlighted = false; // Custom clean selection ring rendered in drawBloodHoundNode
-            res.isNeighbor = false;
+            res.inChain = true;
             res.dimmed = false;
             res.zIndex = 100;
             res.borderColor = attrs.borderColor || '#3b82f6';
             res.iconColor = attrs.iconColor || attrs.borderColor || '#3b82f6';
             res.label = attrs.label;
-          } else if (graph.areNeighbors(node, sel)) {
-            // Directly Connected Neighbors: fully visible, sharp border and icon
+          } else if (chainStateRef.current.chainNodes && chainStateRef.current.chainNodes.has(node)) {
+            // Full connected attack path chain from start to end!
             res.selected = false;
-            res.highlighted = false;
-            res.isNeighbor = true;
+            res.inChain = true;
             res.dimmed = false;
             res.zIndex = 50;
             res.borderColor = attrs.borderColor || '#3b82f6';
             res.iconColor = attrs.iconColor || attrs.borderColor || '#3b82f6';
             res.label = attrs.label;
           } else {
-            // BloodHound Focus Dimming: Unconnected nodes become faint gray, reduced opacity, hidden label
+            // Other nodes: KEEP original category colors, reduce opacity slightly like BloodHound!
             res.selected = false;
-            res.highlighted = false;
-            res.isNeighbor = false;
+            res.inChain = false;
             res.dimmed = true;
             res.zIndex = 1;
-            res.borderColor = isLight ? '#cbd5e1' : '#334155';
-            res.iconColor = isLight ? '#cbd5e1' : '#334155';
-            res.color = isLight ? '#f8fafc' : '#0f172a';
-            res.label = ''; // Hide label to eliminate clutter, matching BloodHound Image 5!
+            res.borderColor = attrs.borderColor || '#3b82f6'; // Keep original color!
+            res.iconColor = attrs.iconColor || attrs.borderColor || '#3b82f6'; // Keep original color!
+            res.label = attrs.label;
           }
         } else {
           // Normal view: all nodes fully visible with category borders and crisp labels
           res.selected = false;
-          res.highlighted = false;
-          res.isNeighbor = false;
+          res.inChain = false;
           res.dimmed = false;
           res.zIndex = 10;
           res.borderColor = attrs.borderColor || '#3b82f6';
@@ -455,23 +491,22 @@ export default function BloodHoundNodeDiagram({
         const sel = selectedNodeRef.current;
 
         if (sel) {
-          const [src, tgt] = graph.extremities(edge);
-          if (src === sel || tgt === sel) {
-            // Active connection to/from selected node: bold, vibrant, visible label
-            res.size = Math.max((attrs.size || 2) * 1.5, 3.2);
+          if (chainStateRef.current.chainEdges && chainStateRef.current.chainEdges.has(edge)) {
+            // Active connection along the entire attack path chain: bold, vibrant, visible label
+            res.size = Math.max((attrs.size || 2) * 1.6, 3.4);
             res.color = attrs.color || (isLight ? '#2563eb' : '#60a5fa');
             res.zIndex = 20;
             res.forceLabel = true;
             res.dimmed = false;
             res.label = attrs.label;
           } else {
-            // BloodHound Focus Dimming: Unconnected edge becomes faint translucent line, hidden label
-            res.size = 0.8;
-            res.color = isLight ? 'rgba(203, 213, 225, 0.22)' : 'rgba(51, 65, 85, 0.22)';
+            // Other edges: gray arrow with reduced opacity like BloodHound
+            res.size = 1.0;
+            res.color = isLight ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)';
             res.zIndex = 0;
             res.forceLabel = false;
             res.dimmed = true;
-            res.label = '';
+            res.label = ''; // Hide label for background edges
           }
         } else {
           // Normal view: clean edge lines with labels
@@ -529,6 +564,7 @@ export default function BloodHoundNodeDiagram({
     // Click events
     sigma.on('clickNode', ({ node }) => {
       selectedNodeRef.current = node;
+      chainStateRef.current = getConnectedChain(graph, node);
       setSelectedNode(node);
       setSelectedEdge(null);
       sigma.refresh();
@@ -556,6 +592,7 @@ export default function BloodHoundNodeDiagram({
 
     sigma.on('clickEdge', ({ edge }) => {
       selectedNodeRef.current = null;
+      chainStateRef.current = { chainNodes: new Set(), chainEdges: new Set() };
       setSelectedEdge(edge);
       setSelectedNode(null);
       sigma.refresh();
@@ -573,6 +610,7 @@ export default function BloodHoundNodeDiagram({
 
     sigma.on('clickStage', () => {
       selectedNodeRef.current = null;
+      chainStateRef.current = { chainNodes: new Set(), chainEdges: new Set() };
       setSelectedNode(null);
       setSelectedEdge(null);
       sigma.refresh();
@@ -627,6 +665,7 @@ export default function BloodHoundNodeDiagram({
 
   const handleClearSelection = () => {
     selectedNodeRef.current = null;
+    chainStateRef.current = { chainNodes: new Set(), chainEdges: new Set() };
     setSelectedNode(null);
     setSelectedEdge(null);
     if (sigmaRef.current) {

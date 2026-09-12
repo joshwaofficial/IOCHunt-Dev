@@ -73,9 +73,11 @@ export function drawBloodHoundNode(context, data) {
 
   context.save();
 
-  // Dimmed background nodes during BloodHound focus selection
+  // Dimmed background nodes during BloodHound focus selection (subtle dimming: clearly visible in original colors!)
   if (isDimmed) {
-    context.globalAlpha = 0.22;
+    context.globalAlpha = 0.45;
+  } else {
+    context.globalAlpha = 1.0;
   }
 
   // 1. Simple, clean selection / neighbor highlight ring (ONLY outer ring, NO solid fill!)
@@ -83,13 +85,13 @@ export function drawBloodHoundNode(context, data) {
     context.beginPath();
     context.arc(x, y, size + 5, 0, Math.PI * 2);
     context.strokeStyle = isLight ? '#0284c7' : '#38bdf8';
-    context.lineWidth = 2.5;
+    context.lineWidth = 3.0;
     context.stroke();
-  } else if (isNeighbor) {
+  } else if (isNeighbor || data.inChain) {
     context.beginPath();
     context.arc(x, y, size + 3.2, 0, Math.PI * 2);
     context.strokeStyle = color;
-    context.lineWidth = 1.6;
+    context.lineWidth = 1.8;
     context.stroke();
   }
 
@@ -100,11 +102,11 @@ export function drawBloodHoundNode(context, data) {
   context.fillStyle = isLight ? '#ffffff' : '#0f172a';
   context.fill();
 
-  // 3. Colored border perimeter ring
+  // 3. Colored border perimeter ring — bold and crisp so it NEVER vanishes when zoomed out!
   context.beginPath();
   context.arc(x, y, size, 0, Math.PI * 2);
   context.strokeStyle = color;
-  context.lineWidth = isSelected ? 2.5 : 2;
+  context.lineWidth = isSelected ? 3.2 : (data.inChain ? 2.8 : 2.4);
   context.stroke();
 
   // 4. Centered FontAwesome Vector Icon — crisp margin, never covers entire node!
@@ -113,18 +115,22 @@ export function drawBloodHoundNode(context, data) {
 
   if (path && iconDef.icon) {
     const [iconW, iconH] = [iconDef.icon[0], iconDef.icon[1]];
-    // 66% size gives a clean, generous white ring around the icon
-    const targetSize = size * 0.66;
+    // 70% size gives a clean, generous white ring around the icon
+    const targetSize = size * 0.70;
     const scale = targetSize / Math.max(iconW, iconH);
 
     context.save();
     context.translate(x - (iconW * scale) / 2, y - (iconH * scale) / 2);
     context.scale(scale, scale);
-    context.fillStyle = isDimmed
-      ? (isLight ? '#cbd5e1' : '#334155')
-      : (data.iconColor || color || (isLight ? '#1e293b' : '#f8fafc'));
+    context.fillStyle = data.iconColor || color || (isLight ? '#1e293b' : '#f8fafc');
     context.fill(path);
     context.restore();
+  } else {
+    // High-contrast inner colored dot fallback (so node is NEVER an empty white circle!)
+    context.beginPath();
+    context.arc(x, y, size * 0.45, 0, Math.PI * 2);
+    context.fillStyle = data.iconColor || color;
+    context.fill();
   }
 
   // 5. Group Member Count Badge
@@ -237,7 +243,7 @@ export function drawBloodHoundNodeHover(context, data) {
 
   if (path && iconDef.icon) {
     const [iconW, iconH] = [iconDef.icon[0], iconDef.icon[1]];
-    const targetSize = size * 0.72;
+    const targetSize = size * 0.70;
     const scale = targetSize / Math.max(iconW, iconH);
 
     context.save();
@@ -246,6 +252,11 @@ export function drawBloodHoundNodeHover(context, data) {
     context.fillStyle = data.iconColor || color || (isLight ? '#1e293b' : '#f8fafc');
     context.fill(path);
     context.restore();
+  } else {
+    context.beginPath();
+    context.arc(x, y, size * 0.45, 0, Math.PI * 2);
+    context.fillStyle = data.iconColor || color;
+    context.fill();
   }
 
   // 5. Group Member Count Badge

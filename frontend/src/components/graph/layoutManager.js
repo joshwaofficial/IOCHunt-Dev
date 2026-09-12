@@ -111,12 +111,12 @@ export function applyBloodHoundTreeLayout(graph) {
   // Sort components largest first
   components.sort((a, b) => b.length - a.length);
 
-  // Dynamic spacing scaling based on node count (spanned across vast coordinate plane like BloodHound CE)
+  // Dynamic spacing: ample horizontal separation for long edge labels,
+  // and UNCONSTRAINED vertical expansion that grows with node count!
   const nodeCount = graph.order;
   const scale = Math.max(1.0, Math.sqrt(nodeCount / 10));
-  const rankSep = Math.round(580 * Math.min(scale, 2.4));     // 580px -> 1390px
-  const subRankSep = Math.round(500 * Math.min(scale, 2.0));  // 500px -> 1000px
-  const nodeSep = Math.round(180 * Math.min(scale, 1.6));     // 180px -> 288px
+  const rankSep = Math.round(Math.max(680, 520 * Math.min(scale, 2.2))); // 680px -> 1150px
+  const nodeSep = Math.round(Math.max(150, 135 * Math.min(scale, 1.5))); // 150px -> 210px
 
   let currentOffsetY = 0;
 
@@ -174,35 +174,18 @@ export function applyBloodHoundTreeLayout(graph) {
 
     let compMinY = Infinity, compMaxY = -Infinity;
 
-    // CRITICAL: Calculate non-overlapping rank start X positions so sub-columns never collide!
+    // BloodHound CE Style: Each rank is a dedicated vertical column!
+    // Vertical height expands with NO limit based on number of nodes in that rank!
     const sortedRanks = Array.from(byRank.keys()).sort((a, b) => a - b);
-    const rankStartX = new Map();
-    let currentX = 0;
-
-    sortedRanks.forEach(r => {
-      rankStartX.set(r, currentX);
-      const rNodes = byRank.get(r);
-      const count = rNodes.length;
-      // Stagger large ranks into sub-columns (prevents vertical towers)
-      const maxPerCol = Math.max(6, Math.ceil(Math.sqrt(count * 2.0)));
-      const numSubCols = Math.max(1, Math.ceil(count / maxPerCol));
-      const rankWidth = (numSubCols - 1) * subRankSep;
-      currentX += rankWidth + rankSep;
-    });
 
     sortedRanks.forEach(r => {
       const rNodes = byRank.get(r);
       const count = rNodes.length;
-      const maxPerCol = Math.max(6, Math.ceil(Math.sqrt(count * 2.0)));
-      const startX = rankStartX.get(r) || 0;
+      const x = r * rankSep;
 
       rNodes.forEach((node, idx) => {
-        const subCol = Math.floor(idx / maxPerCol);
-        const row = idx % maxPerCol;
-        const totalInSubCol = Math.min(maxPerCol, count - subCol * maxPerCol);
-
-        const x = startX + (subCol * subRankSep);
-        const y = currentOffsetY + (row - (totalInSubCol - 1) / 2) * nodeSep;
+        // Center the column vertically around currentOffsetY
+        const y = currentOffsetY + (idx - (count - 1) / 2) * nodeSep;
 
         graph.setNodeAttribute(node, 'x', x);
         graph.setNodeAttribute(node, 'y', y);
@@ -211,13 +194,11 @@ export function applyBloodHoundTreeLayout(graph) {
       });
     });
 
-    const compH = (compMaxY - compMinY) || 200;
-    currentOffsetY += compH + Math.max(450, Math.sqrt(nodeCount) * 80);
+    const compH = (compMaxY - compMinY) || 300;
+    currentOffsetY += compH + Math.max(500, Math.sqrt(nodeCount) * 90);
   });
 
-  const minDx = Math.max(340, Math.min(520, 280 * scale * 0.7));
-  const minDy = Math.max(170, Math.min(270, 150 * scale * 0.7));
-  preventEllipticalCollisions(graph, minDx, minDy, 35);
+  preventEllipticalCollisions(graph, 320, 140, 25);
   centerGraphAtOrigin(graph);
 }
 
