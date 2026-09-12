@@ -90,20 +90,8 @@ export function applyBloodHoundTreeLayout(graph) {
   }
 
   const nodeCount = graph.order;
-
-  // --- Dynamic spacing: scales with node count so large graphs spread out ---
-  // nodesep = vertical gap between nodes in the SAME rank column
-  // ranksep = horizontal gap between rank columns (= edge arrow length)
-  const baseNodeSep = 110;
-  const baseRankSep = 380;
-  // Gentle sqrt scaling: 10 nodes→1x, 50→~1.6x, 100→~2.2x (capped at 4x)
-  const scaleFactor = Math.max(1.0, 0.75 * Math.sqrt(nodeCount / 10));
-  const nodesep = Math.round(baseNodeSep * Math.min(scaleFactor, 4.0));
-  const ranksep = Math.round(baseRankSep * Math.min(scaleFactor, 4.0));
-
-  // Node bounding-box for dagre internal ordering calculations
-  const nodeWidth = 200;
-  const nodeHeight = 60;
+  // Base vertical gap between nodes in the same rank column
+  const nodesep = Math.round(120 * Math.max(1.0, 0.6 * Math.sqrt(nodeCount / 10)));
 
   // --- Find connected components (undirected BFS) ---
   const compVisited = new Set();
@@ -135,142 +123,89 @@ export function applyBloodHoundTreeLayout(graph) {
   components.forEach(comp => {
     const compSet = new Set(comp);
 
-    // -----------------------------------------------------------------------
-    // THE FIX: Extract a proper BFS spanning tree, then trust dagre 100%
+    // ================================================================
+    // STEP 1: Bellman-Ford Longest-Path Rank Assignment
     //
-    // WHY the previous approach failed:
-    //   - Manual BFS rank assignment: if a node is already "visited" at rank 0
-    //     but a longer path exists, the rank update doesn't propagate to children.
-    //     Result: most nodes get rank 0 → x = 0 → one vertical column.
-    //   - Giving ALL edges to dagre: dense graphs (79 nodes, 496 edges) have
-    //     cycles everywhere. Dagre's acyclicer removes most edges → poor ranking.
+    // Unlike simple BFS (which fails to propagate rank updates to
+    // already-visited nodes), Bellman-Ford iterates until convergence.
+    // Each node's rank = longest directed path from any source node.
     //
-    // THE SOLUTION:
-    //   1. Extract a spanning tree using BFS (undirected), but assign edge
-    //      direction based on the actual out-edges of the original graph.
-    //      This gives dagre a clean TREE input (no cycles, no duplicate edges).
-    //   2. Let dagre assign BOTH X (rank) and Y (vertical order) positions.
-    //   3. Apply dagre's pos.x and pos.y directly - no manual overrides.
-    //
-    // This is exactly how BloodHound CE's dagre integration works.
-    // -----------------------------------------------------------------------
+    // Example: Principal(0) → CertTemplate(1) → Container(2)
+    // Even if all 70 cert templates connect to the same container,
+    // they all correctly get rank=1, and container gets rank=2.
+    // ================================================================
+    const rankMap = new Map();
+    comp.forEach(n => rankMap.set(n, 0)); // Initialize all ranks to 0
 
-    // Step 1: Extract BFS spanning tree edges
-    // Start from the node with the lowest in-degree (most "root-like")
-    const sortedByInDeg = comp.slice().sort((a, b) => graph.inDegree(a) - graph.inDegree(b));
-    const startNode = sortedByInDeg[0];
+    // Relax edges repeatedly until no more changes (or max iterations)
+    let changed = true;
+    let iterations = 0;
+    const maxIterations = Math.min(comp.length + 1, 100);
 
-    const spanningEdges = []; // [source, target] pairs
-    const treeVisited = new Set([startNode]);
-    const treeQ = [startNode];
-
-    while (treeQ.length > 0) {
-      const curr = treeQ.shift();
-
-      // First try directed out-edges (natural flow direction)
-      graph.forEachOutNeighbor(curr, target => {
-        if (!compSet.has(target) || treeVisited.has(target)) return;
-        treeVisited.add(target);
-        treeQ.push(target);
-        spanningEdges.push([curr, target]);
+    while (changed && iterations < maxIterations) {
+      changed = false;
+      iterations++;
+      comp.forEach(node => {
+        const currRank = rankMap.get(node);
+        graph.forEachOutNeighbor(node, nb => {
+          if (!compSet.has(nb)) return;
+          const newRank = currRank + 1;
+          if (newRank > rankMap.get(nb)) {
+            rankMap.set(nb, newRank);
+            changed = true;
+          }
+        });
       });
     }
 
-    // Collect any nodes not yet reached (disconnected via out-edges only)
-    // Reach them via undirected BFS and assign edges as parent → child
-    const unreached = comp.filter(n => !treeVisited.has(n));
-    if (unreached.length > 0) {
-      const unreachedQ = [...unreached];
-      unreachedQ.forEach(n => {
-        if (treeVisited.has(n)) return;
-        treeVisited.add(n);
-        // Find a neighbor that's already in the tree to act as parent
-        const parent = graph.neighbors(n).find(nb => treeVisited.has(nb) && compSet.has(nb));
-        if (parent) {
-          // Determine direction: prefer the actual out-edge direction
-          const isForward = graph.hasEdge && graph.outNeighbors(parent).includes(n);
-          spanningEdges.push(isForward ? [parent, n] : [n, parent]);
-        } else {
-          // No connected parent yet - just add it isolated (dagre handles it)
-          treeQ.push(n);
-        }
-      });
-    }
-
-    // Step 2: Create dagre graph with spanning tree only
-    const g = new dagre.graphlib.Graph({ multigraph: false });
-    g.setGraph({
-      rankdir: 'LR',       // Left-to-Right like BloodHound CE
-      nodesep: nodesep,    // Vertical gap between nodes in same rank
-      ranksep: ranksep,    // Horizontal gap between ranks
-      marginx: 60,
-      marginy: 60,
-      acyclicer: 'greedy', // Safety: remove any remaining cycle edges
-      ranker: 'network-simplex' // Best quality rank assignment for trees
+    // Group nodes by their assigned rank
+    const byRank = new Map();
+    comp.forEach(n => {
+      const r = rankMap.get(n);
+      if (!byRank.has(r)) byRank.set(r, []);
+      byRank.get(r).push(n);
     });
-    g.setDefaultEdgeLabel(() => ({}));
+    const sortedRanks = [...byRank.keys()].sort((a, b) => a - b);
 
-    // Add all nodes with generous size so dagre spaces them well
-    comp.forEach(node => {
-      g.setNode(node, { width: nodeWidth, height: nodeHeight });
-    });
+    // ================================================================
+    // STEP 2: Compute ADAPTIVE ranksep
+    //
+    // THE KEY FIX: ranksep must be proportional to the tallest rank's
+    // height. If rank 1 has 70 nodes × 120px = 8400px tall and there
+    // are 3 ranks, then ranksep = 8400/3 = 2800px.
+    // Total width = 3 × 2800 = 8400px ≈ height → roughly square graph.
+    // This prevents the graph from looking like a narrow vertical spike!
+    // ================================================================
+    const maxRankSize = Math.max(...[...byRank.values()].map(rn => rn.length));
+    const tallestRankHeight = maxRankSize * nodesep;
+    const numRanks = sortedRanks.length;
 
-    // Add spanning tree edges (one per node-pair, no duplicates, no cycles)
-    const addedEdgeKeys = new Set();
-    spanningEdges.forEach(([src, tgt]) => {
-      const key = `${src}→${tgt}`;
-      if (!addedEdgeKeys.has(key)) {
-        addedEdgeKeys.add(key);
-        g.setEdge(src, tgt, { weight: 1, minlen: 1 });
-      }
-    });
+    // Ranksep = tallestRankHeight divided by number of ranks (min 350px)
+    // This ensures horizontal width ≈ vertical height of tallest column
+    const ranksep = Math.max(350, Math.round(tallestRankHeight / Math.max(numRanks, 1)));
 
-    // Step 3: Run dagre — let it assign BOTH X and Y positions
-    let dagreOk = false;
-    try {
-      dagre.layout(g);
-      dagreOk = true;
-    } catch (err) {
-      console.warn('[BloodHound Layout] Dagre error, using manual spacing:', err);
-    }
-
-    // Step 4: Apply dagre's positions to graphology
-    // dagre LR: pos.x = horizontal (rank-based), pos.y = vertical (within rank)
+    // ================================================================
+    // STEP 3: Place nodes — X by rank, Y centered within each rank
+    // ================================================================
     let compMinY = Infinity;
     let compMaxY = -Infinity;
-    let compMinX = Infinity;
-    let compMaxX = -Infinity;
 
-    comp.forEach((node, idx) => {
-      let x, y;
-      if (dagreOk) {
-        const pos = g.node(node);
-        if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
-          x = pos.x;
-          y = pos.y;
-        } else {
-          // Node not placed by dagre (isolated node) - place at right edge
-          x = comp.length * nodesep;
-          y = idx * nodesep;
-        }
-      } else {
-        // Full fallback: simple grid
-        const col = Math.floor(idx / 10);
-        const row = idx % 10;
-        x = col * ranksep;
-        y = row * nodesep;
-      }
-      y += globalOffsetY;
+    sortedRanks.forEach(r => {
+      const rankNodes = byRank.get(r);
+      const count = rankNodes.length;
+      const x = r * ranksep; // Each rank = one vertical column at fixed X
 
-      graph.setNodeAttribute(node, 'x', x);
-      graph.setNodeAttribute(node, 'y', y);
-      if (y < compMinY) compMinY = y;
-      if (y > compMaxY) compMaxY = y;
-      if (x < compMinX) compMinX = x;
-      if (x > compMaxX) compMaxX = x;
+      rankNodes.forEach((node, idx) => {
+        // Center the rank column vertically around Y=0
+        const y = globalOffsetY + (idx - (count - 1) / 2) * nodesep;
+        graph.setNodeAttribute(node, 'x', x);
+        graph.setNodeAttribute(node, 'y', y);
+        if (y < compMinY) compMinY = y;
+        if (y > compMaxY) compMaxY = y;
+      });
     });
 
-    // Stack next component below with generous vertical gap
+    // Stack next connected component below this one
     const compHeight = (compMaxY - compMinY) || 300;
     globalOffsetY = compMaxY + Math.max(500, compHeight * 0.3);
   });
