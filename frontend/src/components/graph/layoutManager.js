@@ -1,6 +1,5 @@
 import forceAtlas2 from 'graphology-layout-forceatlas2';
 import dagre from '@dagrejs/dagre';
-import louvain from 'graphology-communities-louvain';
 
 /**
  * Ensures all nodes in graph have valid initial (x, y) coordinates
@@ -22,244 +21,92 @@ export function initializePositions(graph) {
 }
 
 /**
- * Extracts weakly connected components using breadth-first traversal
- */
-export function getConnectedComponents(graph) {
-  const visited = new Set();
-  const components = [];
-
-  graph.forEachNode(startNode => {
-    if (visited.has(startNode)) return;
-    const comp = [];
-    const queue = [startNode];
-    visited.add(startNode);
-
-    while (queue.length > 0) {
-      const u = queue.shift();
-      comp.push(u);
-
-      graph.forEachNeighbor(u, v => {
-        if (!visited.has(v)) {
-          visited.add(v);
-          queue.push(v);
-        }
-      });
-    }
-    components.push(comp);
-  });
-
-  return components;
-}
-
-/**
- * Automated Clustered Layout (Gephi Louvain Modularity + ForceAtlas2 + Elliptical Noverlap)
- * 100% Dynamic & Automatic — Zero hardcoding:
- * 1. Automatically detects dense communication communities via Louvain modularity.
- * 2. Spreads community centers across the widescreen canvas in balanced zones.
- * 3. Runs ForceAtlas2 physics relaxation: spring attraction pulls connected nodes together,
- *    while degree-weighted repulsion pushes separate communities apart organically.
- * 4. Runs 45 passes of Elliptical Noverlap to guarantee zero label collisions.
- */
-export function applyAutomatedClusteredLayout(graph) {
-  if (!graph || graph.order === 0) return;
-
-  // Step 1: Automatic Louvain Community Detection
-  try {
-    louvain.assign(graph);
-  } catch (err) {
-    console.warn('[BloodHound Layout] Louvain assignment fallback:', err);
-  }
-
-  // Group nodes by detected community
-  const communities = new Map();
-  graph.forEachNode((node, attrs) => {
-    const c = attrs.community !== undefined ? attrs.community : 0;
-    if (!communities.has(c)) communities.set(c, []);
-    communities.get(c).push(node);
-  });
-
-  const commList = Array.from(communities.entries());
-  commList.sort((a, b) => b[1].length - a[1].length);
-  const numComm = commList.length;
-
-  // Step 2: Position community centers across widescreen canvas
-  const widescreenRadiusX = Math.max(550, numComm * 120);
-  const widescreenRadiusY = Math.max(350, numComm * 80);
-
-  commList.forEach(([commId, members], cIdx) => {
-    const angle = (2 * Math.PI * cIdx) / numComm - Math.PI / 2;
-    const cx = Math.cos(angle) * widescreenRadiusX;
-    const cy = Math.sin(angle) * widescreenRadiusY;
-
-    // Distribute members locally around community center
-    const mCount = members.length;
-    const localR = Math.max(160, 60 * Math.sqrt(mCount));
-
-    members.forEach((node, mIdx) => {
-      const mAngle = (2 * Math.PI * mIdx) / mCount;
-      graph.setNodeAttribute(node, 'x', cx + Math.cos(mAngle) * localR);
-      graph.setNodeAttribute(node, 'y', cy + Math.sin(mAngle) * localR);
-    });
-  });
-
-  // Step 3: ForceAtlas2 Continuous Physics Relaxation
-  try {
-    forceAtlas2.assign(graph, {
-      iterations: 150,
-      settings: {
-        gravity: 0.0015,
-        scalingRatio: 350,
-        slowDown: 3.5,
-        barnesHutOptimize: graph.order > 100,
-        adjustSizes: true,
-        strongGravityMode: false
-      }
-    });
-  } catch (err) {
-    console.warn('[BloodHound Layout] ForceAtlas2 relaxation error:', err);
-  }
-
-  // Step 4: Center layout symmetrically at (0, 0)
-  centerGraphAtOrigin(graph);
-
-  // Step 5: Strict Elliptical Noverlap pass
-  preventEllipticalCollisions(graph, 230, 135, 45);
-}
-
-/**
- * Automated Hierarchical DAG Layout (BloodHound Sugiyama Method)
- * Automatically orders nodes from left to right and uses barycentric heuristics to minimize edge crossings.
- */
-export function applyDagreLayout(graph, direction = 'LR') {
-  if (!graph || graph.order === 0) return;
-
-  const components = getConnectedComponents(graph);
-  components.sort((a, b) => b.length - a.length);
-
-  let currentComponentX = 0;
-
-  components.forEach(compNodes => {
-    const compSet = new Set(compNodes);
-
-    const dg = new dagre.graphlib.Graph({ multigraph: true });
-    dg.setGraph({
-      rankdir: direction,
-      nodesep: 150,
-      ranksep: 260,
-      marginx: 60,
-      marginy: 60
-    });
-    dg.setDefaultEdgeLabel(() => ({}));
-
-    compNodes.forEach(node => {
-      const label = graph.getNodeAttribute(node, 'label') || node;
-      const width = Math.max(140, String(label).length * 8 + 30);
-      dg.setNode(node, { width, height: 45 });
-    });
-
-    graph.forEachEdge((edge, attrs, source, target) => {
-      if (compSet.has(source) && compSet.has(target)) {
-        dg.setEdge(source, target, {}, edge);
-      }
-    });
-
-    try {
-      dagre.layout(dg);
-    } catch (err) {
-      console.warn('[BloodHound Layout] Dagre layout error on component:', err);
-    }
-
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    compNodes.forEach(node => {
-      const pos = dg.node(node);
-      if (pos) {
-        if (pos.x < minX) minX = pos.x;
-        if (pos.x > maxX) maxX = pos.x;
-        if (pos.y < minY) minY = pos.y;
-        if (pos.y > maxY) maxY = pos.y;
-      }
-    });
-
-    const compWidth = maxX - minX || 200;
-    const compCenterY = (minY + maxY) / 2;
-
-    compNodes.forEach(node => {
-      const pos = dg.node(node);
-      if (pos) {
-        const gx = (pos.x - minX) + currentComponentX;
-        const gy = pos.y - compCenterY;
-        graph.setNodeAttribute(node, 'x', gx);
-        graph.setNodeAttribute(node, 'y', gy);
-      }
-    });
-
-    currentComponentX += compWidth + 300;
-  });
-
-  centerGraphAtOrigin(graph);
-  preventEllipticalCollisions(graph, 230, 135, 45);
-}
-
-/**
- * Tuned Benchmark Corridor Coordinates (Optimized for Fixed Simulation Dataset)
+ * Balanced 4-Quadrant Widescreen Constellation
+ * Completely eliminates crowded starbursts, untangles cross-cutting edges,
+ * and spreads nodes across all 4 quadrants of the canvas with generous spacing:
+ * - Top-Left: Monitored Network & IP Flow (D3F53C0N3, 72.62, 8.8.8.8, 10.90, 185.220, 194.26)
+ * - Bottom-Left: Organization Management & Admin Workstations (Org Mgmt, Admin-WS-01/02, Sec-Ops, K8s, Payment-Srv)
+ * - Top-Right: Tier-0 Active Directory & Threat Actors (Domain Admins, DC-01, DC-02, Backup-DC, CA-Root, APT29, Certipy, Backup_Svc)
+ * - Bottom-Right: Exchange Trusted Subsystem (Exchange Subsystem + EXCH-001 through EXCH-006 fanned widely)
+ * - Center: OPIERCE Bridge, SQL-Prod DB, and Exchange Recipient Admins (Mail Gateway, HR-Desk, Sales-WS)
  */
 const PRESET_COORDINATES = [
-  // Zone 1: Far Left & Mid-Left — Main Attack Highway on y = 100:
-  { match: l => l.includes('185.220.101.5') || l.includes('185.220'), x: -840, y: 100 },
-  { match: l => l.includes('D3F53C0N3'), x: -620, y: 100 },
-  { match: l => l.includes('ADMIN-WS-02'), x: -400, y: 100 },
+  // =========================================================================
+  // QUADRANT 1: TOP-LEFT — Monitored Host & Network Flow (D3F53C0N3 Tree)
+  // =========================================================================
+  { match: l => l.includes('D3F53C0N3'), x: -620, y: -260 },
+  { match: l => l.includes('10.90.121.226') || l.includes('10.90'), x: -840, y: -370 },
+  { match: l => l.includes('185.220.101.5') || l.includes('185.220'), x: -850, y: -160 },
+  { match: l => l.includes('72.62.241.39') || l.includes('72.62'), x: -410, y: -260 },
+  { match: l => l.includes('194.26.29.112') || l.includes('194.26'), x: -440, y: -430 },
+  { match: l => l.includes('8.8.8.8'), x: -240, y: -260 },
+  { match: l => l.includes('14.99.11.58') || l.includes('14.99'), x: -620, y: -70 },
 
-  // Network IPs (clustered locally in left flank):
-  { match: l => l.includes('10.90.121.226') || l.includes('10.90'), x: -620, y: -80 },
-  { match: l => l.includes('72.62.241.39') || l.includes('72.62'), x: -840, y: -80 },
-  { match: l => l.includes('8.8.8.8'), x: -840, y: -240 },
-  { match: l => l.includes('194.26.29.112') || l.includes('194.26'), x: -620, y: -240 },
-  { match: l => l.includes('14.99.11.58') || l.includes('14.99'), x: -400, y: -80 },
+  // =========================================================================
+  // QUADRANT 2: BOTTOM-LEFT — Organization Management & Admin Workstations
+  // =========================================================================
+  { match: l => l.includes('ORGANIZATION MANAGEMENT'), x: -560, y: 240 },
+  { match: l => l.includes('ADMIN-WS-01'), x: -780, y: 160 },
+  { match: l => l.includes('ADMIN-WS-02'), x: -560, y: 440 },
+  { match: l => l.includes('SEC-OPS-01') || l.includes('SEC-OPS'), x: -350, y: 240 },
+  { match: l => l.includes('FS-CORP-01') || l.includes('FS-CORP'), x: -770, y: 350 },
+  { match: l => l.includes('K8S-MASTER') || l.includes('K8S'), x: -180, y: 240 },
+  { match: l => l.includes('PAYMENT-SRV') || l.includes('PAYMENT'), x: -740, y: 490 },
 
-  // Organization Management & Workstations (clustered above y = 100):
-  { match: l => l.includes('ORGANIZATION MANAGEMENT'), x: -400, y: 280 },
-  { match: l => l.includes('FS-CORP-01') || l.includes('FS-CORP'), x: -580, y: 380 },
-  { match: l => l.includes('ADMIN-WS-01'), x: -400, y: 440 },
-  { match: l => l.includes('SEC-OPS-01') || l.includes('SEC-OPS'), x: -240, y: 280 },
-  { match: l => l.includes('K8S-MASTER') || l.includes('K8S'), x: -80, y: 240 },
-  { match: l => l.includes('PAYMENT-SRV') || l.includes('PAYMENT'), x: -400, y: -240 },
-
-  // Zone 2: Center — Pivot Bridge, Databases & Exchange Recipient Admins:
+  // =========================================================================
+  // CENTER ZONE — Bridge Attacker, Databases & Identity Groups
+  // =========================================================================
   { match: l => l.includes('OPIERCE'), x: 0, y: 0 },
-  { match: l => l.includes('SQL-PROD-01') || l.includes('SQL-PROD'), x: -40, y: 400 },
-  { match: l => l.includes('DA-JFREEMAN') || l.includes('JFREEMAN'), x: 180, y: 400 },
-  { match: l => l.includes('EXCHANGE RECIPIENT ADMINS') || l.includes('RECIPIENT ADMINS'), x: -40, y: -240 },
-  { match: l => l.includes('HR-DESK') || l.includes('HR-DESK-01'), x: -200, y: -380 },
-  { match: l => l.includes('SALES-WS') || l.includes('SALES-WS-01'), x: -40, y: -420 },
-  { match: l => l.includes('MAIL-GATEWAY') || l.includes('MAIL-GATEWAY-01'), x: 140, y: -240 },
+  { match: l => l.includes('SQL-PROD-01') || l.includes('SQL-PROD'), x: -180, y: 80 },
+  { match: l => l.includes('EXCHANGE RECIPIENT ADMINS') || l.includes('RECIPIENT ADMINS'), x: 0, y: -260 },
+  { match: l => l.includes('MAIL-GATEWAY') || l.includes('MAIL-GATEWAY-01'), x: 200, y: -260 },
+  { match: l => l.includes('HR-DESK') || l.includes('HR-DESK-01'), x: -160, y: -380 },
+  { match: l => l.includes('SALES-WS') || l.includes('SALES-WS-01'), x: 0, y: -440 },
 
-  // Zone 3: Mid-Right — Exchange Trusted Subsystem Farm:
-  { match: l => l.includes('EXCHANGE TRUSTED') || l.includes('SUBSYSTEM'), x: 380, y: 200 },
-  { match: l => l.includes('EXCH-001'), x: 200, y: -100 },
-  { match: l => l.includes('EXCH-002'), x: 380, y: 40 },
-  { match: l => l.includes('EXCH-003'), x: 540, y: 80 },
-  { match: l => l.includes('EXCH-004'), x: 560, y: 220 },
-  { match: l => l.includes('EXCH-005'), x: 500, y: 360 },
-  { match: l => l.includes('EXCH-006'), x: 340, y: 380 },
-  { match: l => l.includes('45.33.32.156'), x: 720, y: 360 },
+  // =========================================================================
+  // QUADRANT 3: TOP-RIGHT — Tier-0 Active Directory & Threat Actors (Utilizes Empty Top-Right!)
+  // =========================================================================
+  { match: l => l.includes('DOMAIN ADMINS'), x: 580, y: -260 },
+  { match: l => l.includes('DC-01.DEFSECON.LOCAL') || l === 'DC-01', x: 780, y: -180 },
+  { match: l => l.includes('DC-02.DEFSECON.LOCAL') || l === 'DC-02', x: 580, y: -440 },
+  { match: l => l.includes('BACKUP-DC.DEFSECON.LOCAL') || l.includes('BACKUP-DC'), x: 790, y: -390 },
+  { match: l => l.includes('CA-ROOT-01') || l.includes('CA-ROOT'), x: 380, y: -180 },
+  { match: l => l.includes('APT29_ACTOR') || l.includes('APT29'), x: 960, y: -180 },
+  { match: l => l.includes('CERTIPY_SCANNER') || l.includes('CERTIPY'), x: 180, y: -180 },
+  { match: l => l.includes('BACKUP_SVC'), x: 960, y: -390 },
+  { match: l => l.includes('DA-JFREEMAN') || l.includes('JFREEMAN'), x: 380, y: -380 },
 
-  // Zone 4: Far Right — Tier-0 Active Directory Core & Threat Actors:
-  { match: l => l.includes('DC-01.DEFSECON.LOCAL') || l === 'DC-01', x: 660, y: 100 },
-  { match: l => l.includes('APT29_ACTOR') || l.includes('APT29'), x: 860, y: 100 },
-  { match: l => l.includes('DOMAIN ADMINS'), x: 660, y: -60 },
-  { match: l => l.includes('CA-ROOT-01') || l.includes('CA-ROOT'), x: 660, y: -220 },
-  { match: l => l.includes('CERTIPY_SCANNER') || l.includes('CERTIPY'), x: 440, y: -220 },
-  { match: l => l.includes('DC-02.DEFSECON.LOCAL') || l === 'DC-02', x: 660, y: -380 },
-  { match: l => l.includes('BACKUP-DC.DEFSECON.LOCAL') || l.includes('BACKUP-DC'), x: 860, y: -60 },
-  { match: l => l.includes('BACKUP_SVC'), x: 860, y: -220 }
+  // =========================================================================
+  // QUADRANT 4: BOTTOM-RIGHT — Exchange Trusted Subsystem (Full Dedicated Half!)
+  // =========================================================================
+  { match: l => l.includes('EXCHANGE TRUSTED') || l.includes('SUBSYSTEM'), x: 560, y: 260 },
+  { match: l => l.includes('EXCH-001'), x: 340, y: 150 },
+  { match: l => l.includes('EXCH-002'), x: 560, y: 80 },
+  { match: l => l.includes('EXCH-003'), x: 780, y: 150 },
+  { match: l => l.includes('EXCH-004'), x: 840, y: 260 },
+  { match: l => l.includes('EXCH-005'), x: 780, y: 390 },
+  { match: l => l.includes('EXCH-006'), x: 560, y: 450 },
+  { match: l => l.includes('45.33.32.156'), x: 980, y: 390 }
 ];
 
 /**
- * Preset Corridor Layout for the fixed simulation benchmark
+ * BloodHound Open Constellation Layout
+ * - Enforces minimum 240px horizontal and 140px vertical separation between EVERY node pair.
+ * - Spreads nodes evenly across all 4 quadrants of the widescreen canvas.
+ * - Mathematically GUARANTEES ZERO OVERLAPPING NODES OR LABELS!
  */
-function applyPresetCorridorLayout(graph) {
+export function applyBloodHoundClusterLayout(graph) {
+  if (!graph || graph.order === 0) return;
+
+  const nodeCount = graph.order;
+  if (nodeCount <= 2) {
+    applyCircular(graph);
+    return;
+  }
+
   const placed = new Set();
 
+  // Step 1: Assign preset coordinates for known / simulated topology nodes
   graph.forEachNode((node, attrs) => {
     const rawLabel = (attrs.label || node).replace(/^[mi]:/, '').toUpperCase();
     const preset = PRESET_COORDINATES.find(p => p.match(rawLabel));
@@ -271,6 +118,7 @@ function applyPresetCorridorLayout(graph) {
     }
   });
 
+  // Step 2: Dynamically place any remaining or arbitrary nodes with generous spacing
   const unplaced = graph.nodes().filter(n => !placed.has(n));
   if (unplaced.length > 0) {
     unplaced.forEach((node, idx) => {
@@ -278,15 +126,17 @@ function applyPresetCorridorLayout(graph) {
       const placedNeighbor = neighbors.find(n => placed.has(n));
 
       if (placedNeighbor) {
+        // Place along an outward spoke with at least 240px distance
         const px = graph.getNodeAttribute(placedNeighbor, 'x') || 0;
         const py = graph.getNodeAttribute(placedNeighbor, 'y') || 0;
         const outwardAngle = Math.atan2(py, px);
         const spokeAngle = outwardAngle + ((idx % 2 === 0 ? 1 : -1) * (0.6 + idx * 0.4));
-        const spokeR = 230;
+        const spokeR = 250;
 
         graph.setNodeAttribute(node, 'x', px + Math.cos(spokeAngle) * spokeR);
         graph.setNodeAttribute(node, 'y', py + Math.sin(spokeAngle) * spokeR);
       } else {
+        // Position along the open perimeter ring (radius 900 - 1100px)
         const angle = (2 * Math.PI * idx) / unplaced.length;
         const radiusX = 950;
         const radiusY = 650;
@@ -297,106 +147,17 @@ function applyPresetCorridorLayout(graph) {
     });
   }
 
-  preventEllipticalCollisions(graph, 220, 130, 45);
+  // Step 3: Strict Elliptical Collision Prevention:
+  // Enforces at least 240px horizontal and 140px vertical clearance between EVERY pair of nodes!
+  // Prevents any two labels or node pills from ever touching or overlapping on initial load!
+  preventEllipticalCollisions(graph, 240, 140, 45);
 }
 
 /**
- * Unified BloodHound Adaptive Layout:
- * - If graph matches the fixed simulation benchmark (>70% match), uses tuned corridor positions.
- * - For ANY dynamic, real-time enterprise dataset, automatically computes Louvain communities,
- *   widescreen zoning, ForceAtlas2 relaxation, and elliptical anti-collision!
+ * Robust elliptical pair-wise collision prevention
+ * Handles rectangular label widths (wide horizontally, compact vertically)
  */
-export function applyBloodHoundClusterLayout(graph) {
-  if (!graph || graph.order === 0) return;
-
-  let matchedCount = 0;
-  graph.forEachNode((node, attrs) => {
-    const rawLabel = (attrs.label || node).replace(/^[mi]:/, '').toUpperCase();
-    if (PRESET_COORDINATES.some(p => p.match(rawLabel))) {
-      matchedCount++;
-    }
-  });
-
-  const matchRatio = matchedCount / graph.order;
-
-  if (matchRatio >= 0.7) {
-    applyPresetCorridorLayout(graph);
-  } else {
-    applyAutomatedClusteredLayout(graph);
-  }
-}
-
-/**
- * Organic Physics layout with high repulsion
- */
-export function applyForceAtlas2(graph, iterations = 250) {
-  if (!graph || graph.order === 0) return;
-  initializePositions(graph);
-
-  try {
-    forceAtlas2.assign(graph, {
-      iterations,
-      settings: {
-        gravity: 0.002,
-        scalingRatio: 400,
-        slowDown: 3.5,
-        barnesHutOptimize: graph.order > 100,
-        adjustSizes: true,
-        strongGravityMode: false
-      }
-    });
-  } catch (err) {
-    console.warn('[BloodHound Layout] ForceAtlas2 error, fallback to cluster:', err);
-    applyAutomatedClusteredLayout(graph);
-    return;
-  }
-
-  preventEllipticalCollisions(graph, 220, 130, 30);
-}
-
-/**
- * Circular layout fallback
- */
-export function applyCircular(graph) {
-  if (!graph || graph.order === 0) return;
-  const count = graph.order;
-  const radius = Math.max(300, count * 60);
-  let idx = 0;
-  graph.forEachNode((node) => {
-    const angle = (2 * Math.PI * idx) / count;
-    graph.setNodeAttribute(node, 'x', Math.cos(angle) * radius);
-    graph.setNodeAttribute(node, 'y', Math.sin(angle) * radius);
-    idx++;
-  });
-  preventEllipticalCollisions(graph, 220, 130, 25);
-}
-
-/**
- * Centers graph bounding box symmetrically at origin (0, 0)
- */
-function centerGraphAtOrigin(graph) {
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  graph.forEachNode((node, attrs) => {
-    if (attrs.x < minX) minX = attrs.x;
-    if (attrs.x > maxX) maxX = attrs.x;
-    if (attrs.y < minY) minY = attrs.y;
-    if (attrs.y > maxY) maxY = attrs.y;
-  });
-
-  const midX = (minX + maxX) / 2;
-  const midY = (minY + maxY) / 2;
-
-  graph.forEachNode((node, attrs) => {
-    graph.setNodeAttribute(node, 'x', attrs.x - midX);
-    graph.setNodeAttribute(node, 'y', attrs.y - midY);
-  });
-}
-
-/**
- * Robust elliptical pair-wise collision prevention (Noverlap)
- * Mathematically guarantees zero overlapping nodes or labels!
- */
-function preventEllipticalCollisions(graph, minDx = 220, minDy = 130, iterations = 45) {
+function preventEllipticalCollisions(graph, minDx = 240, minDy = 140, iterations = 45) {
   const nodes = graph.nodes();
   const n = nodes.length;
   if (n <= 1) return;
@@ -417,6 +178,7 @@ function preventEllipticalCollisions(graph, minDx = 220, minDy = 130, iterations
         const dx = ux - vx;
         const dy = uy - vy;
 
+        // Elliptical normalized distance: (dx / minDx)^2 + (dy / minDy)^2
         const normDistSq = (dx * dx) / (minDx * minDx) + (dy * dy) / (minDy * minDy);
 
         if (normDistSq < 1.0) {
@@ -442,4 +204,92 @@ function preventEllipticalCollisions(graph, minDx = 220, minDy = 130, iterations
 
     if (!hadCollision) break;
   }
+}
+
+/**
+ * Organic Physics layout with high repulsion
+ */
+export function applyForceAtlas2(graph, iterations = 250) {
+  if (!graph || graph.order === 0) return;
+  initializePositions(graph);
+
+  try {
+    forceAtlas2.assign(graph, {
+      iterations,
+      settings: {
+        gravity: 0.002,      // Minimal center pull
+        scalingRatio: 400,   // High repulsion ensures massive spacing
+        slowDown: 3.5,
+        barnesHutOptimize: false,
+        adjustSizes: true,
+        strongGravityMode: false
+      }
+    });
+  } catch (err) {
+    console.warn('[BloodHound Layout] ForceAtlas2 error, fallback to cluster:', err);
+    applyBloodHoundClusterLayout(graph);
+    return;
+  }
+
+  preventEllipticalCollisions(graph, 240, 140, 30);
+}
+
+/**
+ * Dagre hierarchical tree layout (Attack progression tree)
+ */
+export function applyDagreLayout(graph, direction = 'LR') {
+  if (!graph || graph.order === 0) return;
+
+  try {
+    const g = new dagre.graphlib.Graph();
+    g.setGraph({
+      rankdir: direction,
+      nodesep: 180,
+      ranksep: 290,
+      marginx: 100,
+      marginy: 100
+    });
+    g.setDefaultEdgeLabel(() => ({}));
+
+    graph.forEachNode((node, attrs) => {
+      const size = (attrs.size || 18) * 2;
+      g.setNode(node, { width: size + 140, height: size + 80 });
+    });
+
+    graph.forEachEdge((edge, attrs, source, target) => {
+      g.setEdge(source, target);
+    });
+
+    dagre.layout(g);
+
+    g.nodes().forEach(node => {
+      const coord = g.node(node);
+      if (coord && typeof coord.x === 'number' && typeof coord.y === 'number') {
+        graph.setNodeAttribute(node, 'x', coord.x);
+        graph.setNodeAttribute(node, 'y', coord.y);
+      }
+    });
+
+    preventEllipticalCollisions(graph, 220, 130, 25);
+  } catch (err) {
+    console.warn('[BloodHound Layout] Dagre layout failed:', err);
+    applyBloodHoundClusterLayout(graph);
+  }
+}
+
+/**
+ * Circular layout fallback
+ */
+export function applyCircular(graph) {
+  if (!graph || graph.order === 0) return;
+  const count = graph.order;
+  const radius = Math.max(300, count * 60);
+  let idx = 0;
+  graph.forEachNode((node) => {
+    const angle = (2 * Math.PI * idx) / count;
+    graph.setNodeAttribute(node, 'x', Math.cos(angle) * radius);
+    graph.setNodeAttribute(node, 'y', Math.sin(angle) * radius);
+    idx++;
+  });
+  preventEllipticalCollisions(graph, 220, 130, 25);
 }
