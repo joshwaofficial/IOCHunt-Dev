@@ -505,8 +505,8 @@ export default function BloodHoundNodeDiagram({
         res.theme = themeRef.current;
         const sel = selectedNodeRef.current;
 
-        const camera = sigma.getCamera();
-        res.inverseSqrtZoomRatio = 1 / Math.sqrt(Math.max(camera.ratio, 0.001));
+        const ratio = sigmaRef.current ? sigmaRef.current.getCamera().ratio : 1;
+        res.inverseSqrtZoomRatio = 1 / Math.sqrt(Math.max(ratio, 0.001));
 
         res.color = isLight ? '#ffffff' : '#0f172a';
         res.size = 14;
@@ -542,16 +542,16 @@ export default function BloodHoundNodeDiagram({
         res.theme = themeRef.current;
         const sel = selectedNodeRef.current;
 
-        const camera = sigma.getCamera();
-        res.inverseSqrtZoomRatio = 1 / Math.sqrt(Math.max(camera.ratio, 0.001));
+        const ratio = sigmaRef.current ? sigmaRef.current.getCamera().ratio : 1;
+        res.inverseSqrtZoomRatio = 1 / Math.sqrt(Math.max(ratio, 0.001));
 
         // Multi-edge bezier control point calculation
         if (res.groupSize > 1) {
           const source = graph.source(edge);
           const target = graph.target(edge);
-          const sNode = sigma.getNodeDisplayData(source);
-          const tNode = sigma.getNodeDisplayData(target);
-          if (sNode && tNode) {
+          const sNode = sigmaRef.current ? sigmaRef.current.getNodeDisplayData(source) : graph.getNodeAttributes(source);
+          const tNode = sigmaRef.current ? sigmaRef.current.getNodeDisplayData(target) : graph.getNodeAttributes(target);
+          if (sNode && tNode && typeof sNode.x === 'number' && typeof tNode.x === 'number') {
             const dx = tNode.x - sNode.x;
             const dy = tNode.y - sNode.y;
             const dist = Math.hypot(dx, dy) || 1;
