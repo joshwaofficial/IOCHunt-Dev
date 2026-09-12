@@ -72,13 +72,11 @@ const PRESET_COORDINATES = [
 
 /**
  * 1. BloodHound Hierarchical Tree Layout (Tree Mode)
- * Uses @dagrejs/dagre — the SAME algorithm BloodHound CE uses:
+ * Uses @dagrejs/dagre — the EXACT algorithm and parameters BloodHound CE uses:
  * - Left-to-Right (LR) DAG progression from roots → targets
- * - Each rank = one clean vertical column (NO sub-grids!)
- * - Automatic edge-crossing minimization (dagre's Sugiyama-based algorithm)
- * - Generous nodesep/ranksep that scales with node count
- * - Canvas grows naturally in BOTH width and height
- * - Connected components stacked vertically
+ * - Virtual 25x25 node sizing for Dagre to pack ranks cleanly
+ * - ranksep: 480, nodesep: 120
+ * - Proper multigraph edge mapping and automatic cycle resolution
  */
 export function applyBloodHoundTreeLayout(graph) {
   if (!graph || graph.order === 0) return;
@@ -89,125 +87,40 @@ export function applyBloodHoundTreeLayout(graph) {
     return;
   }
 
-  const nodeCount = graph.order;
-  // Base vertical gap between nodes in the same rank column
-  const nodesep = Math.round(120 * Math.max(1.0, 0.6 * Math.sqrt(nodeCount / 10)));
+  const graphlibGraph = new dagre.graphlib.Graph({ directed: true, multigraph: true });
+  graphlibGraph.setGraph({
+    rankdir: 'LR',
+    ranksep: 480,
+    nodesep: 120,
+    marginx: 60,
+    marginy: 60
+  });
+  graphlibGraph.setDefaultEdgeLabel(() => ({}));
+  graphlibGraph.setDefaultNodeLabel(() => ({}));
 
-  // --- Find connected components (undirected BFS) ---
-  const compVisited = new Set();
-  const components = [];
-
-  nodes.forEach(start => {
-    if (compVisited.has(start)) return;
-    const comp = [];
-    const q = [start];
-    compVisited.add(start);
-    while (q.length > 0) {
-      const curr = q.shift();
-      comp.push(curr);
-      graph.forEachNeighbor(curr, nbr => {
-        if (!compVisited.has(nbr)) {
-          compVisited.add(nbr);
-          q.push(nbr);
-        }
-      });
-    }
-    components.push(comp);
+  graph.forEachNode(node => {
+    const attrs = graph.getNodeAttributes(node);
+    graphlibGraph.setNode(node, {
+      label: attrs.label || '',
+      width: 25,
+      height: 25
+    });
   });
 
-  // Largest component first
-  components.sort((a, b) => b.length - a.length);
-
-  let globalOffsetY = 0;
-
-  components.forEach(comp => {
-    const compSet = new Set(comp);
-
-    // ================================================================
-    // STEP 1: Bellman-Ford Longest-Path Rank Assignment
-    //
-    // Unlike simple BFS (which fails to propagate rank updates to
-    // already-visited nodes), Bellman-Ford iterates until convergence.
-    // Each node's rank = longest directed path from any source node.
-    //
-    // Example: Principal(0) → CertTemplate(1) → Container(2)
-    // Even if all 70 cert templates connect to the same container,
-    // they all correctly get rank=1, and container gets rank=2.
-    // ================================================================
-    const rankMap = new Map();
-    comp.forEach(n => rankMap.set(n, 0)); // Initialize all ranks to 0
-
-    // Relax edges repeatedly until no more changes (or max iterations)
-    let changed = true;
-    let iterations = 0;
-    const maxIterations = Math.min(comp.length + 1, 100);
-
-    while (changed && iterations < maxIterations) {
-      changed = false;
-      iterations++;
-      comp.forEach(node => {
-        const currRank = rankMap.get(node);
-        graph.forEachOutNeighbor(node, nb => {
-          if (!compSet.has(nb)) return;
-          const newRank = currRank + 1;
-          if (newRank > rankMap.get(nb)) {
-            rankMap.set(nb, newRank);
-            changed = true;
-          }
-        });
-      });
+  graph.forEachEdge((edge, attrs, source, target) => {
+    if (graph.hasNode(source) && graph.hasNode(target)) {
+      graphlibGraph.setEdge(source, target, { label: attrs.label || '', points: [] }, edge);
     }
+  });
 
-    // Group nodes by their assigned rank
-    const byRank = new Map();
-    comp.forEach(n => {
-      const r = rankMap.get(n);
-      if (!byRank.has(r)) byRank.set(r, []);
-      byRank.get(r).push(n);
-    });
-    const sortedRanks = [...byRank.keys()].sort((a, b) => a - b);
+  dagre.layout(graphlibGraph);
 
-    // ================================================================
-    // STEP 2: Compute ADAPTIVE ranksep
-    //
-    // THE KEY FIX: ranksep must be proportional to the tallest rank's
-    // height. If rank 1 has 70 nodes × 120px = 8400px tall and there
-    // are 3 ranks, then ranksep = 8400/3 = 2800px.
-    // Total width = 3 × 2800 = 8400px ≈ height → roughly square graph.
-    // This prevents the graph from looking like a narrow vertical spike!
-    // ================================================================
-    const maxRankSize = Math.max(...[...byRank.values()].map(rn => rn.length));
-    const tallestRankHeight = maxRankSize * nodesep;
-    const numRanks = sortedRanks.length;
-
-    // Ranksep = tallestRankHeight divided by number of ranks (min 350px)
-    // This ensures horizontal width ≈ vertical height of tallest column
-    const ranksep = Math.max(350, Math.round(tallestRankHeight / Math.max(numRanks, 1)));
-
-    // ================================================================
-    // STEP 3: Place nodes — X by rank, Y centered within each rank
-    // ================================================================
-    let compMinY = Infinity;
-    let compMaxY = -Infinity;
-
-    sortedRanks.forEach(r => {
-      const rankNodes = byRank.get(r);
-      const count = rankNodes.length;
-      const x = r * ranksep; // Each rank = one vertical column at fixed X
-
-      rankNodes.forEach((node, idx) => {
-        // Center the rank column vertically around Y=0
-        const y = globalOffsetY + (idx - (count - 1) / 2) * nodesep;
-        graph.setNodeAttribute(node, 'x', x);
-        graph.setNodeAttribute(node, 'y', y);
-        if (y < compMinY) compMinY = y;
-        if (y > compMaxY) compMaxY = y;
-      });
-    });
-
-    // Stack next connected component below this one
-    const compHeight = (compMaxY - compMinY) || 300;
-    globalOffsetY = compMaxY + Math.max(500, compHeight * 0.3);
+  graphlibGraph.nodes().forEach(node => {
+    const pos = graphlibGraph.node(node);
+    if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
+      graph.setNodeAttribute(node, 'x', pos.x);
+      graph.setNodeAttribute(node, 'y', pos.y);
+    }
   });
 
   centerGraphAtOrigin(graph);

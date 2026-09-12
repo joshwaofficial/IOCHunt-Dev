@@ -53,11 +53,51 @@ export const KIND_COLORS = {
 };
 
 /**
+ * BloodHound Level of Detail (LOD) Zoom Fading
+ * When zoomed out, labels fade out to 0 opacity to eliminate clutter.
+ * When zoomed in, labels smoothly fade in.
+ */
+export const STARTING_ZOOM_FADE_RATIO = 0.4;
+export const ENDING_ZOOM_FADE_RATIO = 0.3;
+
+export function calculateLabelOpacity(inverseSqrtZoomRatio = 1) {
+  if (inverseSqrtZoomRatio >= STARTING_ZOOM_FADE_RATIO) return 1;
+  if (inverseSqrtZoomRatio < STARTING_ZOOM_FADE_RATIO && inverseSqrtZoomRatio > ENDING_ZOOM_FADE_RATIO) {
+    return (inverseSqrtZoomRatio - ENDING_ZOOM_FADE_RATIO) / (STARTING_ZOOM_FADE_RATIO - ENDING_ZOOM_FADE_RATIO);
+  }
+  return 0; // Completely hide when zoomed out!
+}
+
+export function truncateText(text, maxLen = 14) {
+  if (!text) return '';
+  if (text.length <= maxLen) return text;
+  return text.slice(0, maxLen - 1) + '…';
+}
+
+export function blendHexColors(hex, targetHex, amount) {
+  if (!hex || !targetHex) return hex || '#ffffff';
+  const parse = (h) => {
+    const c = String(h).trim().replace('#', '');
+    return [
+      parseInt(c.slice(0, 2), 16) || 0,
+      parseInt(c.slice(2, 4), 16) || 0,
+      parseInt(c.slice(4, 6), 16) || 0
+    ];
+  };
+  const [r1, g1, b1] = parse(hex);
+  const [r2, g2, b2] = parse(targetHex);
+  const r = Math.round(r1 + (r2 - r1) * amount);
+  const g = Math.round(g1 + (g2 - g1) * amount);
+  const b = Math.round(b1 + (b2 - b1) * amount);
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+/**
  * Custom Canvas Node Renderer for BloodHound style:
  * 1. Clean circular body (white in light mode, dark slate in dark mode)
  * 2. High-contrast colored border ring
- * 3. Centered vector icon (always 100% visible!)
- * 4. Crisp, clean non-overlapping label underneath node
+ * 3. Centered vector icon
+ * 4. Crisp non-overlapping label with BloodHound zoom fading and truncation
  */
 export function drawBloodHoundNode(context, data) {
   if (!data.x || !data.y) return;
@@ -73,14 +113,14 @@ export function drawBloodHoundNode(context, data) {
 
   context.save();
 
-  // Dimmed background nodes during BloodHound focus selection (subtle dimming: clearly visible in original colors!)
+  // Dimmed background nodes during BloodHound focus selection
   if (isDimmed) {
-    context.globalAlpha = 0.45;
+    context.globalAlpha = isLight ? 0.25 : 0.35;
   } else {
     context.globalAlpha = 1.0;
   }
 
-  // 1. Simple, clean selection / neighbor highlight ring (ONLY outer ring, NO solid fill!)
+  // 1. Selection / neighbor highlight ring
   if (isSelected) {
     context.beginPath();
     context.arc(x, y, size + 5, 0, Math.PI * 2);
@@ -91,31 +131,29 @@ export function drawBloodHoundNode(context, data) {
     context.beginPath();
     context.arc(x, y, size + 3.2, 0, Math.PI * 2);
     context.strokeStyle = color;
-    context.lineWidth = 1.8;
+    context.lineWidth = 2.0;
     context.stroke();
   }
 
-  // 2. Node circular body — PURE CLEAN WHITE in light mode, DARK SLATE in dark mode
-  // GUARANTEED: NEVER fill with solid color at any time!
+  // 2. Node circular body — Pure clean white / dark slate
   context.beginPath();
   context.arc(x, y, size, 0, Math.PI * 2);
   context.fillStyle = isLight ? '#ffffff' : '#0f172a';
   context.fill();
 
-  // 3. Colored border perimeter ring — bold and crisp so it NEVER vanishes when zoomed out!
+  // 3. Colored border perimeter ring
   context.beginPath();
   context.arc(x, y, size, 0, Math.PI * 2);
   context.strokeStyle = color;
   context.lineWidth = isSelected ? 3.2 : (data.inChain ? 2.8 : 2.4);
   context.stroke();
 
-  // 4. Centered FontAwesome Vector Icon — crisp margin, never covers entire node!
+  // 4. Centered FontAwesome Vector Icon
   const iconDef = NODE_ICONS[data.iconType] || (data.iconType && NODE_ICONS[data.iconType.toLowerCase()]) || NODE_ICONS.machine;
   const path = getPath2D(iconDef);
 
   if (path && iconDef.icon) {
     const [iconW, iconH] = [iconDef.icon[0], iconDef.icon[1]];
-    // 70% size gives a clean, generous white ring around the icon
     const targetSize = size * 0.70;
     const scale = targetSize / Math.max(iconW, iconH);
 
@@ -126,7 +164,6 @@ export function drawBloodHoundNode(context, data) {
     context.fill(path);
     context.restore();
   } else {
-    // High-contrast inner colored dot fallback (so node is NEVER an empty white circle!)
     context.beginPath();
     context.arc(x, y, size * 0.45, 0, Math.PI * 2);
     context.fillStyle = data.iconColor || color;
@@ -153,23 +190,34 @@ export function drawBloodHoundNode(context, data) {
     context.fillText(String(data.memberCount), bx, by);
   }
 
-  // 6. Node Label UNDER the node (Hidden for dimmed nodes to eliminate clutter!)
-  if (data.label && !isDimmed) {
+  // 6. Node Label UNDER the node with BloodHound Zoom LOD & Truncation
+  const inverseSqrtZoomRatio = data.inverseSqrtZoomRatio ?? 1;
+  const zoomOpacity = calculateLabelOpacity(inverseSqrtZoomRatio);
+  const showLabel = isSelected || data.hovered || (zoomOpacity > 0.02 && !isDimmed);
+
+  if (data.label && showLabel) {
     const fontSize = size >= 13 ? 10 : (size >= 10.5 ? 9 : 8);
     context.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif`;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
 
-    const text = String(data.label);
+    // Truncate label if unselected so neighbors never collide
+    const isFullText = isSelected || data.hovered || data.inChain;
+    const text = isFullText ? String(data.label) : truncateText(String(data.label), 14);
+
     const metrics = context.measureText(text);
     const textWidth = metrics.width;
     const pillHeight = fontSize + 4;
-    const pillWidth = textWidth + (size >= 12 ? 8 : 6);
-    const pillY = y + size + (size >= 12 ? 5 : 3.5) + pillHeight / 2;
+    const pillWidth = textWidth + 8;
+    const pillY = y + size + 5 + pillHeight / 2;
 
     const rx = 3;
     const px = x - pillWidth / 2;
     const py = pillY - pillHeight / 2;
+
+    context.save();
+    // Fade label according to zoom level
+    context.globalAlpha = (isDimmed ? 0.35 : 1.0) * (isSelected ? 1.0 : zoomOpacity);
 
     context.beginPath();
     if (context.roundRect) {
@@ -177,11 +225,11 @@ export function drawBloodHoundNode(context, data) {
     } else {
       context.rect(px, py, pillWidth, pillHeight);
     }
-    context.fillStyle = isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(15, 23, 42, 0.9)';
+    context.fillStyle = isLight ? 'rgba(255, 255, 255, 0.96)' : 'rgba(15, 23, 42, 0.94)';
     context.fill();
     context.strokeStyle = isSelected
       ? (isLight ? '#0284c7' : '#38bdf8')
-      : (isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.1)');
+      : (isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.12)');
     context.lineWidth = isSelected ? 1.8 : 1;
     context.stroke();
 
@@ -194,6 +242,8 @@ export function drawBloodHoundNode(context, data) {
       context.fillStyle = isLight ? '#475569' : '#94a3b8';
       context.fillText(data.subLabel, x, pillY + pillHeight);
     }
+
+    context.restore();
   }
 
   context.restore();
@@ -318,37 +368,66 @@ export function drawBloodHoundNodeHover(context, data) {
 
 /**
  * Custom Edge Label Renderer for BloodHound relationships:
- * Draws high-contrast pill at the edge midpoint for clean relationship text (MemberOf, GenericAll, DCSync).
+ * Draws high-contrast pill along edge/curve for clean relationship text (MemberOf, GenericAll, DCSync).
+ * Supports BloodHound zoom LOD fading, multi-edge curve midpoint positioning, and distance culling.
  */
 export function drawBloodHoundEdgeLabel(context, edgeData, sourceData, targetData) {
-  if (!edgeData.label || !sourceData || !targetData || edgeData.dimmed) return;
+  if (!edgeData.label || !sourceData || !targetData) return;
 
-  const isLight = edgeData.theme !== 'dark';
+  // Zoom Level of Detail check
+  const inverseSqrtZoomRatio = edgeData.inverseSqrtZoomRatio ?? 1;
+  const zoomOpacity = calculateLabelOpacity(inverseSqrtZoomRatio);
+  const isHighlighted = edgeData.selected || edgeData.inChain;
+
+  if (zoomOpacity <= 0.05 && !isHighlighted) return;
+  if (edgeData.dimmed && !isHighlighted) return;
+
   const sx = sourceData.x;
   const sy = sourceData.y;
   const tx = targetData.x;
   const ty = targetData.y;
 
-  // Midpoint with slight perpendicular normal offset to separate opposite-direction edges
   const dx = tx - sx;
   const dy = ty - sy;
   const len = Math.hypot(dx, dy) || 1;
-  const nx = -dy / len;
-  const ny = dx / len;
-  const mx = (sx + tx) / 2 + nx * 7;
-  const my = (sy + ty) / 2 + ny * 7;
+
+  // Suppress labels on tiny edges where text would engulf nodes
+  if (len < 65 && !isHighlighted) return;
+
+  // Deduplicate multi-edges: only draw label for the primary edge or if highlighted
+  if (edgeData.groupSize > 1 && edgeData.groupPosition > 0 && !isHighlighted) return;
+
+  const isLight = edgeData.theme !== 'dark';
+
+  // Compute position along curve if control point exists, else use midpoint
+  let mx, my;
+  if (edgeData.control) {
+    mx = 0.25 * sx + 0.5 * edgeData.control.x + 0.25 * tx;
+    my = 0.25 * sy + 0.5 * edgeData.control.y + 0.25 * ty;
+  } else {
+    const nx = -dy / len;
+    const ny = dx / len;
+    mx = (sx + tx) / 2 + nx * 8;
+    my = (sy + ty) / 2 + ny * 8;
+  }
 
   const fontSize = 9;
   context.save();
+  context.globalAlpha = (edgeData.dimmed ? 0.3 : 1.0) * (isHighlighted ? 1.0 : zoomOpacity);
   context.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
 
-  const labelText = String(edgeData.label);
+  // Label text, with group count if multiple rights exist between nodes
+  let labelText = String(edgeData.label);
+  if (edgeData.groupSize > 1 && !isHighlighted) {
+    labelText = `${labelText} (+${edgeData.groupSize - 1})`;
+  }
+
   const metrics = context.measureText(labelText);
   const textWidth = metrics.width;
   const pillHeight = fontSize + 4;
-  const pillWidth = textWidth + 6;
+  const pillWidth = textWidth + 8;
   const edgeColor = edgeData.color || (isLight ? '#475569' : '#94a3b8');
 
   const rx = 3;
@@ -362,14 +441,16 @@ export function drawBloodHoundEdgeLabel(context, edgeData, sourceData, targetDat
   } else {
     context.rect(px, py, pillWidth, pillHeight);
   }
-  context.fillStyle = isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.92)';
+  context.fillStyle = isLight ? 'rgba(255, 255, 255, 0.96)' : 'rgba(15, 23, 42, 0.94)';
   context.fill();
-  context.strokeStyle = isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.12)';
-  context.lineWidth = 1;
+  context.strokeStyle = isHighlighted
+    ? (isLight ? '#0284c7' : '#38bdf8')
+    : (isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.12)');
+  context.lineWidth = isHighlighted ? 1.6 : 1;
   context.stroke();
 
   // Draw protocol / relationship label text
-  context.fillStyle = edgeColor;
+  context.fillStyle = isHighlighted ? (isLight ? '#0284c7' : '#38bdf8') : edgeColor;
   context.fillText(labelText, mx, my);
 
   context.restore();
