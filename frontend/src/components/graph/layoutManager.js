@@ -1,4 +1,5 @@
 import forceAtlas2 from 'graphology-layout-forceatlas2';
+import dagre from '@dagrejs/dagre';
 
 /**
  * Ensures all nodes in graph have valid initial (x, y) coordinates
@@ -71,11 +72,13 @@ const PRESET_COORDINATES = [
 
 /**
  * 1. BloodHound Hierarchical Tree Layout (Tree Mode)
- * Directly matches BloodHound Community Edition (SpecterOps) DAG layout:
- * - Left-to-Right (LR) progression from roots (Domains, Actors, Sources) to targets
- * - Decomposes into connected components with clean vertical stacking
- * - Topological ranking with cycle breaking
- * - Widescreen column staggering prevents tall vertical towers
+ * Uses @dagrejs/dagre — the SAME algorithm BloodHound CE uses:
+ * - Left-to-Right (LR) DAG progression from roots → targets
+ * - Each rank = one clean vertical column (NO sub-grids!)
+ * - Automatic edge-crossing minimization (dagre's Sugiyama-based algorithm)
+ * - Generous nodesep/ranksep that scales with node count
+ * - Canvas grows naturally in BOTH width and height
+ * - Connected components stacked vertically
  */
 export function applyBloodHoundTreeLayout(graph) {
   if (!graph || graph.order === 0) return;
@@ -86,7 +89,23 @@ export function applyBloodHoundTreeLayout(graph) {
     return;
   }
 
-  // Find connected components using undirected neighborhood
+  const nodeCount = graph.order;
+
+  // --- Dynamic spacing scaled to node count (matches BloodHound CE proportions) ---
+  // BloodHound CE uses ~80-120px nodesep and ~200-350px ranksep.
+  // We scale UP for large graphs so the canvas grows instead of cramming.
+  const baseNodeSep = 90;
+  const baseRankSep = 280;
+  // Scale factor: grows gently with sqrt so 10 nodes → 1x, 50 → ~1.6x, 100 → ~2.2x
+  const scaleFactor = Math.max(1.0, 0.7 * Math.sqrt(nodeCount / 10));
+  const nodesep = Math.round(baseNodeSep * Math.min(scaleFactor, 2.5));
+  const ranksep = Math.round(baseRankSep * Math.min(scaleFactor, 2.5));
+
+  // Node dimensions for dagre (width accounts for label text, height for icon + label below)
+  const nodeWidth = 180;
+  const nodeHeight = 55;
+
+  // --- Find connected components ---
   const compVisited = new Set();
   const components = [];
 
@@ -111,118 +130,78 @@ export function applyBloodHoundTreeLayout(graph) {
   // Sort components largest first
   components.sort((a, b) => b.length - a.length);
 
-  // Dynamic spacing: ample horizontal separation for long edge labels,
-  // and UNCONSTRAINED vertical expansion that grows with node count!
-  const nodeCount = graph.order;
-  const scale = Math.max(1.0, Math.sqrt(nodeCount / 10));
-  const rankSep = Math.round(Math.max(680, 520 * Math.min(scale, 2.2))); // 680px -> 1150px
-  const nodeSep = Math.round(Math.max(150, 135 * Math.min(scale, 1.5))); // 150px -> 210px
-
-  let currentOffsetY = 0;
+  let globalOffsetY = 0;
 
   components.forEach(comp => {
     const compSet = new Set(comp);
 
-    // Identify roots: in-degree == 0, or domain name (.CORP/.LOCAL), or lowest in-degree
-    let roots = comp.filter(n => graph.inDegree(n) === 0);
-    if (roots.length === 0) {
-      const domainRoots = comp.filter(n => {
-        const u = n.toUpperCase();
-        return u.includes('.CORP') || u.includes('.LOCAL') || u.includes('DOMAIN');
-      });
-      if (domainRoots.length > 0) {
-        roots = domainRoots;
-      } else {
-        const sorted = comp.slice().sort((a, b) => graph.inDegree(a) - graph.inDegree(b));
-        roots = [sorted[0]];
-      }
-    }
+    // Create dagre graph for this component
+    const g = new dagre.graphlib.Graph({ multigraph: true });
+    g.setGraph({
+      rankdir: 'LR',      // Left-to-Right like BloodHound CE
+      nodesep: nodesep,    // Vertical space between nodes in same rank
+      ranksep: ranksep,    // Horizontal space between ranks (edge length)
+      marginx: 40,
+      marginy: 40,
+      acyclicer: 'greedy', // Break cycles for DAG
+      ranker: 'network-simplex' // Best rank assignment
+    });
+    g.setDefaultEdgeLabel(() => ({}));
 
-    // Topological ranking via forward BFS
-    const ranks = new Map();
-    roots.forEach(r => ranks.set(r, 0));
-    const q = roots.map(r => ({ node: r, rank: 0 }));
-    const visited = new Set(roots);
+    // Add nodes to dagre
+    comp.forEach(node => {
+      g.setNode(node, { width: nodeWidth, height: nodeHeight });
+    });
 
-    while (q.length > 0) {
-      const { node, rank } = q.shift();
-      graph.forEachOutNeighbor(node, nbr => {
-        if (compSet.has(nbr)) {
-          const curR = ranks.get(nbr) || 0;
-          const nextR = Math.max(curR, rank + 1);
-          ranks.set(nbr, nextR);
-          if (!visited.has(nbr)) {
-            visited.add(nbr);
-            q.push({ node: nbr, rank: nextR });
+    // Add edges to dagre (only edges within this component)
+    const addedEdges = new Set();
+    comp.forEach(node => {
+      graph.forEachOutEdge(node, (edge, edgeAttrs, source, target) => {
+        if (compSet.has(target)) {
+          const edgeKey = source + '→' + target;
+          if (!addedEdges.has(edgeKey)) {
+            addedEdges.add(edgeKey);
+            g.setEdge(source, target, { weight: 1, minlen: 1 }, edge);
           }
         }
       });
+    });
+
+    // Run dagre layout
+    try {
+      dagre.layout(g);
+    } catch (err) {
+      console.warn('[BloodHound Layout] Dagre error, falling back to manual:', err);
+      // Fallback: simple column layout
+      comp.forEach((node, idx) => {
+        graph.setNodeAttribute(node, 'x', 0);
+        graph.setNodeAttribute(node, 'y', globalOffsetY + idx * nodesep);
+      });
+      globalOffsetY += comp.length * nodesep + 400;
+      return;
     }
 
-    // Any remaining nodes in this component (reverse edges or cycles)
-    comp.forEach(n => {
-      if (!ranks.has(n)) ranks.set(n, 0);
-    });
+    // Read dagre positions and apply to graphology, with vertical offset for component stacking
+    let compMinY = Infinity;
+    let compMaxY = -Infinity;
 
-    // Group nodes by rank
-    const byRank = new Map();
-    comp.forEach(n => {
-      const r = ranks.get(n);
-      if (!byRank.has(r)) byRank.set(r, []);
-      byRank.get(r).push(n);
-    });
-
-    let compMinY = Infinity, compMaxY = -Infinity;
-
-    // Widescreen 2D Balanced Layout:
-    // Small ranks (<= 6 nodes) stay in a single vertical column (perfect for small diagrams!).
-    // Large ranks (e.g. 10 to 75 nodes) spread out across BOTH height AND width into a balanced widescreen grid!
-    // Edge length between ranks is extended (750px - 1100px) so arrows stretch across with clear separation!
-    const sortedRanks = Array.from(byRank.keys()).sort((a, b) => a - b);
-    const subColWidth = 480; // Ample horizontal space for long labels
-    const edgeLength = Math.max(750, Math.round(550 * Math.min(scale, 2.2))); // Extended edge arrow length
-    const rankStartX = new Map();
-    let currentX = 0;
-
-    sortedRanks.forEach(r => {
-      rankStartX.set(r, currentX);
-      const rNodes = byRank.get(r);
-      const count = rNodes.length;
-      // If count <= 6: 1 column. If large, spread into balanced widescreen columns:
-      const numCols = count <= 6 ? 1 : Math.max(2, Math.min(8, Math.ceil(Math.sqrt(count * 0.75))));
-      const rankWidth = (numCols - 1) * subColWidth;
-      currentX += rankWidth + edgeLength;
-    });
-
-    sortedRanks.forEach(r => {
-      const rNodes = byRank.get(r);
-      const count = rNodes.length;
-      const numCols = count <= 6 ? 1 : Math.max(2, Math.min(8, Math.ceil(Math.sqrt(count * 0.75))));
-      const maxPerCol = Math.ceil(count / numCols);
-      const startX = rankStartX.get(r) || 0;
-
-      rNodes.forEach((node, idx) => {
-        const col = Math.floor(idx / maxPerCol);
-        const row = idx % maxPerCol;
-        const totalInThisCol = Math.min(maxPerCol, count - col * maxPerCol);
-
-        const x = startX + col * subColWidth;
-        // Stagger alternating sub-columns by half a row for clear visibility & honeycomb spacing
-        const staggerY = (numCols > 1 && col % 2 === 1) ? (nodeSep * 0.45) : 0;
-        const y = currentOffsetY + (row - (totalInThisCol - 1) / 2) * nodeSep + staggerY;
-
+    comp.forEach(node => {
+      const pos = g.node(node);
+      if (pos) {
+        const x = pos.x;
+        const y = pos.y + globalOffsetY;
         graph.setNodeAttribute(node, 'x', x);
         graph.setNodeAttribute(node, 'y', y);
         if (y < compMinY) compMinY = y;
         if (y > compMaxY) compMaxY = y;
-      });
+      }
     });
 
-    const compH = (compMaxY - compMinY) || 300;
-    currentOffsetY += compH + Math.max(500, Math.sqrt(nodeCount) * 90);
+    // Stack next component below this one with generous gap
+    const compHeight = (compMaxY - compMinY) || 200;
+    globalOffsetY = compMaxY + Math.max(400, compHeight * 0.3);
   });
 
-  preventEllipticalCollisions(graph, 320, 140, 25);
   centerGraphAtOrigin(graph);
 }
 
