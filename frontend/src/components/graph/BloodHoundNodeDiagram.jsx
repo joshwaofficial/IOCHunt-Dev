@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Sigma from 'sigma';
 import { MultiDirectedGraph } from 'graphology';
-import { drawBloodHoundNode, drawBloodHoundNodeHover, drawBloodHoundEdgeLabel } from './nodeIconHelper';
+import { drawBloodHoundNode, drawBloodHoundNodeHover, drawBloodHoundEdgeLabel, KIND_COLORS } from './nodeIconHelper';
 import {
   applyBloodHoundTreeLayout,
   applyBloodHoundStarLayout,
