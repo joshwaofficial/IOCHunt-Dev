@@ -222,7 +222,7 @@ export function getSimulatedTopologyData() {
     },
     {
       from_machine: 'ADMIN-WS-02',
-      to_ip: '45.33.32.156',
+      to_ip: '194.26.29.112',
       protocol: 'DNS-Tunnel',
       port: '53',
       count: 190,

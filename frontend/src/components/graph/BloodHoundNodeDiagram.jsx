@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Sigma from 'sigma';
 import { MultiDirectedGraph } from 'graphology';
-import { drawBloodHoundNode, drawBloodHoundEdgeLabel } from './nodeIconHelper';
+import { drawBloodHoundNode, drawBloodHoundNodeHover, drawBloodHoundEdgeLabel } from './nodeIconHelper';
 import { applyBloodHoundClusterLayout, applyForceAtlas2, applyDagreLayout } from './layoutManager';
 
 const AD_COL = {
@@ -366,6 +366,7 @@ export default function BloodHoundNodeDiagram({
       defaultNodeType: 'circle',
       defaultEdgeType: 'arrow',
       defaultDrawNodeLabel: drawBloodHoundNode,
+      defaultDrawNodeHover: drawBloodHoundNodeHover,
       defaultDrawEdgeLabel: drawBloodHoundEdgeLabel,
       enableEdgeEvents: true,
       allowInvalidContainer: true,
@@ -374,38 +375,44 @@ export default function BloodHoundNodeDiagram({
         const res = { ...attrs };
         res.theme = themeRef.current;
         const sel = selectedNodeRef.current;
+
+        // CRITICAL: Keep node size stable! NEVER enlarge nodes on click or hover.
+        res.size = attrs.size || 15;
+
         if (sel) {
           if (node === sel) {
-            res.highlighted = true;
             res.selected = true;
-            res.size = (attrs.size || 16) * 1.35;
+            res.highlighted = true; // Rendered cleanly by drawBloodHoundNodeHover with luminous halo & visible icon
           } else if (graph.areNeighbors(node, sel)) {
-            res.highlighted = true;
+            res.selected = false;
             res.isNeighbor = true;
-            res.size = (attrs.size || 16) * 1.1;
+            res.highlighted = false; // Regular clean renderer with subtle neighbor ring
           } else {
-            // NEVER TURN TO GRAY! Keep original colors, borders, and icons 100% intact!
             res.highlighted = false;
             res.selected = false;
             res.isNeighbor = false;
           }
+        } else {
+          res.highlighted = false;
+          res.selected = false;
+          res.isNeighbor = false;
         }
         return res;
       },
       edgeReducer: (edge, attrs) => {
         const res = { ...attrs };
         res.theme = themeRef.current;
+        // CRITICAL: forceLabel ensures edge arrow center names are ALWAYS displayed, never hidden until hover!
+        res.forceLabel = true;
         const sel = selectedNodeRef.current;
-        // Keep the original edge color (Red, Blue, Purple, Orange, etc.) - NEVER turn to gray!
         res.color = attrs.color || '#3b82f6';
         if (sel) {
           const [src, tgt] = graph.extremities(edge);
           if (src === sel || tgt === sel) {
             // Highlight connected edges with bold thickness and top z-index
-            res.size = Math.max((attrs.size || 2.5) * 2.2, 5);
+            res.size = Math.max((attrs.size || 2) * 1.8, 3.8);
             res.zIndex = 10;
           } else {
-            // Unselected edges retain their full original color and normal arrow visibility!
             res.size = attrs.size || 2;
             res.zIndex = 1;
           }
