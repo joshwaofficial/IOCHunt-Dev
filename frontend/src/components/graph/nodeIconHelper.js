@@ -69,29 +69,32 @@ export function drawBloodHoundNode(context, data) {
   const color = data.borderColor || data.color || '#3b82f6';
   const isSelected = data.selected;
   const isNeighbor = data.isNeighbor;
+  const isDimmed = data.dimmed;
 
   context.save();
 
-  // 1. Selection / Neighbor Highlight Halo Ring
+  // Dimmed background nodes during BloodHound focus selection
+  if (isDimmed) {
+    context.globalAlpha = 0.22;
+  }
+
+  // 1. Simple, clean selection / neighbor highlight ring (ONLY outer ring, NO solid fill!)
   if (isSelected) {
     context.beginPath();
-    context.arc(x, y, size + 6, 0, Math.PI * 2);
-    context.strokeStyle = color;
-    context.lineWidth = 3;
-    context.shadowColor = isLight ? 'rgba(37, 99, 235, 0.45)' : color;
-    context.shadowBlur = isLight ? 8 : 14;
+    context.arc(x, y, size + 5, 0, Math.PI * 2);
+    context.strokeStyle = isLight ? '#0284c7' : '#38bdf8';
+    context.lineWidth = 2.5;
     context.stroke();
-    context.shadowBlur = 0;
   } else if (isNeighbor) {
     context.beginPath();
-    context.arc(x, y, size + 4, 0, Math.PI * 2);
-    context.strokeStyle = isLight ? 'rgba(59, 130, 246, 0.6)' : 'rgba(96, 165, 250, 0.6)';
-    context.lineWidth = 2;
+    context.arc(x, y, size + 3.2, 0, Math.PI * 2);
+    context.strokeStyle = color;
+    context.lineWidth = 1.6;
     context.stroke();
   }
 
-  // 2. Node circular body (Clean white in light mode, dark charcoal in dark mode)
-  // NEVER fill with solid opaque color!
+  // 2. Node circular body — PURE CLEAN WHITE in light mode, DARK SLATE in dark mode
+  // GUARANTEED: NEVER fill with solid color at any time!
   context.beginPath();
   context.arc(x, y, size, 0, Math.PI * 2);
   context.fillStyle = isLight ? '#ffffff' : '#0f172a';
@@ -101,29 +104,32 @@ export function drawBloodHoundNode(context, data) {
   context.beginPath();
   context.arc(x, y, size, 0, Math.PI * 2);
   context.strokeStyle = color;
-  context.lineWidth = isSelected ? 3.2 : 2.5;
+  context.lineWidth = isSelected ? 2.5 : 2;
   context.stroke();
 
-  // 4. Centered FontAwesome Vector Icon — ALWAYS VISIBLE!
+  // 4. Centered FontAwesome Vector Icon — crisp margin, never covers entire node!
   const iconDef = NODE_ICONS[data.iconType] || (data.iconType && NODE_ICONS[data.iconType.toLowerCase()]) || NODE_ICONS.machine;
   const path = getPath2D(iconDef);
 
   if (path && iconDef.icon) {
     const [iconW, iconH] = [iconDef.icon[0], iconDef.icon[1]];
-    const targetSize = size * 1.15;
+    // 66% size gives a clean, generous white ring around the icon
+    const targetSize = size * 0.66;
     const scale = targetSize / Math.max(iconW, iconH);
 
     context.save();
     context.translate(x - (iconW * scale) / 2, y - (iconH * scale) / 2);
     context.scale(scale, scale);
-    context.fillStyle = data.iconColor || color || (isLight ? '#1e293b' : '#f8fafc');
+    context.fillStyle = isDimmed
+      ? (isLight ? '#cbd5e1' : '#334155')
+      : (data.iconColor || color || (isLight ? '#1e293b' : '#f8fafc'));
     context.fill(path);
     context.restore();
   }
 
   // 5. Group Member Count Badge
-  if (data.entityType === 'group' && data.memberCount) {
-    const badgeR = 6.5;
+  if (data.entityType === 'group' && data.memberCount && !isDimmed) {
+    const badgeR = 6;
     const bx = x + size * 0.7;
     const by = y + size * 0.7;
     context.beginPath();
@@ -141,9 +147,9 @@ export function drawBloodHoundNode(context, data) {
     context.fillText(String(data.memberCount), bx, by);
   }
 
-  // 6. Node Label UNDER the node (Never on side!)
-  if (data.label) {
-    const fontSize = 10;
+  // 6. Node Label UNDER the node (Hidden for dimmed nodes to eliminate clutter!)
+  if (data.label && !isDimmed) {
+    const fontSize = size >= 13 ? 10 : (size >= 10.5 ? 9 : 8);
     context.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif`;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
@@ -152,8 +158,8 @@ export function drawBloodHoundNode(context, data) {
     const metrics = context.measureText(text);
     const textWidth = metrics.width;
     const pillHeight = fontSize + 4;
-    const pillWidth = textWidth + 8;
-    const pillY = y + size + 5 + pillHeight / 2;
+    const pillWidth = textWidth + (size >= 12 ? 8 : 6);
+    const pillY = y + size + (size >= 12 ? 5 : 3.5) + pillHeight / 2;
 
     const rx = 3;
     const px = x - pillWidth / 2;
@@ -165,12 +171,12 @@ export function drawBloodHoundNode(context, data) {
     } else {
       context.rect(px, py, pillWidth, pillHeight);
     }
-    context.fillStyle = isLight ? 'rgba(255, 255, 255, 0.92)' : 'rgba(15, 23, 42, 0.88)';
+    context.fillStyle = isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(15, 23, 42, 0.9)';
     context.fill();
     context.strokeStyle = isSelected
-      ? color
+      ? (isLight ? '#0284c7' : '#38bdf8')
       : (isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.1)');
-    context.lineWidth = isSelected ? 1.5 : 1;
+    context.lineWidth = isSelected ? 1.8 : 1;
     context.stroke();
 
     context.fillStyle = isLight ? '#0f172a' : '#f8fafc';
@@ -191,7 +197,7 @@ export function drawBloodHoundNode(context, data) {
  * Custom Canvas Node Hover Renderer:
  * - NO solid color fill (interior stays clean white/dark)!
  * - Icon inside remains 100% visible!
- * - Highlights using a luminous outer halo ring.
+ * - Clean outer ring indicator
  * - NO side-popup / tooltip box (label stays cleanly under the node).
  */
 export function drawBloodHoundNodeHover(context, data) {
@@ -205,15 +211,12 @@ export function drawBloodHoundNodeHover(context, data) {
 
   context.save();
 
-  // 1. Luminous outer halo ring highlight
+  // 1. Clean outer hover ring (NO solid fill!)
   context.beginPath();
-  context.arc(x, y, size + 7, 0, Math.PI * 2);
+  context.arc(x, y, size + 4.5, 0, Math.PI * 2);
   context.strokeStyle = color;
-  context.lineWidth = 2.8;
-  context.shadowColor = isLight ? 'rgba(37, 99, 235, 0.45)' : color;
-  context.shadowBlur = isLight ? 10 : 16;
+  context.lineWidth = 2.2;
   context.stroke();
-  context.shadowBlur = 0;
 
   // 2. Node circular body — Clean white / dark slate (NEVER solid color fill!)
   context.beginPath();
@@ -225,16 +228,16 @@ export function drawBloodHoundNodeHover(context, data) {
   context.beginPath();
   context.arc(x, y, size, 0, Math.PI * 2);
   context.strokeStyle = color;
-  context.lineWidth = 3.2;
+  context.lineWidth = 2.5;
   context.stroke();
 
-  // 4. Centered FontAwesome Vector Icon — ALWAYS VISIBLE!
+  // 4. Centered FontAwesome Vector Icon — 72% size with clean white margin
   const iconDef = NODE_ICONS[data.iconType] || (data.iconType && NODE_ICONS[data.iconType.toLowerCase()]) || NODE_ICONS.machine;
   const path = getPath2D(iconDef);
 
   if (path && iconDef.icon) {
     const [iconW, iconH] = [iconDef.icon[0], iconDef.icon[1]];
-    const targetSize = size * 1.15;
+    const targetSize = size * 0.72;
     const scale = targetSize / Math.max(iconW, iconH);
 
     context.save();
@@ -267,7 +270,7 @@ export function drawBloodHoundNodeHover(context, data) {
 
   // 6. Node Label UNDER the node (NO side popup box!)
   if (data.label) {
-    const fontSize = 10;
+    const fontSize = size >= 13 ? 10 : (size >= 10.5 ? 9 : 8);
     context.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif`;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
@@ -276,8 +279,8 @@ export function drawBloodHoundNodeHover(context, data) {
     const metrics = context.measureText(text);
     const textWidth = metrics.width;
     const pillHeight = fontSize + 4;
-    const pillWidth = textWidth + 8;
-    const pillY = y + size + 5 + pillHeight / 2;
+    const pillWidth = textWidth + (size >= 12 ? 8 : 6);
+    const pillY = y + size + (size >= 12 ? 5 : 3.5) + pillHeight / 2;
 
     const rx = 3;
     const px = x - pillWidth / 2;
@@ -307,7 +310,7 @@ export function drawBloodHoundNodeHover(context, data) {
  * Draws high-contrast pill at the edge midpoint for clean relationship text (MemberOf, GenericAll, DCSync).
  */
 export function drawBloodHoundEdgeLabel(context, edgeData, sourceData, targetData) {
-  if (!edgeData.label || !sourceData || !targetData) return;
+  if (!edgeData.label || !sourceData || !targetData || edgeData.dimmed) return;
 
   const isLight = edgeData.theme !== 'dark';
   const sx = sourceData.x;

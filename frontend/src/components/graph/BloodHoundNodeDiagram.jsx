@@ -119,20 +119,20 @@ export default function BloodHoundNodeDiagram({
 
       let color = '#3b82f6';
       let iconType = 'machine';
-      let size = 15;
+      let size = 14;
 
       if (isGroup) {
         color = '#eab308';
         iconType = 'group';
-        size = 18;
+        size = 14;
       } else if (isUser) {
         color = '#22c55e';
         iconType = 'user';
-        size = 15;
+        size = 13;
       } else if (isCritical) {
         color = '#ef4444';
         iconType = 'critical';
-        size = 15;
+        size = 14;
       }
 
       graph.addNode(nid, {
@@ -140,7 +140,8 @@ export default function BloodHoundNodeDiagram({
         subLabel: mData.ip || (isGroup ? 'Active Directory Group' : isUser ? 'User Account' : 'Monitored Host'),
         iconType: iconType,
         borderColor: color,
-        color: color,
+        iconColor: color,
+        color: theme === 'dark' ? '#0f172a' : '#ffffff', // Clean white/dark base, NEVER solid yellow!
         size: size,
         entityType: isGroup ? 'group' : isUser ? 'user' : 'machine',
         memberCount: mData.memberCount || 0,
@@ -162,8 +163,9 @@ export default function BloodHoundNodeDiagram({
         subLabel: priv ? 'Private IP' : 'External WAN',
         iconType: priv ? 'ip_private' : 'ip_external',
         borderColor: color,
-        color: color,
-        size: 14,
+        iconColor: color,
+        color: theme === 'dark' ? '#0f172a' : '#ffffff',
+        size: 12,
         entityType: priv ? 'ip_private' : 'ip_external',
         raw: { ip, is_private: priv }
       });
@@ -182,8 +184,9 @@ export default function BloodHoundNodeDiagram({
         subLabel: type || (isUser ? 'Domain Account' : 'AD Actor'),
         iconType: isUser ? 'user' : 'actor',
         borderColor: col,
-        color: col,
-        size: 18,
+        iconColor: col,
+        color: theme === 'dark' ? '#0f172a' : '#ffffff',
+        size: 14,
         entityType: isUser ? 'user' : 'actor',
         raw: { actor: label, attack_type: type }
       });
@@ -381,52 +384,103 @@ export default function BloodHoundNodeDiagram({
       stagePadding: 75,
       nodeReducer: (node, attrs) => {
         const res = { ...attrs };
+        const isLight = themeRef.current !== 'dark';
         res.theme = themeRef.current;
         const sel = selectedNodeRef.current;
 
-        // CRITICAL: Keep node size stable! NEVER enlarge nodes on click or hover.
-        res.size = attrs.size || 15;
+        // CRITICAL: WebGL base fill is ALWAYS pure clean white in light mode, dark slate in dark mode.
+        // NEVER fill with solid yellow, red, or any color!
+        res.color = isLight ? '#ffffff' : '#0f172a';
+
+        // Dynamic node size based on node count:
+        // <= 15 nodes: 15px (large, easy to read in small graph)
+        // 16-45 nodes: 12.5px (balanced)
+        // 46-85 nodes: 10.5px (compact)
+        // 86+ nodes: 9.5px (sleek BloodHound CE large-topology style)
+        const order = graph.order;
+        const baseSize = order <= 15 ? 15 : (order <= 45 ? 12.5 : (order <= 85 ? 10.5 : 9.5));
+        const typeOffset = attrs.entityType === 'group' ? 0.5 : (attrs.entityType === 'user' ? -0.5 : (attrs.entityType === 'ip_external' ? -1 : 0));
+        res.size = Math.max(8, baseSize + typeOffset);
 
         if (sel) {
           if (node === sel) {
+            // Clicked Node: clean selection ring, fully opaque, top z-index
             res.selected = true;
-            res.highlighted = true; // Rendered cleanly by drawBloodHoundNodeHover with luminous halo & visible icon
-          } else if (graph.areNeighbors(node, sel)) {
-            res.selected = false;
-            res.isNeighbor = true;
-            res.highlighted = false; // Regular clean renderer with subtle neighbor ring
-          } else {
-            res.highlighted = false;
-            res.selected = false;
+            res.highlighted = false; // Custom clean selection ring rendered in drawBloodHoundNode
             res.isNeighbor = false;
+            res.dimmed = false;
+            res.zIndex = 100;
+            res.borderColor = attrs.borderColor || '#3b82f6';
+            res.iconColor = attrs.iconColor || attrs.borderColor || '#3b82f6';
+            res.label = attrs.label;
+          } else if (graph.areNeighbors(node, sel)) {
+            // Directly Connected Neighbors: fully visible, sharp border and icon
+            res.selected = false;
+            res.highlighted = false;
+            res.isNeighbor = true;
+            res.dimmed = false;
+            res.zIndex = 50;
+            res.borderColor = attrs.borderColor || '#3b82f6';
+            res.iconColor = attrs.iconColor || attrs.borderColor || '#3b82f6';
+            res.label = attrs.label;
+          } else {
+            // BloodHound Focus Dimming: Unconnected nodes become faint gray, reduced opacity, hidden label
+            res.selected = false;
+            res.highlighted = false;
+            res.isNeighbor = false;
+            res.dimmed = true;
+            res.zIndex = 1;
+            res.borderColor = isLight ? '#cbd5e1' : '#334155';
+            res.iconColor = isLight ? '#cbd5e1' : '#334155';
+            res.color = isLight ? '#f8fafc' : '#0f172a';
+            res.label = ''; // Hide label to eliminate clutter, matching BloodHound Image 5!
           }
         } else {
-          res.highlighted = false;
+          // Normal view: all nodes fully visible with category borders and crisp labels
           res.selected = false;
+          res.highlighted = false;
           res.isNeighbor = false;
+          res.dimmed = false;
+          res.zIndex = 10;
+          res.borderColor = attrs.borderColor || '#3b82f6';
+          res.iconColor = attrs.iconColor || attrs.borderColor || '#3b82f6';
+          res.label = attrs.label;
         }
         return res;
       },
       edgeReducer: (edge, attrs) => {
         const res = { ...attrs };
+        const isLight = themeRef.current !== 'dark';
         res.theme = themeRef.current;
-        // CRITICAL: forceLabel ensures edge arrow center names are ALWAYS displayed, never hidden until hover!
-        res.forceLabel = true;
         const sel = selectedNodeRef.current;
-        res.color = attrs.color || '#3b82f6';
+
         if (sel) {
           const [src, tgt] = graph.extremities(edge);
           if (src === sel || tgt === sel) {
-            // Highlight connected edges with bold thickness and top z-index
-            res.size = Math.max((attrs.size || 2) * 1.8, 3.8);
-            res.zIndex = 10;
+            // Active connection to/from selected node: bold, vibrant, visible label
+            res.size = Math.max((attrs.size || 2) * 1.5, 3.2);
+            res.color = attrs.color || (isLight ? '#2563eb' : '#60a5fa');
+            res.zIndex = 20;
+            res.forceLabel = true;
+            res.dimmed = false;
+            res.label = attrs.label;
           } else {
-            res.size = attrs.size || 2;
-            res.zIndex = 1;
+            // BloodHound Focus Dimming: Unconnected edge becomes faint translucent line, hidden label
+            res.size = 0.8;
+            res.color = isLight ? 'rgba(203, 213, 225, 0.22)' : 'rgba(51, 65, 85, 0.22)';
+            res.zIndex = 0;
+            res.forceLabel = false;
+            res.dimmed = true;
+            res.label = '';
           }
         } else {
+          // Normal view: clean edge lines with labels
           res.size = attrs.size || 2;
+          res.color = attrs.color || (isLight ? '#3b82f6' : '#60a5fa');
           res.zIndex = 1;
+          res.forceLabel = true;
+          res.dimmed = false;
+          res.label = attrs.label;
         }
         return res;
       }
@@ -474,8 +528,10 @@ export default function BloodHoundNodeDiagram({
 
     // Click events
     sigma.on('clickNode', ({ node }) => {
+      selectedNodeRef.current = node;
       setSelectedNode(node);
       setSelectedEdge(null);
+      sigma.refresh();
 
       const nodeAttrs = graph.getNodeAttributes(node);
       const connectedEdges = [];
@@ -499,8 +555,10 @@ export default function BloodHoundNodeDiagram({
     });
 
     sigma.on('clickEdge', ({ edge }) => {
+      selectedNodeRef.current = null;
       setSelectedEdge(edge);
       setSelectedNode(null);
+      sigma.refresh();
 
       const edgeAttrs = graph.getEdgeAttributes(edge);
       if (callbacksRef.current.onSelectEdge && edgeAttrs._detail) {
@@ -514,8 +572,10 @@ export default function BloodHoundNodeDiagram({
     });
 
     sigma.on('clickStage', () => {
+      selectedNodeRef.current = null;
       setSelectedNode(null);
       setSelectedEdge(null);
+      sigma.refresh();
       if (callbacksRef.current.onClearSelection) {
         callbacksRef.current.onClearSelection();
       }
@@ -566,8 +626,12 @@ export default function BloodHoundNodeDiagram({
 
 
   const handleClearSelection = () => {
+    selectedNodeRef.current = null;
     setSelectedNode(null);
     setSelectedEdge(null);
+    if (sigmaRef.current) {
+      sigmaRef.current.refresh();
+    }
     if (onClearSelection) onClearSelection();
   };
 

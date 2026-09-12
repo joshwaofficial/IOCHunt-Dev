@@ -111,10 +111,14 @@ export function applyBloodHoundTreeLayout(graph) {
   // Sort components largest first
   components.sort((a, b) => b.length - a.length);
 
+  // Dynamic spacing scaling based on node count (spanned across vast coordinate plane like BloodHound CE)
+  const nodeCount = graph.order;
+  const scale = Math.max(1.0, Math.sqrt(nodeCount / 10));
+  const rankSep = Math.round(580 * Math.min(scale, 2.4));     // 580px -> 1390px
+  const subRankSep = Math.round(500 * Math.min(scale, 2.0));  // 500px -> 1000px
+  const nodeSep = Math.round(180 * Math.min(scale, 1.6));     // 180px -> 288px
+
   let currentOffsetY = 0;
-  const rankSep = 460;     // Ample horizontal space for relationship labels
-  const subRankSep = 260;  // Space between staggered sub-columns in the same rank
-  const nodeSep = 140;     // Ample vertical space for node + label
 
   components.forEach(comp => {
     const compSet = new Set(comp);
@@ -170,19 +174,34 @@ export function applyBloodHoundTreeLayout(graph) {
 
     let compMinY = Infinity, compMaxY = -Infinity;
 
-    Array.from(byRank.keys()).sort((a, b) => a - b).forEach(r => {
+    // CRITICAL: Calculate non-overlapping rank start X positions so sub-columns never collide!
+    const sortedRanks = Array.from(byRank.keys()).sort((a, b) => a - b);
+    const rankStartX = new Map();
+    let currentX = 0;
+
+    sortedRanks.forEach(r => {
+      rankStartX.set(r, currentX);
       const rNodes = byRank.get(r);
       const count = rNodes.length;
+      // Stagger large ranks into sub-columns (prevents vertical towers)
+      const maxPerCol = Math.max(6, Math.ceil(Math.sqrt(count * 2.0)));
+      const numSubCols = Math.max(1, Math.ceil(count / maxPerCol));
+      const rankWidth = (numSubCols - 1) * subRankSep;
+      currentX += rankWidth + rankSep;
+    });
 
-      // Stagger large ranks into sub-columns (prevents the 1:20 vertical tower bug!)
-      const maxPerCol = Math.max(5, Math.ceil(Math.sqrt(count * 2.2)));
+    sortedRanks.forEach(r => {
+      const rNodes = byRank.get(r);
+      const count = rNodes.length;
+      const maxPerCol = Math.max(6, Math.ceil(Math.sqrt(count * 2.0)));
+      const startX = rankStartX.get(r) || 0;
 
       rNodes.forEach((node, idx) => {
         const subCol = Math.floor(idx / maxPerCol);
         const row = idx % maxPerCol;
         const totalInSubCol = Math.min(maxPerCol, count - subCol * maxPerCol);
 
-        const x = (r * rankSep) + (subCol * subRankSep);
+        const x = startX + (subCol * subRankSep);
         const y = currentOffsetY + (row - (totalInSubCol - 1) / 2) * nodeSep;
 
         graph.setNodeAttribute(node, 'x', x);
@@ -193,10 +212,12 @@ export function applyBloodHoundTreeLayout(graph) {
     });
 
     const compH = (compMaxY - compMinY) || 200;
-    currentOffsetY += compH + Math.max(300, Math.sqrt(graph.order) * 40);
+    currentOffsetY += compH + Math.max(450, Math.sqrt(nodeCount) * 80);
   });
 
-  preventEllipticalCollisions(graph, 220, 120, 25);
+  const minDx = Math.max(340, Math.min(520, 280 * scale * 0.7));
+  const minDy = Math.max(170, Math.min(270, 150 * scale * 0.7));
+  preventEllipticalCollisions(graph, minDx, minDy, 35);
   centerGraphAtOrigin(graph);
 }
 
@@ -204,7 +225,7 @@ export function applyBloodHoundTreeLayout(graph) {
  * 2. BloodHound Star Layout (Star Mode)
  * Expansive radial cluster layout (Gephi / Cytoscape Concentric):
  * - Primary community hubs placed in golden-ratio phyllotaxis spiral across a huge canvas
- * - Satellite members fanned out in concentric spoke rings with at least 260px radius
+ * - Satellite members fanned out in concentric spoke rings with generous spacing
  * - Eliminates clumping/hairballs even on 100+ node graphs
  */
 export function applyBloodHoundStarLayout(graph) {
@@ -220,8 +241,8 @@ export function applyBloodHoundStarLayout(graph) {
   const sorted = graph.nodes().slice().sort((a, b) => graph.degree(b) - graph.degree(a));
   const hubs = sorted.filter(n => graph.degree(n) >= 2).slice(0, 24);
 
-  // Expansive hub spread radius scales with network order
-  const hubSpreadR = Math.max(1000, Math.sqrt(nodeCount) * 135);
+  // Expansive hub spread radius scales dynamically with network order
+  const hubSpreadR = Math.max(1400, Math.sqrt(nodeCount) * 320);
 
   hubs.forEach((hub, idx) => {
     const angle = idx * 2.399963; // Golden angle (~137.5 deg)
@@ -241,7 +262,7 @@ export function applyBloodHoundStarLayout(graph) {
 
     nbrs.forEach((nbr, nIdx) => {
       const spokeAngle = (2 * Math.PI * nIdx) / (nbrs.length || 1);
-      const spokeR = nbrs.length > 8 ? (nIdx % 2 === 0 ? 260 : 420) : 280;
+      const spokeR = 380 + (nIdx % 3) * 200 + Math.floor(nIdx / 6) * 140;
       graph.setNodeAttribute(nbr, 'x', hx + Math.cos(spokeAngle) * spokeR);
       graph.setNodeAttribute(nbr, 'y', hy + Math.sin(spokeAngle) * spokeR * 0.85);
       placed.add(nbr);
@@ -250,7 +271,7 @@ export function applyBloodHoundStarLayout(graph) {
 
   // Any remaining unplaced nodes onto outer constellation ring
   const unplaced = graph.nodes().filter(n => !placed.has(n));
-  const perimR = hubSpreadR * 1.55;
+  const perimR = hubSpreadR * 1.6;
   unplaced.forEach((n, idx) => {
     const a = (2 * Math.PI * idx) / (unplaced.length || 1);
     graph.setNodeAttribute(n, 'x', Math.cos(a) * perimR);
@@ -258,7 +279,10 @@ export function applyBloodHoundStarLayout(graph) {
     placed.add(n);
   });
 
-  preventEllipticalCollisions(graph, 250, 140, 45);
+  const scale = Math.max(1.0, Math.sqrt(nodeCount / 10));
+  const minDx = Math.max(340, Math.min(520, 280 * scale * 0.7));
+  const minDy = Math.max(170, Math.min(270, 150 * scale * 0.7));
+  preventEllipticalCollisions(graph, minDx, minDy, 45);
   centerGraphAtOrigin(graph);
 }
 
@@ -280,7 +304,7 @@ export function applyBloodHoundPhysicsLayout(graph) {
 
   // Initialize in wide circular dispersion
   let i = 0;
-  const initR = Math.max(500, nodeCount * 35);
+  const initR = Math.max(800, nodeCount * 55);
   graph.forEachNode(node => {
     const angle = (2 * Math.PI * i) / nodeCount;
     graph.setNodeAttribute(node, 'x', Math.cos(angle) * initR);
@@ -290,12 +314,12 @@ export function applyBloodHoundPhysicsLayout(graph) {
 
   try {
     forceAtlas2.assign(graph, {
-      iterations: 320,
+      iterations: 350,
       settings: {
-        gravity: 0.0004,
-        scalingRatio: Math.max(1400, nodeCount * 75),
-        slowDown: 3,
-        barnesHutOptimize: nodeCount > 25,
+        gravity: 0.0003,
+        scalingRatio: Math.max(2600, nodeCount * 180),
+        slowDown: 3.5,
+        barnesHutOptimize: nodeCount > 20,
         adjustSizes: true
       }
     });
@@ -305,7 +329,19 @@ export function applyBloodHoundPhysicsLayout(graph) {
     return;
   }
 
-  preventEllipticalCollisions(graph, 240, 140, 35);
+  // Post-simulation scaling expansion so nodes spread out widely across the canvas
+  const expansionFactor = Math.max(1.6, Math.sqrt(nodeCount / 10));
+  graph.forEachNode(n => {
+    const cx = graph.getNodeAttribute(n, 'x') || 0;
+    const cy = graph.getNodeAttribute(n, 'y') || 0;
+    graph.setNodeAttribute(n, 'x', cx * expansionFactor);
+    graph.setNodeAttribute(n, 'y', cy * expansionFactor);
+  });
+
+  const scale = Math.max(1.0, Math.sqrt(nodeCount / 10));
+  const minDx = Math.max(320, Math.min(500, 260 * scale * 0.7));
+  const minDy = Math.max(160, Math.min(260, 140 * scale * 0.7));
+  preventEllipticalCollisions(graph, minDx, minDy, 40);
   centerGraphAtOrigin(graph);
 }
 
