@@ -315,9 +315,14 @@ export function drawBloodHoundEdgeLabel(context, edgeData, sourceData, targetDat
   const tx = targetData.x;
   const ty = targetData.y;
 
-  // Midpoint
-  const mx = (sx + tx) / 2;
-  const my = (sy + ty) / 2;
+  // Midpoint with slight perpendicular normal offset to separate opposite-direction edges
+  const dx = tx - sx;
+  const dy = ty - sy;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len;
+  const ny = dx / len;
+  const mx = (sx + tx) / 2 + nx * 7;
+  const my = (sy + ty) / 2 + ny * 7;
 
   const fontSize = 9;
   context.save();

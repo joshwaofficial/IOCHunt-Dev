@@ -199,17 +199,56 @@ export async function loadADSampleFile(filename, sidMap) {
     }
   });
 
+  // Consolidate parallel edges between identical (source, target) endpoints so text badges don't stack
+  const consolidatedAttacks = [];
+  const seenAttacks = new Map();
+  adAttacks.forEach(a => {
+    const key = `${a.actor}->${a.target_machine}`;
+    if (!seenAttacks.has(key)) {
+      const entry = { ...a, rights: [a.attack_type] };
+      seenAttacks.set(key, entry);
+      consolidatedAttacks.push(entry);
+    } else {
+      const entry = seenAttacks.get(key);
+      if (!entry.rights.includes(a.attack_type)) {
+        entry.rights.push(a.attack_type);
+        entry.count = entry.rights.length;
+        entry.attack_type = `${entry.rights[0]} (+${entry.rights.length - 1})`;
+        entry.description = `AD Rights: ${entry.rights.join(', ')}`;
+      }
+    }
+  });
+
+  const consolidatedLateral = [];
+  const seenLateral = new Map();
+  lateral.forEach(l => {
+    const key = `${l.source}->${l.target}`;
+    if (!seenLateral.has(key)) {
+      const entry = { ...l, rights: [l.protocol] };
+      seenLateral.set(key, entry);
+      consolidatedLateral.push(entry);
+    } else {
+      const entry = seenLateral.get(key);
+      if (!entry.rights.includes(l.protocol)) {
+        entry.rights.push(l.protocol);
+        entry.count = entry.rights.length;
+        entry.protocol = `${entry.rights[0]} (+${entry.rights.length - 1})`;
+        entry.description = `Relations: ${entry.rights.join(', ')}`;
+      }
+    }
+  });
+
   return {
     machines,
-    lateral,
-    ad_attacks: adAttacks,
+    lateral: consolidatedLateral,
+    ad_attacks: consolidatedAttacks,
     inbound: [],
     outbound: [],
     meta: {
       filename,
       totalObjects: data.length,
       displayedNodes: machines.length,
-      displayedEdges: lateral.length + adAttacks.length
+      displayedEdges: consolidatedLateral.length + consolidatedAttacks.length
     }
   };
 }

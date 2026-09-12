@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import Sigma from 'sigma';
 import { MultiDirectedGraph } from 'graphology';
 import { drawBloodHoundNode, drawBloodHoundNodeHover, drawBloodHoundEdgeLabel } from './nodeIconHelper';
-import { applyBloodHoundClusterLayout, applyForceAtlas2, applyDagreLayout } from './layoutManager';
+import {
+  applyBloodHoundTreeLayout,
+  applyBloodHoundStarLayout,
+  applyBloodHoundPhysicsLayout,
+  applyBloodHoundClusterLayout
+} from './layoutManager';
 
 const AD_COL = {
   DCSync: '#ef4444',
@@ -72,7 +77,7 @@ export default function BloodHoundNodeDiagram({
     selectedNodeRef.current = selectedNode;
   }, [selectedNode]);
 
-  const [layoutMode, setLayoutMode] = useState('cluster'); // 'cluster' | 'force' | 'dagre'
+  const [layoutMode, setLayoutMode] = useState('dagre'); // 'dagre' (Tree) | 'cluster' (Stars) | 'force' (Physics)
   const [counts, setCounts] = useState({ nodes: 0, edges: 0 });
 
   // Build and render graph
@@ -352,11 +357,11 @@ export default function BloodHoundNodeDiagram({
 
     // Apply layout based on active mode
     if (layoutMode === 'dagre') {
-      applyDagreLayout(graph);
+      applyBloodHoundTreeLayout(graph);
     } else if (layoutMode === 'force') {
-      applyForceAtlas2(graph, 250);
+      applyBloodHoundPhysicsLayout(graph);
     } else {
-      applyBloodHoundClusterLayout(graph);
+      applyBloodHoundStarLayout(graph);
     }
 
     // Initialize Sigma with BloodHound configuration
@@ -559,14 +564,6 @@ export default function BloodHoundNodeDiagram({
     }
   };
 
-  const toggleLayout = () => {
-    const cycle = {
-      cluster: 'force',
-      force: 'dagre',
-      dagre: 'cluster'
-    };
-    setLayoutMode(cycle[layoutMode] || 'cluster');
-  };
 
   const handleClearSelection = () => {
     setSelectedNode(null);
@@ -755,36 +752,92 @@ export default function BloodHoundNodeDiagram({
           <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>filter_center_focus</span>
         </button>
 
-        {/* Layout Switcher (Star Clusters vs Physics vs Dagre Tree) */}
-        <button
-          onClick={toggleLayout}
-          title={`Switch Layout (Current: ${layoutMode === 'cluster' ? 'BloodHound Star Clusters' : layoutMode === 'force' ? 'Physics ForceAtlas2' : 'Hierarchical Tree'})`}
+        {/* Layout Switcher: Tree | Stars | Physics */}
+        <div
           style={{
-            height: '32px',
-            padding: '0 8px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px',
             background: controlBg,
             backdropFilter: 'blur(8px)',
             border: `1px solid ${controlBorder}`,
             boxShadow: isLight ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
             borderRadius: '6px',
-            color: layoutMode === 'cluster' ? '#eab308' : layoutMode === 'dagre' ? '#a855f7' : '#3b82f6',
-            cursor: 'pointer',
-            fontSize: '11px',
-            fontWeight: 700,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px',
-            fontFamily: 'var(--mono)',
-            transition: 'all 0.15s'
+            padding: '3px'
           }}
-          onMouseOver={(e) => { e.currentTarget.style.background = controlHoverBg; }}
-          onMouseOut={(e) => { e.currentTarget.style.background = controlBg; }}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
-            {layoutMode === 'cluster' ? 'hub' : layoutMode === 'force' ? 'scatter_plot' : 'account_tree'}
-          </span>
-          {layoutMode === 'cluster' ? 'Stars' : layoutMode === 'force' ? 'Physics' : 'Tree'}
-        </button>
+          <button
+            onClick={() => setLayoutMode('dagre')}
+            title="Hierarchical Attack Tree (BloodHound DAG)"
+            style={{
+              height: '26px',
+              padding: '0 6px',
+              background: layoutMode === 'dagre' ? (isLight ? '#f3e8ff' : '#581c87') : 'transparent',
+              border: layoutMode === 'dagre' ? '1px solid #a855f7' : '1px solid transparent',
+              borderRadius: '4px',
+              color: layoutMode === 'dagre' ? '#a855f7' : controlColor,
+              cursor: 'pointer',
+              fontSize: '10px',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontFamily: 'var(--mono)',
+              transition: 'all 0.15s'
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>account_tree</span>
+            Tree
+          </button>
+
+          <button
+            onClick={() => setLayoutMode('cluster')}
+            title="Star Clusters (Radial Hub & Spoke)"
+            style={{
+              height: '26px',
+              padding: '0 6px',
+              background: layoutMode === 'cluster' ? (isLight ? '#fef9c3' : '#713f12') : 'transparent',
+              border: layoutMode === 'cluster' ? '1px solid #eab308' : '1px solid transparent',
+              borderRadius: '4px',
+              color: layoutMode === 'cluster' ? '#eab308' : controlColor,
+              cursor: 'pointer',
+              fontSize: '10px',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontFamily: 'var(--mono)',
+              transition: 'all 0.15s'
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>hub</span>
+            Stars
+          </button>
+
+          <button
+            onClick={() => setLayoutMode('force')}
+            title="Physics Simulation (Gephi ForceAtlas2)"
+            style={{
+              height: '26px',
+              padding: '0 6px',
+              background: layoutMode === 'force' ? (isLight ? '#dbeafe' : '#1e3a8a') : 'transparent',
+              border: layoutMode === 'force' ? '1px solid #3b82f6' : '1px solid transparent',
+              borderRadius: '4px',
+              color: layoutMode === 'force' ? '#3b82f6' : controlColor,
+              cursor: 'pointer',
+              fontSize: '10px',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontFamily: 'var(--mono)',
+              transition: 'all 0.15s'
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>scatter_plot</span>
+            Physics
+          </button>
+        </div>
 
         {selectedNode && (
           <button
