@@ -33,6 +33,10 @@ const AD_COL = {
   SkeletonKey: '#ef4444'
 };
 
+function isPrivate(ip) {
+  return /^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.)/.test(ip);
+}
+
 function adCol(t) {
   return AD_COL[t] || '#a855f7';
 }
