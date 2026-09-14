@@ -52,6 +52,26 @@ export const KIND_COLORS = {
   default: '#3b82f6'
 };
 
+const svgDataUriCache = new Map();
+
+/**
+ * Generate crisp vector SVG data URIs for Cytoscape node background images
+ */
+export function getNodeSvgDataUri(iconType, iconColor = '#1e293b') {
+  const cacheKey = `${iconType}|${iconColor}`;
+  if (svgDataUriCache.has(cacheKey)) return svgDataUriCache.get(cacheKey);
+
+  const iconDef = NODE_ICONS[iconType] || (iconType && NODE_ICONS[iconType.toLowerCase()]) || NODE_ICONS.machine;
+  if (!iconDef || !iconDef.icon) return '';
+
+  const [w, h, , , path] = iconDef.icon;
+  const encodedColor = encodeURIComponent(iconColor);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><path fill="${encodedColor}" d="${path}"/></svg>`;
+  const uri = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  svgDataUriCache.set(cacheKey, uri);
+  return uri;
+}
+
 /**
  * Custom Canvas Node Renderer for BloodHound style:
  * 1. Clean circular body (white in light mode, dark slate in dark mode)

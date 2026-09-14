@@ -1,13 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
-import Sigma from 'sigma';
-import { MultiDirectedGraph } from 'graphology';
-import { drawBloodHoundNode, drawBloodHoundNodeHover, drawBloodHoundEdgeLabel } from './nodeIconHelper';
-import {
-  applyBloodHoundTreeLayout,
-  applyBloodHoundStarLayout,
-  applyBloodHoundPhysicsLayout,
-  applyBloodHoundClusterLayout
-} from './layoutManager';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import cytoscape from 'cytoscape';
+import fcose from 'cytoscape-fcose';
+import dagre from 'cytoscape-dagre';
+import { KIND_COLORS, getNodeSvgDataUri } from './nodeIconHelper';
+
+// Register layout extensions once
+try {
+  cytoscape.use(fcose);
+  cytoscape.use(dagre);
+} catch (e) {
+  // Already registered
+}
 
 const AD_COL = {
   DCSync: '#ef4444',
@@ -44,82 +47,160 @@ function adCol(t) {
 function getShortLabel(label) {
   if (!label) return '';
   const str = String(label);
-  let clean = str.replace(/@[^.]+(\.[^.]+)+$/i, '').replace(/@.*$/, '').replace(/\.(local|corp|internal|lan)$/i, '');
+  let clean = str
+    .replace(/@[^.]+(\.[^.]+)+$/i, '')
+    .replace(/@.*$/, '')
+    .replace(/\.(local|corp|internal|lan)$/i, '');
   if (clean.length > 20) {
     clean = clean.slice(0, 18) + '…';
   }
   return clean;
 }
 
-/**
- * Fast BFS traversal to trace the full connected attack path chain (upstream ancestors & downstream targets)
- */
-function getConnectedChain(graph, startNode) {
-  const chainNodes = new Set();
-  const chainEdges = new Set();
-  if (!graph || !startNode || !graph.hasNode(startNode)) {
-    return { chainNodes, chainEdges };
-  }
-
-  chainNodes.add(startNode);
-
-  // 1. Trace upstream (ancestors / attackers leading into startNode)
-  const upQueue = [startNode];
-  const upVisited = new Set([startNode]);
-  while (upQueue.length > 0) {
-    const curr = upQueue.shift();
-    graph.forEachInEdge(curr, (edge, edgeAttrs, source) => {
-      chainEdges.add(edge);
-      if (!upVisited.has(source)) {
-        upVisited.add(source);
-        chainNodes.add(source);
-        upQueue.push(source);
-      }
-    });
-  }
-
-  // 2. Trace downstream (descendants / targets reachable from startNode)
-  const downQueue = [startNode];
-  const downVisited = new Set([startNode]);
-  while (downQueue.length > 0) {
-    const curr = downQueue.shift();
-    graph.forEachOutEdge(curr, (edge, edgeAttrs, source, target) => {
-      chainEdges.add(edge);
-      if (!downVisited.has(target)) {
-        downVisited.add(target);
-        chainNodes.add(target);
-        downQueue.push(target);
-      }
-    });
-  }
-
-  return { chainNodes, chainEdges };
-}
-
-/**
- * In Sigma.js, the graph's coordinates are normalized to [0,1] and scaled to fit the container.
- * Ratio 1.15 provides comfortable 15% margin around the canvas edges.
- */
-function computeFitRatio(order = 50) {
-  if (order <= 15)  return 1.35;
-  if (order <= 50)  return 1.60;
-  if (order <= 100) return 1.80;
-  if (order <= 250) return 2.05;
-  return 2.20;
-}
-
-/**
- * Node size adapts to graph size:
- * Generous, clearly visible circles with crisp vector icons inside.
- */
 function baseNodeSize(order) {
-  if (order <= 25)  return 18;
-  if (order <= 60)  return 15;
-  if (order <= 120) return 13;
-  if (order <= 250) return 11.5;
-  if (order <= 500) return 10;
-  return 8.5;
+  if (order <= 25)  return 42;
+  if (order <= 60)  return 36;
+  if (order <= 120) return 30;
+  if (order <= 250) return 26;
+  if (order <= 500) return 22;
+  return 20;
 }
+
+const getCytoscapeStylesheet = (theme) => {
+  const isLight = theme !== 'dark';
+  return [
+    // Base Node Style
+    {
+      selector: 'node',
+      style: {
+        'width': 'data(size)',
+        'height': 'data(size)',
+        'shape': 'ellipse',
+        'background-color': isLight ? '#ffffff' : '#0f172a',
+        'border-width': 'data(borderWidth)',
+        'border-color': 'data(borderColor)',
+        'background-image': 'data(svgIcon)',
+        'background-fit': 'cover',
+        'background-width': '60%',
+        'background-height': '60%',
+        'background-position-x': '50%',
+        'background-position-y': '50%',
+        'label': 'data(shortLabel)',
+        'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        'font-size': '10px',
+        'font-weight': 700,
+        'text-valign': 'bottom',
+        'text-margin-y': 6,
+        'color': isLight ? '#0f172a' : '#f8fafc',
+        'text-background-color': isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.92)',
+        'text-background-opacity': 0.95,
+        'text-background-padding': '3px',
+        'text-background-shape': 'roundrectangle',
+        'text-border-color': isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.15)',
+        'text-border-width': 1,
+        'text-border-opacity': 0.8,
+        'min-zoomed-font-size': 7, // Native progressive disclosure!
+        'z-index': 10,
+        'transition-property': 'opacity, border-color, border-width, text-opacity',
+        'transition-duration': '0.2s'
+      }
+    },
+    // Crown Jewels / Landmark Nodes
+    {
+      selector: 'node[?isCrownJewel]',
+      style: {
+        'min-zoomed-font-size': 4, // Landmarks remain labeled even when zoomed far out
+        'z-index': 30,
+        'font-size': '11px',
+        'border-width': 3.5
+      }
+    },
+    // Active Selection Node
+    {
+      selector: 'node.selected',
+      style: {
+        'border-color': isLight ? '#0284c7' : '#38bdf8',
+        'border-width': 4.5,
+        'label': 'data(fullLabel)', // Reveal full label when clicked
+        'min-zoomed-font-size': 0,
+        'z-index': 100,
+        'opacity': 1.0,
+        'text-opacity': 1.0
+      }
+    },
+    // Connected Attack Chain Nodes
+    {
+      selector: 'node.in-chain',
+      style: {
+        'border-width': 3.5,
+        'border-color': isLight ? '#2563eb' : '#60a5fa',
+        'min-zoomed-font-size': 0,
+        'z-index': 60,
+        'opacity': 1.0,
+        'text-opacity': 1.0
+      }
+    },
+    // Faded Nodes during focus selection
+    {
+      selector: 'node.faded',
+      style: {
+        'opacity': 0.22,
+        'text-opacity': 0,
+        'z-index': 1
+      }
+    },
+    // Base Edge Style
+    {
+      selector: 'edge',
+      style: {
+        'width': 'data(width)',
+        'line-color': 'data(color)',
+        'target-arrow-color': 'data(color)',
+        'target-arrow-shape': 'triangle',
+        'arrow-scale': 1.15,
+        'curve-style': 'bezier',
+        'label': 'data(label)',
+        'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace',
+        'font-size': '9px',
+        'font-weight': 700,
+        'color': isLight ? '#334155' : '#94a3b8',
+        'text-background-color': isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.92)',
+        'text-background-opacity': 0.95,
+        'text-background-padding': '2px',
+        'text-background-shape': 'roundrectangle',
+        'text-border-color': isLight ? 'rgba(0, 0, 0, 0.10)' : 'rgba(255, 255, 255, 0.10)',
+        'text-border-width': 1,
+        'text-rotation': 'autorotate',
+        'min-zoomed-font-size': 8, // Edge labels automatically hide when zoomed out!
+        'z-index': 5,
+        'transition-property': 'opacity, width, line-color, target-arrow-color',
+        'transition-duration': '0.2s'
+      }
+    },
+    // Selected / Active Attack Chain Edges
+    {
+      selector: 'edge.in-chain',
+      style: {
+        'width': 3.5,
+        'line-color': isLight ? '#2563eb' : '#60a5fa',
+        'target-arrow-color': isLight ? '#2563eb' : '#60a5fa',
+        'min-zoomed-font-size': 0,
+        'z-index': 70,
+        'opacity': 1.0,
+        'text-opacity': 1.0
+      }
+    },
+    // Faded Edges during focus selection
+    {
+      selector: 'edge.faded',
+      style: {
+        'opacity': 0.10,
+        'text-opacity': 0,
+        'z-index': 0
+      }
+    }
+  ];
+};
 
 export default function BloodHoundNodeDiagram({
   inbound = [],
@@ -133,49 +214,33 @@ export default function BloodHoundNodeDiagram({
   onClearSelection
 }) {
   const containerRef = useRef(null);
-  const sigmaRef = useRef(null);
-  const graphRef = useRef(null);
+  const cyRef = useRef(null);
   const callbacksRef = useRef({ onSelectNode, onSelectEdge, onClearSelection });
-  const themeRef = useRef(theme);
-  const chainStateRef = useRef({ chainNodes: new Set(), chainEdges: new Set() });
-  const cameraRatioRef = useRef(1.60);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [selectedEdge, setSelectedEdge] = useState(null);
+  const [layoutMode, setLayoutMode] = useState('fcose'); // 'fcose' (Organic) | 'dagre' (Tree) | 'cluster' (Stars)
+  const [counts, setCounts] = useState({ nodes: 0, edges: 0 });
 
   useEffect(() => {
     callbacksRef.current = { onSelectNode, onSelectEdge, onClearSelection };
   }, [onSelectNode, onSelectEdge, onClearSelection]);
 
+  // Update Cytoscape stylesheet when theme changes
   useEffect(() => {
-    themeRef.current = theme;
-    if (sigmaRef.current) {
-      sigmaRef.current.refresh();
+    if (cyRef.current) {
+      cyRef.current.style(getCytoscapeStylesheet(theme));
     }
   }, [theme]);
 
-  const [selectedNode, setSelectedNode] = useState(null);
-  const [selectedEdge, setSelectedEdge] = useState(null);
-  const selectedNodeRef = useRef(null);
-
-  useEffect(() => {
-    selectedNodeRef.current = selectedNode;
-    if (graphRef.current && selectedNode) {
-      chainStateRef.current = getConnectedChain(graphRef.current, selectedNode);
-    } else {
-      chainStateRef.current = { chainNodes: new Set(), chainEdges: new Set() };
-    }
-  }, [selectedNode]);
-
-  const [layoutMode, setLayoutMode] = useState('dagre'); // 'dagre' (Tree) | 'cluster' (Stars) | 'force' (Physics)
-  const [counts, setCounts] = useState({ nodes: 0, edges: 0 });
   const dataKey = `${inbound.length}|${outbound.length}|${lateral.length}|${adAttacks.length}|${machines.length}|${layoutMode}`;
 
-  // Build and render graph
+  // Build and render graph in Cytoscape
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Clean up previous instance
-    if (sigmaRef.current) {
-      sigmaRef.current.kill();
-      sigmaRef.current = null;
+    if (cyRef.current) {
+      cyRef.current.destroy();
+      cyRef.current = null;
     }
 
     const totalConnections = inbound.length + outbound.length + lateral.length + adAttacks.length;
@@ -184,633 +249,426 @@ export default function BloodHoundNodeDiagram({
       return;
     }
 
-    const graph = new MultiDirectedGraph();
-    graphRef.current = graph;
+    const elements = [];
+    const nodeSet = new Set();
+    const edgeSet = new Set();
 
-    const knownIds = new Set(machines.map(m => m.id || m.machine || m.name || m.ip));
-    const machinesMap = new Map();
-    machines.forEach(m => {
-      const k = m.id || m.machine || m.name || m.ip;
-      if (k) machinesMap.set(k, m);
-    });
+    // Pre-calculate approx order
+    const approxOrder = machines.length + totalConnections;
+    const nSize = baseNodeSize(approxOrder);
 
-    // Helper to safely add node
-    const ensureMachine = (id) => {
+    const isCrownJewelCheck = (name, raw) => {
+      const u = String(name || '').toUpperCase();
+      return (
+        u.includes('DOMAIN ADMIN') ||
+        u.includes('ENTERPRISE ADMIN') ||
+        u.includes('DC01') ||
+        u.includes('DC-01') ||
+        u.includes('KRBTGT') ||
+        u.includes('ADMINISTRATOR@') ||
+        u.includes('ROOTCA') ||
+        Boolean(raw && (raw.admincount || raw.is_dc))
+      );
+    };
+
+    function ensureNode(id, type = 'machine', raw = {}) {
       if (!id) return null;
-      const nid = 'm:' + id;
-      if (graph.hasNode(nid)) return nid;
+      const cleanId = String(id).trim();
+      const nid = 'm:' + cleanId;
+      if (!nodeSet.has(nid)) {
+        nodeSet.add(nid);
+        const u = cleanId.toUpperCase();
+        let eType = type;
+        if (eType === 'machine') {
+          if (u.includes('ADMINS') || u.includes('OPERATORS') || u.includes('USERS') || u.includes('GROUP')) eType = 'group';
+          else if (cleanId.includes('@')) eType = 'user';
+          else if (u.includes('DC') || u.includes('DOMAIN')) eType = 'dc';
+        }
+        const col = KIND_COLORS[eType] || KIND_COLORS.default;
+        const isCrown = isCrownJewelCheck(cleanId, raw);
+        const sLabel = getShortLabel(cleanId);
 
-      const mData = machinesMap.get(id) || {};
-      const isGroup = mData.entityType === 'group' || id.includes('SUBSYSTEM') || id.includes('ADMINS') || id.includes('MANAGEMENT');
-      const isUser = mData.entityType === 'user' || id.includes('@');
-      const isCritical = mData.has_threat || (mData.threat_count && mData.threat_count > 0);
-
-      let color = '#3b82f6';
-      let iconType = 'machine';
-      let size = 14;
-
-      if (isGroup) {
-        color = '#eab308';
-        iconType = 'group';
-        size = 14;
-      } else if (isUser) {
-        color = '#22c55e';
-        iconType = 'user';
-        size = 13;
-      } else if (isCritical) {
-        color = '#ef4444';
-        iconType = 'critical';
-        size = 14;
+        elements.push({
+          group: 'nodes',
+          data: {
+            id: nid,
+            label: sLabel,
+            shortLabel: sLabel,
+            fullLabel: cleanId,
+            subLabel: raw.ip || '',
+            entityType: eType,
+            isCrownJewel: isCrown,
+            size: isCrown ? nSize * 1.15 : nSize,
+            color: col,
+            borderColor: col,
+            borderWidth: isCrown ? 3.5 : 2.5,
+            svgIcon: getNodeSvgDataUri(eType, col),
+            raw
+          }
+        });
       }
-
-      graph.addNode(nid, {
-        label: id,
-        subLabel: mData.ip || (isGroup ? 'Active Directory Group' : isUser ? 'User Account' : 'Monitored Host'),
-        iconType: iconType,
-        borderColor: color,
-        iconColor: color,
-        color: theme === 'dark' ? '#0f172a' : '#ffffff', // Clean white/dark base, NEVER solid yellow!
-        size: size,
-        entityType: isGroup ? 'group' : isUser ? 'user' : 'machine',
-        memberCount: mData.memberCount || 0,
-        raw: mData
-      });
       return nid;
-    };
+    }
 
-    const ensureIp = (ip) => {
-      if (!ip) return null;
-      const nid = 'i:' + ip;
-      if (graph.hasNode(nid)) return nid;
-
-      const priv = isPrivate(ip);
-      const color = priv ? '#84cc16' : '#94a3b8';
-
-      graph.addNode(nid, {
-        label: ip,
-        subLabel: priv ? 'Private IP' : 'External WAN',
-        iconType: priv ? 'ip_private' : 'ip_external',
-        borderColor: color,
-        iconColor: color,
-        color: theme === 'dark' ? '#0f172a' : '#ffffff',
-        size: 12,
-        entityType: priv ? 'ip_private' : 'ip_external',
-        raw: { ip, is_private: priv }
-      });
-      return nid;
-    };
-
-    const ensureActor = (key, label, type) => {
-      if (!key) return null;
-      const nid = 'a:' + key;
-      if (graph.hasNode(nid)) return nid;
-
-      const isUser = label.includes('@') || label.startsWith('DA-');
-      const col = isUser ? '#22c55e' : adCol(type);
-      graph.addNode(nid, {
-        label: label,
-        subLabel: type || (isUser ? 'Domain Account' : 'AD Actor'),
-        iconType: isUser ? 'user' : 'actor',
-        borderColor: col,
-        iconColor: col,
-        color: theme === 'dark' ? '#0f172a' : '#ffffff',
-        size: 14,
-        entityType: isUser ? 'user' : 'actor',
-        raw: { actor: label, attack_type: type }
-      });
-      return nid;
-    };
-
-    // Add Monitored Machines
+    // Process Machines
     machines.forEach(m => {
-      const id = m.name || m.machine || m.id || m.ip;
-      if (id) ensureMachine(id);
+      ensureNode(m.name || m.ip, m.entityType || 'machine', m.raw || m);
     });
-
-    // Edge scale factor based on network size
-    const estimatedOrder = Math.max(machines.length, graph.order, inbound.length + outbound.length + lateral.length + adAttacks.length);
-    const edgeScaleFactor = estimatedOrder > 300 ? 0.6 : estimatedOrder > 150 ? 0.75 : 1.0;
 
     // Process Inbound
-    inbound.forEach(c => {
-      const toId = ensureMachine(c.to_machine);
-      let fromId;
-      if (c.from_machine && knownIds.has(c.from_machine)) {
-        fromId = ensureMachine(c.from_machine);
-      } else {
-        fromId = ensureIp(c.from_ip);
-      }
-
-      if (fromId && toId && graph.hasNode(fromId) && graph.hasNode(toId)) {
-        const proto = (c.protocol || '') + (c.port ? `:${c.port}` : '');
-        const bl = c.blocked > 0;
-        const col = bl ? '#ef4444' : '#f97316';
-
-        const detailRow = {
-          first_seen: c.first_seen,
-          last_seen: c.last_seen,
-          src: c.from_machine || c.from_ip || '?',
-          dst: c.to_machine || '?',
-          protocol: c.protocol || '',
-          port: c.port || '',
-          count: c.count || 1,
-          blocked: c.blocked || 0,
-          severity: c.severity || 'info',
-          extra: c.description || (bl ? 'BLOCKED' : '')
-        };
-
-        graph.addEdge(fromId, toId, {
-          label: proto || 'INBOUND',
-          color: col,
-          size: Math.min(2 + Math.log((c.count || 1) + 1), 6) * edgeScaleFactor,
-          type: 'arrow',
-          dir: 'in',
-          _detail: detailRow
-        });
+    inbound.forEach((c, idx) => {
+      const fromId = ensureNode(c.from_ip || c.from_machine, isPrivate(c.from_ip || '') ? 'ip_private' : 'ip_external');
+      const toId = ensureNode(c.to_machine || c.to_ip, 'machine');
+      if (fromId && toId && fromId !== toId) {
+        const eid = `e_in_${idx}_${fromId}_${toId}`;
+        if (!edgeSet.has(eid)) {
+          edgeSet.add(eid);
+          const bl = c.blocked > 0;
+          const col = bl ? '#ef4444' : '#3b82f6';
+          elements.push({
+            group: 'edges',
+            data: {
+              id: eid,
+              source: fromId,
+              target: toId,
+              label: c.protocol || 'INBOUND',
+              dir: 'in',
+              color: col,
+              width: Math.min(2 + Math.log((c.count || 1) + 1), 5),
+              _detail: {
+                first_seen: c.first_seen, last_seen: c.last_seen,
+                src: c.from_machine || c.from_ip || '?', dst: c.to_machine || c.to_ip || '?',
+                protocol: c.protocol || '', port: c.port || '',
+                count: c.count || 1, blocked: c.blocked || 0, severity: c.severity || 'info',
+                extra: c.description || (bl ? 'BLOCKED' : '')
+              }
+            }
+          });
+        }
       }
     });
 
     // Process Outbound
-    outbound.forEach(c => {
-      const fromId = ensureMachine(c.from_machine);
-      let toId;
-      if (c.to_machine && knownIds.has(c.to_machine)) {
-        toId = ensureMachine(c.to_machine);
-      } else {
-        toId = ensureIp(c.to_ip);
-      }
-
-      if (fromId && toId && graph.hasNode(fromId) && graph.hasNode(toId)) {
-        const proto = (c.protocol || '') + (c.port ? `:${c.port}` : '');
-        const bl = c.blocked > 0;
-        const col = bl ? '#ef4444' : '#3b82f6';
-
-        const detailRow = {
-          first_seen: c.first_seen,
-          last_seen: c.last_seen,
-          src: c.from_machine || '?',
-          dst: c.to_machine || c.to_ip || '?',
-          protocol: c.protocol || '',
-          port: c.port || '',
-          count: c.count || 1,
-          blocked: c.blocked || 0,
-          severity: c.severity || 'info',
-          extra: c.description || (bl ? 'BLOCKED' : '')
-        };
-
-        graph.addEdge(fromId, toId, {
-          label: proto || 'OUTBOUND',
-          color: col,
-          size: Math.min(2 + Math.log((c.count || 1) + 1), 6) * edgeScaleFactor,
-          type: 'arrow',
-          dir: 'out',
-          _detail: detailRow
-        });
+    outbound.forEach((c, idx) => {
+      const fromId = ensureNode(c.from_machine, 'machine');
+      const toId = ensureNode(c.to_ip || c.to_machine, isPrivate(c.to_ip || '') ? 'ip_private' : 'ip_external');
+      if (fromId && toId && fromId !== toId) {
+        const eid = `e_out_${idx}_${fromId}_${toId}`;
+        if (!edgeSet.has(eid)) {
+          edgeSet.add(eid);
+          const bl = c.blocked > 0;
+          const col = bl ? '#ef4444' : '#10b981';
+          elements.push({
+            group: 'edges',
+            data: {
+              id: eid,
+              source: fromId,
+              target: toId,
+              label: c.protocol || 'OUTBOUND',
+              dir: 'out',
+              color: col,
+              width: Math.min(2 + Math.log((c.count || 1) + 1), 5),
+              _detail: {
+                first_seen: c.first_seen, last_seen: c.last_seen,
+                src: c.from_machine || '?', dst: c.to_machine || c.to_ip || '?',
+                protocol: c.protocol || '', port: c.port || '',
+                count: c.count || 1, blocked: c.blocked || 0, severity: c.severity || 'info',
+                extra: c.description || (bl ? 'BLOCKED' : '')
+              }
+            }
+          });
+        }
       }
     });
 
     // Process Lateral
-    lateral.forEach(c => {
-      const fromId = ensureMachine(c.source);
-      const toId = ensureMachine(c.target);
-
-      if (fromId && toId && graph.hasNode(fromId) && graph.hasNode(toId)) {
-        const proto = (c.protocol || '') + (c.port ? `:${c.port}` : '');
-        const bl = c.blocked > 0;
-        const isMemberOf = c.protocol === 'MemberOf';
-        const col = bl ? '#ef4444' : (isMemberOf ? '#3b82f6' : (c.severity === 'critical' ? '#ef4444' : '#f97316'));
-
-        const detailRow = {
-          first_seen: c.first_seen,
-          last_seen: c.last_seen,
-          src: c.source,
-          dst: c.target,
-          protocol: c.protocol || '',
-          port: c.port || '',
-          count: c.count || 1,
-          blocked: c.blocked || 0,
-          severity: c.severity || 'critical',
-          extra: c.description || (bl ? 'BLOCKED' : '')
-        };
-
-        graph.addEdge(fromId, toId, {
-          label: proto || 'LATERAL',
-          color: col,
-          size: Math.min(2.5 + Math.log((c.count || 1) + 1), 6) * edgeScaleFactor,
-          type: 'arrow',
-          dir: 'lat',
-          _detail: detailRow
-        });
+    lateral.forEach((c, idx) => {
+      const fromId = ensureNode(c.source, c.source.includes('@') ? 'user' : 'machine');
+      const toId = ensureNode(c.target, 'machine');
+      if (fromId && toId && fromId !== toId) {
+        const eid = `e_lat_${idx}_${fromId}_${toId}`;
+        if (!edgeSet.has(eid)) {
+          edgeSet.add(eid);
+          const bl = c.blocked > 0;
+          const isMemberOf = c.protocol === 'MemberOf';
+          const col = bl ? '#ef4444' : (isMemberOf ? '#3b82f6' : (c.severity === 'critical' ? '#ef4444' : '#f97316'));
+          elements.push({
+            group: 'edges',
+            data: {
+              id: eid,
+              source: fromId,
+              target: toId,
+              label: c.protocol || 'LATERAL',
+              dir: 'lat',
+              color: col,
+              width: Math.min(2.5 + Math.log((c.count || 1) + 1), 5.5),
+              _detail: {
+                first_seen: c.first_seen, last_seen: c.last_seen,
+                src: c.source, dst: c.target,
+                protocol: c.protocol || '', port: c.port || '',
+                count: c.count || 1, blocked: c.blocked || 0, severity: c.severity || 'critical',
+                extra: c.description || (bl ? 'BLOCKED' : '')
+              }
+            }
+          });
+        }
       }
     });
 
     // Process AD Attacks
-    adAttacks.forEach(a => {
-      const toId = ensureMachine(a.target_machine);
+    adAttacks.forEach((a, idx) => {
+      const toId = ensureNode(a.target_machine, 'machine');
       let fromId;
-      const mActorId = a.actor ? ('m:' + a.actor) : null;
-      if (mActorId && graph.hasNode(mActorId)) {
-        fromId = mActorId;
-      } else if (a.remote_ip && isPrivate(a.remote_ip)) {
-        fromId = ensureIp(a.remote_ip);
+      if (a.actor) {
+        fromId = ensureNode(a.actor, a.actor.includes('@') ? 'user' : 'actor');
+      } else if (a.remote_ip) {
+        fromId = ensureNode(a.remote_ip, isPrivate(a.remote_ip) ? 'ip_private' : 'ip_external');
       } else {
-        const ak = (a.actor || '?') + '|' + a.attack_type;
-        fromId = ensureActor(ak, a.actor || '?', a.attack_type);
+        fromId = ensureNode('Attacker', 'actor');
       }
 
-      if (fromId && toId && graph.hasNode(fromId) && graph.hasNode(toId)) {
-        const col = adCol(a.attack_type);
-        const detailRow = {
-          first_seen: a.first_seen,
-          last_seen: a.last_seen,
-          src: a.actor || a.remote_ip || '?',
-          dst: a.target_machine || '?',
-          protocol: a.protocol || a.attack_type,
-          port: '-',
-          count: a.count || 1,
-          blocked: 0,
-          severity: a.severity || 'critical',
-          extra: a.description || `AD Attack: ${a.attack_type}`
-        };
-
-        graph.addEdge(fromId, toId, {
-          label: a.attack_type || 'AD ATTACK',
-          color: col,
-          size: Math.min(3 + Math.log((a.count || 1) + 1), 7) * edgeScaleFactor,
-          type: 'arrow',
-          dir: 'ad',
-          _detail: detailRow
-        });
+      if (fromId && toId && fromId !== toId) {
+        const eid = `e_ad_${idx}_${fromId}_${toId}`;
+        if (!edgeSet.has(eid)) {
+          edgeSet.add(eid);
+          const col = adCol(a.attack_type);
+          elements.push({
+            group: 'edges',
+            data: {
+              id: eid,
+              source: fromId,
+              target: toId,
+              label: a.attack_type || 'AD ATTACK',
+              dir: 'ad',
+              color: col,
+              width: Math.min(3 + Math.log((a.count || 1) + 1), 6),
+              _detail: {
+                first_seen: a.first_seen, last_seen: a.last_seen,
+                src: a.actor || a.remote_ip || '?', dst: a.target_machine || '?',
+                protocol: a.protocol || a.attack_type, port: '-',
+                count: a.count || 1, blocked: 0, severity: a.severity || 'critical',
+                extra: a.description || `AD Attack: ${a.attack_type}`
+              }
+            }
+          });
+        }
       }
     });
 
-    const order = graph.order;
-    const size = graph.size;
+    const finalNodeCount = nodeSet.size;
+    const finalEdgeCount = edgeSet.size;
     requestAnimationFrame(() => {
-      setCounts({ nodes: order, edges: size });
+      setCounts({ nodes: finalNodeCount, edges: finalEdgeCount });
     });
 
-    // Apply layout based on active mode
+    // Initialize Cytoscape instance
+    const cy = cytoscape({
+      container: containerRef.current,
+      elements,
+      style: getCytoscapeStylesheet(theme),
+      minZoom: 0.05,
+      maxZoom: 5.0,
+      wheelSensitivity: 0.25,
+      boxSelectionEnabled: false
+    });
+
+    cyRef.current = cy;
+    window.__cy = cy;
+
+    // Run active layout
+    let layoutOpts;
     if (layoutMode === 'dagre') {
-      applyBloodHoundTreeLayout(graph);
-    } else if (layoutMode === 'force') {
-      applyBloodHoundPhysicsLayout(graph);
+      layoutOpts = {
+        name: 'dagre',
+        rankDir: 'LR',
+        nodeSep: finalNodeCount > 100 ? 50 : 80,
+        rankSep: finalNodeCount > 100 ? 140 : 200,
+        ranker: 'network-simplex',
+        animate: false,
+        padding: 70
+      };
+    } else if (layoutMode === 'cluster') {
+      // Stars / Concentric
+      layoutOpts = {
+        name: 'concentric',
+        concentric: (node) => (node.data('isCrownJewel') ? 10 : (node.degree() >= 4 ? 6 : 2)),
+        levelWidth: () => 3,
+        minNodeSpacing: finalNodeCount > 100 ? 50 : 80,
+        animate: false,
+        padding: 70
+      };
     } else {
-      applyBloodHoundStarLayout(graph);
+      // fCoSE (BloodHound default organic layout)
+      layoutOpts = {
+        name: 'fcose',
+        quality: 'default',
+        randomize: true,
+        animate: false,
+        fit: true,
+        padding: 70,
+        nodeDimensionsIncludeLabels: true,
+        uniformNodeDimensions: false,
+        packComponents: true,
+        nodeRepulsion: finalNodeCount > 150 ? 35000 : (finalNodeCount > 60 ? 25000 : 15000),
+        idealEdgeLength: finalNodeCount > 150 ? 220 : (finalNodeCount > 60 ? 180 : 140),
+        edgeElasticity: 0.45,
+        nestingFactor: 0.1,
+        gravity: 0.25,
+        numIter: 2500,
+        tile: true,
+        tilingPaddingVertical: 60,
+        tilingPaddingHorizontal: 60,
+        nodeSeparation: finalNodeCount > 100 ? 100 : 140
+      };
     }
 
-    // Initialize Sigma with BloodHound configuration
-    const sigma = new Sigma(graph, containerRef.current, {
-      renderLabels: true,
-      renderEdgeLabels: true,
-      // CRITICAL: labelRenderedSizeThreshold: 0 ensures text labels NEVER disappear when zoomed out or minimized!
-      labelRenderedSizeThreshold: 0,
-      labelDensity: 1,
-      defaultNodeType: 'circle',
-      defaultEdgeType: 'arrow',
-      defaultDrawNodeLabel: drawBloodHoundNode,
-      defaultDrawNodeHover: drawBloodHoundNodeHover,
-      defaultDrawEdgeLabel: drawBloodHoundEdgeLabel,
-      enableEdgeEvents: true,
-      allowInvalidContainer: true,
-      stagePadding: 35,
-      minCameraRatio: 0.01,
-      maxCameraRatio: 20.0,
-      nodeReducer: (node, attrs) => {
-        const res = { ...attrs };
-        const isLight = themeRef.current !== 'dark';
-        res.theme = themeRef.current;
-        res.color = isLight ? '#ffffff' : '#0f172a';
-        res.size = baseNodeSize(order);
+    const l = cy.layout(layoutOpts);
+    l.run();
+    cy.fit(undefined, 70);
 
-        /* ---------- Progressive LOD: labels depend on zoom & importance ---------- */
-        const ratio = cameraRatioRef.current;
-        const nodeDegree = graph.degree(node);
-        const shortLabel = getShortLabel(attrs.label);
-
-        // Check if node is a landmark / Crown Jewel
-        const rawLabel = String(attrs.label || '').toUpperCase();
-        const isCrownJewel =
-          rawLabel.includes('DOMAIN ADMIN') ||
-          rawLabel.includes('ENTERPRISE ADMIN') ||
-          rawLabel.includes('DC01') ||
-          rawLabel.includes('DC-01') ||
-          rawLabel.includes('KRBTGT') ||
-          rawLabel.includes('ADMINISTRATOR@') ||
-          rawLabel.includes('ROOTCA') ||
-          Boolean(attrs.raw && (attrs.raw.admincount || attrs.raw.is_dc));
-
-        let showLabel = false;
-        let useShort = true;
-
-        if (order <= 25) {
-          // Small graph (e.g. Aiacas): show labels for all nodes using clean short names
-          showLabel = true;
-          useShort = true;
-        } else if (order <= 60) {
-          // Medium graph (e.g. Computers 44 nodes):
-          if (ratio < 0.90) {
-            showLabel = true;
-            useShort = true;
-          } else {
-            // Overview: only Crown Jewels and high-degree hubs (degree >= 4)
-            showLabel = isCrownJewel || nodeDegree >= 4;
-            useShort = true;
-          }
-        } else {
-          // Large graph (60+ nodes e.g. Certtemplates, Containers):
-          if (ratio < 0.50) {
-            // Close zoom: show all nodes in view
-            showLabel = true;
-            useShort = true;
-          } else if (ratio < 1.10) {
-            // Mid zoom: show hubs and crown jewels
-            showLabel = isCrownJewel || nodeDegree >= 4;
-            useShort = true;
-          } else {
-            // Overview zoom: ONLY true landmarks / crown jewels show labels!
-            showLabel = isCrownJewel;
-            useShort = true;
-          }
-        }
-
-        const chosenLabel = useShort ? shortLabel : attrs.label;
-
-        const sel = selectedNodeRef.current;
-        if (sel) {
-          if (node === sel) {
-            res.selected = true;
-            res.inChain = true;
-            res.dimmed = false;
-            res.zIndex = 100;
-            res.forceLabel = true;
-            res.label = attrs.label;
-          } else if (chainStateRef.current.chainNodes && chainStateRef.current.chainNodes.has(node)) {
-            res.selected = false;
-            res.inChain = true;
-            res.dimmed = false;
-            res.zIndex = 50;
-            res.forceLabel = true;
-            res.label = chosenLabel;
-          } else {
-            res.selected = false;
-            res.inChain = false;
-            res.dimmed = true;
-            res.zIndex = 1;
-            res.forceLabel = true;
-            res.label = '';
-          }
-        } else {
-          res.selected = false;
-          res.inChain = false;
-          res.dimmed = false;
-          res.zIndex = isCrownJewel ? 30 : 10;
-          res.forceLabel = true;
-          res.label = showLabel ? chosenLabel : '';
-        }
-        return res;
-      },
-      edgeReducer: (edge, attrs) => {
-        const res = { ...attrs };
-        const isLight = themeRef.current !== 'dark';
-        res.theme = themeRef.current;
-        const sel = selectedNodeRef.current;
-        const ratio = cameraRatioRef.current;
-
-        // Hide edge labels at overview zoom for large graphs
-        let hideEdgeLabel;
-        if (order > 30 && ratio >= 0.70) {
-          hideEdgeLabel = true;
-        } else if (order > 60 && ratio >= 0.40) {
-          // Mid zoom: only show critical AD attack edges
-          hideEdgeLabel = attrs.dir !== 'ad';
-        } else {
-          hideEdgeLabel = false;
-        }
-        res.hideEdgeLabel = hideEdgeLabel;
-
-        if (sel) {
-          if (chainStateRef.current.chainEdges && chainStateRef.current.chainEdges.has(edge)) {
-            res.size = Math.max((attrs.size || 2) * 1.6, 3.4);
-            res.color = attrs.color || (isLight ? '#2563eb' : '#60a5fa');
-            res.zIndex = 20;
-            res.forceLabel = true;
-            res.dimmed = false;
-            res.label = attrs.label;
-            res.hideEdgeLabel = false;
-          } else {
-            res.size = 1.0;
-            res.color = isLight ? 'rgba(148, 163, 184, 0.40)' : 'rgba(100, 116, 139, 0.40)';
-            res.zIndex = 0;
-            res.forceLabel = false;
-            res.dimmed = true;
-            res.label = '';
-            res.hideEdgeLabel = true;
-          }
-        } else {
-          res.size = attrs.size || 2;
-          res.color = attrs.color || (isLight ? '#3b82f6' : '#60a5fa');
-          res.zIndex = 1;
-          res.dimmed = false;
-          if (hideEdgeLabel) {
-            res.label = '';
-            res.forceLabel = false;
-          } else {
-            res.label = attrs.label;
-            res.forceLabel = true;
-          }
-        }
-        return res;
-      }
-    });
-
-    sigmaRef.current = sigma;
-    window.__sigma = sigma;
-
-    /* ---------- Track camera ratio for LOD ---------- */
-    const cam = sigma.getCamera();
-    cameraRatioRef.current = cam.getState().ratio || computeFitRatio(order);
-
-    const onCamUpdate = (state) => {
-      const prev = cameraRatioRef.current;
-      cameraRatioRef.current = state.ratio;
-      // Refresh across LOD thresholds: 0.50, 0.90, 1.10
-      const tierOf = (r) => (r < 0.50 ? 0 : r < 0.90 ? 1 : r < 1.10 ? 2 : 3);
-      if (tierOf(prev) !== tierOf(state.ratio)) {
-        sigma.refresh();
-      }
-    };
-    cam.on('updated', onCamUpdate);
-
-    /* ---------- Initial fit ---------- */
-    requestAnimationFrame(() => {
-      if (!sigmaRef.current || !graphRef.current || !containerRef.current) return;
-      sigmaRef.current.refresh();
-      const ratio = computeFitRatio(order);
-      cameraRatioRef.current = ratio;
-      sigmaRef.current.getCamera().setState({
-        x: 0.5, y: 0.5, ratio, angle: 0
-      });
-    });
-
-    // Node Interaction / Dragging
-    let isDragging = false;
-    let draggedNode = null;
-
-    sigma.on('downNode', (e) => {
-      isDragging = true;
-      draggedNode = e.node;
-      sigma.getCamera().disable();
-    });
-
-    sigma.getMouseCaptor().on('mousemovebody', (e) => {
-      if (!isDragging || !draggedNode) return;
-      const pos = sigma.viewportToGraph(e);
-      graph.setNodeAttribute(draggedNode, 'x', pos.x);
-      graph.setNodeAttribute(draggedNode, 'y', pos.y);
-      e.preventSigmaDefault();
-      if (e.original) {
-        e.original.preventDefault();
-        e.original.stopPropagation();
-      }
-    });
-
-    sigma.getMouseCaptor().on('mouseup', () => {
-      if (draggedNode) {
-        draggedNode = null;
-        isDragging = false;
-      }
-      sigma.getCamera().enable();
-    });
-
-    // Click events
-    sigma.on('clickNode', ({ node }) => {
-      selectedNodeRef.current = node;
-      chainStateRef.current = getConnectedChain(graph, node);
-      setSelectedNode(node);
+    // Click Node
+    cy.on('tap', 'node', (evt) => {
+      const node = evt.target;
+      const nid = node.id();
+      setSelectedNode(nid);
       setSelectedEdge(null);
-      sigma.refresh();
 
-      const nodeAttrs = graph.getNodeAttributes(node);
+      // Trace connected chain
+      cy.elements().removeClass('selected in-chain faded');
+      cy.elements().addClass('faded');
+
+      const predecessors = node.predecessors();
+      const successors = node.successors();
+      const chain = node.union(predecessors).union(successors);
+      chain.removeClass('faded').addClass('in-chain');
+      node.addClass('selected');
+
       const connectedEdges = [];
-      graph.forEachEdge(node, (edge, edgeAttrs) => {
-        if (edgeAttrs._detail) {
-          connectedEdges.push({ ...edgeAttrs._detail, _dir: edgeAttrs.dir });
-        }
+      node.connectedEdges().forEach(edge => {
+        const d = edge.data('_detail');
+        if (d) connectedEdges.push({ ...d, _dir: edge.data('dir') });
       });
       connectedEdges.sort((a, b) => (b.count || 1) - (a.count || 1));
 
       if (callbacksRef.current.onSelectNode) {
         callbacksRef.current.onSelectNode({
-          id: node,
-          label: nodeAttrs.label,
-          subLabel: nodeAttrs.subLabel,
-          entityType: nodeAttrs.entityType,
-          raw: nodeAttrs.raw,
+          id: nid,
+          label: node.data('fullLabel'),
+          subLabel: node.data('subLabel'),
+          entityType: node.data('entityType'),
+          raw: node.data('raw'),
           rows: connectedEdges
         });
       }
     });
 
-    sigma.on('clickEdge', ({ edge }) => {
-      selectedNodeRef.current = null;
-      chainStateRef.current = { chainNodes: new Set(), chainEdges: new Set() };
-      setSelectedEdge(edge);
+    // Click Edge
+    cy.on('tap', 'edge', (evt) => {
+      const edge = evt.target;
+      const eid = edge.id();
+      setSelectedEdge(eid);
       setSelectedNode(null);
-      sigma.refresh();
 
-      const edgeAttrs = graph.getEdgeAttributes(edge);
-      if (callbacksRef.current.onSelectEdge && edgeAttrs._detail) {
+      cy.elements().removeClass('selected in-chain faded');
+      cy.elements().addClass('faded');
+      edge.removeClass('faded').addClass('in-chain');
+      edge.source().removeClass('faded').addClass('in-chain');
+      edge.target().removeClass('faded').addClass('in-chain');
+
+      const edgeData = edge.data();
+      if (callbacksRef.current.onSelectEdge && edgeData._detail) {
         callbacksRef.current.onSelectEdge({
-          id: edge,
-          label: edgeAttrs.label,
-          dir: edgeAttrs.dir,
-          detail: edgeAttrs._detail
+          id: eid,
+          label: edgeData.label,
+          dir: edgeData.dir,
+          detail: edgeData._detail
         });
       }
     });
 
-    sigma.on('clickStage', () => {
-      selectedNodeRef.current = null;
-      chainStateRef.current = { chainNodes: new Set(), chainEdges: new Set() };
-      setSelectedNode(null);
-      setSelectedEdge(null);
-      sigma.refresh();
-      if (callbacksRef.current.onClearSelection) {
-        callbacksRef.current.onClearSelection();
+    // Click Background Stage
+    cy.on('tap', (evt) => {
+      if (evt.target === cy) {
+        setSelectedNode(null);
+        setSelectedEdge(null);
+        cy.elements().removeClass('selected in-chain faded');
+        if (callbacksRef.current.onClearSelection) {
+          callbacksRef.current.onClearSelection();
+        }
       }
     });
 
-    /* ---------- ResizeObserver: refit on fullscreen / window change ---------- */
+    // Hover indicators
+    cy.on('mouseover', 'node', () => {
+      if (containerRef.current) containerRef.current.style.cursor = 'pointer';
+    });
+    cy.on('mouseout', 'node', () => {
+      if (containerRef.current) containerRef.current.style.cursor = 'default';
+    });
+    cy.on('mouseover', 'edge', () => {
+      if (containerRef.current) containerRef.current.style.cursor = 'pointer';
+    });
+    cy.on('mouseout', 'edge', () => {
+      if (containerRef.current) containerRef.current.style.cursor = 'default';
+    });
+
+    // ResizeObserver
     let resizeTimer = null;
     const ro = new ResizeObserver(() => {
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
-        if (!sigmaRef.current || !graphRef.current || !containerRef.current) return;
-        sigmaRef.current.resize();
-        const ratio = computeFitRatio(graphRef.current ? graphRef.current.order : 50);
-        cameraRatioRef.current = ratio;
-        sigmaRef.current.getCamera().animate(
-          { x: 0.5, y: 0.5, ratio, angle: 0 },
-          { duration: 250 }
-        );
-      }, 120);
+        if (cyRef.current) {
+          cyRef.current.resize();
+        }
+      }, 100);
     });
     ro.observe(containerRef.current);
 
     return () => {
       ro.disconnect();
       clearTimeout(resizeTimer);
-      try { cam.off('updated', onCamUpdate); } catch (e) {}
-      if (sigmaRef.current) {
-        sigmaRef.current.kill();
-        sigmaRef.current = null;
+      if (cyRef.current) {
+        cyRef.current.destroy();
+        cyRef.current = null;
       }
     };
   }, [dataKey]);
 
-  // Refresh sigma when selectedNode changes
-  useEffect(() => {
-    if (sigmaRef.current) {
-      sigmaRef.current.refresh();
-    }
-  }, [selectedNode, selectedEdge]);
-
   // Floating Controls Handlers
-  const handleZoomIn = () => {
-    if (sigmaRef.current) {
-      sigmaRef.current.getCamera().animatedZoom({ factor: 1.35, duration: 250 });
+  const handleZoomIn = useCallback(() => {
+    if (cyRef.current) {
+      cyRef.current.animate({
+        zoom: cyRef.current.zoom() * 1.35,
+        renderedPosition: { x: cyRef.current.width() / 2, y: cyRef.current.height() / 2 }
+      }, { duration: 250 });
     }
-  };
+  }, []);
 
-  const handleZoomOut = () => {
-    if (sigmaRef.current) {
-      sigmaRef.current.getCamera().animatedUnzoom({ factor: 1.35, duration: 250 });
+  const handleZoomOut = useCallback(() => {
+    if (cyRef.current) {
+      cyRef.current.animate({
+        zoom: cyRef.current.zoom() / 1.35,
+        renderedPosition: { x: cyRef.current.width() / 2, y: cyRef.current.height() / 2 }
+      }, { duration: 250 });
     }
-  };
+  }, []);
 
-  const handleResetFit = () => {
-    if (sigmaRef.current && graphRef.current && containerRef.current) {
-      const ratio = computeFitRatio(graphRef.current.order);
-      cameraRatioRef.current = ratio;
-      sigmaRef.current.getCamera().animate(
-        { x: 0.5, y: 0.5, ratio, angle: 0 },
-        { duration: 350 }
-      );
+  const handleResetFit = useCallback(() => {
+    if (cyRef.current) {
+      cyRef.current.animate({
+        fit: { eles: cyRef.current.elements(), padding: 70 }
+      }, { duration: 350 });
     }
-  };
+  }, []);
 
-
-  const handleClearSelection = () => {
-    selectedNodeRef.current = null;
-    chainStateRef.current = { chainNodes: new Set(), chainEdges: new Set() };
+  const handleClearSelection = useCallback(() => {
     setSelectedNode(null);
     setSelectedEdge(null);
-    if (sigmaRef.current) {
-      sigmaRef.current.refresh();
+    if (cyRef.current) {
+      cyRef.current.elements().removeClass('selected in-chain faded');
     }
     if (onClearSelection) onClearSelection();
-  };
+  }, [onClearSelection]);
 
   const isLight = theme === 'light';
   const controlBg = isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(15, 23, 42, 0.85)';
@@ -839,7 +697,7 @@ export default function BloodHoundNodeDiagram({
         border: isLight ? '1px solid rgba(0, 0, 0, 0.08)' : '1px solid var(--border)'
       }}
     >
-      {/* WebGL Sigma Canvas Container */}
+      {/* Cytoscape Canvas Container */}
       <div
         ref={containerRef}
         style={{
@@ -993,7 +851,7 @@ export default function BloodHoundNodeDiagram({
           <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>filter_center_focus</span>
         </button>
 
-        {/* Layout Switcher: Tree | Stars | Physics */}
+        {/* Layout Switcher: fCoSE | Tree | Stars */}
         <div
           style={{
             display: 'flex',
@@ -1007,6 +865,30 @@ export default function BloodHoundNodeDiagram({
             padding: '3px'
           }}
         >
+          <button
+            onClick={() => setLayoutMode('fcose')}
+            title="fCoSE Organic Spring Layout (Official BloodHound)"
+            style={{
+              height: '26px',
+              padding: '0 6px',
+              background: layoutMode === 'fcose' ? (isLight ? '#dbeafe' : '#1e3a8a') : 'transparent',
+              border: layoutMode === 'fcose' ? '1px solid #3b82f6' : '1px solid transparent',
+              borderRadius: '4px',
+              color: layoutMode === 'fcose' ? '#3b82f6' : controlColor,
+              cursor: 'pointer',
+              fontSize: '10px',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontFamily: 'var(--mono)',
+              transition: 'all 0.15s'
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>scatter_plot</span>
+            fCoSE
+          </button>
+
           <button
             onClick={() => setLayoutMode('dagre')}
             title="Hierarchical Attack Tree (BloodHound DAG)"
@@ -1053,30 +935,6 @@ export default function BloodHoundNodeDiagram({
           >
             <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>hub</span>
             Stars
-          </button>
-
-          <button
-            onClick={() => setLayoutMode('force')}
-            title="Physics Simulation (Gephi ForceAtlas2)"
-            style={{
-              height: '26px',
-              padding: '0 6px',
-              background: layoutMode === 'force' ? (isLight ? '#dbeafe' : '#1e3a8a') : 'transparent',
-              border: layoutMode === 'force' ? '1px solid #3b82f6' : '1px solid transparent',
-              borderRadius: '4px',
-              color: layoutMode === 'force' ? '#3b82f6' : controlColor,
-              cursor: 'pointer',
-              fontSize: '10px',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontFamily: 'var(--mono)',
-              transition: 'all 0.15s'
-            }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>scatter_plot</span>
-            Physics
           </button>
         </div>
 
@@ -1128,7 +986,7 @@ export default function BloodHoundNodeDiagram({
         }}
       >
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #3b82f6', background: legendNodeCore }}></span> Host
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #ef4444', background: legendNodeCore }}></span> Host
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
           <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #22c55e', background: legendNodeCore }}></span> User
