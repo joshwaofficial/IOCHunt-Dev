@@ -60,7 +60,7 @@ export const KIND_COLORS = {
  * 4. Crisp, clean non-overlapping label underneath node
  */
 export function drawBloodHoundNode(context, data) {
-  if (!data.x || !data.y) return;
+  if (typeof data.x !== 'number' || typeof data.y !== 'number' || isNaN(data.x) || isNaN(data.y)) return;
 
   const isLight = data.theme !== 'dark';
   const x = data.x;
@@ -207,7 +207,7 @@ export function drawBloodHoundNode(context, data) {
  * - NO side-popup / tooltip box (label stays cleanly under the node).
  */
 export function drawBloodHoundNodeHover(context, data) {
-  if (!data.x || !data.y) return;
+  if (typeof data.x !== 'number' || typeof data.y !== 'number' || isNaN(data.x) || isNaN(data.y)) return;
 
   const isLight = data.theme !== 'dark';
   const x = data.x;

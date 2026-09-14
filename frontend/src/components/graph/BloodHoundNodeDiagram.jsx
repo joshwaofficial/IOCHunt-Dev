@@ -457,6 +457,7 @@ export default function BloodHoundNodeDiagram({
             res.borderColor = attrs.borderColor || '#3b82f6';
             res.iconColor = attrs.iconColor || attrs.borderColor || '#3b82f6';
             res.label = attrs.label;
+            res.forceLabel = true;
           } else if (chainStateRef.current.chainNodes && chainStateRef.current.chainNodes.has(node)) {
             // Full connected attack path chain from start to end!
             res.selected = false;
@@ -466,6 +467,7 @@ export default function BloodHoundNodeDiagram({
             res.borderColor = attrs.borderColor || '#3b82f6';
             res.iconColor = attrs.iconColor || attrs.borderColor || '#3b82f6';
             res.label = attrs.label;
+            res.forceLabel = true;
           } else {
             // Other nodes: KEEP original category colors, reduce opacity slightly like BloodHound!
             res.selected = false;
@@ -475,6 +477,7 @@ export default function BloodHoundNodeDiagram({
             res.borderColor = attrs.borderColor || '#3b82f6'; // Keep original color!
             res.iconColor = attrs.iconColor || attrs.borderColor || '#3b82f6'; // Keep original color!
             res.label = attrs.label;
+            res.forceLabel = true;
           }
         } else {
           // Normal view: all nodes fully visible with category borders and crisp labels
@@ -485,6 +488,7 @@ export default function BloodHoundNodeDiagram({
           res.borderColor = attrs.borderColor || '#3b82f6';
           res.iconColor = attrs.iconColor || attrs.borderColor || '#3b82f6';
           res.label = attrs.label;
+          res.forceLabel = true;
         }
         return res;
       },
