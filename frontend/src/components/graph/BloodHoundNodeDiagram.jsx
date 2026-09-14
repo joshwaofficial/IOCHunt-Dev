@@ -498,8 +498,8 @@ export default function BloodHoundNodeDiagram({
       layoutOpts = {
         name: 'dagre',
         rankDir: 'LR',
-        nodeSep: finalNodeCount > 100 ? 90 : 130,
-        rankSep: finalNodeCount > 100 ? 420 : 580,
+        nodeSep: finalNodeCount > 100 ? 90 : 130, // Vertical spacing untouched
+        rankSep: finalNodeCount > 100 ? 600 : Math.min(1800, 600 + finalNodeCount * 30), // Generous rank separation
         ranker: 'network-simplex',
         animate: false,
         padding: 50
@@ -527,27 +527,44 @@ export default function BloodHoundNodeDiagram({
         nodeDimensionsIncludeLabels: true,
         uniformNodeDimensions: false,
         packComponents: true,
-        // 4x - 6x stronger repulsion pushes nodes far apart
         nodeRepulsion: finalNodeCount > 150 ? 120000 : (finalNodeCount > 60 ? 95000 : 75000),
-        // 2x longer ideal edge distances
         idealEdgeLength: finalNodeCount > 150 ? 420 : (finalNodeCount > 60 ? 360 : 300),
-        // Loose spring elasticity so repulsion dominates and nodes spread out
         edgeElasticity: 0.08,
         nestingFactor: 0.1,
-        // Very low center gravity prevents nodes from balling up in the middle
         gravity: 0.04,
         gravityRange: 3.8,
         numIter: 3000,
         tile: true,
         tilingPaddingVertical: 120,
         tilingPaddingHorizontal: 120,
-        // Guaranteed spacious buffer between every node
         nodeSeparation: finalNodeCount > 100 ? 220 : 280
       };
     }
 
     const l = cy.layout(layoutOpts);
     l.run();
+
+    // Adaptively expand horizontal width for tall diagrams using empty side space
+    // STRICT RULE: Vertical height (y) is 100% preserved and untouched!
+    const bb = cy.nodes().boundingBox();
+    if (bb.h > bb.w && bb.w > 10) {
+      const centerX = (bb.x1 + bb.x2) / 2;
+      // Target width uses a healthy portion of the side space (up to ~75% of height or 2.8x current width)
+      const targetW = Math.min(bb.h * 0.75, bb.w * 2.8);
+      const xMultiplier = Math.max(1.0, targetW / bb.w);
+      if (xMultiplier > 1.05) {
+        cy.batch(() => {
+          cy.nodes().forEach(node => {
+            const p = node.position();
+            node.position({
+              x: centerX + (p.x - centerX) * xMultiplier,
+              y: p.y // VERTICAL HEIGHT KEPT EXACTLY THE SAME
+            });
+          });
+        });
+      }
+    }
+
     cy.fit(undefined, 50);
 
     // Click Node
