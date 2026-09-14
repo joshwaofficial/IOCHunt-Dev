@@ -80,30 +80,30 @@ export const PRESET_COORDINATES = [
  */
 export function getDensityFactors(nodeCount) {
   if (nodeCount <= 25) {
-    return { colWidth: 360, rowHeight: 160, rankSep: 520, collisionDx: 320, collisionDy: 140 };
+    return { colWidth: 540, rowHeight: 260, rankSep: 780, collisionDx: 440, collisionDy: 220 };
   }
   if (nodeCount <= 60) {
-    return { colWidth: 300, rowHeight: 140, rankSep: 460, collisionDx: 270, collisionDy: 120 };
+    return { colWidth: 460, rowHeight: 230, rankSep: 700, collisionDx: 380, collisionDy: 190 };
   }
   if (nodeCount <= 120) {
-    return { colWidth: 250, rowHeight: 120, rankSep: 380, collisionDx: 220, collisionDy: 100 };
+    return { colWidth: 380, rowHeight: 190, rankSep: 600, collisionDx: 320, collisionDy: 160 };
   }
   if (nodeCount <= 250) {
-    return { colWidth: 180, rowHeight: 95,  rankSep: 300, collisionDx: 150, collisionDy: 80 };
+    return { colWidth: 290, rowHeight: 160, rankSep: 480, collisionDx: 250, collisionDy: 130 };
   }
   if (nodeCount <= 500) {
-    return { colWidth: 140, rowHeight: 75,  rankSep: 240, collisionDx: 120, collisionDy: 65 };
+    return { colWidth: 230, rowHeight: 130, rankSep: 390, collisionDx: 190, collisionDy: 110 };
   }
-  return { colWidth: 100, rowHeight: 60, rankSep: 180, collisionDx: 90, collisionDy: 50 };
+  return { colWidth: 170, rowHeight: 100, rankSep: 290, collisionDx: 140, collisionDy: 80 };
 }
 
 /**
  * Rebalance aspect ratio: if the graph is extremely wide/tall,
  * wrap/squeeze coordinates so the bounding box is closer to target aspect.
- * Only applies to larger graphs (>=20 nodes) to prevent squashing small graphs.
+ * Only applies to larger graphs (>=25 nodes) to prevent squashing small graphs.
  */
-export function rebalanceAspectRatio(graph, targetAspect = 1.8, minDx = 220, minDy = 100) {
-  if (!graph || graph.order < 20) return;
+export function rebalanceAspectRatio(graph, targetAspect = 1.8, minDx = 280, minDy = 140) {
+  if (!graph || graph.order < 25) return;
 
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   graph.forEachNode((_, a) => {
@@ -121,9 +121,10 @@ export function rebalanceAspectRatio(graph, targetAspect = 1.8, minDx = 220, min
   if (aspect <= targetAspect && aspect >= (1 / targetAspect)) return;
 
   if (aspect > targetAspect) {
-    // Graph is too wide. Compress x, expand y.
-    const squeeze = Math.sqrt(targetAspect / aspect);
-    const stretch = 1 / squeeze;
+    // Graph is too wide. Gentle compression (never crush x-distance).
+    const rawSqueeze = Math.sqrt(targetAspect / aspect);
+    const squeeze = Math.max(0.78, rawSqueeze);
+    const stretch = Math.min(1.35, 1 / squeeze);
 
     graph.forEachNode(node => {
       const x = graph.getNodeAttribute(node, 'x') || 0;
@@ -132,9 +133,10 @@ export function rebalanceAspectRatio(graph, targetAspect = 1.8, minDx = 220, min
       graph.setNodeAttribute(node, 'y', y * stretch);
     });
   } else if (aspect < (1 / targetAspect)) {
-    // Graph is too tall. Compress y, expand x.
-    const squeeze = Math.sqrt(aspect / (1 / targetAspect));
-    const stretch = 1 / squeeze;
+    // Graph is too tall.
+    const rawSqueeze = Math.sqrt(aspect / (1 / targetAspect));
+    const squeeze = Math.max(0.78, rawSqueeze);
+    const stretch = Math.min(1.35, 1 / squeeze);
 
     graph.forEachNode(node => {
       const x = graph.getNodeAttribute(node, 'x') || 0;
@@ -145,7 +147,7 @@ export function rebalanceAspectRatio(graph, targetAspect = 1.8, minDx = 220, min
   }
 
   // Re-run collision with the density factors
-  preventEllipticalCollisions(graph, minDx, minDy, 15);
+  preventEllipticalCollisions(graph, minDx, minDy, 20);
 }
 
 /**
@@ -289,8 +291,8 @@ export function applyBloodHoundStarLayout(graph) {
   const hubLimit = Math.min(24, Math.max(4, Math.round(nodeCount * 0.05)));
   const hubs = sorted.filter(n => graph.degree(n) >= 2).slice(0, hubLimit);
 
-  // Hub spread also compresses with node count
-  const hubSpreadR = Math.max(600, Math.sqrt(nodeCount) * (nodeCount > 150 ? 120 : 220));
+  // Hub spread expands generously
+  const hubSpreadR = Math.max(900, Math.sqrt(nodeCount) * 280);
 
   hubs.forEach((hub, idx) => {
     const angle = idx * 2.399963;
@@ -300,7 +302,7 @@ export function applyBloodHoundStarLayout(graph) {
     placed.add(hub);
   });
 
-  const spokeBase = F.colWidth * 1.2;
+  const spokeBase = F.colWidth * 1.5;
   hubs.forEach(hub => {
     const hx = graph.getNodeAttribute(hub, 'x') || 0;
     const hy = graph.getNodeAttribute(hub, 'y') || 0;
@@ -308,7 +310,7 @@ export function applyBloodHoundStarLayout(graph) {
 
     nbrs.forEach((nbr, nIdx) => {
       const spokeAngle = (2 * Math.PI * nIdx) / (nbrs.length || 1);
-      const spokeR = spokeBase + (nIdx % 3) * spokeBase * 0.55 + Math.floor(nIdx / 6) * spokeBase * 0.4;
+      const spokeR = spokeBase + (nIdx % 3) * spokeBase * 0.6 + Math.floor(nIdx / 6) * spokeBase * 0.45;
       graph.setNodeAttribute(nbr, 'x', hx + Math.cos(spokeAngle) * spokeR);
       graph.setNodeAttribute(nbr, 'y', hy + Math.sin(spokeAngle) * spokeR * 0.85);
       placed.add(nbr);
@@ -316,7 +318,7 @@ export function applyBloodHoundStarLayout(graph) {
   });
 
   const unplaced = graph.nodes().filter(n => !placed.has(n));
-  const perimR = hubSpreadR * 1.5;
+  const perimR = hubSpreadR * 1.6;
   unplaced.forEach((n, idx) => {
     const a = (2 * Math.PI * idx) / (unplaced.length || 1);
     graph.setNodeAttribute(n, 'x', Math.cos(a) * perimR);
@@ -340,7 +342,7 @@ export function applyBloodHoundPhysicsLayout(graph) {
   const F = getDensityFactors(nodeCount);
 
   let i = 0;
-  const initR = Math.max(300, Math.sqrt(nodeCount) * 40);
+  const initR = Math.max(450, Math.sqrt(nodeCount) * 60);
   graph.forEachNode(node => {
     const angle = (2 * Math.PI * i) / nodeCount;
     graph.setNodeAttribute(node, 'x', Math.cos(angle) * initR);
@@ -350,10 +352,10 @@ export function applyBloodHoundPhysicsLayout(graph) {
 
   try {
     forceAtlas2.assign(graph, {
-      iterations: nodeCount > 200 ? 200 : 300,
+      iterations: nodeCount > 200 ? 250 : 350,
       settings: {
-        gravity: 0.0005,
-        scalingRatio: Math.max(800, nodeCount * 30),
+        gravity: 0.0003,
+        scalingRatio: Math.max(1600, nodeCount * 50),
         slowDown: 3.5,
         barnesHutOptimize: nodeCount > 20,
         adjustSizes: true
@@ -365,11 +367,11 @@ export function applyBloodHoundPhysicsLayout(graph) {
     return;
   }
 
-  // Compression, not expansion, for large graphs
-  const expansion = nodeCount <= 60 ? 1.6
-                  : nodeCount <= 150 ? 1.2
-                  : nodeCount <= 300 ? 0.9
-                  : 0.75;
+  // Generous expansion across all graph sizes
+  const expansion = nodeCount <= 60 ? 2.2
+                  : nodeCount <= 150 ? 1.8
+                  : nodeCount <= 300 ? 1.4
+                  : 1.2;
 
   graph.forEachNode(n => {
     const cx = graph.getNodeAttribute(n, 'x') || 0;

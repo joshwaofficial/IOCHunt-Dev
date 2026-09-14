@@ -100,8 +100,12 @@ function getConnectedChain(graph, startNode) {
  * In Sigma.js, the graph's coordinates are normalized to [0,1] and scaled to fit the container.
  * Ratio 1.15 provides comfortable 15% margin around the canvas edges.
  */
-function computeFitRatio() {
-  return 1.05;
+function computeFitRatio(order = 50) {
+  if (order <= 15)  return 1.35;
+  if (order <= 50)  return 1.60;
+  if (order <= 100) return 1.80;
+  if (order <= 250) return 2.05;
+  return 2.20;
 }
 
 /**
@@ -109,12 +113,12 @@ function computeFitRatio() {
  * Generous, clearly visible circles with crisp vector icons inside.
  */
 function baseNodeSize(order) {
-  if (order <= 25)  return 16;
-  if (order <= 60)  return 13.5;
-  if (order <= 120) return 11.5;
-  if (order <= 250) return 10;
-  if (order <= 500) return 8.5;
-  return 7.5;
+  if (order <= 25)  return 18;
+  if (order <= 60)  return 15;
+  if (order <= 120) return 13;
+  if (order <= 250) return 11.5;
+  if (order <= 500) return 10;
+  return 8.5;
 }
 
 export default function BloodHoundNodeDiagram({
@@ -134,7 +138,7 @@ export default function BloodHoundNodeDiagram({
   const callbacksRef = useRef({ onSelectNode, onSelectEdge, onClearSelection });
   const themeRef = useRef(theme);
   const chainStateRef = useRef({ chainNodes: new Set(), chainEdges: new Set() });
-  const cameraRatioRef = useRef(1.05);
+  const cameraRatioRef = useRef(1.60);
 
   useEffect(() => {
     callbacksRef.current = { onSelectNode, onSelectEdge, onClearSelection };
@@ -503,28 +507,28 @@ export default function BloodHoundNodeDiagram({
           // Small graph (e.g. Aiacas): show labels for all nodes using clean short names
           showLabel = true;
           useShort = true;
-        } else if (order <= 70) {
-          // Medium graph (e.g. Computers):
-          if (ratio < 0.65) {
+        } else if (order <= 60) {
+          // Medium graph (e.g. Computers 44 nodes):
+          if (ratio < 0.90) {
             showLabel = true;
             useShort = true;
           } else {
-            showLabel = isCrownJewel || nodeDegree >= 3 || attrs.has_threat;
+            // Overview: only Crown Jewels and high-degree hubs (degree >= 4)
+            showLabel = isCrownJewel || nodeDegree >= 4;
             useShort = true;
           }
         } else {
-          // Large graph (70+ nodes e.g. Certtemplates, Containers):
-          if (ratio < 0.35) {
+          // Large graph (60+ nodes e.g. Certtemplates, Containers):
+          if (ratio < 0.50) {
             // Close zoom: show all nodes in view
             showLabel = true;
             useShort = true;
-          } else if (ratio < 0.75) {
+          } else if (ratio < 1.10) {
             // Mid zoom: show hubs and crown jewels
             showLabel = isCrownJewel || nodeDegree >= 4;
             useShort = true;
           } else {
             // Overview zoom: ONLY true landmarks / crown jewels show labels!
-            // All other nodes draw as clean, beautiful colored circles with crisp icons!
             showLabel = isCrownJewel;
             useShort = true;
           }
@@ -625,13 +629,13 @@ export default function BloodHoundNodeDiagram({
 
     /* ---------- Track camera ratio for LOD ---------- */
     const cam = sigma.getCamera();
-    cameraRatioRef.current = cam.getState().ratio || 1.05;
+    cameraRatioRef.current = cam.getState().ratio || computeFitRatio(order);
 
     const onCamUpdate = (state) => {
       const prev = cameraRatioRef.current;
       cameraRatioRef.current = state.ratio;
-      // Refresh across LOD thresholds: 0.35, 0.65, 0.75
-      const tierOf = (r) => (r < 0.35 ? 0 : r < 0.65 ? 1 : r < 0.75 ? 2 : 3);
+      // Refresh across LOD thresholds: 0.50, 0.90, 1.10
+      const tierOf = (r) => (r < 0.50 ? 0 : r < 0.90 ? 1 : r < 1.10 ? 2 : 3);
       if (tierOf(prev) !== tierOf(state.ratio)) {
         sigma.refresh();
       }
@@ -642,7 +646,7 @@ export default function BloodHoundNodeDiagram({
     requestAnimationFrame(() => {
       if (!sigmaRef.current || !graphRef.current || !containerRef.current) return;
       sigmaRef.current.refresh();
-      const ratio = computeFitRatio();
+      const ratio = computeFitRatio(order);
       cameraRatioRef.current = ratio;
       sigmaRef.current.getCamera().setState({
         x: 0.5, y: 0.5, ratio, angle: 0
@@ -744,7 +748,7 @@ export default function BloodHoundNodeDiagram({
       resizeTimer = setTimeout(() => {
         if (!sigmaRef.current || !graphRef.current || !containerRef.current) return;
         sigmaRef.current.resize();
-        const ratio = computeFitRatio();
+        const ratio = computeFitRatio(graphRef.current ? graphRef.current.order : 50);
         cameraRatioRef.current = ratio;
         sigmaRef.current.getCamera().animate(
           { x: 0.5, y: 0.5, ratio, angle: 0 },
@@ -787,7 +791,7 @@ export default function BloodHoundNodeDiagram({
 
   const handleResetFit = () => {
     if (sigmaRef.current && graphRef.current && containerRef.current) {
-      const ratio = computeFitRatio();
+      const ratio = computeFitRatio(graphRef.current.order);
       cameraRatioRef.current = ratio;
       sigmaRef.current.getCamera().animate(
         { x: 0.5, y: 0.5, ratio, angle: 0 },
