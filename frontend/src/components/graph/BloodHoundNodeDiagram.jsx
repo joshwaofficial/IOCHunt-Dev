@@ -591,25 +591,40 @@ export default function BloodHoundNodeDiagram({
       // fCoSE (BloodHound default organic layout) — expansive spring physics
       layoutOpts = {
         name: 'fcose',
-        quality: 'default',
+        quality: finalNodeCount > 30 ? 'proof' : 'default',
         randomize: true,
         animate: false,
         fit: true,
-        padding: 50,
+        padding: 60,
         nodeDimensionsIncludeLabels: true,
         uniformNodeDimensions: false,
         packComponents: true,
-        nodeRepulsion: finalNodeCount <= 15 ? 320000 : (finalNodeCount <= 40 ? 180000 : 100000),
-        idealEdgeLength: finalNodeCount <= 15 ? 300 : (finalNodeCount <= 40 ? 220 : 160),
-        edgeElasticity: 0.05,
+        // High, expansive repulsion for large graphs so nodes spread out widely and never overlap
+        nodeRepulsion: (node) => {
+          if (finalNodeCount <= 15) return 320000;
+          if (finalNodeCount <= 40) return 750000;
+          if (finalNodeCount <= 90) return Math.min(2400000, 1200000 + node.degree() * 60000);
+          return Math.min(3600000, 1800000 + node.degree() * 85000);
+        },
+        // Long edge lengths scaled with node degree so leaf nodes have vast circumference around hubs
+        idealEdgeLength: (edge) => {
+          if (finalNodeCount <= 15) return 300;
+          const maxDeg = Math.max(edge.source().degree(), edge.target().degree());
+          if (finalNodeCount <= 40) return Math.min(500, 340 + maxDeg * 12);
+          if (finalNodeCount <= 90) return Math.min(680, 380 + maxDeg * 16);
+          return Math.min(800, 440 + maxDeg * 22);
+        },
+        edgeElasticity: (edge) => (finalNodeCount <= 15 ? 0.05 : (finalNodeCount <= 40 ? 0.025 : 0.01)),
         nestingFactor: 0.1,
-        gravity: 0.04,
-        gravityRange: 1.5,
-        numIter: 2500,
+        // Low gravity for large graphs prevents crushing 70-200+ nodes into a tight central ball
+        gravity: finalNodeCount <= 15 ? 0.04 : (finalNodeCount <= 40 ? 0.012 : 0.0025),
+        gravityRange: finalNodeCount <= 15 ? 1.5 : 4.5,
+        numIter: finalNodeCount > 40 ? 4500 : 2500,
         tile: true,
-        tilingPaddingVertical: 70,
-        tilingPaddingHorizontal: 70,
-        nodeSeparation: finalNodeCount <= 15 ? 180 : (finalNodeCount <= 40 ? 140 : 100)
+        tilingPaddingVertical: finalNodeCount > 30 ? 180 : 70,
+        tilingPaddingHorizontal: finalNodeCount > 30 ? 180 : 70,
+        // Large separation enforces wide distance between nodes, preventing any node/label collision
+        nodeSeparation: finalNodeCount <= 15 ? 180 : (finalNodeCount <= 40 ? 280 : (finalNodeCount <= 90 ? 380 : 460))
       };
     }
 
