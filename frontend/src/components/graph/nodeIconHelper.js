@@ -8,7 +8,9 @@ import {
   faUsers,
   faShieldHalved,
   faKey,
-  faServer
+  faServer,
+  faSitemap,
+  faFolder
 } from '@fortawesome/free-solid-svg-icons';
 
 // Pre-parse and cache Path2D objects for 60fps canvas rendering
@@ -29,35 +31,46 @@ function getPath2D(iconDef) {
 
 export const NODE_ICONS = {
   machine: faDesktop,
+  computer: faDesktop,
   user: faUser,
   actor: faUser,
   group: faUsers,
-  ip_external: faGlobe,
-  ip_private: faNetworkWired,
+  ou: faSitemap,
+  container: faFolder,
+  domain: faGlobe,
+  dc: faKey,
+  server: faServer,
+  firewall: faShieldHalved,
   ad_attack: faBolt,
   critical: faSkull,
-  firewall: faShieldHalved,
-  dc: faKey,
-  server: faServer
+  ip_external: faGlobe,
+  ip_private: faNetworkWired
 };
 
 export const KIND_COLORS = {
-  machine: '#ef4444',      // BloodHound computer: coral / red ring
-  user: '#22c55e',         // BloodHound user: vibrant green ring
-  group: '#eab308',        // BloodHound group: gold / amber ring
+  machine: '#f87171',      // BloodHound computer: coral / red
+  computer: '#f87171',     // BloodHound computer
+  user: '#22c55e',         // BloodHound user: vibrant green
+  group: '#facc15',        // BloodHound group: gold / bright yellow
+  ou: '#fb923c',           // BloodHound OU: vibrant orange
+  container: '#fb923c',    // BloodHound container: vibrant orange
+  dc: '#facc15',           // BloodHound Domain Controller / Key: gold
+  domain: '#a855f7',       // BloodHound domain: violet
   actor: '#a855f7',        // Attacker / AD Actor: violet
   ad_attack: '#ef4444',    // AD Attack: crimson
   ip_external: '#94a3b8',  // External WAN: slate
-  ip_private: '#3b82f6',   // Private IP: blue
-  default: '#3b82f6'
+  ip_private: '#38bdf8',   // Private IP: cyan
+  default: '#38bdf8'
 };
 
 const svgDataUriCache = new Map();
 
 /**
- * Generate crisp vector SVG data URIs for Cytoscape node background images
+ * Generate crisp vector SVG data URIs for Cytoscape node background images.
+ * Perfectly square 1:1 viewBox with centered path so icons never stretch,
+ * distort, or clip inside the circular node!
  */
-export function getNodeSvgDataUri(iconType, iconColor = '#1e293b') {
+export function getNodeSvgDataUri(iconType, iconColor = '#0f172a') {
   const cacheKey = `${iconType}|${iconColor}`;
   if (svgDataUriCache.has(cacheKey)) return svgDataUriCache.get(cacheKey);
 
@@ -65,8 +78,13 @@ export function getNodeSvgDataUri(iconType, iconColor = '#1e293b') {
   if (!iconDef || !iconDef.icon) return '';
 
   const [w, h, , , path] = iconDef.icon;
+  const maxDim = Math.max(w, h);
+  const offsetX = ((maxDim - w) / 2).toFixed(1);
+  const offsetY = ((maxDim - h) / 2).toFixed(1);
   const encodedColor = encodeURIComponent(iconColor);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><path fill="${encodedColor}" d="${path}"/></svg>`;
+
+  // Exact 1:1 square canvas with centered path
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${maxDim} ${maxDim}"><g transform="translate(${offsetX}, ${offsetY})"><path fill="${encodedColor}" d="${path}"/></g></svg>`;
   const uri = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   svgDataUriCache.set(cacheKey, uri);
   return uri;

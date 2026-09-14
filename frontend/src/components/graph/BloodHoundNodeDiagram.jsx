@@ -44,71 +44,92 @@ function adCol(t) {
   return AD_COL[t] || '#a855f7';
 }
 
-function getShortLabel(label) {
-  if (!label) return '';
-  const str = String(label);
-  let clean = str
-    .replace(/@[^.]+(\.[^.]+)+$/i, '')
-    .replace(/@.*$/, '')
-    .replace(/\.(local|corp|internal|lan)$/i, '');
-  if (clean.length > 20) {
-    clean = clean.slice(0, 18) + '…';
+function getBloodHoundSubtitle(entityType, raw = {}) {
+  const type = String(entityType || '').toLowerCase();
+  if (type === 'user') return 'Active Directory | User';
+  if (type === 'group') return 'Active Directory | Group';
+  if (type === 'machine' || type === 'computer') {
+    if (raw.is_dc || (raw.name && String(raw.name).toUpperCase().includes('DC'))) {
+      return 'Active Directory | Domain Controller';
+    }
+    return 'Active Directory | Computer';
   }
-  return clean;
+  if (type === 'ou') return 'Active Directory | OU';
+  if (type === 'container') return 'Active Directory | Container';
+  if (type === 'dc') return 'Active Directory | Domain Controller';
+  if (type === 'domain') return 'Active Directory | Domain';
+  if (type === 'gpo') return 'Active Directory | GPO';
+  if (type === 'actor') return 'Attacker | Threat Actor';
+  if (type === 'ad_attack') return 'Threat | AD Attack';
+  if (type === 'ip_external') return 'Network | External IP';
+  if (type === 'ip_private') return 'Network | Internal IP';
+  return 'Active Directory | Object';
+}
+
+function formatNodeLabel(cleanId, entityType, raw = {}) {
+  if (!cleanId) return '';
+  let name = String(cleanId).trim();
+  if (name.length > 28) {
+    name = name.slice(0, 25) + '…';
+  }
+  const subtitle = getBloodHoundSubtitle(entityType, raw);
+  return `${name}\n${subtitle}`;
 }
 
 function baseNodeSize(order) {
-  if (order <= 25)  return 36;
-  if (order <= 60)  return 30;
-  if (order <= 120) return 26;
-  if (order <= 250) return 22;
-  if (order <= 500) return 18;
-  return 16;
+  if (order <= 30)  return 52;
+  if (order <= 80)  return 48;
+  if (order <= 160) return 44;
+  if (order <= 300) return 40;
+  if (order <= 600) return 36;
+  return 32;
 }
 
 const getCytoscapeStylesheet = (theme) => {
   const isLight = theme !== 'dark';
   return [
-    // Base Node Style
+    // Base Node Style - BloodHound solid circle with centered silhouette icon
     {
       selector: 'node',
       style: {
         'width': 'data(size)',
         'height': 'data(size)',
         'shape': 'ellipse',
-        'background-color': isLight ? '#ffffff' : '#0f172a',
+        'background-color': 'data(bgColor)',
         'border-width': 'data(borderWidth)',
         'border-color': 'data(borderColor)',
         'background-image': 'data(svgIcon)',
-        'background-fit': 'cover',
-        'background-width': '60%',
-        'background-height': '60%',
+        'background-fit': 'contain',
+        'background-width': '58%',
+        'background-height': '58%',
         'background-position-x': '50%',
         'background-position-y': '50%',
-        'label': 'data(shortLabel)',
-        'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        'font-size': '9px',
+        'background-clip': 'node',
+        'label': 'data(displayLabel)',
+        'text-wrap': 'wrap',
+        'text-max-width': 220,
+        'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif',
+        'font-size': '12px',
         'font-weight': 700,
         'text-valign': 'bottom',
-        'text-margin-y': 6,
+        'text-margin-y': 8,
         'color': isLight ? '#0f172a' : '#f8fafc',
-        'text-background-color': isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.92)',
-        'text-background-opacity': 0.95,
-        'text-background-padding': '3px',
-        'text-background-shape': 'roundrectangle',
-        'text-border-color': isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.15)',
-        'text-border-width': 1,
-        'text-border-opacity': 0.8,
-        'min-zoomed-font-size': 11, // Clean overview: labels hide when zoomed out so icons are distinct!
+        'text-outline-color': isLight ? '#ffffff' : '#0b1326',
+        'text-outline-width': 2.5,
+        'text-outline-opacity': 0.95,
+        'text-background-opacity': 0, // Clean halo like BloodHound, NO thick boxy border!
+        'min-zoomed-font-size': 4,    // Labels remain visible dynamically during zoom
         'z-index': 10,
         'transition-property': 'opacity, border-color, border-width, text-opacity',
         'transition-duration': '0.15s'
       }
     },
-    // Hovered Node: Always show label immediately
+    // Hovered Node: Highlighted border ring
     {
       selector: 'node:hover',
       style: {
+        'border-width': 4.5,
+        'border-color': isLight ? '#0284c7' : '#38bdf8',
         'min-zoomed-font-size': 0,
         'z-index': 95
       }
@@ -117,10 +138,10 @@ const getCytoscapeStylesheet = (theme) => {
     {
       selector: 'node[?isCrownJewel]',
       style: {
-        'min-zoomed-font-size': 4, // Landmarks remain labeled even when zoomed far out
+        'min-zoomed-font-size': 0,
         'z-index': 30,
-        'font-size': '10px',
-        'border-width': 3.5
+        'border-width': 4.0,
+        'border-color': isLight ? '#b45309' : '#f59e0b'
       }
     },
     // Active Selection Node
@@ -128,7 +149,7 @@ const getCytoscapeStylesheet = (theme) => {
       selector: 'node.selected',
       style: {
         'border-color': isLight ? '#0284c7' : '#38bdf8',
-        'border-width': 4.5,
+        'border-width': 5.0,
         'label': 'data(fullLabel)', // Reveal full label when clicked
         'min-zoomed-font-size': 0,
         'z-index': 100,
@@ -157,7 +178,7 @@ const getCytoscapeStylesheet = (theme) => {
         'z-index': 1
       }
     },
-    // Base Edge Style: Clean directed bezier lines (NO text spaghetti in overview!)
+    // Base Edge Style: Clean directed bezier lines with clear relationship labels
     {
       selector: 'edge',
       style: {
@@ -165,21 +186,19 @@ const getCytoscapeStylesheet = (theme) => {
         'line-color': 'data(color)',
         'target-arrow-color': 'data(color)',
         'target-arrow-shape': 'triangle',
-        'arrow-scale': 1.15,
+        'arrow-scale': 1.2,
         'curve-style': 'bezier',
         'label': 'data(label)',
         'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace',
-        'font-size': '9px',
-        'font-weight': 700,
-        'color': isLight ? '#334155' : '#94a3b8',
-        'text-background-color': isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.92)',
-        'text-background-opacity': 0.95,
-        'text-background-padding': '2px',
-        'text-background-shape': 'roundrectangle',
-        'text-border-color': isLight ? 'rgba(0, 0, 0, 0.10)' : 'rgba(255, 255, 255, 0.10)',
-        'text-border-width': 1,
+        'font-size': '10px',
+        'font-weight': 600,
+        'color': isLight ? '#334155' : '#cbd5e1',
+        'text-outline-color': isLight ? '#ffffff' : '#0b1326',
+        'text-outline-width': 2.0,
+        'text-outline-opacity': 0.95,
+        'text-background-opacity': 0, // Clean text halo like BloodHound
         'text-rotation': 'autorotate',
-        'min-zoomed-font-size': 15, // Only show edge text when zoomed in close!
+        'min-zoomed-font-size': 6,    // Clear relationship names visible at normal zoom
         'z-index': 5,
         'transition-property': 'opacity, width, line-color, target-arrow-color',
         'transition-duration': '0.15s'
@@ -296,30 +315,35 @@ export default function BloodHoundNodeDiagram({
         nodeSet.add(nid);
         const u = cleanId.toUpperCase();
         let eType = type;
-        if (eType === 'machine') {
+        if (eType === 'machine' || eType === 'computer') {
           if (u.includes('ADMINS') || u.includes('OPERATORS') || u.includes('USERS') || u.includes('GROUP')) eType = 'group';
           else if (cleanId.includes('@')) eType = 'user';
           else if (u.includes('DC') || u.includes('DOMAIN')) eType = 'dc';
+          else if (u.startsWith('OU=') || u.includes('OU') || u.includes('CONTAINER')) eType = 'ou';
+          else eType = 'machine';
         }
         const col = KIND_COLORS[eType] || KIND_COLORS.default;
         const isCrown = isCrownJewelCheck(cleanId, raw);
-        const sLabel = getShortLabel(cleanId);
+        const displayLabel = formatNodeLabel(cleanId, eType, raw);
+        const iconSvg = getNodeSvgDataUri(eType, '#0f172a');
 
         elements.push({
           group: 'nodes',
           data: {
             id: nid,
-            label: sLabel,
-            shortLabel: sLabel,
+            label: displayLabel,
+            displayLabel: displayLabel,
+            shortLabel: cleanId.length > 25 ? cleanId.slice(0, 23) + '…' : cleanId,
             fullLabel: cleanId,
-            subLabel: raw.ip || '',
+            subLabel: getBloodHoundSubtitle(eType, raw),
             entityType: eType,
             isCrownJewel: isCrown,
-            size: isCrown ? nSize * 1.15 : nSize,
+            size: isCrown ? Math.round(nSize * 1.25) : nSize,
+            bgColor: col,
             color: col,
-            borderColor: col,
-            borderWidth: isCrown ? 3.5 : 2.5,
-            svgIcon: getNodeSvgDataUri(eType, col),
+            borderColor: isLight ? '#0f172a' : '#1e293b',
+            borderWidth: isCrown ? 4.0 : 2.5,
+            svgIcon: iconSvg,
             raw
           }
         });
@@ -567,6 +591,40 @@ export default function BloodHoundNodeDiagram({
 
     cy.fit(undefined, 50);
 
+    // Dynamic Zoom-in & Zoom-out Handler for BloodHound-style crisp labels
+    let zoomRaf = null;
+    const updateDynamicZoom = () => {
+      if (zoomRaf) cancelAnimationFrame(zoomRaf);
+      zoomRaf = requestAnimationFrame(() => {
+        if (!cyRef.current) return;
+        const z = cyRef.current.zoom();
+
+        // Calculate dynamic font size in model coordinates:
+        // Keeps on-screen font size comfortably between ~10px and ~14px across all zoom scales!
+        const targetScreenPx = Math.max(9.5, Math.min(13.5, 11 * Math.pow(z, 0.25)));
+        const dynamicNodeFontSize = Math.max(12, Math.min(38, Math.round(targetScreenPx / z)));
+        const dynamicMargin = Math.max(6, Math.min(16, Math.round(dynamicNodeFontSize * 0.4)));
+
+        // Edge label visibility & scaling
+        const edgeOpacity = z < 0.30 ? 0 : Math.min(1, (z - 0.30) / 0.20);
+        const dynamicEdgeFontSize = Math.max(9, Math.min(22, Math.round(9 / z)));
+
+        cyRef.current.batch(() => {
+          cyRef.current.nodes().style({
+            'font-size': dynamicNodeFontSize,
+            'text-margin-y': dynamicMargin
+          });
+          cyRef.current.edges().style({
+            'font-size': dynamicEdgeFontSize,
+            'text-opacity': edgeOpacity
+          });
+        });
+      });
+    };
+
+    cy.on('zoom', updateDynamicZoom);
+    updateDynamicZoom();
+
     // Click Node
     cy.on('tap', 'node', (evt) => {
       const node = evt.target;
@@ -668,7 +726,9 @@ export default function BloodHoundNodeDiagram({
     return () => {
       ro.disconnect();
       clearTimeout(resizeTimer);
+      if (zoomRaf) cancelAnimationFrame(zoomRaf);
       if (cyRef.current) {
+        cyRef.current.off('zoom', updateDynamicZoom);
         cyRef.current.destroy();
         cyRef.current = null;
       }
@@ -1027,19 +1087,22 @@ export default function BloodHoundNodeDiagram({
         }}
       >
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #ef4444', background: legendNodeCore }}></span> Host
+          <span style={{ width: '10px', height: '10px', borderRadius: '50%', border: isLight ? '1.5px solid #0f172a' : '1.5px solid #334155', background: '#f87171', display: 'inline-block' }}></span> Host / Computer
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #22c55e', background: legendNodeCore }}></span> User
+          <span style={{ width: '10px', height: '10px', borderRadius: '50%', border: isLight ? '1.5px solid #0f172a' : '1.5px solid #334155', background: '#22c55e', display: 'inline-block' }}></span> User
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #eab308', background: legendNodeCore }}></span> Group
+          <span style={{ width: '10px', height: '10px', borderRadius: '50%', border: isLight ? '1.5px solid #0f172a' : '1.5px solid #334155', background: '#facc15', display: 'inline-block' }}></span> Group
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #a855f7', background: legendNodeCore }}></span> AD Attack
+          <span style={{ width: '10px', height: '10px', borderRadius: '50%', border: isLight ? '1.5px solid #0f172a' : '1.5px solid #334155', background: '#fb923c', display: 'inline-block' }}></span> OU / Container
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #94a3b8', background: legendNodeCore }}></span> WAN IP
+          <span style={{ width: '10px', height: '10px', borderRadius: '50%', border: isLight ? '1.5px solid #0f172a' : '1.5px solid #334155', background: '#ef4444', display: 'inline-block' }}></span> AD Attack
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ width: '10px', height: '10px', borderRadius: '50%', border: isLight ? '1.5px solid #0f172a' : '1.5px solid #334155', background: '#94a3b8', display: 'inline-block' }}></span> WAN IP
         </span>
       </div>
     </div>
