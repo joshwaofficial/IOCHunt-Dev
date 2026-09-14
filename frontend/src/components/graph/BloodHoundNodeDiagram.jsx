@@ -66,7 +66,7 @@ function baseNodeSize(order) {
   return 20;
 }
 
-const getCytoscapeStylesheet = (theme) => {
+const getCytoscapeStylesheet = (theme, edgeLabelMode = 'all') => {
   const isLight = theme !== 'dark';
   return [
     // Base Node Style - Clean white circular body with colored border ring & centered colored vector icon (matching Image 4)
@@ -93,13 +93,13 @@ const getCytoscapeStylesheet = (theme) => {
         'text-valign': 'bottom',
         'text-margin-y': 6,
         'color': isLight ? '#0f172a' : '#f8fafc',
-        'text-background-color': isLight ? 'rgba(255, 255, 255, 0.92)' : 'rgba(15, 23, 42, 0.90)',
-        'text-background-opacity': 0.92,
-        'text-background-padding': '2px 4px',
+        'text-background-color': isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.92)',
+        'text-background-opacity': 0.95,
+        'text-background-padding': '2px 5px',
         'text-background-shape': 'roundrectangle',
-        'text-border-color': isLight ? 'rgba(0, 0, 0, 0.10)' : 'rgba(255, 255, 255, 0.12)',
+        'text-border-color': isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.14)',
         'text-border-width': 1,
-        'text-border-opacity': 0.6,
+        'text-border-opacity': 0.7,
         'min-zoomed-font-size': 8, // Stable overview: labels hide when zoomed way out, clear otherwise
         'z-index': 10,
         'transition-property': 'opacity, border-color, border-width, text-opacity',
@@ -160,7 +160,7 @@ const getCytoscapeStylesheet = (theme) => {
         'z-index': 1
       }
     },
-    // Base Edge Style: Clean directed bezier lines (NO overlapping label clutter in overview!)
+    // Base Edge Style: Directed bezier lines with staggered label offsets & crisp pill background
     {
       selector: 'edge',
       style: {
@@ -168,37 +168,43 @@ const getCytoscapeStylesheet = (theme) => {
         'line-color': 'data(color)',
         'target-arrow-color': 'data(color)',
         'target-arrow-shape': 'triangle',
-        'arrow-scale': 1.15,
+        'arrow-scale': 1.2,
         'curve-style': 'bezier',
-        'label': 'data(label)',
+        'control-point-step-size': 40,
+        'label': edgeLabelMode === 'hover' ? '' : 'data(label)',
         'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace',
-        'font-size': '10px',
+        'font-size': '9.5px',
         'font-weight': 700,
-        'color': isLight ? '#334155' : '#94a3b8',
-        'text-background-color': isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.92)',
-        'text-background-opacity': 0.95,
-        'text-background-padding': '2px 4px',
+        'color': isLight ? '#1e293b' : '#f1f5f9',
+        'text-background-color': isLight ? '#ffffff' : '#0f172a',
+        'text-background-opacity': 0.98,
+        'text-background-padding': '2px 5px',
         'text-background-shape': 'roundrectangle',
-        'text-border-color': isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.12)',
+        'text-border-color': isLight ? 'rgba(0, 0, 0, 0.18)' : 'rgba(255, 255, 255, 0.22)',
         'text-border-width': 1,
         'text-rotation': 'autorotate',
-        'min-zoomed-font-size': 14, // <--- Solves edge labels overlapping! Text stays hidden in dense overview, reveals when zoomed in!
+        'text-margin-x': 'data(textMarginX)',
+        'text-margin-y': 'data(textMarginY)',
+        'min-zoomed-font-size': edgeLabelMode === 'hover' ? 0 : 8,
         'z-index': 5,
         'transition-property': 'opacity, width, line-color, target-arrow-color',
         'transition-duration': '0.15s'
       }
     },
-    // Hovered Edge: Reveal label immediately on top!
+    // Hovered Edge: Reveal label immediately on top with high z-index and border highlight!
     {
       selector: 'edge:hover',
       style: {
         'width': 3.5,
+        'label': 'data(label)',
         'min-zoomed-font-size': 0,
         'font-size': '11px',
         'z-index': 999,
         'text-background-opacity': 1.0,
         'text-border-color': 'data(color)',
-        'text-border-width': 1.5
+        'text-border-width': 2,
+        'text-background-color': isLight ? '#ffffff' : '#0f172a',
+        'color': isLight ? '#0f172a' : '#ffffff'
       }
     },
     // Selected / Active Attack Chain Edges: Reveal label immediately!
@@ -208,10 +214,15 @@ const getCytoscapeStylesheet = (theme) => {
         'width': 3.5,
         'line-color': isLight ? '#2563eb' : '#60a5fa',
         'target-arrow-color': isLight ? '#2563eb' : '#60a5fa',
+        'label': 'data(label)',
         'min-zoomed-font-size': 0, // Reveal relationship name on active chain!
-        'z-index': 70,
+        'font-size': '10.5px',
+        'z-index': 85,
         'opacity': 1.0,
-        'text-opacity': 1.0
+        'text-opacity': 1.0,
+        'text-background-opacity': 1.0,
+        'text-border-color': isLight ? '#2563eb' : '#60a5fa',
+        'text-border-width': 1.5
       }
     },
     // Faded Edges during focus selection
@@ -243,18 +254,19 @@ export default function BloodHoundNodeDiagram({
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [layoutMode, setLayoutMode] = useState('fcose'); // 'fcose' (Organic) | 'dagre' (Tree) | 'cluster' (Stars)
+  const [edgeLabelMode, setEdgeLabelMode] = useState('all'); // 'all' (Spread + Staggered) | 'hover' (BloodHound Clean)
   const [counts, setCounts] = useState({ nodes: 0, edges: 0 });
 
   useEffect(() => {
     callbacksRef.current = { onSelectNode, onSelectEdge, onClearSelection };
   }, [onSelectNode, onSelectEdge, onClearSelection]);
 
-  // Update Cytoscape stylesheet when theme changes
+  // Update Cytoscape stylesheet when theme or edgeLabelMode changes
   useEffect(() => {
     if (cyRef.current) {
-      cyRef.current.style(getCytoscapeStylesheet(theme));
+      cyRef.current.style(getCytoscapeStylesheet(theme, edgeLabelMode));
     }
-  }, [theme]);
+  }, [theme, edgeLabelMode]);
 
   const dataKey = `${inbound.length}|${outbound.length}|${lateral.length}|${adAttacks.length}|${machines.length}|${layoutMode}`;
 
@@ -488,8 +500,34 @@ export default function BloodHoundNodeDiagram({
       }
     });
 
-    // Add consolidated edges to elements
+    // Stagger configurations for edge labels:
+    // Distribute textMarginX (along edge line) and textMarginY (perpendicular)
+    // so multiple edges converging on or radiating from hub nodes never place labels at the same coordinates!
+    const STAGGER_PRESETS = [
+      { textMarginX: 0, textMarginY: -10 },
+      { textMarginX: -60, textMarginY: 8 },
+      { textMarginX: 60, textMarginY: -8 },
+      { textMarginX: -95, textMarginY: -12 },
+      { textMarginX: 95, textMarginY: 10 },
+      { textMarginX: -35, textMarginY: 12 },
+      { textMarginX: 35, textMarginY: -14 },
+      { textMarginX: -75, textMarginY: 14 }
+    ];
+
+    const targetIncidentCounts = new Map();
+    const sourceIncidentCounts = new Map();
+
+    // Add consolidated edges to elements with staggered offsets
     edgeMap.forEach(e => {
+      const tCount = targetIncidentCounts.get(e.target) || 0;
+      targetIncidentCounts.set(e.target, tCount + 1);
+
+      const sCount = sourceIncidentCounts.get(e.source) || 0;
+      sourceIncidentCounts.set(e.source, sCount + 1);
+
+      const staggerIdx = (tCount + sCount) % STAGGER_PRESETS.length;
+      const stagger = STAGGER_PRESETS[staggerIdx];
+
       elements.push({
         group: 'edges',
         data: {
@@ -500,6 +538,8 @@ export default function BloodHoundNodeDiagram({
           dir: e.dir,
           color: e.color,
           width: e.width,
+          textMarginX: stagger.textMarginX,
+          textMarginY: stagger.textMarginY,
           _detail: e._detail,
           _detailList: e._detailList
         }
@@ -516,7 +556,7 @@ export default function BloodHoundNodeDiagram({
     const cy = cytoscape({
       container: containerRef.current,
       elements,
-      style: getCytoscapeStylesheet(theme),
+      style: getCytoscapeStylesheet(theme, edgeLabelMode),
       minZoom: 0.02,
       maxZoom: 8.0,
       wheelSensitivity: 1.2, // 5x faster mouse wheel zooming (was 0.25)
@@ -532,8 +572,8 @@ export default function BloodHoundNodeDiagram({
       layoutOpts = {
         name: 'dagre',
         rankDir: 'LR',
-        nodeSep: finalNodeCount > 100 ? 90 : 130, // Vertical spacing untouched
-        rankSep: finalNodeCount > 100 ? 600 : Math.min(1800, 600 + finalNodeCount * 30), // Generous rank separation
+        nodeSep: finalNodeCount > 100 ? 100 : 160,
+        rankSep: finalNodeCount > 100 ? 600 : Math.min(1800, 650 + finalNodeCount * 30),
         ranker: 'network-simplex',
         animate: false,
         padding: 50
@@ -544,8 +584,8 @@ export default function BloodHoundNodeDiagram({
         name: 'concentric',
         concentric: (node) => (node.data('isCrownJewel') ? 10 : (node.degree() >= 4 ? 6 : 2)),
         levelWidth: () => 3,
-        minNodeSpacing: finalNodeCount > 100 ? 120 : 180,
-        spacingFactor: 1.8,
+        minNodeSpacing: finalNodeCount > 100 ? 140 : 220,
+        spacingFactor: 2.2,
         animate: false,
         padding: 50
       };
@@ -557,21 +597,21 @@ export default function BloodHoundNodeDiagram({
         randomize: true,
         animate: false,
         fit: true,
-        padding: 50,
+        padding: 60,
         nodeDimensionsIncludeLabels: true,
         uniformNodeDimensions: false,
         packComponents: true,
-        nodeRepulsion: finalNodeCount > 150 ? 120000 : (finalNodeCount > 60 ? 95000 : 75000),
-        idealEdgeLength: finalNodeCount > 150 ? 420 : (finalNodeCount > 60 ? 360 : 300),
-        edgeElasticity: 0.08,
+        nodeRepulsion: finalNodeCount <= 15 ? 650000 : (finalNodeCount <= 40 ? 420000 : (finalNodeCount <= 100 ? 220000 : 120000)),
+        idealEdgeLength: finalNodeCount <= 15 ? 580 : (finalNodeCount <= 40 ? 460 : (finalNodeCount <= 100 ? 360 : 300)),
+        edgeElasticity: 0.04,
         nestingFactor: 0.1,
-        gravity: 0.04,
-        gravityRange: 3.8,
-        numIter: 3000,
+        gravity: 0.02,
+        gravityRange: 1.5,
+        numIter: 3500,
         tile: true,
-        tilingPaddingVertical: 120,
-        tilingPaddingHorizontal: 120,
-        nodeSeparation: finalNodeCount > 100 ? 220 : 280
+        tilingPaddingVertical: 140,
+        tilingPaddingHorizontal: 140,
+        nodeSeparation: finalNodeCount <= 15 ? 420 : (finalNodeCount <= 40 ? 320 : 250)
       };
     }
 
@@ -1018,6 +1058,47 @@ export default function BloodHoundNodeDiagram({
           >
             <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>hub</span>
             Stars
+          </button>
+        </div>
+
+        {/* Edge Labels Mode: All Labels vs On Hover */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px',
+            background: controlBg,
+            backdropFilter: 'blur(8px)',
+            border: `1px solid ${controlBorder}`,
+            boxShadow: isLight ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+            borderRadius: '6px',
+            padding: '3px'
+          }}
+        >
+          <button
+            onClick={() => setEdgeLabelMode(prev => prev === 'all' ? 'hover' : 'all')}
+            title={edgeLabelMode === 'all' ? 'Edge Labels: Showing All (Click for BloodHound Clean Hover mode)' : 'Edge Labels: Hover Only (Click to Show All Labels)'}
+            style={{
+              height: '26px',
+              padding: '0 6px',
+              background: edgeLabelMode === 'all' ? (isLight ? '#ecfdf5' : '#064e3b') : 'transparent',
+              border: edgeLabelMode === 'all' ? '1px solid #10b981' : '1px solid transparent',
+              borderRadius: '4px',
+              color: edgeLabelMode === 'all' ? '#10b981' : controlColor,
+              cursor: 'pointer',
+              fontSize: '10px',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              fontFamily: 'var(--mono)',
+              transition: 'all 0.15s'
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>
+              {edgeLabelMode === 'all' ? 'label' : 'label_off'}
+            </span>
+            {edgeLabelMode === 'all' ? 'Labels: All' : 'Labels: Hover'}
           </button>
         </div>
 
