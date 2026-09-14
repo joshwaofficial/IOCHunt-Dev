@@ -67,28 +67,13 @@ export async function loadADSampleFile(filename, sidMap, options = {}) {
     const cleanName = resolveSidName(name, sMap);
     if (!seenNodes.has(cleanName)) {
       const uName = cleanName.toUpperCase();
-      let resolvedType = defaultType;
-      if (resolvedType === 'machine' || !resolvedType) {
-        if (uName.includes('ATTACKER') || uName.includes('HACKER') || uName.includes('APT')) {
-          resolvedType = 'hacker';
-        } else if (uName.includes('ADMINS') || uName.includes('OPERATORS') || uName.includes('USERS') || uName.includes('GROUP')) {
-          resolvedType = 'group';
-        } else if (cleanName.includes('@') || uName.includes('ADMINISTRATOR') || uName.includes('KRBTGT')) {
-          resolvedType = 'user';
-        } else if (uName.includes('OU=') || uName.includes('COMPUTERS@') || uName.includes('TIER') || uName.includes('CONTAINER')) {
-          resolvedType = 'ou';
-        } else if (uName.includes('DOMAIN') || uName.includes('CORP.LOCAL') || uName.includes('PHANTOM.CORP')) {
-          resolvedType = 'domain';
-        } else if (uName.includes('DC') || uName.includes('ROOTCA')) {
-          resolvedType = 'dc';
-        }
-      }
-
-      const isCritical = raw.admincount || raw.has_threat || ['KRBTGT', 'ADMINISTRATOR', 'DOMAIN ADMIN'].some(k => uName.includes(k));
+      const isGroup = defaultType === 'group' || uName.includes('ADMINS') || uName.includes('OPERATORS') || uName.includes('USERS') || uName.includes('COMPUTERS') || uName.includes('CONTAINERS');
+      const isUser = defaultType === 'user' || cleanName.includes('@');
+      const isCritical = raw.admincount || raw.has_threat || ['KRBTGT', 'ADMINISTRATOR'].some(k => uName.includes(k));
 
       const nodeObj = {
         name: cleanName,
-        entityType: resolvedType,
+        entityType: isGroup ? 'group' : (isUser ? 'user' : defaultType),
         memberCount: raw.memberCount || 0,
         has_threat: isCritical,
         threat_count: isCritical ? 2 : 0,
@@ -104,7 +89,6 @@ export async function loadADSampleFile(filename, sidMap, options = {}) {
   const isUsers = filename.includes('users');
   const isComputers = filename.includes('computers');
   const isDomains = filename.includes('domains');
-  const isOus = filename.includes('ous') || filename.includes('containers');
 
   // Configurable slice allows testing 100, 300, 500+ objects cleanly
   const sampleSlice = data.slice(0, maxObjects);
@@ -114,7 +98,7 @@ export async function loadADSampleFile(filename, sidMap, options = {}) {
     const name = p.name || item.ObjectIdentifier;
     if (!name) return;
 
-    let eType = isGroups ? 'group' : (isUsers ? 'user' : (isComputers ? 'machine' : (isDomains ? 'domain' : (isOus ? 'ou' : 'group'))));
+    let eType = isGroups ? 'group' : (isUsers ? 'user' : (isComputers ? 'machine' : (isDomains ? 'group' : 'group')));
     ensureNode(name, eType, {
       ...p,
       memberCount: item.Members ? item.Members.length : 0,
