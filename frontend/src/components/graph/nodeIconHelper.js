@@ -8,7 +8,10 @@ import {
   faUsers,
   faShieldHalved,
   faKey,
-  faServer
+  faServer,
+  faUserSecret,
+  faSitemap,
+  faCrown
 } from '@fortawesome/free-solid-svg-icons';
 
 // Pre-parse and cache Path2D objects for 60fps canvas rendering
@@ -29,44 +32,110 @@ function getPath2D(iconDef) {
 
 export const NODE_ICONS = {
   machine: faDesktop,
+  computer: faDesktop,
+  monitor: faDesktop,
   user: faUser,
-  actor: faUser,
+  person: faUser,
+  hacker: faUserSecret,
+  actor: faUserSecret,
+  attacker: faUserSecret,
   group: faUsers,
+  ou: faSitemap,
+  container: faSitemap,
+  domain: faKey,
+  dc: faKey,
+  server: faServer,
   ip_external: faGlobe,
+  wan: faGlobe,
   ip_private: faNetworkWired,
+  lan: faNetworkWired,
   ad_attack: faBolt,
+  attack: faBolt,
   critical: faSkull,
   firewall: faShieldHalved,
-  dc: faKey,
-  server: faServer
+  gpo: faShieldHalved,
+  crown: faCrown,
+  default: faDesktop
 };
 
 export const KIND_COLORS = {
-  machine: '#ef4444',      // BloodHound computer: coral / red ring
-  user: '#22c55e',         // BloodHound user: vibrant green ring
-  group: '#eab308',        // BloodHound group: gold / amber ring
-  actor: '#a855f7',        // Attacker / AD Actor: violet
-  ad_attack: '#ef4444',    // AD Attack: crimson
-  ip_external: '#94a3b8',  // External WAN: slate
-  ip_private: '#3b82f6',   // Private IP: blue
+  user: '#22c55e',         // BloodHound vibrant green
+  person: '#22c55e',
+  machine: '#ef4444',      // BloodHound coral/salmon red
+  computer: '#ef4444',
+  monitor: '#ef4444',
+  group: '#f59e0b',        // BloodHound golden yellow
+  ou: '#f97316',           // BloodHound vibrant orange
+  container: '#f97316',
+  domain: '#3b82f6',       // BloodHound royal blue
+  dc: '#3b82f6',
+  server: '#3b82f6',
+  hacker: '#dc2626',       // Threat actor crimson
+  actor: '#dc2626',
+  attacker: '#dc2626',
+  ad_attack: '#ef4444',    // AD Attack red
+  ip_external: '#64748b',  // Slate WAN
+  wan: '#64748b',
+  ip_private: '#0284c7',   // Sky LAN
+  lan: '#0284c7',
+  critical: '#ef4444',
   default: '#3b82f6'
+};
+
+export const KIND_SUBTITLES = {
+  user: 'Active Directory | User',
+  person: 'Active Directory | User',
+  machine: 'Active Directory | Computer',
+  computer: 'Active Directory | Computer',
+  monitor: 'Active Directory | Computer',
+  group: 'Active Directory | Group',
+  ou: 'Active Directory | OU',
+  container: 'Active Directory | OU',
+  domain: 'Active Directory | Domain',
+  dc: 'Active Directory | DC',
+  server: 'Active Directory | Server',
+  hacker: 'Threat Actor | Attacker',
+  actor: 'Threat Actor | Attacker',
+  attacker: 'Threat Actor | Attacker',
+  ip_external: 'External Network | WAN',
+  wan: 'External Network | WAN',
+  ip_private: 'Internal Subnet | LAN',
+  lan: 'Internal Subnet | LAN',
+  default: 'Active Directory | Node'
 };
 
 const svgDataUriCache = new Map();
 
 /**
  * Generate crisp vector SVG data URIs for Cytoscape node background images
+ * Matches BloodHound CE: centered solid black icon inside square viewBox,
+ * with optional top-right diamond badge for Crown Jewel / Tier-0 targets.
  */
-export function getNodeSvgDataUri(iconType, iconColor = '#1e293b') {
-  const cacheKey = `${iconType}|${iconColor}`;
+export function getNodeSvgDataUri(iconType, isCrownJewel = false) {
+  const cacheKey = `${iconType}|${isCrownJewel ? 'crown' : 'normal'}`;
   if (svgDataUriCache.has(cacheKey)) return svgDataUriCache.get(cacheKey);
 
   const iconDef = NODE_ICONS[iconType] || (iconType && NODE_ICONS[iconType.toLowerCase()]) || NODE_ICONS.machine;
   if (!iconDef || !iconDef.icon) return '';
 
   const [w, h, , , path] = iconDef.icon;
-  const encodedColor = encodeURIComponent(iconColor);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}"><path fill="${encodedColor}" d="${path}"/></svg>`;
+  const maxDim = Math.max(w, h);
+  const ox = (maxDim - w) / 2;
+  const oy = (maxDim - h) / 2;
+
+  let svgContent = `<path fill="#000000" d="${path}" transform="translate(${ox}, ${oy})"/>`;
+
+  // If Crown Jewel / Tier-0 / High-Value Target:
+  // Add crisp diamond badge on top-right corner (matching BloodHound Reference Image 4)
+  if (isCrownJewel) {
+    const badgeSize = maxDim * 0.24;
+    const bx = maxDim - badgeSize * 1.05;
+    const by = badgeSize * 0.05;
+    const half = badgeSize / 2;
+    svgContent += `<polygon points="${bx + half},${by} ${bx + badgeSize},${by + half} ${bx + half},${by + badgeSize} ${bx},${by + half}" fill="#000000" stroke="#ffffff" stroke-width="${maxDim * 0.03}"/>`;
+  }
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${maxDim} ${maxDim}">${svgContent}</svg>`;
   const uri = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   svgDataUriCache.set(cacheKey, uri);
   return uri;
@@ -115,42 +184,57 @@ export function drawBloodHoundNode(context, data) {
     context.stroke();
   }
 
-  // 2. Node circular body — PURE CLEAN WHITE in light mode, DARK SLATE in dark mode
-  // GUARANTEED: NEVER fill with solid color at any time!
+  // 2. Node circular body — Solid vibrant BloodHound color
   context.beginPath();
   context.arc(x, y, size, 0, Math.PI * 2);
-  context.fillStyle = isLight ? '#ffffff' : '#0f172a';
+  context.fillStyle = color;
   context.fill();
 
-  // 3. Colored border perimeter ring — bold and crisp so it NEVER vanishes when zoomed out!
+  // 3. Crisp black perimeter ring matching BloodHound
   context.beginPath();
   context.arc(x, y, size, 0, Math.PI * 2);
-  context.strokeStyle = color;
-  context.lineWidth = isSelected ? 3.2 : (data.inChain ? 2.8 : 2.4);
+  context.strokeStyle = '#000000';
+  context.lineWidth = isSelected ? 3.5 : (data.inChain ? 3.0 : 2.5);
   context.stroke();
 
-  // 4. Centered FontAwesome Vector Icon — crisp margin, never covers entire node!
+  // 4. Centered FontAwesome Vector Icon — solid black
   const iconDef = NODE_ICONS[data.iconType] || (data.iconType && NODE_ICONS[data.iconType.toLowerCase()]) || NODE_ICONS.machine;
   const path = getPath2D(iconDef);
 
   if (path && iconDef.icon) {
     const [iconW, iconH] = [iconDef.icon[0], iconDef.icon[1]];
-    // 70% size gives a clean, generous white ring around the icon
-    const targetSize = size * 0.70;
+    const targetSize = size * 0.65;
     const scale = targetSize / Math.max(iconW, iconH);
 
     context.save();
     context.translate(x - (iconW * scale) / 2, y - (iconH * scale) / 2);
     context.scale(scale, scale);
-    context.fillStyle = data.iconColor || color || (isLight ? '#1e293b' : '#f8fafc');
+    context.fillStyle = '#000000';
     context.fill(path);
     context.restore();
   } else {
-    // High-contrast inner colored dot fallback (so node is NEVER an empty white circle!)
     context.beginPath();
     context.arc(x, y, size * 0.45, 0, Math.PI * 2);
-    context.fillStyle = data.iconColor || color;
+    context.fillStyle = '#000000';
     context.fill();
+  }
+
+  // 5. Crown Jewel Diamond Badge
+  if (data.isCrownJewel && !isDimmed) {
+    const bx = x + size * 0.65;
+    const by = y - size * 0.65;
+    const dSize = 6;
+    context.beginPath();
+    context.moveTo(bx, by - dSize);
+    context.lineTo(bx + dSize, by);
+    context.lineTo(bx, by + dSize);
+    context.lineTo(bx - dSize, by);
+    context.closePath();
+    context.fillStyle = '#000000';
+    context.fill();
+    context.strokeStyle = '#ffffff';
+    context.lineWidth = 1.5;
+    context.stroke();
   }
 
   // 5. Group Member Count Badge
