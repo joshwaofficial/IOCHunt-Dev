@@ -48,19 +48,20 @@ export const NODE_ICONS = {
 };
 
 export const KIND_COLORS = {
-  machine: '#ef4444',      // Computer: coral / red ring
-  computer: '#ef4444',     // Computer: coral / red ring
+  machine: '#ef4444',      // Workstation / Computer: coral red ring
+  computer: '#ef4444',     // Workstation / Computer: coral red ring
   user: '#22c55e',         // User: vibrant green ring
-  group: '#eab308',        // Group: gold / amber ring
-  ou: '#f97316',           // OU: orange ring
+  group: '#eab308',        // Group / Role: warm amber gold ring
+  ou: '#f97316',           // OU / Container: orange ring
   container: '#f97316',    // Container: orange ring
-  dc: '#eab308',           // Domain Controller / Key: gold ring
-  domain: '#a855f7',       // Domain: violet ring
-  actor: '#a855f7',        // Attacker / AD Actor: violet ring
-  ad_attack: '#ef4444',    // AD Attack: crimson ring
-  ip_external: '#94a3b8',  // External WAN: slate ring
-  ip_private: '#3b82f6',   // Private IP: blue ring
-  default: '#3b82f6'
+  dc: '#a855f7',           // Domain Controller / RootCA / Key: royal purple ring
+  server: '#06b6d4',       // Server / Database / Production: bright cyan ring
+  domain: '#a855f7',       // Domain: royal purple ring
+  actor: '#dc2626',        // Attacker / AD Actor: crimson ring
+  ad_attack: '#dc2626',    // AD Attack: crimson ring
+  ip_external: '#64748b',  // External WAN: cool slate ring
+  ip_private: '#3b82f6',   // Private Subnet / LAN: blue ring
+  default: '#0ea5e9'
 };
 
 const svgDataUriCache = new Map();

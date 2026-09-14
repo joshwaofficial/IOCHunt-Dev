@@ -8,19 +8,19 @@ export function getSimulatedTopologyData() {
   const machines = [
     // --- Cluster 1: Exchange Trusted Subsystem (Group Hub + Servers, Exactly as in Reference Image 3) ---
     { name: 'EXCHANGE TRUSTED SUBSYSTEM', ip: '10.0.1.1', entityType: 'group', memberCount: 6, has_threat: true },
-    { name: 'EXCH-001.INTERNAL.LOCAL', ip: '10.0.1.101', os: 'Windows Server 2022', entityType: 'machine', has_threat: false },
-    { name: 'EXCH-002.INTERNAL.LOCAL', ip: '10.0.1.102', os: 'Windows Server 2022', entityType: 'machine', has_threat: false },
-    { name: 'EXCH-003.INTERNAL.LOCAL', ip: '10.0.1.103', os: 'Windows Server 2022', entityType: 'machine', has_threat: false },
-    { name: 'EXCH-004.INTERNAL.LOCAL', ip: '10.0.1.104', os: 'Windows Server 2019', entityType: 'machine', has_threat: false },
-    { name: 'EXCH-005.INTERNAL.LOCAL', ip: '10.0.1.105', os: 'Windows Server 2019', entityType: 'machine', has_threat: true, threat_count: 2 },
-    { name: 'EXCH-006.INTERNAL.LOCAL', ip: '10.0.1.106', os: 'Windows Server 2019', entityType: 'machine', has_threat: false },
+    { name: 'EXCH-001.INTERNAL.LOCAL', ip: '10.0.1.101', os: 'Windows Server 2022', entityType: 'server', has_threat: false },
+    { name: 'EXCH-002.INTERNAL.LOCAL', ip: '10.0.1.102', os: 'Windows Server 2022', entityType: 'server', has_threat: false },
+    { name: 'EXCH-003.INTERNAL.LOCAL', ip: '10.0.1.103', os: 'Windows Server 2022', entityType: 'server', has_threat: false },
+    { name: 'EXCH-004.INTERNAL.LOCAL', ip: '10.0.1.104', os: 'Windows Server 2019', entityType: 'server', has_threat: false },
+    { name: 'EXCH-005.INTERNAL.LOCAL', ip: '10.0.1.105', os: 'Windows Server 2019', entityType: 'server', has_threat: true, threat_count: 2 },
+    { name: 'EXCH-006.INTERNAL.LOCAL', ip: '10.0.1.106', os: 'Windows Server 2019', entityType: 'server', has_threat: false },
 
     // --- Cluster 2: Domain Admins & Tier-0 Identity Core ---
     { name: 'DOMAIN ADMINS', ip: '10.0.0.1', entityType: 'group', memberCount: 4, has_threat: true },
-    { name: 'DC-01.DEFSECON.LOCAL', ip: '10.0.0.10', os: 'Windows Server 2022 DC', entityType: 'machine', has_threat: true, threat_count: 4 },
-    { name: 'DC-02.DEFSECON.LOCAL', ip: '10.0.0.11', os: 'Windows Server 2022 DC', entityType: 'machine', has_threat: false },
-    { name: 'BACKUP-DC.DEFSECON.LOCAL', ip: '10.0.0.12', os: 'Windows Server 2019 DC', entityType: 'machine', has_threat: false },
-    { name: 'CA-ROOT-01.DEFSECON.LOCAL', ip: '10.0.0.15', os: 'Windows Server 2022 CA', entityType: 'machine', has_threat: true, threat_count: 2 },
+    { name: 'DC-01.DEFSECON.LOCAL', ip: '10.0.0.10', os: 'Windows Server 2022 DC', entityType: 'dc', has_threat: true, threat_count: 4 },
+    { name: 'DC-02.DEFSECON.LOCAL', ip: '10.0.0.11', os: 'Windows Server 2022 DC', entityType: 'dc', has_threat: false },
+    { name: 'BACKUP-DC.DEFSECON.LOCAL', ip: '10.0.0.12', os: 'Windows Server 2019 DC', entityType: 'dc', has_threat: false },
+    { name: 'CA-ROOT-01.DEFSECON.LOCAL', ip: '10.0.0.15', os: 'Windows Server 2022 CA', entityType: 'dc', has_threat: true, threat_count: 2 },
 
     // --- Cluster 3: Organization Management (Group Hub + Admins) ---
     { name: 'ORGANIZATION MANAGEMENT', ip: '10.0.2.1', entityType: 'group', memberCount: 3, has_threat: false },
@@ -30,19 +30,19 @@ export function getSimulatedTopologyData() {
 
     // --- Cluster 4: Exchange Recipient Administrators ---
     { name: 'EXCHANGE RECIPIENT ADMINS', ip: '10.0.3.1', entityType: 'group', memberCount: 4, has_threat: false },
-    { name: 'MAIL-GATEWAY-01', ip: '10.0.3.10', os: 'Ubuntu 24.04 LTS', entityType: 'machine', has_threat: false },
+    { name: 'MAIL-GATEWAY-01', ip: '10.0.3.10', os: 'Ubuntu 24.04 LTS', entityType: 'server', has_threat: false },
     { name: 'HR-DESK-01', ip: '10.0.3.21', os: 'Windows 10 Pro', entityType: 'machine', has_threat: false },
     { name: 'SALES-WS-01', ip: '10.0.3.31', os: 'Windows 11 Pro', entityType: 'machine', has_threat: false },
 
     // --- Cluster 5: Enterprise Services & Production Databases ---
-    { name: 'SQL-PROD-01', ip: '10.0.4.10', os: 'Windows Server 2022 SQL', entityType: 'machine', has_threat: true, threat_count: 3 },
-    { name: 'FS-CORP-01', ip: '10.0.4.20', os: 'Windows Server 2022 File', entityType: 'machine', has_threat: false },
-    { name: 'K8S-MASTER-01', ip: '10.0.4.30', os: 'Ubuntu 24.04 LTS', entityType: 'machine', has_threat: false },
-    { name: 'PAYMENT-SRV-01', ip: '10.0.4.40', os: 'RHEL 9 Hardened', entityType: 'machine', has_threat: true, threat_count: 1 },
+    { name: 'SQL-PROD-01', ip: '10.0.4.10', os: 'Windows Server 2022 SQL', entityType: 'server', has_threat: true, threat_count: 3 },
+    { name: 'FS-CORP-01', ip: '10.0.4.20', os: 'Windows Server 2022 File', entityType: 'server', has_threat: false },
+    { name: 'K8S-MASTER-01', ip: '10.0.4.30', os: 'Ubuntu 24.04 LTS', entityType: 'server', has_threat: false },
+    { name: 'PAYMENT-SRV-01', ip: '10.0.4.40', os: 'RHEL 9 Hardened', entityType: 'server', has_threat: true, threat_count: 1 },
 
     // --- User Observed / Monitored Real Hosts ---
     { name: 'D3F53C0N3-PC-1', ip: '14.99.11.58', os: 'Windows 11 Enterprise', entityType: 'machine', has_threat: true, threat_count: 2 },
-    { name: '72.62.241.39', ip: '72.62.241.39', os: 'Linux 6.8 Debian', entityType: 'machine', has_threat: false }
+    { name: '72.62.241.39', ip: '72.62.241.39', os: 'Linux 6.8 Debian', entityType: 'ip_external', has_threat: false }
   ];
 
   // AD Attacks (Cross-cluster bridges, DCSync, Kerberoasting, GenericAll matching Image 3)
