@@ -102,8 +102,10 @@ function getConnectedChain(graph, startNode) {
  */
 function computeFitRatio(graph, container, padding = 80) {
   if (!container || !graph || graph.order === 0) return 1;
-
+  
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  let nodeCount = 0;
+  
   graph.forEachNode((_, a) => {
     const x = Number(a.x) || 0;
     const y = Number(a.y) || 0;
@@ -111,19 +113,29 @@ function computeFitRatio(graph, container, padding = 80) {
     if (x > maxX) maxX = x;
     if (y < minY) minY = y;
     if (y > maxY) maxY = y;
+    nodeCount++;
   });
 
   const cw = Math.max(container.clientWidth, 1);
   const ch = Math.max(container.clientHeight, 1);
-
-  const gw = Math.max(maxX - minX, 1) + padding * 2;
-  const gh = Math.max(maxY - minY, 1) + padding * 2;
-
-  // Sigma camera ratio: 1.0 == graph pixel size matches container pixel size.
-  // Larger ratio == zoomed further OUT.
-  const ratioX = gw / cw;
-  const ratioY = gh / ch;
-  return Math.max(ratioX, ratioY, 0.2) * 1.05; // +5% breathing room
+  
+  // Add extra padding for large graphs
+  const dynamicPadding = nodeCount > 200 ? padding * 2.5 : 
+                         nodeCount > 100 ? padding * 1.8 : 
+                         nodeCount > 50 ? padding * 1.4 : padding;
+  
+  const gw = Math.max(maxX - minX, 1) + dynamicPadding * 2;
+  const gh = Math.max(maxY - minY, 1) + dynamicPadding * 2;
+  
+  const baseRatio = Math.max(gw / cw, gh / ch, 0.1);
+  
+  // Extra zoom-out for very large graphs
+  const scaleMultiplier = nodeCount > 500 ? 1.8 : 
+                          nodeCount > 300 ? 1.6 : 
+                          nodeCount > 150 ? 1.4 : 
+                          nodeCount > 80 ? 1.25 : 1.05;
+  
+  return baseRatio * scaleMultiplier;
 }
 
 /**
@@ -134,9 +146,10 @@ function baseNodeSize(order) {
   if (order <= 25)  return 15;
   if (order <= 60)  return 13.5;
   if (order <= 120) return 11.5;
-  if (order <= 250) return 10;
-  if (order <= 500) return 8.5;
-  return 7;
+  if (order <= 250) return 9.5;
+  if (order <= 500) return 7.5;
+  if (order <= 1000) return 6;
+  return 5;
 }
 
 export default function BloodHoundNodeDiagram({
@@ -304,6 +317,10 @@ export default function BloodHoundNodeDiagram({
       if (id) ensureMachine(id);
     });
 
+    // Edge scale factor based on network size
+    const estimatedOrder = Math.max(machines.length, graph.order, inbound.length + outbound.length + lateral.length + adAttacks.length);
+    const edgeScaleFactor = estimatedOrder > 300 ? 0.6 : estimatedOrder > 150 ? 0.75 : 1.0;
+
     // Process Inbound
     inbound.forEach(c => {
       const toId = ensureMachine(c.to_machine);
@@ -335,7 +352,7 @@ export default function BloodHoundNodeDiagram({
         graph.addEdge(fromId, toId, {
           label: proto || 'INBOUND',
           color: col,
-          size: Math.min(2 + Math.log((c.count || 1) + 1), 6),
+          size: Math.min(2 + Math.log((c.count || 1) + 1), 6) * edgeScaleFactor,
           type: 'arrow',
           dir: 'in',
           _detail: detailRow
@@ -374,7 +391,7 @@ export default function BloodHoundNodeDiagram({
         graph.addEdge(fromId, toId, {
           label: proto || 'OUTBOUND',
           color: col,
-          size: Math.min(2 + Math.log((c.count || 1) + 1), 6),
+          size: Math.min(2 + Math.log((c.count || 1) + 1), 6) * edgeScaleFactor,
           type: 'arrow',
           dir: 'out',
           _detail: detailRow
@@ -409,7 +426,7 @@ export default function BloodHoundNodeDiagram({
         graph.addEdge(fromId, toId, {
           label: proto || 'LATERAL',
           color: col,
-          size: Math.min(2.5 + Math.log((c.count || 1) + 1), 6),
+          size: Math.min(2.5 + Math.log((c.count || 1) + 1), 6) * edgeScaleFactor,
           type: 'arrow',
           dir: 'lat',
           _detail: detailRow
@@ -449,7 +466,7 @@ export default function BloodHoundNodeDiagram({
         graph.addEdge(fromId, toId, {
           label: a.attack_type || 'AD ATTACK',
           color: col,
-          size: Math.min(3 + Math.log((a.count || 1) + 1), 7),
+          size: Math.min(3 + Math.log((a.count || 1) + 1), 7) * edgeScaleFactor,
           type: 'arrow',
           dir: 'ad',
           _detail: detailRow
@@ -487,8 +504,8 @@ export default function BloodHoundNodeDiagram({
       enableEdgeEvents: true,
       allowInvalidContainer: true,
       stagePadding: 0,
-      minCameraRatio: 0.02,
-      maxCameraRatio: 30.0,
+      minCameraRatio: 0.01,
+      maxCameraRatio: 50.0,
       nodeReducer: (node, attrs) => {
         const res = { ...attrs };
         const isLight = themeRef.current !== 'dark';

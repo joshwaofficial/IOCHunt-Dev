@@ -89,12 +89,34 @@ export function getDensityFactors(nodeCount) {
     return { colWidth: 240, rowHeight: 110, rankSep: 380, collisionDx: 200, collisionDy: 100 };
   }
   if (nodeCount <= 300) {
-    return { colWidth: 180, rowHeight: 90,  rankSep: 300, collisionDx: 150, collisionDy: 80 };
+    return { colWidth: 160, rowHeight: 85,  rankSep: 280, collisionDx: 140, collisionDy: 75 };  // ← CHANGED
   }
   if (nodeCount <= 500) {
-    return { colWidth: 140, rowHeight: 75,  rankSep: 240, collisionDx: 115, collisionDy: 65 };
+    return { colWidth: 120, rowHeight: 70,  rankSep: 220, collisionDx: 105, collisionDy: 60 };  // ← CHANGED
   }
-  return { colWidth: 110, rowHeight: 65, rankSep: 200, collisionDx: 95, collisionDy: 55 };
+  if (nodeCount <= 1000) {
+    return { colWidth: 90, rowHeight: 55, rankSep: 170, collisionDx: 80, collisionDy: 45 };  // ← NEW
+  }
+  return { colWidth: 70, rowHeight: 45, rankSep: 140, collisionDx: 65, collisionDy: 38 };  // ← CHANGED
+}
+
+/**
+ * Auto-Layout Optimization for Large Graphs
+ */
+export function optimizeLayoutForLargeGraph(graph, nodeCount) {
+  if (nodeCount < 100) return;
+
+  // For large graphs, apply additional spreading
+  const spreadFactor = nodeCount > 300 ? 2.2 :
+                       nodeCount > 200 ? 1.9 :
+                       nodeCount > 150 ? 1.6 : 1.4;
+
+  graph.forEachNode(node => {
+    const x = graph.getNodeAttribute(node, 'x') || 0;
+    const y = graph.getNodeAttribute(node, 'y') || 0;
+    graph.setNodeAttribute(node, 'x', x * spreadFactor);
+    graph.setNodeAttribute(node, 'y', y * spreadFactor);
+  });
 }
 
 /**
@@ -221,6 +243,9 @@ export function applyBloodHoundTreeLayout(graph) {
 
   preventEllipticalCollisions(graph, collisionDx, collisionDy, nodeCount > 150 ? 12 : 25);
   centerGraphAtOrigin(graph);
+  if (nodeCount > 80) {
+    optimizeLayoutForLargeGraph(graph, nodeCount);
+  }
 }
 
 /**
@@ -274,6 +299,9 @@ export function applyBloodHoundStarLayout(graph) {
 
   preventEllipticalCollisions(graph, F.collisionDx, F.collisionDy, nodeCount > 150 ? 12 : 25);
   centerGraphAtOrigin(graph);
+  if (nodeCount > 80) {
+    optimizeLayoutForLargeGraph(graph, nodeCount);
+  }
 }
 
 /**
@@ -327,6 +355,9 @@ export function applyBloodHoundPhysicsLayout(graph) {
 
   preventEllipticalCollisions(graph, F.collisionDx, F.collisionDy, nodeCount > 150 ? 12 : 25);
   centerGraphAtOrigin(graph);
+  if (nodeCount > 80) {
+    optimizeLayoutForLargeGraph(graph, nodeCount);
+  }
 }
 
 /**
