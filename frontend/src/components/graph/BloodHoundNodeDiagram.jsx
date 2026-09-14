@@ -58,12 +58,12 @@ function getShortLabel(label) {
 }
 
 function baseNodeSize(order) {
-  if (order <= 25)  return 42;
-  if (order <= 60)  return 36;
-  if (order <= 120) return 30;
-  if (order <= 250) return 26;
-  if (order <= 500) return 22;
-  return 20;
+  if (order <= 25)  return 36;
+  if (order <= 60)  return 30;
+  if (order <= 120) return 26;
+  if (order <= 250) return 22;
+  if (order <= 500) return 18;
+  return 16;
 }
 
 const getCytoscapeStylesheet = (theme) => {
@@ -87,7 +87,7 @@ const getCytoscapeStylesheet = (theme) => {
         'background-position-y': '50%',
         'label': 'data(shortLabel)',
         'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        'font-size': '10px',
+        'font-size': '9px',
         'font-weight': 700,
         'text-valign': 'bottom',
         'text-margin-y': 6,
@@ -99,19 +99,27 @@ const getCytoscapeStylesheet = (theme) => {
         'text-border-color': isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.15)',
         'text-border-width': 1,
         'text-border-opacity': 0.8,
-        'min-zoomed-font-size': 7, // Native progressive disclosure!
+        'min-zoomed-font-size': 11, // Clean overview: labels hide when zoomed out so icons are distinct!
         'z-index': 10,
         'transition-property': 'opacity, border-color, border-width, text-opacity',
-        'transition-duration': '0.2s'
+        'transition-duration': '0.15s'
       }
     },
-    // Crown Jewels / Landmark Nodes
+    // Hovered Node: Always show label immediately
+    {
+      selector: 'node:hover',
+      style: {
+        'min-zoomed-font-size': 0,
+        'z-index': 95
+      }
+    },
+    // Crown Jewels / Landmark Nodes (Domain Admin, DC, Krbtgt, RootCA)
     {
       selector: 'node[?isCrownJewel]',
       style: {
         'min-zoomed-font-size': 4, // Landmarks remain labeled even when zoomed far out
         'z-index': 30,
-        'font-size': '11px',
+        'font-size': '10px',
         'border-width': 3.5
       }
     },
@@ -144,12 +152,12 @@ const getCytoscapeStylesheet = (theme) => {
     {
       selector: 'node.faded',
       style: {
-        'opacity': 0.22,
+        'opacity': 0.20,
         'text-opacity': 0,
         'z-index': 1
       }
     },
-    // Base Edge Style
+    // Base Edge Style: Clean directed bezier lines (NO text spaghetti in overview!)
     {
       selector: 'edge',
       style: {
@@ -171,20 +179,29 @@ const getCytoscapeStylesheet = (theme) => {
         'text-border-color': isLight ? 'rgba(0, 0, 0, 0.10)' : 'rgba(255, 255, 255, 0.10)',
         'text-border-width': 1,
         'text-rotation': 'autorotate',
-        'min-zoomed-font-size': 8, // Edge labels automatically hide when zoomed out!
+        'min-zoomed-font-size': 15, // Only show edge text when zoomed in close!
         'z-index': 5,
         'transition-property': 'opacity, width, line-color, target-arrow-color',
-        'transition-duration': '0.2s'
+        'transition-duration': '0.15s'
       }
     },
-    // Selected / Active Attack Chain Edges
+    // Hovered Edge: Reveal label immediately!
     {
-      selector: 'edge.in-chain',
+      selector: 'edge:hover',
+      style: {
+        'width': 3.5,
+        'min-zoomed-font-size': 0,
+        'z-index': 90
+      }
+    },
+    // Selected / Active Attack Chain Edges: Reveal label immediately!
+    {
+      selector: 'edge.in-chain, edge.selected',
       style: {
         'width': 3.5,
         'line-color': isLight ? '#2563eb' : '#60a5fa',
         'target-arrow-color': isLight ? '#2563eb' : '#60a5fa',
-        'min-zoomed-font-size': 0,
+        'min-zoomed-font-size': 0, // Reveal relationship name on active chain!
         'z-index': 70,
         'opacity': 1.0,
         'text-opacity': 1.0
@@ -194,7 +211,7 @@ const getCytoscapeStylesheet = (theme) => {
     {
       selector: 'edge.faded',
       style: {
-        'opacity': 0.10,
+        'opacity': 0.08,
         'text-opacity': 0,
         'z-index': 0
       }
@@ -461,31 +478,31 @@ export default function BloodHoundNodeDiagram({
       setCounts({ nodes: finalNodeCount, edges: finalEdgeCount });
     });
 
-    // Initialize Cytoscape instance
+    // Initialize Cytoscape instance with fast, responsive zoom
     const cy = cytoscape({
       container: containerRef.current,
       elements,
       style: getCytoscapeStylesheet(theme),
-      minZoom: 0.05,
-      maxZoom: 5.0,
-      wheelSensitivity: 0.25,
+      minZoom: 0.02,
+      maxZoom: 8.0,
+      wheelSensitivity: 1.2, // 5x faster mouse wheel zooming (was 0.25)
       boxSelectionEnabled: false
     });
 
     cyRef.current = cy;
     window.__cy = cy;
 
-    // Run active layout
+    // Run active layout with massive spread
     let layoutOpts;
     if (layoutMode === 'dagre') {
       layoutOpts = {
         name: 'dagre',
         rankDir: 'LR',
-        nodeSep: finalNodeCount > 100 ? 50 : 80,
-        rankSep: finalNodeCount > 100 ? 140 : 200,
+        nodeSep: finalNodeCount > 100 ? 90 : 130,
+        rankSep: finalNodeCount > 100 ? 420 : 580,
         ranker: 'network-simplex',
         animate: false,
-        padding: 70
+        padding: 50
       };
     } else if (layoutMode === 'cluster') {
       // Stars / Concentric
@@ -493,38 +510,45 @@ export default function BloodHoundNodeDiagram({
         name: 'concentric',
         concentric: (node) => (node.data('isCrownJewel') ? 10 : (node.degree() >= 4 ? 6 : 2)),
         levelWidth: () => 3,
-        minNodeSpacing: finalNodeCount > 100 ? 50 : 80,
+        minNodeSpacing: finalNodeCount > 100 ? 120 : 180,
+        spacingFactor: 1.8,
         animate: false,
-        padding: 70
+        padding: 50
       };
     } else {
-      // fCoSE (BloodHound default organic layout)
+      // fCoSE (BloodHound default organic layout) — expansive spring physics
       layoutOpts = {
         name: 'fcose',
         quality: 'default',
         randomize: true,
         animate: false,
         fit: true,
-        padding: 70,
+        padding: 50,
         nodeDimensionsIncludeLabels: true,
         uniformNodeDimensions: false,
         packComponents: true,
-        nodeRepulsion: finalNodeCount > 150 ? 35000 : (finalNodeCount > 60 ? 25000 : 15000),
-        idealEdgeLength: finalNodeCount > 150 ? 220 : (finalNodeCount > 60 ? 180 : 140),
-        edgeElasticity: 0.45,
+        // 4x - 6x stronger repulsion pushes nodes far apart
+        nodeRepulsion: finalNodeCount > 150 ? 120000 : (finalNodeCount > 60 ? 95000 : 75000),
+        // 2x longer ideal edge distances
+        idealEdgeLength: finalNodeCount > 150 ? 420 : (finalNodeCount > 60 ? 360 : 300),
+        // Loose spring elasticity so repulsion dominates and nodes spread out
+        edgeElasticity: 0.08,
         nestingFactor: 0.1,
-        gravity: 0.25,
-        numIter: 2500,
+        // Very low center gravity prevents nodes from balling up in the middle
+        gravity: 0.04,
+        gravityRange: 3.8,
+        numIter: 3000,
         tile: true,
-        tilingPaddingVertical: 60,
-        tilingPaddingHorizontal: 60,
-        nodeSeparation: finalNodeCount > 100 ? 100 : 140
+        tilingPaddingVertical: 120,
+        tilingPaddingHorizontal: 120,
+        // Guaranteed spacious buffer between every node
+        nodeSeparation: finalNodeCount > 100 ? 220 : 280
       };
     }
 
     const l = cy.layout(layoutOpts);
     l.run();
-    cy.fit(undefined, 70);
+    cy.fit(undefined, 50);
 
     // Click Node
     cy.on('tap', 'node', (evt) => {
@@ -634,30 +658,30 @@ export default function BloodHoundNodeDiagram({
     };
   }, [dataKey]);
 
-  // Floating Controls Handlers
+  // Floating Controls Handlers (Fast & Snappy)
   const handleZoomIn = useCallback(() => {
     if (cyRef.current) {
       cyRef.current.animate({
-        zoom: cyRef.current.zoom() * 1.35,
+        zoom: cyRef.current.zoom() * 1.75,
         renderedPosition: { x: cyRef.current.width() / 2, y: cyRef.current.height() / 2 }
-      }, { duration: 250 });
+      }, { duration: 120 });
     }
   }, []);
 
   const handleZoomOut = useCallback(() => {
     if (cyRef.current) {
       cyRef.current.animate({
-        zoom: cyRef.current.zoom() / 1.35,
+        zoom: cyRef.current.zoom() / 1.75,
         renderedPosition: { x: cyRef.current.width() / 2, y: cyRef.current.height() / 2 }
-      }, { duration: 250 });
+      }, { duration: 120 });
     }
   }, []);
 
   const handleResetFit = useCallback(() => {
     if (cyRef.current) {
       cyRef.current.animate({
-        fit: { eles: cyRef.current.elements(), padding: 70 }
-      }, { duration: 350 });
+        fit: { eles: cyRef.current.elements(), padding: 50 }
+      }, { duration: 200 });
     }
   }, []);
 
