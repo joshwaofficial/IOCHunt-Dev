@@ -44,7 +44,13 @@ function resolveSidName(id, sidMap) {
 /**
  * Parses raw BloodHound collector JSON without modifying original data.
  */
-export async function loadADSampleFile(filename, sidMap) {
+export async function loadADSampleFile(filename, sidMap, options = {}) {
+  const {
+    maxObjects = 500,
+    maxMembersPerGroup = 30,
+    maxAcesPerObject = 40
+  } = options;
+
   const sMap = sidMap || (await getADSidMap());
   const res = await fetch(`/ad_sampledata/${filename}`);
   if (!res.ok) throw new Error(`Failed to load ${filename}`);
@@ -84,8 +90,8 @@ export async function loadADSampleFile(filename, sidMap) {
   const isComputers = filename.includes('computers');
   const isDomains = filename.includes('domains');
 
-  // Limit processing to first 75 objects to keep graph responsive & crystal-clear
-  const sampleSlice = data.slice(0, 75);
+  // Configurable slice allows testing 100, 300, 500+ objects cleanly
+  const sampleSlice = data.slice(0, maxObjects);
 
   sampleSlice.forEach(item => {
     const p = item.Properties || {};
@@ -101,7 +107,7 @@ export async function loadADSampleFile(filename, sidMap) {
 
     // 1. Group Memberships
     if (item.Members) {
-      item.Members.slice(0, 12).forEach(m => {
+      item.Members.slice(0, maxMembersPerGroup).forEach(m => {
         const mType = m.ObjectType ? m.ObjectType.toLowerCase() : 'user';
         const mName = ensureNode(m.ObjectIdentifier, mType);
         if (mName) {
@@ -119,7 +125,7 @@ export async function loadADSampleFile(filename, sidMap) {
 
     // 2. Active Directory ACEs / Permissions
     if (item.Aces) {
-      item.Aces.slice(0, 15).forEach(a => {
+      item.Aces.slice(0, maxAcesPerObject).forEach(a => {
         if (!a.IsInherited && a.RightName && !['GenericRead', 'ReadControl'].includes(a.RightName)) {
           const aType = a.PrincipalType ? a.PrincipalType.toLowerCase() : 'user';
           const aName = ensureNode(a.PrincipalSID, aType);

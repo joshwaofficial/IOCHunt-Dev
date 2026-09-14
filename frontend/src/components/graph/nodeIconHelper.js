@@ -153,14 +153,20 @@ export function drawBloodHoundNode(context, data) {
     context.fillText(String(data.memberCount), bx, by);
   }
 
-  // 6. Node Label UNDER the node (Hidden for dimmed nodes to eliminate clutter!)
+  // 6. Node Label Pill UNDER Node (zoom-aware)
   if (data.label && !isDimmed) {
-    const fontSize = size >= 13 ? 10 : (size >= 10.5 ? 9 : 8);
+    const text = String(data.label).trim();
+    if (!text) { context.restore(); return; }
+
+    const fontSize =
+      size >= 13 ? 10 :
+      size >= 10.5 ? 9 :
+      size >= 9 ? 8 : 7;
+
     context.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif`;
     context.textAlign = 'center';
     context.textBaseline = 'middle';
 
-    const text = String(data.label);
     const metrics = context.measureText(text);
     const textWidth = metrics.width;
     const pillHeight = fontSize + 4;
@@ -172,11 +178,8 @@ export function drawBloodHoundNode(context, data) {
     const py = pillY - pillHeight / 2;
 
     context.beginPath();
-    if (context.roundRect) {
-      context.roundRect(px, py, pillWidth, pillHeight, rx);
-    } else {
-      context.rect(px, py, pillWidth, pillHeight);
-    }
+    if (context.roundRect) context.roundRect(px, py, pillWidth, pillHeight, rx);
+    else context.rect(px, py, pillWidth, pillHeight);
     context.fillStyle = isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(15, 23, 42, 0.9)';
     context.fill();
     context.strokeStyle = isSelected
@@ -321,7 +324,7 @@ export function drawBloodHoundNodeHover(context, data) {
  * Draws high-contrast pill at the edge midpoint for clean relationship text (MemberOf, GenericAll, DCSync).
  */
 export function drawBloodHoundEdgeLabel(context, edgeData, sourceData, targetData) {
-  if (!edgeData.label || !sourceData || !targetData || edgeData.dimmed) return;
+  if (!edgeData.label || !sourceData || !targetData || edgeData.dimmed || edgeData.hideEdgeLabel) return;
 
   const isLight = edgeData.theme !== 'dark';
   const sx = sourceData.x;

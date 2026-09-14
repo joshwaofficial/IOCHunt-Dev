@@ -22,7 +22,7 @@ export function initializePositions(graph) {
 /**
  * Balanced 4-Quadrant Widescreen Constellation Presets for Default Synthetic Network
  */
-const PRESET_COORDINATES = [
+export const PRESET_COORDINATES = [
   // Top-Left: Monitored Host & Network Flow (D3F53C0N3 Tree)
   { match: l => l.includes('D3F53C0N3'), x: -620, y: -260 },
   { match: l => l.includes('10.90.121.226') || l.includes('10.90'), x: -840, y: -370 },
@@ -70,12 +70,35 @@ const PRESET_COORDINATES = [
 ];
 
 /**
- * 1. BloodHound Hierarchical Tree Layout (Tree Mode)
- * Directly matches BloodHound Community Edition (SpecterOps) DAG layout:
- * - Left-to-Right (LR) progression from roots (Domains, Actors, Sources) to targets
- * - Decomposes into connected components with clean vertical stacking
- * - Topological ranking with cycle breaking
- * - Widescreen column staggering prevents tall vertical towers
+ * Adaptive density curve.
+ * - Small graphs (<40): loose, roomy
+ * - Medium (40–80): comfortable
+ * - Large (80–150): moderate
+ * - Dense (150–300): compact
+ * - Huge (300–500): very compact
+ * - Ultra (>500): ultra tight
+ */
+export function getDensityFactors(nodeCount) {
+  if (nodeCount <= 40) {
+    return { colWidth: 340, rowHeight: 150, rankSep: 520, collisionDx: 300, collisionDy: 140 };
+  }
+  if (nodeCount <= 80) {
+    return { colWidth: 300, rowHeight: 130, rankSep: 460, collisionDx: 260, collisionDy: 120 };
+  }
+  if (nodeCount <= 150) {
+    return { colWidth: 240, rowHeight: 110, rankSep: 380, collisionDx: 200, collisionDy: 100 };
+  }
+  if (nodeCount <= 300) {
+    return { colWidth: 180, rowHeight: 90,  rankSep: 300, collisionDx: 150, collisionDy: 80 };
+  }
+  if (nodeCount <= 500) {
+    return { colWidth: 140, rowHeight: 75,  rankSep: 240, collisionDx: 115, collisionDy: 65 };
+  }
+  return { colWidth: 110, rowHeight: 65, rankSep: 200, collisionDx: 95, collisionDy: 55 };
+}
+
+/**
+ * 1. BloodHound Hierarchical Tree Layout — compression-aware
  */
 export function applyBloodHoundTreeLayout(graph) {
   if (!graph || graph.order === 0) return;
@@ -86,7 +109,11 @@ export function applyBloodHoundTreeLayout(graph) {
     return;
   }
 
-  // Find connected components using undirected neighborhood
+  const nodeCount = graph.order;
+  const F = getDensityFactors(nodeCount);
+  const { colWidth, rowHeight, rankSep, collisionDx, collisionDy } = F;
+
+  // Connected components
   const compVisited = new Set();
   const components = [];
 
@@ -108,41 +135,24 @@ export function applyBloodHoundTreeLayout(graph) {
     components.push(comp);
   });
 
-  // Sort components largest first
   components.sort((a, b) => b.length - a.length);
-
-  // Adaptive spacing: scales density gracefully so 10 nodes are spacious and 300 nodes remain compact!
-  const nodeCount = graph.order;
-  const densityFactor = Math.max(
-    0.42,
-    Math.min(1.0, Math.sqrt(40 / Math.max(nodeCount, 1)))
-  );
-
-  const colWidth = Math.round(300 * densityFactor + 60);
-  const rowHeight = Math.round(140 * densityFactor + 35);
-  const rankSep = Math.round(380 * densityFactor + 90);
 
   let currentOffsetY = 0;
 
   components.forEach(comp => {
     const compSet = new Set(comp);
 
-    // Identify roots: in-degree == 0, or domain name (.CORP/.LOCAL), or lowest in-degree
     let roots = comp.filter(n => graph.inDegree(n) === 0);
     if (roots.length === 0) {
       const domainRoots = comp.filter(n => {
         const u = n.toUpperCase();
         return u.includes('.CORP') || u.includes('.LOCAL') || u.includes('DOMAIN');
       });
-      if (domainRoots.length > 0) {
-        roots = domainRoots;
-      } else {
-        const sorted = comp.slice().sort((a, b) => graph.inDegree(a) - graph.inDegree(b));
-        roots = [sorted[0]];
-      }
+      roots = domainRoots.length > 0
+        ? domainRoots
+        : [comp.slice().sort((a, b) => graph.inDegree(a) - graph.inDegree(b))[0]];
     }
 
-    // Topological ranking via forward BFS
     const ranks = new Map();
     roots.forEach(r => ranks.set(r, 0));
     const q = roots.map(r => ({ node: r, rank: 0 }));
@@ -163,12 +173,8 @@ export function applyBloodHoundTreeLayout(graph) {
       });
     }
 
-    // Any remaining nodes in this component (reverse edges or cycles)
-    comp.forEach(n => {
-      if (!ranks.has(n)) ranks.set(n, 0);
-    });
+    comp.forEach(n => { if (!ranks.has(n)) ranks.set(n, 0); });
 
-    // Group nodes by rank
     const byRank = new Map();
     comp.forEach(n => {
       const r = ranks.get(n);
@@ -185,11 +191,10 @@ export function applyBloodHoundTreeLayout(graph) {
       const rNodes = byRank.get(r);
       const count = rNodes.length;
 
-      // Wrap large ranks into balanced 2D sub-grids (prevents tall vertical towers)
+      // Wider wrap for large ranks → fewer rows, better aspect ratio
       let colCount = 1;
       if (count > 4) {
-        // Multi-column sub-grid: 63 nodes -> 10 cols x 7 rows, 20 nodes -> 6 cols x 4 rows
-        colCount = Math.min(10, Math.max(2, Math.ceil(Math.sqrt(count * 1.5))));
+        colCount = Math.min(20, Math.max(2, Math.ceil(Math.sqrt(count * 1.5))));
       }
       const rowCount = Math.ceil(count / colCount);
 
@@ -198,7 +203,6 @@ export function applyBloodHoundTreeLayout(graph) {
         const row = Math.floor(idx / colCount);
 
         const x = currentBaseX + col * colWidth;
-        // Stagger alternate columns by 28% of rowHeight so horizontal neighbors never clash
         const stagger = (col % 2 === 1) ? rowHeight * 0.28 : 0;
         const y = currentOffsetY + (row - (rowCount - 1) / 2) * rowHeight + stagger;
 
@@ -208,60 +212,43 @@ export function applyBloodHoundTreeLayout(graph) {
         if (y > compMaxY) compMaxY = y;
       });
 
-      // Advance baseX for subsequent ranks by the width of this rank's sub-grid + rankSep
-      const rankSubGridWidth = (colCount - 1) * colWidth;
-      currentBaseX += rankSubGridWidth + rankSep;
+      currentBaseX += (colCount - 1) * colWidth + rankSep;
     });
 
     const compH = (compMaxY - compMinY) || 300;
-    currentOffsetY += compH + Math.max(350, Math.sqrt(nodeCount) * (70 * densityFactor + 25));
+    currentOffsetY += compH + Math.max(200, nodeCount * 0.8);
   });
 
-  const minDx = Math.round(240 * densityFactor + 30);
-  const minDy = Math.round(95 * densityFactor + 20);
-  preventEllipticalCollisions(graph, minDx, minDy, 25);
+  preventEllipticalCollisions(graph, collisionDx, collisionDy, nodeCount > 150 ? 12 : 25);
   centerGraphAtOrigin(graph);
 }
 
 /**
- * 2. BloodHound Star Layout (Star Mode)
- * Expansive radial cluster layout (Gephi / Cytoscape Concentric):
- * - Primary community hubs placed in golden-ratio phyllotaxis spiral across a huge canvas
- * - Satellite members fanned out in concentric spoke rings with generous spacing
- * - Eliminates clumping/hairballs even on 100+ node graphs
+ * 2. Star Layout — compression-aware
  */
 export function applyBloodHoundStarLayout(graph) {
   if (!graph || graph.order === 0) return;
-
   const nodeCount = graph.order;
-  if (nodeCount <= 2) {
-    applyCircular(graph);
-    return;
-  }
+  if (nodeCount <= 2) { applyCircular(graph); return; }
 
+  const F = getDensityFactors(nodeCount);
   const placed = new Set();
   const sorted = graph.nodes().slice().sort((a, b) => graph.degree(b) - graph.degree(a));
-  const hubs = sorted.filter(n => graph.degree(n) >= 2).slice(0, 24);
+  const hubLimit = Math.min(24, Math.max(4, Math.round(nodeCount * 0.05)));
+  const hubs = sorted.filter(n => graph.degree(n) >= 2).slice(0, hubLimit);
 
-  const densityFactor = Math.max(
-    0.42,
-    Math.min(1.0, Math.sqrt(40 / Math.max(nodeCount, 1)))
-  );
-
-  // Expansive hub spread radius scales adaptively with network order
-  const hubSpreadR = Math.max(900, Math.sqrt(nodeCount) * (200 * densityFactor + 60));
+  // Hub spread also compresses with node count
+  const hubSpreadR = Math.max(600, Math.sqrt(nodeCount) * (nodeCount > 150 ? 120 : 220));
 
   hubs.forEach((hub, idx) => {
-    const angle = idx * 2.399963; // Golden angle (~137.5 deg)
-    const r = hubSpreadR * Math.sqrt((idx + 1) / hubs.length);
-    const hx = Math.cos(angle) * r;
-    const hy = Math.sin(angle) * r * 0.72; // 16:9 widescreen oval
-    graph.setNodeAttribute(hub, 'x', hx);
-    graph.setNodeAttribute(hub, 'y', hy);
+    const angle = idx * 2.399963;
+    const r = hubSpreadR * Math.sqrt((idx + 1) / Math.max(hubs.length, 1));
+    graph.setNodeAttribute(hub, 'x', Math.cos(angle) * r);
+    graph.setNodeAttribute(hub, 'y', Math.sin(angle) * r * 0.72);
     placed.add(hub);
   });
 
-  // Fan out members for each hub in outward spokes or concentric rings
+  const spokeBase = F.colWidth * 1.2;
   hubs.forEach(hub => {
     const hx = graph.getNodeAttribute(hub, 'x') || 0;
     const hy = graph.getNodeAttribute(hub, 'y') || 0;
@@ -269,14 +256,13 @@ export function applyBloodHoundStarLayout(graph) {
 
     nbrs.forEach((nbr, nIdx) => {
       const spokeAngle = (2 * Math.PI * nIdx) / (nbrs.length || 1);
-      const spokeR = Math.round((280 + (nIdx % 3) * 140 + Math.floor(nIdx / 6) * 90) * densityFactor + 50);
+      const spokeR = spokeBase + (nIdx % 3) * spokeBase * 0.55 + Math.floor(nIdx / 6) * spokeBase * 0.4;
       graph.setNodeAttribute(nbr, 'x', hx + Math.cos(spokeAngle) * spokeR);
       graph.setNodeAttribute(nbr, 'y', hy + Math.sin(spokeAngle) * spokeR * 0.85);
       placed.add(nbr);
     });
   });
 
-  // Any remaining unplaced nodes onto outer constellation ring
   const unplaced = graph.nodes().filter(n => !placed.has(n));
   const perimR = hubSpreadR * 1.5;
   unplaced.forEach((n, idx) => {
@@ -286,36 +272,22 @@ export function applyBloodHoundStarLayout(graph) {
     placed.add(n);
   });
 
-  const minDx = Math.round(240 * densityFactor + 35);
-  const minDy = Math.round(100 * densityFactor + 25);
-  preventEllipticalCollisions(graph, minDx, minDy, 35);
+  preventEllipticalCollisions(graph, F.collisionDx, F.collisionDy, nodeCount > 150 ? 12 : 25);
   centerGraphAtOrigin(graph);
 }
 
 /**
- * 3. BloodHound Physics Layout (Physics Mode)
- * Gephi ForceAtlas2 organic layout tuned for large attack graphs:
- * - High repulsion scaling ratio pushes clusters far apart into distinct territories
- * - Low gravity prevents nodes from condensing into a center ball
- * - Barnes-Hut optimization ensures 60fps responsiveness
+ * 3. Physics Layout — compression-aware
  */
 export function applyBloodHoundPhysicsLayout(graph) {
   if (!graph || graph.order === 0) return;
-
   const nodeCount = graph.order;
-  if (nodeCount <= 2) {
-    applyCircular(graph);
-    return;
-  }
+  if (nodeCount <= 2) { applyCircular(graph); return; }
 
-  const densityFactor = Math.max(
-    0.42,
-    Math.min(1.0, Math.sqrt(40 / Math.max(nodeCount, 1)))
-  );
+  const F = getDensityFactors(nodeCount);
 
-  // Initialize in wide circular dispersion
   let i = 0;
-  const initR = Math.max(700, nodeCount * (35 * densityFactor + 15));
+  const initR = Math.max(300, Math.sqrt(nodeCount) * 40);
   graph.forEachNode(node => {
     const angle = (2 * Math.PI * i) / nodeCount;
     graph.setNodeAttribute(node, 'x', Math.cos(angle) * initR);
@@ -325,10 +297,10 @@ export function applyBloodHoundPhysicsLayout(graph) {
 
   try {
     forceAtlas2.assign(graph, {
-      iterations: 350,
+      iterations: nodeCount > 200 ? 200 : 300,
       settings: {
-        gravity: 0.0003,
-        scalingRatio: Math.max(1800, nodeCount * (120 * densityFactor + 40)),
+        gravity: 0.0005,
+        scalingRatio: Math.max(800, nodeCount * 30),
         slowDown: 3.5,
         barnesHutOptimize: nodeCount > 20,
         adjustSizes: true
@@ -340,25 +312,25 @@ export function applyBloodHoundPhysicsLayout(graph) {
     return;
   }
 
-  // Post-simulation scaling expansion so nodes spread out widely across the canvas
-  const expansionFactor = Math.max(1.3, Math.sqrt(nodeCount / 10) * (0.6 * densityFactor + 0.4));
+  // Compression, not expansion, for large graphs
+  const expansion = nodeCount <= 60 ? 1.6
+                  : nodeCount <= 150 ? 1.2
+                  : nodeCount <= 300 ? 0.9
+                  : 0.75;
+
   graph.forEachNode(n => {
     const cx = graph.getNodeAttribute(n, 'x') || 0;
     const cy = graph.getNodeAttribute(n, 'y') || 0;
-    graph.setNodeAttribute(n, 'x', cx * expansionFactor);
-    graph.setNodeAttribute(n, 'y', cy * expansionFactor);
+    graph.setNodeAttribute(n, 'x', cx * expansion);
+    graph.setNodeAttribute(n, 'y', cy * expansion);
   });
 
-  const minDx = Math.round(220 * densityFactor + 30);
-  const minDy = Math.round(90 * densityFactor + 20);
-  preventEllipticalCollisions(graph, minDx, minDy, 35);
+  preventEllipticalCollisions(graph, F.collisionDx, F.collisionDy, nodeCount > 150 ? 12 : 25);
   centerGraphAtOrigin(graph);
 }
 
 /**
  * BloodHound Open Constellation Layout (Default Simulation Mode)
- * Checks if known preset coordinates match >= 5 nodes.
- * If yes, uses preset coordinates. If not, delegates to Star Layout.
  */
 export function applyBloodHoundClusterLayout(graph) {
   if (!graph || graph.order === 0) return;
@@ -420,22 +392,12 @@ export function applyBloodHoundClusterLayout(graph) {
 }
 
 /**
- * Backward compatibility alias for Tree layout
- */
-export const applyDagreLayout = applyBloodHoundTreeLayout;
-
-/**
- * Backward compatibility alias for Physics layout
- */
-export const applyForceAtlas2 = applyBloodHoundPhysicsLayout;
-
-/**
  * Circular layout fallback
  */
 export function applyCircular(graph) {
   if (!graph || graph.order === 0) return;
   const count = graph.order;
-  const radius = Math.max(350, count * 65);
+  const radius = Math.max(220, count * 40);
   let idx = 0;
   graph.forEachNode((node) => {
     const angle = (2 * Math.PI * idx) / count;
@@ -443,12 +405,12 @@ export function applyCircular(graph) {
     graph.setNodeAttribute(node, 'y', Math.sin(angle) * radius * 0.72);
     idx++;
   });
-  preventEllipticalCollisions(graph, 220, 130, 25);
+  preventEllipticalCollisions(graph, 200, 110, 25);
   centerGraphAtOrigin(graph);
 }
 
 /**
- * Centers graph bounding box symmetrically at origin (0, 0)
+ * Center the graph at origin (0,0)
  */
 export function centerGraphAtOrigin(graph) {
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -458,10 +420,8 @@ export function centerGraphAtOrigin(graph) {
     if (attrs.y < minY) minY = attrs.y;
     if (attrs.y > maxY) maxY = attrs.y;
   });
-
   const midX = (minX + maxX) / 2;
   const midY = (minY + maxY) / 2;
-
   graph.forEachNode((node, attrs) => {
     graph.setNodeAttribute(node, 'x', attrs.x - midX);
     graph.setNodeAttribute(node, 'y', attrs.y - midY);
@@ -469,55 +429,72 @@ export function centerGraphAtOrigin(graph) {
 }
 
 /**
- * Robust elliptical pair-wise collision prevention
- * Handles rectangular label widths (wide horizontally, compact vertically)
+ * Spatial-hash collision prevention — O(n) instead of O(n²).
+ * Handles 500+ nodes without stalling the main thread.
  */
-export function preventEllipticalCollisions(graph, minDx = 240, minDy = 140, iterations = 45) {
+export function preventEllipticalCollisions(graph, minDx = 240, minDy = 140, iterations = 25) {
   const nodes = graph.nodes();
   const n = nodes.length;
   if (n <= 1) return;
 
+  const cellW = Math.max(minDx, 1);
+  const cellH = Math.max(minDy, 1);
+
   for (let pass = 0; pass < iterations; pass++) {
     let hadCollision = false;
 
-    for (let i = 0; i < n; i++) {
-      const u = nodes[i];
-      let ux = graph.getNodeAttribute(u, 'x') || 0;
-      let uy = graph.getNodeAttribute(u, 'y') || 0;
+    // Build spatial hash
+    const grid = new Map();
+    for (const u of nodes) {
+      const ux = graph.getNodeAttribute(u, 'x') || 0;
+      const uy = graph.getNodeAttribute(u, 'y') || 0;
+      const k = `${Math.floor(ux / cellW)},${Math.floor(uy / cellH)}`;
+      let bucket = grid.get(k);
+      if (!bucket) { bucket = []; grid.set(k, bucket); }
+      bucket.push(u);
+    }
 
-      for (let j = i + 1; j < n; j++) {
-        const v = nodes[j];
-        let vx = graph.getNodeAttribute(v, 'x') || 0;
-        let vy = graph.getNodeAttribute(v, 'y') || 0;
+    // Only check neighbors in the 3×3 cell block
+    for (const u of nodes) {
+      const ux = graph.getNodeAttribute(u, 'x') || 0;
+      const uy = graph.getNodeAttribute(u, 'y') || 0;
+      const cx = Math.floor(ux / cellW);
+      const cy = Math.floor(uy / cellH);
 
-        let dx = ux - vx;
-        let dy = uy - vy;
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const bucket = grid.get(`${cx + dx},${cy + dy}`);
+          if (!bucket) continue;
+          for (const v of bucket) {
+            if (u === v) continue;
+            if (u > v) continue; // avoid double-processing pairs
 
-        if (dx === 0 && dy === 0) {
-          dx = (Math.random() - 0.5) * 20;
-          dy = (Math.random() - 0.5) * 20;
-        }
+            let ux2 = graph.getNodeAttribute(u, 'x') || 0;
+            let uy2 = graph.getNodeAttribute(u, 'y') || 0;
+            let vx = graph.getNodeAttribute(v, 'x') || 0;
+            let vy = graph.getNodeAttribute(v, 'y') || 0;
 
-        // Elliptical normalized distance: (dx / minDx)^2 + (dy / minDy)^2
-        const normDistSq = (dx * dx) / (minDx * minDx) + (dy * dy) / (minDy * minDy);
+            let ddx = ux2 - vx;
+            let ddy = uy2 - vy;
+            if (ddx === 0 && ddy === 0) {
+              ddx = (Math.random() - 0.5) * 20;
+              ddy = (Math.random() - 0.5) * 20;
+            }
 
-        if (normDistSq < 1.0) {
-          hadCollision = true;
-          const normDist = Math.sqrt(normDistSq) || 0.001;
-          const factor = ((1.0 - normDist) / normDist) * 0.5;
+            const normSq = (ddx * ddx) / (minDx * minDx) + (ddy * ddy) / (minDy * minDy);
+            if (normSq < 1.0) {
+              hadCollision = true;
+              const norm = Math.sqrt(normSq) || 0.001;
+              const f = ((1.0 - norm) / norm) * 0.5;
+              const pushX = ddx * f;
+              const pushY = ddy * f;
 
-          const pushX = dx * factor;
-          const pushY = dy * factor;
-
-          ux += pushX;
-          uy += pushY;
-          vx -= pushX;
-          vy -= pushY;
-
-          graph.setNodeAttribute(u, 'x', ux);
-          graph.setNodeAttribute(u, 'y', uy);
-          graph.setNodeAttribute(v, 'x', vx);
-          graph.setNodeAttribute(v, 'y', vy);
+              graph.setNodeAttribute(u, 'x', ux2 + pushX);
+              graph.setNodeAttribute(u, 'y', uy2 + pushY);
+              graph.setNodeAttribute(v, 'x', vx - pushX);
+              graph.setNodeAttribute(v, 'y', vy - pushY);
+            }
+          }
         }
       }
     }
@@ -525,3 +502,13 @@ export function preventEllipticalCollisions(graph, minDx = 240, minDy = 140, ite
     if (!hadCollision) break;
   }
 }
+
+/**
+ * Backward compatibility alias for Tree layout
+ */
+export const applyDagreLayout = applyBloodHoundTreeLayout;
+
+/**
+ * Backward compatibility alias for Physics layout
+ */
+export const applyForceAtlas2 = applyBloodHoundPhysicsLayout;
