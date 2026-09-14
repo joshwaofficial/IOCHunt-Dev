@@ -120,6 +120,56 @@ export function optimizeLayoutForLargeGraph(graph, nodeCount) {
 }
 
 /**
+ * Rebalance aspect ratio: if the graph is extremely wide/tall,
+ * wrap/squeeze coordinates so the bounding box is closer to target aspect.
+ */
+export function rebalanceAspectRatio(graph, targetAspect = 1.8) {
+  if (!graph || graph.order < 4) return;
+
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  graph.forEachNode((_, a) => {
+    if (a.x < minX) minX = a.x;
+    if (a.x > maxX) maxX = a.x;
+    if (a.y < minY) minY = a.y;
+    if (a.y > maxY) maxY = a.y;
+  });
+
+  const w = maxX - minX;
+  const h = maxY - minY;
+  if (w === 0 || h === 0) return;
+
+  const aspect = w / h;
+  if (aspect <= targetAspect && aspect >= (1 / targetAspect)) return;
+
+  if (aspect > targetAspect) {
+    // Graph is too wide. Compress x, expand y.
+    const squeeze = Math.sqrt(targetAspect / aspect);
+    const stretch = 1 / squeeze;
+
+    graph.forEachNode(node => {
+      const x = graph.getNodeAttribute(node, 'x') || 0;
+      const y = graph.getNodeAttribute(node, 'y') || 0;
+      graph.setNodeAttribute(node, 'x', x * squeeze);
+      graph.setNodeAttribute(node, 'y', y * stretch);
+    });
+  } else if (aspect < (1 / targetAspect)) {
+    // Graph is too tall. Compress y, expand x.
+    const squeeze = Math.sqrt(aspect / (1 / targetAspect));
+    const stretch = 1 / squeeze;
+
+    graph.forEachNode(node => {
+      const x = graph.getNodeAttribute(node, 'x') || 0;
+      const y = graph.getNodeAttribute(node, 'y') || 0;
+      graph.setNodeAttribute(node, 'x', x * stretch);
+      graph.setNodeAttribute(node, 'y', y * squeeze);
+    });
+  }
+
+  // Re-run collision with the new geometry
+  preventEllipticalCollisions(graph, 100, 90, 15);
+}
+
+/**
  * 1. BloodHound Hierarchical Tree Layout — compression-aware
  */
 export function applyBloodHoundTreeLayout(graph) {
@@ -242,6 +292,7 @@ export function applyBloodHoundTreeLayout(graph) {
   });
 
   preventEllipticalCollisions(graph, collisionDx, collisionDy, nodeCount > 150 ? 12 : 25);
+  rebalanceAspectRatio(graph, 1.8);
   centerGraphAtOrigin(graph);
   if (nodeCount > 80) {
     optimizeLayoutForLargeGraph(graph, nodeCount);
@@ -298,6 +349,7 @@ export function applyBloodHoundStarLayout(graph) {
   });
 
   preventEllipticalCollisions(graph, F.collisionDx, F.collisionDy, nodeCount > 150 ? 12 : 25);
+  rebalanceAspectRatio(graph, 1.8);
   centerGraphAtOrigin(graph);
   if (nodeCount > 80) {
     optimizeLayoutForLargeGraph(graph, nodeCount);
@@ -354,6 +406,7 @@ export function applyBloodHoundPhysicsLayout(graph) {
   });
 
   preventEllipticalCollisions(graph, F.collisionDx, F.collisionDy, nodeCount > 150 ? 12 : 25);
+  rebalanceAspectRatio(graph, 1.8);
   centerGraphAtOrigin(graph);
   if (nodeCount > 80) {
     optimizeLayoutForLargeGraph(graph, nodeCount);

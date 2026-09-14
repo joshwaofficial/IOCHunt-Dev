@@ -126,8 +126,20 @@ function computeFitRatio(graph, container, padding = 80) {
   
   const gw = Math.max(maxX - minX, 1) + dynamicPadding * 2;
   const gh = Math.max(maxY - minY, 1) + dynamicPadding * 2;
-  
-  const baseRatio = Math.max(gw / cw, gh / ch, 0.1);
+
+  const graphAspect = gw / gh;
+  const containerAspect = cw / ch;
+
+  // If graph is much wider than container, favor fitting by width AND
+  // pull the camera back a bit extra so vertical whitespace doesn't dominate.
+  let ratio;
+  if (graphAspect > containerAspect * 1.5) {
+    ratio = (gw / cw) * 1.15;
+  } else if (graphAspect < containerAspect / 1.5) {
+    ratio = (gh / ch) * 1.15;
+  } else {
+    ratio = Math.max(gw / cw, gh / ch);
+  }
   
   // Extra zoom-out for very large graphs
   const scaleMultiplier = nodeCount > 500 ? 1.8 : 
@@ -135,7 +147,7 @@ function computeFitRatio(graph, container, padding = 80) {
                           nodeCount > 150 ? 1.4 : 
                           nodeCount > 80 ? 1.25 : 1.05;
   
-  return baseRatio * scaleMultiplier;
+  return Math.max(ratio * scaleMultiplier, 0.1);
 }
 
 /**
@@ -146,7 +158,7 @@ function baseNodeSize(order) {
   if (order <= 25)  return 15;
   if (order <= 60)  return 13.5;
   if (order <= 120) return 11.5;
-  if (order <= 250) return 9.5;
+  if (order <= 250) return 9;
   if (order <= 500) return 7.5;
   if (order <= 1000) return 6;
   return 5;
@@ -197,6 +209,7 @@ export default function BloodHoundNodeDiagram({
 
   const [layoutMode, setLayoutMode] = useState('dagre'); // 'dagre' (Tree) | 'cluster' (Stars) | 'force' (Physics)
   const [counts, setCounts] = useState({ nodes: 0, edges: 0 });
+  const dataKey = `${inbound.length}|${outbound.length}|${lateral.length}|${adAttacks.length}|${machines.length}|${layoutMode}`;
 
   // Build and render graph
   useEffect(() => {
@@ -774,7 +787,7 @@ export default function BloodHoundNodeDiagram({
         sigmaRef.current = null;
       }
     };
-  }, [inbound, outbound, lateral, adAttacks, machines, layoutMode]);
+  }, [dataKey]);
 
   // Refresh sigma when selectedNode changes
   useEffect(() => {
