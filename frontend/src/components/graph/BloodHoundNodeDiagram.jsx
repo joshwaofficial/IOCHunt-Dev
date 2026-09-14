@@ -97,71 +97,24 @@ function getConnectedChain(graph, startNode) {
 }
 
 /**
- * Compute the camera ratio that makes the WHOLE graph fit the container.
- * Works for any graph size, 5 nodes to 5000 nodes.
+ * In Sigma.js, the graph's coordinates are normalized to [0,1] and scaled to fit the container.
+ * Ratio 1.15 provides comfortable 15% margin around the canvas edges.
  */
-function computeFitRatio(graph, container, padding = 80) {
-  if (!container || !graph || graph.order === 0) return 1;
-  
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  let nodeCount = 0;
-  
-  graph.forEachNode((_, a) => {
-    const x = Number(a.x) || 0;
-    const y = Number(a.y) || 0;
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-    nodeCount++;
-  });
-
-  const cw = Math.max(container.clientWidth, 1);
-  const ch = Math.max(container.clientHeight, 1);
-  
-  // Add extra padding for large graphs
-  const dynamicPadding = nodeCount > 200 ? padding * 2.5 : 
-                         nodeCount > 100 ? padding * 1.8 : 
-                         nodeCount > 50 ? padding * 1.4 : padding;
-  
-  const gw = Math.max(maxX - minX, 1) + dynamicPadding * 2;
-  const gh = Math.max(maxY - minY, 1) + dynamicPadding * 2;
-
-  const graphAspect = gw / gh;
-  const containerAspect = cw / ch;
-
-  // If graph is much wider than container, favor fitting by width AND
-  // pull the camera back a bit extra so vertical whitespace doesn't dominate.
-  let ratio;
-  if (graphAspect > containerAspect * 1.5) {
-    ratio = (gw / cw) * 1.15;
-  } else if (graphAspect < containerAspect / 1.5) {
-    ratio = (gh / ch) * 1.15;
-  } else {
-    ratio = Math.max(gw / cw, gh / ch);
-  }
-  
-  // Extra zoom-out for very large graphs
-  const scaleMultiplier = nodeCount > 500 ? 1.8 : 
-                          nodeCount > 300 ? 1.6 : 
-                          nodeCount > 150 ? 1.4 : 
-                          nodeCount > 80 ? 1.25 : 1.05;
-  
-  return Math.max(ratio * scaleMultiplier, 0.1);
+function computeFitRatio() {
+  return 1.05;
 }
 
 /**
- * Node size adapts to graph size AND camera zoom.
- * At 500 nodes we want small nodes so the graph doesn't bloat visually.
+ * Node size adapts to graph size:
+ * Generous, clearly visible circles with crisp vector icons inside.
  */
 function baseNodeSize(order) {
-  if (order <= 25)  return 15;
+  if (order <= 25)  return 16;
   if (order <= 60)  return 13.5;
   if (order <= 120) return 11.5;
-  if (order <= 250) return 9;
-  if (order <= 500) return 7.5;
-  if (order <= 1000) return 6;
-  return 5;
+  if (order <= 250) return 10;
+  if (order <= 500) return 8.5;
+  return 7.5;
 }
 
 export default function BloodHoundNodeDiagram({
@@ -181,7 +134,7 @@ export default function BloodHoundNodeDiagram({
   const callbacksRef = useRef({ onSelectNode, onSelectEdge, onClearSelection });
   const themeRef = useRef(theme);
   const chainStateRef = useRef({ chainNodes: new Set(), chainEdges: new Set() });
-  const cameraRatioRef = useRef(1);
+  const cameraRatioRef = useRef(1.05);
 
   useEffect(() => {
     callbacksRef.current = { onSelectNode, onSelectEdge, onClearSelection };
@@ -516,9 +469,9 @@ export default function BloodHoundNodeDiagram({
       defaultDrawEdgeLabel: drawBloodHoundEdgeLabel,
       enableEdgeEvents: true,
       allowInvalidContainer: true,
-      stagePadding: 0,
+      stagePadding: 35,
       minCameraRatio: 0.01,
-      maxCameraRatio: 50.0,
+      maxCameraRatio: 20.0,
       nodeReducer: (node, attrs) => {
         const res = { ...attrs };
         const isLight = themeRef.current !== 'dark';
@@ -526,35 +479,58 @@ export default function BloodHoundNodeDiagram({
         res.color = isLight ? '#ffffff' : '#0f172a';
         res.size = baseNodeSize(order);
 
-        /* ---------- LOD: labels depend on zoom ---------- */
+        /* ---------- Progressive LOD: labels depend on zoom & importance ---------- */
         const ratio = cameraRatioRef.current;
         const nodeDegree = graph.degree(node);
-
-        // 4 tiers — similar to BloodHound's progressive disclosure
-        let tier;
-        if (ratio < 1.2)       tier = 'full';     // zoomed in
-        else if (ratio < 2.5)  tier = 'medium';   // mid
-        else if (ratio < 5.0)  tier = 'sparse';   // far
-        else                   tier = 'minimal';  // very far
-
         const shortLabel = getShortLabel(attrs.label);
 
-        let showLabel;
-        let useShortLabel = false;
-        if (tier === 'full') {
+        // Check if node is a landmark / Crown Jewel
+        const rawLabel = String(attrs.label || '').toUpperCase();
+        const isCrownJewel =
+          rawLabel.includes('DOMAIN ADMIN') ||
+          rawLabel.includes('ENTERPRISE ADMIN') ||
+          rawLabel.includes('DC01') ||
+          rawLabel.includes('DC-01') ||
+          rawLabel.includes('KRBTGT') ||
+          rawLabel.includes('ADMINISTRATOR@') ||
+          rawLabel.includes('ROOTCA') ||
+          Boolean(attrs.raw && (attrs.raw.admincount || attrs.raw.is_dc));
+
+        let showLabel = false;
+        let useShort = true;
+
+        if (order <= 25) {
+          // Small graph (e.g. Aiacas): show labels for all nodes using clean short names
           showLabel = true;
-        } else if (tier === 'medium') {
-          showLabel = nodeDegree >= 2 || attrs.has_threat || (attrs.threat_count > 0);
-          useShortLabel = !showLabel ? false : (String(attrs.label || '').length > 20);
-        } else if (tier === 'sparse') {
-          showLabel = nodeDegree >= 4 || attrs.has_threat || (attrs.threat_count > 0);
-          useShortLabel = true;
+          useShort = true;
+        } else if (order <= 70) {
+          // Medium graph (e.g. Computers):
+          if (ratio < 0.65) {
+            showLabel = true;
+            useShort = true;
+          } else {
+            showLabel = isCrownJewel || nodeDegree >= 3 || attrs.has_threat;
+            useShort = true;
+          }
         } else {
-          showLabel = nodeDegree >= 8 || attrs.has_threat || (attrs.threat_count > 0); // only hubs/threats at max zoom-out
-          useShortLabel = true;
+          // Large graph (70+ nodes e.g. Certtemplates, Containers):
+          if (ratio < 0.35) {
+            // Close zoom: show all nodes in view
+            showLabel = true;
+            useShort = true;
+          } else if (ratio < 0.75) {
+            // Mid zoom: show hubs and crown jewels
+            showLabel = isCrownJewel || nodeDegree >= 4;
+            useShort = true;
+          } else {
+            // Overview zoom: ONLY true landmarks / crown jewels show labels!
+            // All other nodes draw as clean, beautiful colored circles with crisp icons!
+            showLabel = isCrownJewel;
+            useShort = true;
+          }
         }
 
-        const chosenLabel = useShortLabel ? shortLabel : attrs.label;
+        const chosenLabel = useShort ? shortLabel : attrs.label;
 
         const sel = selectedNodeRef.current;
         if (sel) {
@@ -564,7 +540,7 @@ export default function BloodHoundNodeDiagram({
             res.dimmed = false;
             res.zIndex = 100;
             res.forceLabel = true;
-            res.label = attrs.label;   // always full label for selected
+            res.label = attrs.label;
           } else if (chainStateRef.current.chainNodes && chainStateRef.current.chainNodes.has(node)) {
             res.selected = false;
             res.inChain = true;
@@ -577,15 +553,15 @@ export default function BloodHoundNodeDiagram({
             res.inChain = false;
             res.dimmed = true;
             res.zIndex = 1;
-            res.forceLabel = false;
+            res.forceLabel = true;
             res.label = '';
           }
         } else {
           res.selected = false;
           res.inChain = false;
           res.dimmed = false;
-          res.zIndex = 10;
-          res.forceLabel = showLabel;
+          res.zIndex = isCrownJewel ? 30 : 10;
+          res.forceLabel = true;
           res.label = showLabel ? chosenLabel : '';
         }
         return res;
@@ -597,13 +573,13 @@ export default function BloodHoundNodeDiagram({
         const sel = selectedNodeRef.current;
         const ratio = cameraRatioRef.current;
 
-        // Hide edge labels when zoomed out; show only important ones mid-zoom
+        // Hide edge labels at overview zoom for large graphs
         let hideEdgeLabel;
-        if (ratio > 3.5) {
+        if (order > 30 && ratio >= 0.70) {
           hideEdgeLabel = true;
-        } else if (ratio > 1.8) {
-          // mid zoom: only show AD-attack / lateral edges' labels
-          hideEdgeLabel = !(attrs.dir === 'ad' || attrs.dir === 'lat');
+        } else if (order > 60 && ratio >= 0.40) {
+          // Mid zoom: only show critical AD attack edges
+          hideEdgeLabel = attrs.dir !== 'ad';
         } else {
           hideEdgeLabel = false;
         }
@@ -649,24 +625,24 @@ export default function BloodHoundNodeDiagram({
 
     /* ---------- Track camera ratio for LOD ---------- */
     const cam = sigma.getCamera();
-    cameraRatioRef.current = cam.getState().ratio || 1;
+    cameraRatioRef.current = cam.getState().ratio || 1.05;
 
     const onCamUpdate = (state) => {
       const prev = cameraRatioRef.current;
       cameraRatioRef.current = state.ratio;
-      // Only refresh if we crossed an LOD tier boundary — big perf win
-      const tierOf = (r) => (r < 1.2 ? 0 : r < 2.5 ? 1 : r < 5.0 ? 2 : 3);
+      // Refresh across LOD thresholds: 0.35, 0.65, 0.75
+      const tierOf = (r) => (r < 0.35 ? 0 : r < 0.65 ? 1 : r < 0.75 ? 2 : 3);
       if (tierOf(prev) !== tierOf(state.ratio)) {
         sigma.refresh();
       }
     };
     cam.on('updated', onCamUpdate);
 
-    /* ---------- Initial fit (bounds-based!) ---------- */
+    /* ---------- Initial fit ---------- */
     requestAnimationFrame(() => {
       if (!sigmaRef.current || !graphRef.current || !containerRef.current) return;
       sigmaRef.current.refresh();
-      const ratio = computeFitRatio(graphRef.current, containerRef.current, 80);
+      const ratio = computeFitRatio();
       cameraRatioRef.current = ratio;
       sigmaRef.current.getCamera().setState({
         x: 0.5, y: 0.5, ratio, angle: 0
@@ -768,7 +744,7 @@ export default function BloodHoundNodeDiagram({
       resizeTimer = setTimeout(() => {
         if (!sigmaRef.current || !graphRef.current || !containerRef.current) return;
         sigmaRef.current.resize();
-        const ratio = computeFitRatio(graphRef.current, containerRef.current, 80);
+        const ratio = computeFitRatio();
         cameraRatioRef.current = ratio;
         sigmaRef.current.getCamera().animate(
           { x: 0.5, y: 0.5, ratio, angle: 0 },
@@ -811,7 +787,7 @@ export default function BloodHoundNodeDiagram({
 
   const handleResetFit = () => {
     if (sigmaRef.current && graphRef.current && containerRef.current) {
-      const ratio = computeFitRatio(graphRef.current, containerRef.current, 80);
+      const ratio = computeFitRatio();
       cameraRatioRef.current = ratio;
       sigmaRef.current.getCamera().animate(
         { x: 0.5, y: 0.5, ratio, angle: 0 },

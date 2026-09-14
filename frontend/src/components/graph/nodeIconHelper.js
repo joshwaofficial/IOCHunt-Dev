@@ -65,7 +65,7 @@ export function drawBloodHoundNode(context, data) {
   const isLight = data.theme !== 'dark';
   const x = data.x;
   const y = data.y;
-  const size = Math.max(data.size || 15, 9);
+  const size = Math.max(data.size || 14, 7);
   const color = data.borderColor || data.color || '#3b82f6';
   const isSelected = data.selected;
   const isNeighbor = data.isNeighbor;

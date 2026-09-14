@@ -79,52 +79,31 @@ export const PRESET_COORDINATES = [
  * - Ultra (>500): ultra tight
  */
 export function getDensityFactors(nodeCount) {
-  if (nodeCount <= 40) {
-    return { colWidth: 340, rowHeight: 150, rankSep: 520, collisionDx: 300, collisionDy: 140 };
+  if (nodeCount <= 25) {
+    return { colWidth: 360, rowHeight: 160, rankSep: 520, collisionDx: 320, collisionDy: 140 };
   }
-  if (nodeCount <= 80) {
-    return { colWidth: 300, rowHeight: 130, rankSep: 460, collisionDx: 260, collisionDy: 120 };
+  if (nodeCount <= 60) {
+    return { colWidth: 300, rowHeight: 140, rankSep: 460, collisionDx: 270, collisionDy: 120 };
   }
-  if (nodeCount <= 150) {
-    return { colWidth: 240, rowHeight: 110, rankSep: 380, collisionDx: 200, collisionDy: 100 };
+  if (nodeCount <= 120) {
+    return { colWidth: 250, rowHeight: 120, rankSep: 380, collisionDx: 220, collisionDy: 100 };
   }
-  if (nodeCount <= 300) {
-    return { colWidth: 160, rowHeight: 85,  rankSep: 280, collisionDx: 140, collisionDy: 75 };  // ← CHANGED
+  if (nodeCount <= 250) {
+    return { colWidth: 180, rowHeight: 95,  rankSep: 300, collisionDx: 150, collisionDy: 80 };
   }
   if (nodeCount <= 500) {
-    return { colWidth: 120, rowHeight: 70,  rankSep: 220, collisionDx: 105, collisionDy: 60 };  // ← CHANGED
+    return { colWidth: 140, rowHeight: 75,  rankSep: 240, collisionDx: 120, collisionDy: 65 };
   }
-  if (nodeCount <= 1000) {
-    return { colWidth: 90, rowHeight: 55, rankSep: 170, collisionDx: 80, collisionDy: 45 };  // ← NEW
-  }
-  return { colWidth: 70, rowHeight: 45, rankSep: 140, collisionDx: 65, collisionDy: 38 };  // ← CHANGED
-}
-
-/**
- * Auto-Layout Optimization for Large Graphs
- */
-export function optimizeLayoutForLargeGraph(graph, nodeCount) {
-  if (nodeCount < 100) return;
-
-  // For large graphs, apply additional spreading
-  const spreadFactor = nodeCount > 300 ? 2.2 :
-                       nodeCount > 200 ? 1.9 :
-                       nodeCount > 150 ? 1.6 : 1.4;
-
-  graph.forEachNode(node => {
-    const x = graph.getNodeAttribute(node, 'x') || 0;
-    const y = graph.getNodeAttribute(node, 'y') || 0;
-    graph.setNodeAttribute(node, 'x', x * spreadFactor);
-    graph.setNodeAttribute(node, 'y', y * spreadFactor);
-  });
+  return { colWidth: 100, rowHeight: 60, rankSep: 180, collisionDx: 90, collisionDy: 50 };
 }
 
 /**
  * Rebalance aspect ratio: if the graph is extremely wide/tall,
  * wrap/squeeze coordinates so the bounding box is closer to target aspect.
+ * Only applies to larger graphs (>=20 nodes) to prevent squashing small graphs.
  */
-export function rebalanceAspectRatio(graph, targetAspect = 1.8) {
-  if (!graph || graph.order < 4) return;
+export function rebalanceAspectRatio(graph, targetAspect = 1.8, minDx = 220, minDy = 100) {
+  if (!graph || graph.order < 20) return;
 
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   graph.forEachNode((_, a) => {
@@ -165,8 +144,8 @@ export function rebalanceAspectRatio(graph, targetAspect = 1.8) {
     });
   }
 
-  // Re-run collision with the new geometry
-  preventEllipticalCollisions(graph, 100, 90, 15);
+  // Re-run collision with the density factors
+  preventEllipticalCollisions(graph, minDx, minDy, 15);
 }
 
 /**
@@ -292,11 +271,8 @@ export function applyBloodHoundTreeLayout(graph) {
   });
 
   preventEllipticalCollisions(graph, collisionDx, collisionDy, nodeCount > 150 ? 12 : 25);
-  rebalanceAspectRatio(graph, 1.8);
+  rebalanceAspectRatio(graph, 1.8, collisionDx, collisionDy);
   centerGraphAtOrigin(graph);
-  if (nodeCount > 80) {
-    optimizeLayoutForLargeGraph(graph, nodeCount);
-  }
 }
 
 /**
@@ -349,11 +325,8 @@ export function applyBloodHoundStarLayout(graph) {
   });
 
   preventEllipticalCollisions(graph, F.collisionDx, F.collisionDy, nodeCount > 150 ? 12 : 25);
-  rebalanceAspectRatio(graph, 1.8);
+  rebalanceAspectRatio(graph, 1.8, F.collisionDx, F.collisionDy);
   centerGraphAtOrigin(graph);
-  if (nodeCount > 80) {
-    optimizeLayoutForLargeGraph(graph, nodeCount);
-  }
 }
 
 /**
@@ -406,11 +379,8 @@ export function applyBloodHoundPhysicsLayout(graph) {
   });
 
   preventEllipticalCollisions(graph, F.collisionDx, F.collisionDy, nodeCount > 150 ? 12 : 25);
-  rebalanceAspectRatio(graph, 1.8);
+  rebalanceAspectRatio(graph, 1.8, F.collisionDx, F.collisionDy);
   centerGraphAtOrigin(graph);
-  if (nodeCount > 80) {
-    optimizeLayoutForLargeGraph(graph, nodeCount);
-  }
 }
 
 /**
