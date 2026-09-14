@@ -41,6 +41,16 @@ function adCol(t) {
   return AD_COL[t] || '#a855f7';
 }
 
+function getShortLabel(label) {
+  if (!label) return '';
+  const str = String(label);
+  let clean = str.replace(/@[^.]+(\.[^.]+)+$/i, '').replace(/@.*$/, '').replace(/\.(local|corp|internal|lan)$/i, '');
+  if (clean.length > 20) {
+    clean = clean.slice(0, 18) + '…';
+  }
+  return clean;
+}
+
 /**
  * Fast BFS traversal to trace the full connected attack path chain (upstream ancestors & downstream targets)
  */
@@ -444,53 +454,94 @@ export default function BloodHoundNodeDiagram({
         // CRITICAL: WebGL base fill is ALWAYS pure clean white in light mode, dark slate in dark mode.
         res.color = isLight ? '#ffffff' : '#0f172a';
 
-        // Keep node size crisp and visible (12.5px - 15px so it NEVER disappears or turns blank when zoomed out!)
+        // Adaptive node sizes: larger on small graphs, sleek & crisp on large topologies
         const order = graph.order;
-        const baseSize = order <= 25 ? 15 : (order <= 60 ? 13.5 : 12.5);
+        const baseSize =
+          order <= 25 ? 15 :
+          order <= 60 ? 13 :
+          order <= 120 ? 10.5 :
+          8.5;
         res.size = baseSize;
 
+        const cam = sigmaRef.current ? sigmaRef.current.getCamera() : null;
+        const camRatio = cam ? cam.getState().ratio : 1.0;
+
+        const isCritical = (attrs.threat_count > 0) || (attrs.entityType === 'dc') || (attrs.entityType === 'threat') || (attrs.label && (attrs.label.includes('ADMIN') || attrs.label.includes('DC-')));
+        const isSelected = sel && node === sel;
+        const isInChain = sel && chainStateRef.current.chainNodes && chainStateRef.current.chainNodes.has(node);
+
+        // Adaptive zoom-aware label calculation
+        let displayLabel = attrs.label;
+        let forceLabel = true;
+
+        if (isSelected || isInChain) {
+          // Selected node or in attack path: ALWAYS show full label
+          displayLabel = attrs.label;
+          forceLabel = true;
+        } else if (order <= 30) {
+          // Small graph: always show full label
+          displayLabel = attrs.label;
+          forceLabel = true;
+        } else {
+          // Large graph: adaptive zoom-aware labels
+          if (camRatio < 1.35) {
+            // Zoomed in: show full label
+            displayLabel = attrs.label;
+            forceLabel = true;
+          } else if (camRatio < 2.5) {
+            // Medium zoom: show clean short label without domain suffix to prevent collisions
+            displayLabel = getShortLabel(attrs.label);
+            forceLabel = true;
+          } else {
+            // Zoomed out (overview): only show labels for critical infrastructure nodes
+            if (isCritical) {
+              displayLabel = getShortLabel(attrs.label);
+              forceLabel = true;
+            } else {
+              displayLabel = '';
+              forceLabel = false;
+            }
+          }
+        }
+
         if (sel) {
-          if (node === sel) {
-            // Clicked Node: clean selection ring, fully opaque, top z-index
+          if (isSelected) {
             res.selected = true;
             res.inChain = true;
             res.dimmed = false;
             res.zIndex = 100;
             res.borderColor = attrs.borderColor || '#3b82f6';
             res.iconColor = attrs.iconColor || attrs.borderColor || '#3b82f6';
-            res.label = attrs.label;
+            res.label = displayLabel;
             res.forceLabel = true;
-          } else if (chainStateRef.current.chainNodes && chainStateRef.current.chainNodes.has(node)) {
-            // Full connected attack path chain from start to end!
+          } else if (isInChain) {
             res.selected = false;
             res.inChain = true;
             res.dimmed = false;
             res.zIndex = 50;
             res.borderColor = attrs.borderColor || '#3b82f6';
             res.iconColor = attrs.iconColor || attrs.borderColor || '#3b82f6';
-            res.label = attrs.label;
+            res.label = displayLabel;
             res.forceLabel = true;
           } else {
-            // Other nodes: KEEP original category colors, reduce opacity slightly like BloodHound!
             res.selected = false;
             res.inChain = false;
             res.dimmed = true;
             res.zIndex = 1;
-            res.borderColor = attrs.borderColor || '#3b82f6'; // Keep original color!
-            res.iconColor = attrs.iconColor || attrs.borderColor || '#3b82f6'; // Keep original color!
-            res.label = attrs.label;
-            res.forceLabel = true;
+            res.borderColor = attrs.borderColor || '#3b82f6';
+            res.iconColor = attrs.iconColor || attrs.borderColor || '#3b82f6';
+            res.label = '';
+            res.forceLabel = false;
           }
         } else {
-          // Normal view: all nodes fully visible with category borders and crisp labels
           res.selected = false;
           res.inChain = false;
           res.dimmed = false;
           res.zIndex = 10;
           res.borderColor = attrs.borderColor || '#3b82f6';
           res.iconColor = attrs.iconColor || attrs.borderColor || '#3b82f6';
-          res.label = attrs.label;
-          res.forceLabel = true;
+          res.label = displayLabel;
+          res.forceLabel = forceLabel;
         }
         return res;
       },
@@ -510,22 +561,34 @@ export default function BloodHoundNodeDiagram({
             res.dimmed = false;
             res.label = attrs.label;
           } else {
-            // Other edges: gray arrow with reduced opacity like BloodHound
+            // Other edges: gray arrow with reduced opacity
             res.size = 1.0;
-            res.color = isLight ? 'rgba(148, 163, 184, 0.45)' : 'rgba(100, 116, 139, 0.45)';
+            res.color = isLight ? 'rgba(148, 163, 184, 0.40)' : 'rgba(100, 116, 139, 0.40)';
             res.zIndex = 0;
             res.forceLabel = false;
             res.dimmed = true;
-            res.label = ''; // Hide label for background edges
+            res.label = '';
           }
         } else {
-          // Normal view: clean edge lines with labels
+          // Normal view: clean edge lines
           res.size = attrs.size || 2;
           res.color = attrs.color || (isLight ? '#3b82f6' : '#60a5fa');
           res.zIndex = 1;
-          res.forceLabel = true;
           res.dimmed = false;
-          res.label = attrs.label;
+
+          const cam = sigmaRef.current ? sigmaRef.current.getCamera() : null;
+          const camRatio = cam ? cam.getState().ratio : 1.0;
+          const order = graph.order;
+
+          // Adaptive edge labels: visible on small graphs or when zoomed in; hidden when zoomed out
+          const showEdgeLabels = order <= 25 || (camRatio < 1.4);
+          if (showEdgeLabels) {
+            res.label = attrs.label;
+            res.forceLabel = true;
+          } else {
+            res.label = '';
+            res.forceLabel = false;
+          }
         }
         return res;
       }
@@ -533,14 +596,17 @@ export default function BloodHoundNodeDiagram({
 
     sigmaRef.current = sigma;
 
-    // Immediately fit and center camera so the entire network topology is perfectly framed with generous padding
+    // Listen for camera updates so adaptive labels and edge labels update smoothly based on zoom level
+    sigma.getCamera().on('updated', () => {
+      sigma.refresh();
+    });
+
+    // Immediately fit and center camera based on real graph bounding box with comfortable padding
     requestAnimationFrame(() => {
       if (sigmaRef.current) {
         sigmaRef.current.refresh();
         const cam = sigmaRef.current.getCamera();
-        // Zoom out cleanly to place the entire diagram at a tiny, crisp size with generous margin
-        const fitRatio = Math.max(1.35, Math.min(2.4, Math.sqrt(order / 30) * 1.25));
-        cam.setState({ x: 0.5, y: 0.5, ratio: fitRatio, angle: 0 });
+        cam.setState({ x: 0.5, y: 0.5, ratio: 1.15, angle: 0 });
       }
     });
 
@@ -636,6 +702,7 @@ export default function BloodHoundNodeDiagram({
     const ro = new ResizeObserver(() => {
       if (sigmaRef.current) {
         sigmaRef.current.resize();
+        sigmaRef.current.getCamera().setState({ x: 0.5, y: 0.5, ratio: 1.15, angle: 0 });
       }
     });
     ro.observe(containerRef.current);
@@ -671,9 +738,7 @@ export default function BloodHoundNodeDiagram({
 
   const handleResetFit = () => {
     if (sigmaRef.current) {
-      const order = sigmaRef.current.getGraph().order || 30;
-      const fitRatio = Math.max(1.35, Math.min(2.4, Math.sqrt(order / 30) * 1.25));
-      sigmaRef.current.getCamera().animate({ x: 0.5, y: 0.5, ratio: fitRatio, angle: 0 }, { duration: 350 });
+      sigmaRef.current.getCamera().animate({ x: 0.5, y: 0.5, ratio: 1.15, angle: 0 }, { duration: 350 });
     }
   };
 
