@@ -160,7 +160,7 @@ const getCytoscapeStylesheet = (theme, edgeLabelMode = 'all') => {
         'z-index': 1
       }
     },
-    // Base Edge Style: Directed bezier lines with staggered label offsets & crisp pill background
+    // Base Edge Style: Directed bezier lines with centered embedded label pill directly on the line
     {
       selector: 'edge',
       style: {
@@ -177,14 +177,15 @@ const getCytoscapeStylesheet = (theme, edgeLabelMode = 'all') => {
         'font-weight': 700,
         'color': isLight ? '#1e293b' : '#f1f5f9',
         'text-background-color': isLight ? '#ffffff' : '#0f172a',
-        'text-background-opacity': 0.98,
-        'text-background-padding': '2px 5px',
+        'text-background-opacity': 1.0, // Fully opaque so line is cleanly masked behind the text badge
+        'text-background-padding': '3px 6px',
         'text-background-shape': 'roundrectangle',
-        'text-border-color': isLight ? 'rgba(0, 0, 0, 0.18)' : 'rgba(255, 255, 255, 0.22)',
-        'text-border-width': 1,
+        'text-border-color': 'data(color)', // Distinct border matching line color
+        'text-border-width': 1.2,
+        'text-border-opacity': 0.85,
         'text-rotation': 'autorotate',
         'text-margin-x': 'data(textMarginX)',
-        'text-margin-y': 'data(textMarginY)',
+        'text-margin-y': 0, // STRICTLY 0: Centered directly in the edge line arrow path!
         'min-zoomed-font-size': edgeLabelMode === 'hover' ? 0 : 8,
         'z-index': 5,
         'transition-property': 'opacity, width, line-color, target-arrow-color',
@@ -204,7 +205,8 @@ const getCytoscapeStylesheet = (theme, edgeLabelMode = 'all') => {
         'text-border-color': 'data(color)',
         'text-border-width': 2,
         'text-background-color': isLight ? '#ffffff' : '#0f172a',
-        'color': isLight ? '#0f172a' : '#ffffff'
+        'color': isLight ? '#0f172a' : '#ffffff',
+        'text-margin-y': 0
       }
     },
     // Selected / Active Attack Chain Edges: Reveal label immediately!
@@ -222,7 +224,8 @@ const getCytoscapeStylesheet = (theme, edgeLabelMode = 'all') => {
         'text-opacity': 1.0,
         'text-background-opacity': 1.0,
         'text-border-color': isLight ? '#2563eb' : '#60a5fa',
-        'text-border-width': 1.5
+        'text-border-width': 1.5,
+        'text-margin-y': 0
       }
     },
     // Faded Edges during focus selection
@@ -236,6 +239,92 @@ const getCytoscapeStylesheet = (theme, edgeLabelMode = 'all') => {
     }
   ];
 };
+
+/**
+ * Dynamically resolves edge label positions strictly along the edge line (text-margin-y = 0)
+ * to guarantee:
+ * 1. Labels stay strictly IN the edge line arrow path (never floating above or below).
+ * 2. Labels never overlap one another by sliding along the line into collision-free spaces.
+ */
+function resolveEdgeLabelPositions(cy) {
+  if (!cy) return;
+  const placedLabels = [];
+  const edges = cy.edges();
+  if (edges.length === 0) return;
+
+  // Sort edges by length descending so longer crossing lines claim center spots first
+  const sortedEdges = edges.toArray().sort((a, b) => {
+    const pA1 = a.source().position();
+    const pA2 = a.target().position();
+    const pB1 = b.source().position();
+    const pB2 = b.target().position();
+    const lenA = (pA1 && pA2) ? Math.hypot(pA2.x - pA1.x, pA2.y - pA1.y) : 0;
+    const lenB = (pB1 && pB2) ? Math.hypot(pB2.x - pB1.x, pB2.y - pB1.y) : 0;
+    return lenB - lenA;
+  });
+
+  cy.batch(() => {
+    sortedEdges.forEach(edge => {
+      const s = edge.source().position();
+      const t = edge.target().position();
+      if (!s || !t) return;
+
+      const dx = t.x - s.x;
+      const dy = t.y - s.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 35) {
+        edge.data('textMarginX', 0);
+        return;
+      }
+
+      // Safe boundaries along edge line: keep at least 45px away from source/target nodes
+      const minFraction = Math.max(0.18, 45 / len);
+      const maxFraction = Math.min(0.82, 1 - (55 / len));
+
+      const rawCandidates = [0.50, 0.35, 0.65, 0.25, 0.75, 0.42, 0.58, 0.30, 0.70];
+      const candidates = rawCandidates.filter(f => f >= minFraction && f <= maxFraction);
+      if (candidates.length === 0) candidates.push(0.50);
+
+      let bestT = candidates[0];
+      let bestScore = -Infinity;
+
+      for (const frac of candidates) {
+        const px = s.x + frac * dx;
+        const py = s.y + frac * dy;
+        let minDistanceToOther = Infinity;
+        let collides = false;
+
+        for (const pl of placedLabels) {
+          const dist = Math.hypot(px - pl.x, py - pl.y);
+          if (dist < 72) {
+            collides = true;
+          }
+          if (dist < minDistanceToOther) {
+            minDistanceToOther = dist;
+          }
+        }
+
+        // Slight preference for 0.5 center if free, but collision is heavily penalized
+        const centerBonus = 50 - Math.abs(frac - 0.5) * 80;
+        const score = (collides ? -10000 : 0) + minDistanceToOther + centerBonus;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestT = frac;
+        }
+      }
+
+      const chosenPx = s.x + bestT * dx;
+      const chosenPy = s.y + bestT * dy;
+      placedLabels.push({ x: chosenPx, y: chosenPy });
+
+      // In Cytoscape, text-margin-x = 0 is midpoint (0.50).
+      // Convert fraction to pixels offset from midpoint along line:
+      const textMarginX = Math.round((bestT - 0.5) * len);
+      edge.data('textMarginX', textMarginX);
+    });
+  });
+}
 
 export default function BloodHoundNodeDiagram({
   inbound = [],
@@ -500,34 +589,8 @@ export default function BloodHoundNodeDiagram({
       }
     });
 
-    // Stagger configurations for edge labels:
-    // Distribute textMarginX (along edge line) and textMarginY (perpendicular)
-    // so multiple edges converging on or radiating from hub nodes never place labels at the same coordinates!
-    const STAGGER_PRESETS = [
-      { textMarginX: 0, textMarginY: -10 },
-      { textMarginX: -60, textMarginY: 8 },
-      { textMarginX: 60, textMarginY: -8 },
-      { textMarginX: -95, textMarginY: -12 },
-      { textMarginX: 95, textMarginY: 10 },
-      { textMarginX: -35, textMarginY: 12 },
-      { textMarginX: 35, textMarginY: -14 },
-      { textMarginX: -75, textMarginY: 14 }
-    ];
-
-    const targetIncidentCounts = new Map();
-    const sourceIncidentCounts = new Map();
-
-    // Add consolidated edges to elements with staggered offsets
+    // Add consolidated edges to elements
     edgeMap.forEach(e => {
-      const tCount = targetIncidentCounts.get(e.target) || 0;
-      targetIncidentCounts.set(e.target, tCount + 1);
-
-      const sCount = sourceIncidentCounts.get(e.source) || 0;
-      sourceIncidentCounts.set(e.source, sCount + 1);
-
-      const staggerIdx = (tCount + sCount) % STAGGER_PRESETS.length;
-      const stagger = STAGGER_PRESETS[staggerIdx];
-
       elements.push({
         group: 'edges',
         data: {
@@ -538,8 +601,7 @@ export default function BloodHoundNodeDiagram({
           dir: e.dir,
           color: e.color,
           width: e.width,
-          textMarginX: stagger.textMarginX,
-          textMarginY: stagger.textMarginY,
+          textMarginX: 0,
           _detail: e._detail,
           _detailList: e._detailList
         }
@@ -639,6 +701,9 @@ export default function BloodHoundNodeDiagram({
       }
     }
 
+    // Dynamically calculate collision-free label positions strictly along the edge line (text-margin-y = 0)
+    resolveEdgeLabelPositions(cy);
+
     cy.fit(undefined, 50);
 
     // Click Node
@@ -733,6 +798,9 @@ export default function BloodHoundNodeDiagram({
     });
     cy.on('mouseout', 'edge', () => {
       if (containerRef.current) containerRef.current.style.cursor = 'default';
+    });
+    cy.on('dragfree', 'node', () => {
+      resolveEdgeLabelPositions(cy);
     });
 
     // ResizeObserver
