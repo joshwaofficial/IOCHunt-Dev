@@ -599,37 +599,76 @@ export default function BloodHoundNodeDiagram({
         nodeDimensionsIncludeLabels: true,
         uniformNodeDimensions: false,
         packComponents: true,
-        // High, expansive repulsion for large graphs so nodes spread out widely and never overlap
+        // High exponential repulsion for hubs so multiple hubs (Domain Admins, Enterprise Admins, etc.)
+        // push far away from each other instead of clustering together in the center!
         nodeRepulsion: (node) => {
           if (finalNodeCount <= 15) return 320000;
-          if (finalNodeCount <= 40) return 750000;
-          if (finalNodeCount <= 90) return Math.min(2400000, 1200000 + node.degree() * 60000);
-          return Math.min(3600000, 1800000 + node.degree() * 85000);
+          if (finalNodeCount <= 40) return 850000;
+          const deg = node.degree();
+          return Math.min(12000000, 2000000 + Math.pow(deg, 1.5) * 85000);
         },
-        // Long edge lengths scaled with node degree so leaf nodes have vast circumference around hubs
+        // Hub-aware edge length: edges connecting two hubs are up to 1500px long,
+        // while leaf edges give wide radius so leaves never bunch around the hub!
         idealEdgeLength: (edge) => {
           if (finalNodeCount <= 15) return 300;
-          const maxDeg = Math.max(edge.source().degree(), edge.target().degree());
-          if (finalNodeCount <= 40) return Math.min(500, 340 + maxDeg * 12);
-          if (finalNodeCount <= 90) return Math.min(680, 380 + maxDeg * 16);
-          return Math.min(800, 440 + maxDeg * 22);
+          const sDeg = edge.source().degree();
+          const tDeg = edge.target().degree();
+          const maxDeg = Math.max(sDeg, tDeg);
+          const minDeg = Math.min(sDeg, tDeg);
+          // Two hubs connected: push them very far apart!
+          if (minDeg >= 3) {
+            return Math.min(1500, 750 + (sDeg + tDeg) * 16);
+          }
+          if (finalNodeCount <= 40) return Math.min(600, 360 + maxDeg * 14);
+          return Math.min(1100, 500 + maxDeg * 22);
         },
-        edgeElasticity: (edge) => (finalNodeCount <= 15 ? 0.05 : (finalNodeCount <= 40 ? 0.025 : 0.01)),
+        edgeElasticity: (edge) => (finalNodeCount <= 15 ? 0.05 : (finalNodeCount <= 40 ? 0.02 : 0.006)),
         nestingFactor: 0.1,
-        // Low gravity for large graphs prevents crushing 70-200+ nodes into a tight central ball
-        gravity: finalNodeCount <= 15 ? 0.04 : (finalNodeCount <= 40 ? 0.012 : 0.0025),
-        gravityRange: finalNodeCount <= 15 ? 1.5 : 4.5,
+        // Ultra-low gravity eliminates central crushing so the graph expands in full 2D space
+        gravity: finalNodeCount <= 15 ? 0.04 : (finalNodeCount <= 40 ? 0.008 : 0.001),
+        gravityRange: finalNodeCount <= 15 ? 1.5 : 5.0,
         numIter: finalNodeCount > 40 ? 4500 : 2500,
         tile: true,
-        tilingPaddingVertical: finalNodeCount > 30 ? 180 : 70,
-        tilingPaddingHorizontal: finalNodeCount > 30 ? 180 : 70,
-        // Large separation enforces wide distance between nodes, preventing any node/label collision
-        nodeSeparation: finalNodeCount <= 15 ? 180 : (finalNodeCount <= 40 ? 280 : (finalNodeCount <= 90 ? 380 : 460))
+        tilingPaddingVertical: finalNodeCount > 30 ? 200 : 70,
+        tilingPaddingHorizontal: finalNodeCount > 30 ? 200 : 70,
+        nodeSeparation: finalNodeCount <= 15 ? 180 : (finalNodeCount <= 40 ? 300 : 480)
       };
     }
 
     const l = cy.layout(layoutOpts);
     l.run();
+
+    // Post-layout anti-collision relaxation for large fCoSE graphs:
+    // Enforces strict minimum spacing (260px-280px) between every single node so labels & icons NEVER overlap!
+    if (layoutMode === 'fcose' && finalNodeCount > 15) {
+      cy.batch(() => {
+        const nArray = cy.nodes().toArray();
+        const minSpacing = finalNodeCount > 80 ? 280 : 240;
+        for (let iter = 0; iter < 12; iter++) {
+          let hadCollision = false;
+          for (let i = 0; i < nArray.length; i++) {
+            const n1 = nArray[i];
+            const p1 = n1.position();
+            for (let j = i + 1; j < nArray.length; j++) {
+              const n2 = nArray[j];
+              const p2 = n2.position();
+              const dx = p2.x - p1.x;
+              const dy = p2.y - p1.y;
+              const dist = Math.hypot(dx, dy) || 1;
+              if (dist < minSpacing) {
+                hadCollision = true;
+                const overlap = (minSpacing - dist) / 2;
+                const nx = dx / dist;
+                const ny = dy / dist;
+                n1.position({ x: p1.x - nx * overlap, y: p1.y - ny * overlap });
+                n2.position({ x: p2.x + nx * overlap, y: p2.y + ny * overlap });
+              }
+            }
+          }
+          if (!hadCollision) break;
+        }
+      });
+    }
 
     // Adaptively expand horizontal width for tall diagrams using empty side space
     // STRICT RULE: Vertical height (y) is 100% preserved and untouched!
@@ -667,7 +706,10 @@ export default function BloodHoundNodeDiagram({
 
       // Optical zoom dampening curve:
       const nodeFont = Math.round(Math.min(26, Math.max(7, 11 / Math.pow(z, 0.68))));
-      const edgeFont = Math.round(Math.min(20, Math.max(5, 8.5 / Math.pow(z, 0.68))));
+      // On dense graphs (>60 edges), cap edgeFont at 10px so 200+ edge labels don't collide or obscure nodes
+      const maxEdge = finalEdgeCount > 60 ? 10 : 20;
+      const baseEdge = finalEdgeCount > 60 ? 6.5 : 8.5;
+      const edgeFont = Math.round(Math.min(maxEdge, Math.max(5, baseEdge / Math.pow(z, 0.55))));
       const nodeMargin = Math.round(Math.min(12, Math.max(4, 6 / Math.pow(z, 0.5))));
 
       cyRef.current.batch(() => {
