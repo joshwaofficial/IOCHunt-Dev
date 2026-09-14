@@ -112,11 +112,12 @@ export function applyBloodHoundTreeLayout(graph) {
   components.sort((a, b) => b.length - a.length);
 
   // Dynamic spacing: ample horizontal separation for long edge labels,
-  // and UNCONSTRAINED vertical expansion that grows with node count!
+  // and balanced 2D widescreen expansion that grows with node count!
   const nodeCount = graph.order;
   const scale = Math.max(1.0, Math.sqrt(nodeCount / 10));
-  const rankSep = Math.round(Math.max(680, 520 * Math.min(scale, 2.2))); // 680px -> 1150px
-  const nodeSep = Math.round(Math.max(150, 135 * Math.min(scale, 1.5))); // 150px -> 210px
+  const rankSep = Math.round(Math.max(550, 480 * Math.min(scale, 1.8))); // 550px -> 860px between major ranks
+  const colWidth = Math.round(Math.max(360, 320 * Math.min(scale, 1.5))); // 360px -> 480px horizontal clearance
+  const rowHeight = Math.round(Math.max(160, 140 * Math.min(scale, 1.3))); // 160px -> 185px vertical clearance
 
   let currentOffsetY = 0;
 
@@ -173,29 +174,44 @@ export function applyBloodHoundTreeLayout(graph) {
     });
 
     let compMinY = Infinity, compMaxY = -Infinity;
+    let currentBaseX = 0;
 
-    // BloodHound CE Style: Each rank is a dedicated vertical column!
-    // Vertical height expands with NO limit based on number of nodes in that rank!
     const sortedRanks = Array.from(byRank.keys()).sort((a, b) => a - b);
 
     sortedRanks.forEach(r => {
       const rNodes = byRank.get(r);
       const count = rNodes.length;
-      const x = r * rankSep;
+
+      // Wrap large ranks into balanced 2D sub-grids (prevents tall vertical towers)
+      let colCount = 1;
+      if (count > 4) {
+        // Multi-column sub-grid: 63 nodes -> 10 cols x 7 rows, 20 nodes -> 6 cols x 4 rows
+        colCount = Math.min(10, Math.max(2, Math.ceil(Math.sqrt(count * 1.5))));
+      }
+      const rowCount = Math.ceil(count / colCount);
 
       rNodes.forEach((node, idx) => {
-        // Center the column vertically around currentOffsetY
-        const y = currentOffsetY + (idx - (count - 1) / 2) * nodeSep;
+        const col = idx % colCount;
+        const row = Math.floor(idx / colCount);
+
+        const x = currentBaseX + col * colWidth;
+        // Stagger alternate columns by 28% of rowHeight so horizontal neighbors never clash
+        const stagger = (col % 2 === 1) ? rowHeight * 0.28 : 0;
+        const y = currentOffsetY + (row - (rowCount - 1) / 2) * rowHeight + stagger;
 
         graph.setNodeAttribute(node, 'x', x);
         graph.setNodeAttribute(node, 'y', y);
         if (y < compMinY) compMinY = y;
         if (y > compMaxY) compMaxY = y;
       });
+
+      // Advance baseX for subsequent ranks by the width of this rank's sub-grid + rankSep
+      const rankSubGridWidth = (colCount - 1) * colWidth;
+      currentBaseX += rankSubGridWidth + rankSep;
     });
 
     const compH = (compMaxY - compMinY) || 300;
-    currentOffsetY += compH + Math.max(500, Math.sqrt(nodeCount) * 90);
+    currentOffsetY += compH + Math.max(600, Math.sqrt(nodeCount) * 120);
   });
 
   preventEllipticalCollisions(graph, 320, 140, 25);

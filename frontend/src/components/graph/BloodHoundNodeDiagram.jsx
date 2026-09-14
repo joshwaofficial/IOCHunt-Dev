@@ -432,7 +432,9 @@ export default function BloodHoundNodeDiagram({
       defaultDrawEdgeLabel: drawBloodHoundEdgeLabel,
       enableEdgeEvents: true,
       allowInvalidContainer: true,
-      stagePadding: 75,
+      stagePadding: 95,
+      minCameraRatio: 0.05,
+      maxCameraRatio: 25.0,
       nodeReducer: (node, attrs) => {
         const res = { ...attrs };
         const isLight = themeRef.current !== 'dark';
@@ -535,7 +537,10 @@ export default function BloodHoundNodeDiagram({
     requestAnimationFrame(() => {
       if (sigmaRef.current) {
         sigmaRef.current.refresh();
-        sigmaRef.current.getCamera().animatedReset({ duration: 300 });
+        const cam = sigmaRef.current.getCamera();
+        // Zoom out cleanly to place the entire diagram at a tiny, crisp size with generous margin
+        const fitRatio = Math.max(1.35, Math.min(2.4, Math.sqrt(order / 30) * 1.25));
+        cam.setState({ x: 0.5, y: 0.5, ratio: fitRatio, angle: 0 });
       }
     });
 
@@ -666,7 +671,9 @@ export default function BloodHoundNodeDiagram({
 
   const handleResetFit = () => {
     if (sigmaRef.current) {
-      sigmaRef.current.getCamera().animatedReset({ duration: 350 });
+      const order = sigmaRef.current.getGraph().order || 30;
+      const fitRatio = Math.max(1.35, Math.min(2.4, Math.sqrt(order / 30) * 1.25));
+      sigmaRef.current.getCamera().animate({ x: 0.5, y: 0.5, ratio: fitRatio, angle: 0 }, { duration: 350 });
     }
   };
 
