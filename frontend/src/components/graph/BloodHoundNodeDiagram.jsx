@@ -44,93 +44,76 @@ function adCol(t) {
   return AD_COL[t] || '#a855f7';
 }
 
-function getBloodHoundSubtitle(entityType, raw = {}) {
-  const type = String(entityType || '').toLowerCase();
-  if (type === 'user') return 'Active Directory | User';
-  if (type === 'group') return 'Active Directory | Group';
-  if (type === 'machine' || type === 'computer') {
-    if (raw.is_dc || (raw.name && String(raw.name).toUpperCase().includes('DC'))) {
-      return 'Active Directory | Domain Controller';
-    }
-    return 'Active Directory | Computer';
+function getShortLabel(label) {
+  if (!label) return '';
+  const str = String(label);
+  let clean = str
+    .replace(/@[^.]+(\.[^.]+)+$/i, '')
+    .replace(/@.*$/, '')
+    .replace(/\.(local|corp|internal|lan)$/i, '');
+  if (clean.length > 20) {
+    clean = clean.slice(0, 18) + '…';
   }
-  if (type === 'ou') return 'Active Directory | OU';
-  if (type === 'container') return 'Active Directory | Container';
-  if (type === 'dc') return 'Active Directory | Domain Controller';
-  if (type === 'domain') return 'Active Directory | Domain';
-  if (type === 'gpo') return 'Active Directory | GPO';
-  if (type === 'actor') return 'Attacker | Threat Actor';
-  if (type === 'ad_attack') return 'Threat | AD Attack';
-  if (type === 'ip_external') return 'Network | External IP';
-  if (type === 'ip_private') return 'Network | Internal IP';
-  return 'Active Directory | Object';
-}
-
-function formatNodeLabel(cleanId, entityType, raw = {}) {
-  if (!cleanId) return '';
-  let name = String(cleanId).trim();
-  if (name.length > 28) {
-    name = name.slice(0, 25) + '…';
-  }
-  const subtitle = getBloodHoundSubtitle(entityType, raw);
-  return `${name}\n${subtitle}`;
+  return clean;
 }
 
 function baseNodeSize(order) {
-  if (order <= 30)  return 52;
-  if (order <= 80)  return 48;
-  if (order <= 160) return 44;
-  if (order <= 300) return 40;
-  if (order <= 600) return 36;
-  return 32;
+  if (order <= 25)  return 38;
+  if (order <= 60)  return 34;
+  if (order <= 120) return 30;
+  if (order <= 250) return 26;
+  if (order <= 500) return 22;
+  return 20;
 }
 
 const getCytoscapeStylesheet = (theme) => {
   const isLight = theme !== 'dark';
   return [
-    // Base Node Style - BloodHound solid circle with centered silhouette icon
+    // Base Node Style - Clean white circular body with colored border ring & centered colored vector icon (matching Image 4)
     {
       selector: 'node',
       style: {
         'width': 'data(size)',
         'height': 'data(size)',
         'shape': 'ellipse',
-        'background-color': 'data(bgColor)',
+        'background-color': isLight ? '#ffffff' : '#0f172a',
         'border-width': 'data(borderWidth)',
         'border-color': 'data(borderColor)',
         'background-image': 'data(svgIcon)',
-        'background-fit': 'contain',
-        'background-width': '58%',
-        'background-height': '58%',
+        'background-fit': 'none',
+        'background-width': '60%',
+        'background-height': '60%',
         'background-position-x': '50%',
         'background-position-y': '50%',
         'background-clip': 'node',
-        'label': 'data(displayLabel)',
-        'text-wrap': 'wrap',
-        'text-max-width': 220,
-        'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif',
-        'font-size': '12px',
+        'label': 'data(shortLabel)',
+        'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        'font-size': '10px',
         'font-weight': 700,
         'text-valign': 'bottom',
-        'text-margin-y': 8,
+        'text-margin-y': 6,
         'color': isLight ? '#0f172a' : '#f8fafc',
-        'text-outline-color': isLight ? '#ffffff' : '#0b1326',
-        'text-outline-width': 2.5,
-        'text-outline-opacity': 0.95,
-        'text-background-opacity': 0, // Clean halo like BloodHound, NO thick boxy border!
-        'min-zoomed-font-size': 4,    // Labels remain visible dynamically during zoom
+        'text-background-color': isLight ? 'rgba(255, 255, 255, 0.92)' : 'rgba(15, 23, 42, 0.90)',
+        'text-background-opacity': 0.92,
+        'text-background-padding': '2px 4px',
+        'text-background-shape': 'roundrectangle',
+        'text-border-color': isLight ? 'rgba(0, 0, 0, 0.10)' : 'rgba(255, 255, 255, 0.12)',
+        'text-border-width': 1,
+        'text-border-opacity': 0.6,
+        'min-zoomed-font-size': 8, // Stable overview: labels hide when zoomed way out, clear otherwise
         'z-index': 10,
         'transition-property': 'opacity, border-color, border-width, text-opacity',
         'transition-duration': '0.15s'
       }
     },
-    // Hovered Node: Highlighted border ring
+    // Hovered Node: Always show full label immediately
     {
       selector: 'node:hover',
       style: {
-        'border-width': 4.5,
-        'border-color': isLight ? '#0284c7' : '#38bdf8',
         'min-zoomed-font-size': 0,
+        'label': 'data(fullLabel)',
+        'border-width': 4.0,
+        'border-color': isLight ? '#0284c7' : '#38bdf8',
         'z-index': 95
       }
     },
@@ -138,10 +121,9 @@ const getCytoscapeStylesheet = (theme) => {
     {
       selector: 'node[?isCrownJewel]',
       style: {
-        'min-zoomed-font-size': 0,
+        'min-zoomed-font-size': 4,
         'z-index': 30,
-        'border-width': 4.0,
-        'border-color': isLight ? '#b45309' : '#f59e0b'
+        'border-width': 3.8
       }
     },
     // Active Selection Node
@@ -149,7 +131,7 @@ const getCytoscapeStylesheet = (theme) => {
       selector: 'node.selected',
       style: {
         'border-color': isLight ? '#0284c7' : '#38bdf8',
-        'border-width': 5.0,
+        'border-width': 4.5,
         'label': 'data(fullLabel)', // Reveal full label when clicked
         'min-zoomed-font-size': 0,
         'z-index': 100,
@@ -161,7 +143,7 @@ const getCytoscapeStylesheet = (theme) => {
     {
       selector: 'node.in-chain',
       style: {
-        'border-width': 3.5,
+        'border-width': 3.8,
         'border-color': isLight ? '#2563eb' : '#60a5fa',
         'min-zoomed-font-size': 0,
         'z-index': 60,
@@ -178,7 +160,7 @@ const getCytoscapeStylesheet = (theme) => {
         'z-index': 1
       }
     },
-    // Base Edge Style: Clean directed bezier lines with clear relationship labels
+    // Base Edge Style: Clean directed bezier lines (NO overlapping label clutter in overview!)
     {
       selector: 'edge',
       style: {
@@ -186,31 +168,37 @@ const getCytoscapeStylesheet = (theme) => {
         'line-color': 'data(color)',
         'target-arrow-color': 'data(color)',
         'target-arrow-shape': 'triangle',
-        'arrow-scale': 1.2,
+        'arrow-scale': 1.15,
         'curve-style': 'bezier',
         'label': 'data(label)',
         'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace',
         'font-size': '10px',
-        'font-weight': 600,
-        'color': isLight ? '#334155' : '#cbd5e1',
-        'text-outline-color': isLight ? '#ffffff' : '#0b1326',
-        'text-outline-width': 2.0,
-        'text-outline-opacity': 0.95,
-        'text-background-opacity': 0, // Clean text halo like BloodHound
+        'font-weight': 700,
+        'color': isLight ? '#334155' : '#94a3b8',
+        'text-background-color': isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.92)',
+        'text-background-opacity': 0.95,
+        'text-background-padding': '2px 4px',
+        'text-background-shape': 'roundrectangle',
+        'text-border-color': isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.12)',
+        'text-border-width': 1,
         'text-rotation': 'autorotate',
-        'min-zoomed-font-size': 6,    // Clear relationship names visible at normal zoom
+        'min-zoomed-font-size': 14, // <--- Solves edge labels overlapping! Text stays hidden in dense overview, reveals when zoomed in!
         'z-index': 5,
         'transition-property': 'opacity, width, line-color, target-arrow-color',
         'transition-duration': '0.15s'
       }
     },
-    // Hovered Edge: Reveal label immediately!
+    // Hovered Edge: Reveal label immediately on top!
     {
       selector: 'edge:hover',
       style: {
         'width': 3.5,
         'min-zoomed-font-size': 0,
-        'z-index': 90
+        'font-size': '11px',
+        'z-index': 999,
+        'text-background-opacity': 1.0,
+        'text-border-color': 'data(color)',
+        'text-border-width': 1.5
       }
     },
     // Selected / Active Attack Chain Edges: Reveal label immediately!
@@ -324,25 +312,24 @@ export default function BloodHoundNodeDiagram({
         }
         const col = KIND_COLORS[eType] || KIND_COLORS.default;
         const isCrown = isCrownJewelCheck(cleanId, raw);
-        const displayLabel = formatNodeLabel(cleanId, eType, raw);
-        const iconSvg = getNodeSvgDataUri(eType, '#0f172a');
+        const sLabel = getShortLabel(cleanId);
+        // Colored vector icon matching the border ring color as seen in Image 4
+        const iconSvg = getNodeSvgDataUri(eType, col);
 
         elements.push({
           group: 'nodes',
           data: {
             id: nid,
-            label: displayLabel,
-            displayLabel: displayLabel,
-            shortLabel: cleanId.length > 25 ? cleanId.slice(0, 23) + '…' : cleanId,
+            label: sLabel,
+            shortLabel: sLabel,
             fullLabel: cleanId,
-            subLabel: getBloodHoundSubtitle(eType, raw),
+            subLabel: raw.ip || '',
             entityType: eType,
             isCrownJewel: isCrown,
             size: isCrown ? Math.round(nSize * 1.25) : nSize,
-            bgColor: col,
             color: col,
-            borderColor: isLight ? '#0f172a' : '#1e293b',
-            borderWidth: isCrown ? 4.0 : 2.5,
+            borderColor: col,
+            borderWidth: isCrown ? 3.8 : 2.8,
             svgIcon: iconSvg,
             raw
           }
@@ -356,36 +343,65 @@ export default function BloodHoundNodeDiagram({
       ensureNode(m.name || m.ip, m.entityType || 'machine', m.raw || m);
     });
 
+    // Bundle / Aggregate parallel edges between the same nodes to prevent overlapping text collision!
+    const edgeMap = new Map();
+    function addEdge(fromId, toId, edgeData) {
+      if (!fromId || !toId || fromId === toId) return;
+      const key = `${fromId}->${toId}`;
+      if (edgeMap.has(key)) {
+        const existing = edgeMap.get(key);
+        existing.count = (existing.count || 1) + (edgeData.count || 1);
+        if (edgeData.label && !existing.labelList.includes(edgeData.label)) {
+          existing.labelList.push(edgeData.label);
+        }
+        if (existing.labelList.length > 1) {
+          existing.label = `${existing.labelList[0]} (+${existing.labelList.length - 1})`;
+        }
+        if (edgeData.color === '#ef4444' || edgeData.severity === 'critical') {
+          existing.color = '#ef4444';
+        }
+        existing.width = Math.min(5.5, existing.width + 0.4);
+        if (edgeData._detail) existing._detailList.push(edgeData._detail);
+      } else {
+        edgeMap.set(key, {
+          id: `e_${fromId}_${toId}`,
+          source: fromId,
+          target: toId,
+          label: edgeData.label,
+          labelList: edgeData.label ? [edgeData.label] : [],
+          dir: edgeData.dir,
+          color: edgeData.color,
+          width: edgeData.width || 2.5,
+          count: edgeData.count || 1,
+          severity: edgeData.severity || 'info',
+          _detail: edgeData._detail,
+          _detailList: edgeData._detail ? [edgeData._detail] : []
+        });
+      }
+    }
+
     // Process Inbound
     inbound.forEach((c, idx) => {
       const fromId = ensureNode(c.from_ip || c.from_machine, isPrivate(c.from_ip || '') ? 'ip_private' : 'ip_external');
       const toId = ensureNode(c.to_machine || c.to_ip, 'machine');
       if (fromId && toId && fromId !== toId) {
-        const eid = `e_in_${idx}_${fromId}_${toId}`;
-        if (!edgeSet.has(eid)) {
-          edgeSet.add(eid);
-          const bl = c.blocked > 0;
-          const col = bl ? '#ef4444' : '#3b82f6';
-          elements.push({
-            group: 'edges',
-            data: {
-              id: eid,
-              source: fromId,
-              target: toId,
-              label: c.protocol || 'INBOUND',
-              dir: 'in',
-              color: col,
-              width: Math.min(2 + Math.log((c.count || 1) + 1), 5),
-              _detail: {
-                first_seen: c.first_seen, last_seen: c.last_seen,
-                src: c.from_machine || c.from_ip || '?', dst: c.to_machine || c.to_ip || '?',
-                protocol: c.protocol || '', port: c.port || '',
-                count: c.count || 1, blocked: c.blocked || 0, severity: c.severity || 'info',
-                extra: c.description || (bl ? 'BLOCKED' : '')
-              }
-            }
-          });
-        }
+        const bl = c.blocked > 0;
+        const col = bl ? '#ef4444' : '#3b82f6';
+        addEdge(fromId, toId, {
+          label: c.protocol || 'INBOUND',
+          dir: 'in',
+          color: col,
+          width: Math.min(2 + Math.log((c.count || 1) + 1), 5),
+          count: c.count || 1,
+          severity: c.severity || 'info',
+          _detail: {
+            first_seen: c.first_seen, last_seen: c.last_seen,
+            src: c.from_machine || c.from_ip || '?', dst: c.to_machine || c.to_ip || '?',
+            protocol: c.protocol || '', port: c.port || '',
+            count: c.count || 1, blocked: c.blocked || 0, severity: c.severity || 'info',
+            extra: c.description || (bl ? 'BLOCKED' : '')
+          }
+        });
       }
     });
 
@@ -394,31 +410,23 @@ export default function BloodHoundNodeDiagram({
       const fromId = ensureNode(c.from_machine, 'machine');
       const toId = ensureNode(c.to_ip || c.to_machine, isPrivate(c.to_ip || '') ? 'ip_private' : 'ip_external');
       if (fromId && toId && fromId !== toId) {
-        const eid = `e_out_${idx}_${fromId}_${toId}`;
-        if (!edgeSet.has(eid)) {
-          edgeSet.add(eid);
-          const bl = c.blocked > 0;
-          const col = bl ? '#ef4444' : '#10b981';
-          elements.push({
-            group: 'edges',
-            data: {
-              id: eid,
-              source: fromId,
-              target: toId,
-              label: c.protocol || 'OUTBOUND',
-              dir: 'out',
-              color: col,
-              width: Math.min(2 + Math.log((c.count || 1) + 1), 5),
-              _detail: {
-                first_seen: c.first_seen, last_seen: c.last_seen,
-                src: c.from_machine || '?', dst: c.to_machine || c.to_ip || '?',
-                protocol: c.protocol || '', port: c.port || '',
-                count: c.count || 1, blocked: c.blocked || 0, severity: c.severity || 'info',
-                extra: c.description || (bl ? 'BLOCKED' : '')
-              }
-            }
-          });
-        }
+        const bl = c.blocked > 0;
+        const col = bl ? '#ef4444' : '#10b981';
+        addEdge(fromId, toId, {
+          label: c.protocol || 'OUTBOUND',
+          dir: 'out',
+          color: col,
+          width: Math.min(2 + Math.log((c.count || 1) + 1), 5),
+          count: c.count || 1,
+          severity: c.severity || 'info',
+          _detail: {
+            first_seen: c.first_seen, last_seen: c.last_seen,
+            src: c.from_machine || '?', dst: c.to_machine || c.to_ip || '?',
+            protocol: c.protocol || '', port: c.port || '',
+            count: c.count || 1, blocked: c.blocked || 0, severity: c.severity || 'info',
+            extra: c.description || (bl ? 'BLOCKED' : '')
+          }
+        });
       }
     });
 
@@ -427,32 +435,24 @@ export default function BloodHoundNodeDiagram({
       const fromId = ensureNode(c.source, c.source.includes('@') ? 'user' : 'machine');
       const toId = ensureNode(c.target, 'machine');
       if (fromId && toId && fromId !== toId) {
-        const eid = `e_lat_${idx}_${fromId}_${toId}`;
-        if (!edgeSet.has(eid)) {
-          edgeSet.add(eid);
-          const bl = c.blocked > 0;
-          const isMemberOf = c.protocol === 'MemberOf';
-          const col = bl ? '#ef4444' : (isMemberOf ? '#3b82f6' : (c.severity === 'critical' ? '#ef4444' : '#f97316'));
-          elements.push({
-            group: 'edges',
-            data: {
-              id: eid,
-              source: fromId,
-              target: toId,
-              label: c.protocol || 'LATERAL',
-              dir: 'lat',
-              color: col,
-              width: Math.min(2.5 + Math.log((c.count || 1) + 1), 5.5),
-              _detail: {
-                first_seen: c.first_seen, last_seen: c.last_seen,
-                src: c.source, dst: c.target,
-                protocol: c.protocol || '', port: c.port || '',
-                count: c.count || 1, blocked: c.blocked || 0, severity: c.severity || 'critical',
-                extra: c.description || (bl ? 'BLOCKED' : '')
-              }
-            }
-          });
-        }
+        const bl = c.blocked > 0;
+        const isMemberOf = c.protocol === 'MemberOf';
+        const col = bl ? '#ef4444' : (isMemberOf ? '#3b82f6' : (c.severity === 'critical' ? '#ef4444' : '#f97316'));
+        addEdge(fromId, toId, {
+          label: c.protocol || 'LATERAL',
+          dir: 'lat',
+          color: col,
+          width: Math.min(2.5 + Math.log((c.count || 1) + 1), 5.5),
+          count: c.count || 1,
+          severity: c.severity || 'critical',
+          _detail: {
+            first_seen: c.first_seen, last_seen: c.last_seen,
+            src: c.source, dst: c.target,
+            protocol: c.protocol || '', port: c.port || '',
+            count: c.count || 1, blocked: c.blocked || 0, severity: c.severity || 'critical',
+            extra: c.description || (bl ? 'BLOCKED' : '')
+          }
+        });
       }
     });
 
@@ -469,35 +469,45 @@ export default function BloodHoundNodeDiagram({
       }
 
       if (fromId && toId && fromId !== toId) {
-        const eid = `e_ad_${idx}_${fromId}_${toId}`;
-        if (!edgeSet.has(eid)) {
-          edgeSet.add(eid);
-          const col = adCol(a.attack_type);
-          elements.push({
-            group: 'edges',
-            data: {
-              id: eid,
-              source: fromId,
-              target: toId,
-              label: a.attack_type || 'AD ATTACK',
-              dir: 'ad',
-              color: col,
-              width: Math.min(3 + Math.log((a.count || 1) + 1), 6),
-              _detail: {
-                first_seen: a.first_seen, last_seen: a.last_seen,
-                src: a.actor || a.remote_ip || '?', dst: a.target_machine || '?',
-                protocol: a.protocol || a.attack_type, port: '-',
-                count: a.count || 1, blocked: 0, severity: a.severity || 'critical',
-                extra: a.description || `AD Attack: ${a.attack_type}`
-              }
-            }
-          });
-        }
+        const col = adCol(a.attack_type);
+        addEdge(fromId, toId, {
+          label: a.attack_type || 'AD ATTACK',
+          dir: 'ad',
+          color: col,
+          width: Math.min(3 + Math.log((a.count || 1) + 1), 6),
+          count: a.count || 1,
+          severity: a.severity || 'critical',
+          _detail: {
+            first_seen: a.first_seen, last_seen: a.last_seen,
+            src: a.actor || a.remote_ip || '?', dst: a.target_machine || '?',
+            protocol: a.protocol || a.attack_type, port: '-',
+            count: a.count || 1, blocked: 0, severity: a.severity || 'critical',
+            extra: a.description || `AD Attack: ${a.attack_type}`
+          }
+        });
       }
     });
 
+    // Add consolidated edges to elements
+    edgeMap.forEach(e => {
+      elements.push({
+        group: 'edges',
+        data: {
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          label: e.label,
+          dir: e.dir,
+          color: e.color,
+          width: e.width,
+          _detail: e._detail,
+          _detailList: e._detailList
+        }
+      });
+    });
+
     const finalNodeCount = nodeSet.size;
-    const finalEdgeCount = edgeSet.size;
+    const finalEdgeCount = edgeMap.size;
     requestAnimationFrame(() => {
       setCounts({ nodes: finalNodeCount, edges: finalEdgeCount });
     });
@@ -591,40 +601,6 @@ export default function BloodHoundNodeDiagram({
 
     cy.fit(undefined, 50);
 
-    // Dynamic Zoom-in & Zoom-out Handler for BloodHound-style crisp labels
-    let zoomRaf = null;
-    const updateDynamicZoom = () => {
-      if (zoomRaf) cancelAnimationFrame(zoomRaf);
-      zoomRaf = requestAnimationFrame(() => {
-        if (!cyRef.current) return;
-        const z = cyRef.current.zoom();
-
-        // Calculate dynamic font size in model coordinates:
-        // Keeps on-screen font size comfortably between ~10px and ~14px across all zoom scales!
-        const targetScreenPx = Math.max(9.5, Math.min(13.5, 11 * Math.pow(z, 0.25)));
-        const dynamicNodeFontSize = Math.max(12, Math.min(38, Math.round(targetScreenPx / z)));
-        const dynamicMargin = Math.max(6, Math.min(16, Math.round(dynamicNodeFontSize * 0.4)));
-
-        // Edge label visibility & scaling
-        const edgeOpacity = z < 0.30 ? 0 : Math.min(1, (z - 0.30) / 0.20);
-        const dynamicEdgeFontSize = Math.max(9, Math.min(22, Math.round(9 / z)));
-
-        cyRef.current.batch(() => {
-          cyRef.current.nodes().style({
-            'font-size': dynamicNodeFontSize,
-            'text-margin-y': dynamicMargin
-          });
-          cyRef.current.edges().style({
-            'font-size': dynamicEdgeFontSize,
-            'text-opacity': edgeOpacity
-          });
-        });
-      });
-    };
-
-    cy.on('zoom', updateDynamicZoom);
-    updateDynamicZoom();
-
     // Click Node
     cy.on('tap', 'node', (evt) => {
       const node = evt.target;
@@ -645,7 +621,14 @@ export default function BloodHoundNodeDiagram({
       const connectedEdges = [];
       node.connectedEdges().forEach(edge => {
         const d = edge.data('_detail');
-        if (d) connectedEdges.push({ ...d, _dir: edge.data('dir') });
+        const dList = edge.data('_detailList');
+        if (dList && dList.length > 0) {
+          dList.forEach(item => {
+            if (item) connectedEdges.push({ ...item, _dir: edge.data('dir') });
+          });
+        } else if (d) {
+          connectedEdges.push({ ...d, _dir: edge.data('dir') });
+        }
       });
       connectedEdges.sort((a, b) => (b.count || 1) - (a.count || 1));
 
@@ -680,7 +663,8 @@ export default function BloodHoundNodeDiagram({
           id: eid,
           label: edgeData.label,
           dir: edgeData.dir,
-          detail: edgeData._detail
+          detail: edgeData._detail,
+          rows: edgeData._detailList || [edgeData._detail]
         });
       }
     });
@@ -726,9 +710,7 @@ export default function BloodHoundNodeDiagram({
     return () => {
       ro.disconnect();
       clearTimeout(resizeTimer);
-      if (zoomRaf) cancelAnimationFrame(zoomRaf);
       if (cyRef.current) {
-        cyRef.current.off('zoom', updateDynamicZoom);
         cyRef.current.destroy();
         cyRef.current = null;
       }
@@ -1087,22 +1069,19 @@ export default function BloodHoundNodeDiagram({
         }}
       >
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '10px', height: '10px', borderRadius: '50%', border: isLight ? '1.5px solid #0f172a' : '1.5px solid #334155', background: '#f87171', display: 'inline-block' }}></span> Host / Computer
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #ef4444', background: legendNodeCore }}></span> Host
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '10px', height: '10px', borderRadius: '50%', border: isLight ? '1.5px solid #0f172a' : '1.5px solid #334155', background: '#22c55e', display: 'inline-block' }}></span> User
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #22c55e', background: legendNodeCore }}></span> User
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '10px', height: '10px', borderRadius: '50%', border: isLight ? '1.5px solid #0f172a' : '1.5px solid #334155', background: '#facc15', display: 'inline-block' }}></span> Group
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #eab308', background: legendNodeCore }}></span> Group
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '10px', height: '10px', borderRadius: '50%', border: isLight ? '1.5px solid #0f172a' : '1.5px solid #334155', background: '#fb923c', display: 'inline-block' }}></span> OU / Container
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #a855f7', background: legendNodeCore }}></span> AD Attack
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '10px', height: '10px', borderRadius: '50%', border: isLight ? '1.5px solid #0f172a' : '1.5px solid #334155', background: '#ef4444', display: 'inline-block' }}></span> AD Attack
-        </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-          <span style={{ width: '10px', height: '10px', borderRadius: '50%', border: isLight ? '1.5px solid #0f172a' : '1.5px solid #334155', background: '#94a3b8', display: 'inline-block' }}></span> WAN IP
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #94a3b8', background: legendNodeCore }}></span> WAN IP
         </span>
       </div>
     </div>

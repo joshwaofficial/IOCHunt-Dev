@@ -48,29 +48,29 @@ export const NODE_ICONS = {
 };
 
 export const KIND_COLORS = {
-  machine: '#f87171',      // BloodHound computer: coral / red
-  computer: '#f87171',     // BloodHound computer
-  user: '#22c55e',         // BloodHound user: vibrant green
-  group: '#facc15',        // BloodHound group: gold / bright yellow
-  ou: '#fb923c',           // BloodHound OU: vibrant orange
-  container: '#fb923c',    // BloodHound container: vibrant orange
-  dc: '#facc15',           // BloodHound Domain Controller / Key: gold
-  domain: '#a855f7',       // BloodHound domain: violet
-  actor: '#a855f7',        // Attacker / AD Actor: violet
-  ad_attack: '#ef4444',    // AD Attack: crimson
-  ip_external: '#94a3b8',  // External WAN: slate
-  ip_private: '#38bdf8',   // Private IP: cyan
-  default: '#38bdf8'
+  machine: '#ef4444',      // Computer: coral / red ring
+  computer: '#ef4444',     // Computer: coral / red ring
+  user: '#22c55e',         // User: vibrant green ring
+  group: '#eab308',        // Group: gold / amber ring
+  ou: '#f97316',           // OU: orange ring
+  container: '#f97316',    // Container: orange ring
+  dc: '#eab308',           // Domain Controller / Key: gold ring
+  domain: '#a855f7',       // Domain: violet ring
+  actor: '#a855f7',        // Attacker / AD Actor: violet ring
+  ad_attack: '#ef4444',    // AD Attack: crimson ring
+  ip_external: '#94a3b8',  // External WAN: slate ring
+  ip_private: '#3b82f6',   // Private IP: blue ring
+  default: '#3b82f6'
 };
 
 const svgDataUriCache = new Map();
 
 /**
  * Generate crisp vector SVG data URIs for Cytoscape node background images.
- * Perfectly square 1:1 viewBox with centered path so icons never stretch,
- * distort, or clip inside the circular node!
+ * Perfectly square 1:1 viewBox with centered path and fixed 256x256 dimensions
+ * so icons never stretch, distort, or change size relative to the node when zooming!
  */
-export function getNodeSvgDataUri(iconType, iconColor = '#0f172a') {
+export function getNodeSvgDataUri(iconType, iconColor = '#3b82f6') {
   const cacheKey = `${iconType}|${iconColor}`;
   if (svgDataUriCache.has(cacheKey)) return svgDataUriCache.get(cacheKey);
 
@@ -83,8 +83,8 @@ export function getNodeSvgDataUri(iconType, iconColor = '#0f172a') {
   const offsetY = ((maxDim - h) / 2).toFixed(1);
   const encodedColor = encodeURIComponent(iconColor);
 
-  // Exact 1:1 square canvas with centered path
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${maxDim} ${maxDim}"><g transform="translate(${offsetX}, ${offsetY})"><path fill="${encodedColor}" d="${path}"/></g></svg>`;
+  // Exact 256x256 pixel dimensions with centered path
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 ${maxDim} ${maxDim}"><g transform="translate(${offsetX}, ${offsetY})"><path fill="${encodedColor}" d="${path}"/></g></svg>`;
   const uri = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   svgDataUriCache.set(cacheKey, uri);
   return uri;
