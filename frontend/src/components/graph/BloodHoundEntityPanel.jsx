@@ -831,7 +831,8 @@ export default function BloodHoundEntityPanel({
               onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'external' ? 'all' : 'external')}
               isActiveCategory={activeCategory === 'external'}
               onSelectNodeById={onSelectNodeById}
-              targetKey="src"
+              selfLabel={selectedNode?.label || ''}
+              selfId={(selectedNode?.id || '').replace(/^m:/, '')}
               isLight={isLight}
               borderColor={borderColor}
               sectionBg={sectionBg}
@@ -850,7 +851,8 @@ export default function BloodHoundEntityPanel({
               onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'internal' ? 'all' : 'internal')}
               isActiveCategory={activeCategory === 'internal'}
               onSelectNodeById={onSelectNodeById}
-              targetKey="dst"
+              selfLabel={selectedNode?.label || ''}
+              selfId={(selectedNode?.id || '').replace(/^m:/, '')}
               isLight={isLight}
               borderColor={borderColor}
               sectionBg={sectionBg}
@@ -862,14 +864,15 @@ export default function BloodHoundEntityPanel({
             <RelationshipAccordion
               title="Inbound Connections"
               icon="arrow_downward"
-              iconColor="#3b82f6"
+              iconColor="#06b6d4"
               items={categorizedRelationships.in}
               isOpen={openAccordions.inbound}
               onToggle={() => toggleAccordion('inbound')}
               onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'inbound' ? 'all' : 'inbound')}
               isActiveCategory={activeCategory === 'inbound'}
               onSelectNodeById={onSelectNodeById}
-              targetKey="src"
+              selfLabel={selectedNode?.label || ''}
+              selfId={(selectedNode?.id || '').replace(/^m:/, '')}
               isLight={isLight}
               borderColor={borderColor}
               sectionBg={sectionBg}
@@ -888,7 +891,8 @@ export default function BloodHoundEntityPanel({
               onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'outbound' ? 'all' : 'outbound')}
               isActiveCategory={activeCategory === 'outbound'}
               onSelectNodeById={onSelectNodeById}
-              targetKey="dst"
+              selfLabel={selectedNode?.label || ''}
+              selfId={(selectedNode?.id || '').replace(/^m:/, '')}
               isLight={isLight}
               borderColor={borderColor}
               sectionBg={sectionBg}
@@ -907,7 +911,8 @@ export default function BloodHoundEntityPanel({
               onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'lateral' ? 'all' : 'lateral')}
               isActiveCategory={activeCategory === 'lateral'}
               onSelectNodeById={onSelectNodeById}
-              targetKey="dst"
+              selfLabel={selectedNode?.label || ''}
+              selfId={(selectedNode?.id || '').replace(/^m:/, '')}
               isLight={isLight}
               borderColor={borderColor}
               sectionBg={sectionBg}
@@ -926,7 +931,8 @@ export default function BloodHoundEntityPanel({
               onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'ad_attacks' ? 'all' : 'ad_attacks')}
               isActiveCategory={activeCategory === 'ad_attacks'}
               onSelectNodeById={onSelectNodeById}
-              targetKey="dst"
+              selfLabel={selectedNode?.label || ''}
+              selfId={(selectedNode?.id || '').replace(/^m:/, '')}
               isLight={isLight}
               borderColor={borderColor}
               sectionBg={sectionBg}
@@ -974,6 +980,8 @@ function RelationshipAccordion({
   onFocusCategory,
   isActiveCategory,
   onSelectNodeById,
+  selfLabel = '',
+  selfId = '',
   targetKey = 'dst',
   isLight,
   borderColor,
@@ -1083,8 +1091,9 @@ function RelationshipAccordion({
       {isOpen && count > 0 && (
         <div style={{ maxHeight: '170px', overflowY: 'auto', padding: '4px' }}>
           {items.map((it, idx) => {
-            const targetName = it[targetKey] || it.src || it.dst || it.actor || it.target || 'Node';
-            const proto = it.protocol || it.attack_type || '-';
+            const isSrcSelf = (it.src || '').toLowerCase() === (selfLabel || '').toLowerCase() || (it.src || '').toLowerCase() === (selfId || '').toLowerCase();
+            const targetName = it._otherLabel || (isSrcSelf ? it.dst : it.src) || it.actor || it.target || it[targetKey] || 'Node';
+            const proto = it.protocol || it.attack_type || it._edgeLabel || it._label || '-';
             return (
               <div
                 key={idx}
