@@ -408,7 +408,7 @@ export default function BloodHoundEntityPanel({
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
             <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>filter_alt</span>
-            <span>Focus: <b>{activeCategory.toUpperCase()}</b></span>
+            <span>Focus: <b>{activeCategory === 'isolated' ? 'ISOLATED VIEW' : activeCategory.toUpperCase()}</b></span>
           </div>
           <button
             onClick={() => onFocusCategory && onFocusCategory('all')}
@@ -874,8 +874,8 @@ export default function BloodHoundEntityPanel({
                 items={categorizedRelationships.sessions}
                 isOpen={openAccordions.sessions}
                 onToggle={() => toggleAccordion('sessions')}
-                onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'ad_attacks' ? 'all' : 'ad_attacks')}
-                isActiveCategory={false}
+                onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'sessions' ? 'all' : 'sessions')}
+                isActiveCategory={activeCategory === 'sessions'}
                 onSelectNodeById={onSelectNodeById}
                 targetKey="dst"
                 isLight={isLight}
@@ -939,7 +939,12 @@ function RelationshipAccordion({
         }}
       >
         <div
-          onClick={onToggle}
+          onClick={() => {
+            onToggle();
+            if (count > 0 && onFocusCategory) {
+              onFocusCategory();
+            }
+          }}
           style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0 }}
         >
           <span className="material-symbols-outlined" style={{ fontSize: '15px', color: iconColor }}>
@@ -993,7 +998,10 @@ function RelationshipAccordion({
           )}
 
           <span
-            onClick={onToggle}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
             className="material-symbols-outlined"
             style={{ fontSize: '16px', color: mutedColor, marginLeft: '2px' }}
           >

@@ -322,7 +322,6 @@ export default function BloodHoundNodeDiagram({
 }) {
   const containerRef = useRef(null);
   const cyRef = useRef(null);
-  const initialPositionsRef = useRef(new Map());
   const callbacksRef = useRef({ onSelectNode, onSelectEdge, onClearSelection });
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
@@ -814,12 +813,6 @@ export default function BloodHoundNodeDiagram({
 
     cy.fit(undefined, 50);
 
-    // Save pristine baseline positions of every node so unfocusing restores exact original coordinates!
-    initialPositionsRef.current.clear();
-    cy.nodes().forEach(n => {
-      initialPositionsRef.current.set(n.id(), { ...n.position() });
-    });
-
     // BloodHound-style scale-adaptive font sizing:
     // When zoomed OUT (diagram overview is big), labels scale UP in world space so text remains clearly readable.
     // When zoomed IN, labels scale DOWN in world space so text doesn't bloat up and crowd the nodes and edges.
@@ -864,15 +857,27 @@ export default function BloodHoundNodeDiagram({
       setSelectedNode(nid);
       setSelectedEdge(null);
 
-      // Trace connected chain
-      cy.elements().removeClass('selected in-chain faded');
-      cy.elements().addClass('faded');
+      // Check if we are currently in an isolated sub-graph view (some elements are hidden)
+      const hasHidden = cy.elements('.hidden').length > 0;
+      if (hasHidden) {
+        // Keep hidden elements hidden; only manage selection on visible elements
+        const visible = cy.elements().not('.hidden');
+        visible.removeClass('selected in-chain faded');
+        node.addClass('selected');
+        const visibleConnectedEdges = node.connectedEdges().not('.hidden');
+        visibleConnectedEdges.addClass('in-chain');
+        visibleConnectedEdges.connectedNodes().not('.hidden').addClass('in-chain');
+      } else {
+        // Full graph: blur/fade all other nodes immediately on 1st click
+        cy.elements().removeClass('selected in-chain faded');
+        cy.elements().addClass('faded');
 
-      const predecessors = node.predecessors();
-      const successors = node.successors();
-      const chain = node.union(predecessors).union(successors);
-      chain.removeClass('faded').addClass('in-chain');
-      node.addClass('selected');
+        const predecessors = node.predecessors();
+        const successors = node.successors();
+        const chain = node.union(predecessors).union(successors);
+        chain.removeClass('faded').addClass('in-chain');
+        node.removeClass('faded').addClass('selected');
+      }
 
       const connectedEdges = [];
       node.connectedEdges().forEach(edge => {
@@ -931,24 +936,16 @@ export default function BloodHoundNodeDiagram({
       }
     });
 
-    // Click Background Stage
+    // Click Background Stage (Deselect without resetting dragged positions or zooming out)
     cy.on('tap', (evt) => {
       if (evt.target === cy) {
         setSelectedNode(null);
         setSelectedEdge(null);
-        cy.elements().removeClass('hidden selected in-chain faded hovered');
-        if (initialPositionsRef.current.size > 0) {
-          cy.batch(() => {
-            cy.nodes().forEach(n => {
-              const orig = initialPositionsRef.current.get(n.id());
-              if (orig) {
-                n.position({ x: orig.x, y: orig.y });
-              }
-            });
-          });
-          cy.animate({
-            fit: { eles: cy.elements(), padding: 50 }
-          }, { duration: 250 });
+        const hasHidden = cy.elements('.hidden').length > 0;
+        if (!hasHidden) {
+          cy.elements().removeClass('selected in-chain faded hovered');
+        } else {
+          cy.elements().not('.hidden').removeClass('selected in-chain faded hovered');
         }
         if (callbacksRef.current.onClearSelection) {
           callbacksRef.current.onClearSelection();
@@ -995,33 +992,55 @@ export default function BloodHoundNodeDiagram({
 
   // Dynamic Redesign & Radial Layout when focusedCategory or selectedNode changes
   useEffect(() => {
-    if (!cyRef.current || !selectedNode) return;
+    if (!cyRef.current) return;
     const cy = cyRef.current;
-    const node = cy.getElementById(selectedNode);
-    if (!node || node.length === 0) return;
 
+    // Case A: Full graph mode (show all nodes)
     if (!focusedCategory || focusedCategory === 'all') {
-      cy.elements().removeClass('hidden selected in-chain faded');
-      if (initialPositionsRef.current.size > 0) {
-        cy.batch(() => {
-          cy.nodes().forEach(n => {
-            const orig = initialPositionsRef.current.get(n.id());
-            if (orig) {
-              n.position({ x: orig.x, y: orig.y });
-            }
-          });
-        });
-        cy.animate({
-          fit: { eles: cy.elements(), padding: 50 }
-        }, { duration: 300 });
+      cy.elements().removeClass('hidden');
+
+      if (!selectedNode) {
+        cy.elements().removeClass('selected in-chain faded');
+        return;
       }
+
+      const node = cy.getElementById(selectedNode);
+      if (!node || node.length === 0) return;
+
+      // Ensure all other nodes are blurred/faded on 1st click
+      cy.elements().removeClass('selected in-chain faded');
+      cy.elements().addClass('faded');
+
       const predecessors = node.predecessors();
       const successors = node.successors();
       const chain = node.union(predecessors).union(successors);
       chain.removeClass('faded').addClass('in-chain');
-      node.addClass('selected');
+      node.removeClass('faded').addClass('selected');
+      // DO NOT animate fit or reset coordinates! Keep camera and dragged positions intact.
       return;
     }
+
+    // Case B: Subgraph is isolated (user is clicking a node within the isolated sub-graph)
+    if (focusedCategory === 'isolated') {
+      if (!selectedNode) return;
+      const node = cy.getElementById(selectedNode);
+      if (!node || node.length === 0) return;
+
+      // Keep hidden elements hidden; only manage selection on visible elements
+      const visible = cy.elements().not('.hidden');
+      visible.removeClass('selected in-chain faded');
+      node.addClass('selected');
+
+      const visibleConnectedEdges = node.connectedEdges().not('.hidden');
+      visibleConnectedEdges.addClass('in-chain');
+      visibleConnectedEdges.connectedNodes().not('.hidden').addClass('in-chain');
+      return;
+    }
+
+    // Case C: Active Category Isolation (inbound, outbound, lateral, ad_attacks, sessions)
+    if (!selectedNode) return;
+    const node = cy.getElementById(selectedNode);
+    if (!node || node.length === 0) return;
 
     // Filter connected edges by category
     const allConnectedEdges = node.connectedEdges();
@@ -1039,6 +1058,9 @@ export default function BloodHoundNodeDiagram({
       }
       if (focusedCategory === 'ad_attacks') {
         return dir === 'ad' || label.includes('attack') || ['genericall', 'writedacl', 'writeowner', 'dcsync', 'privilegedsession', 'certipyenum', 'esc1', 'kerberoasting', 'passwordspray', 'overpasshash'].includes(label);
+      }
+      if (focusedCategory === 'sessions') {
+        return dir === 'lat' || label === 'hassession' || label === 'session' || label === 'loggedon';
       }
       return true;
     });
@@ -1116,7 +1138,7 @@ export default function BloodHoundNodeDiagram({
     setSelectedNode(null);
     setSelectedEdge(null);
     if (cyRef.current) {
-      cyRef.current.elements().removeClass('selected in-chain faded');
+      cyRef.current.elements().removeClass('hidden selected in-chain faded hovered');
     }
     if (onClearSelection) onClearSelection();
   }, [onClearSelection]);

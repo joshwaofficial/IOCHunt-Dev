@@ -646,19 +646,18 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
                   onSelectNode={(n) => {
                     setSelectedNode(n);
                     setSelectedEdge(null);
-                    setFocusedCategory('all');
+                    setFocusedCategory(prev => (prev && prev !== 'all' ? 'isolated' : 'all'));
                     setInfoText(`HOST / NODE: ${n.label} (${n.subLabel || ''}) — ${n.rows.length} connection(s)`);
                   }}
                   onSelectEdge={(e) => {
                     setSelectedEdge(e);
                     setSelectedNode(null);
-                    setFocusedCategory('all');
                     setInfoText(`${e.label} | ${e.detail?.src || ''} → ${e.detail?.dst || ''} (x${e.detail?.count || 1})`);
                   }}
                   onClearSelection={() => {
                     setSelectedNode(null);
                     setSelectedEdge(null);
-                    setFocusedCategory('all');
+                    setFocusedCategory(prev => (prev && prev !== 'all' ? prev : 'all'));
                     setFocusNodeTarget(null);
                     setInfoText('Click a node or edge to inspect');
                   }}
