@@ -64,8 +64,6 @@ export default function BloodHoundEntityPanel({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [openAccordions, setOpenAccordions] = useState({
     objectInfo: true,
-    external: true,
-    internal: true,
     inbound: true,
     outbound: true,
     lateral: true,
@@ -90,10 +88,10 @@ export default function BloodHoundEntityPanel({
   const sectionBg = isLight ? 'rgba(241, 245, 249, 0.75)' : 'rgba(255, 255, 255, 0.03)';
   const hoverBg = isLight ? 'rgba(226, 232, 240, 0.8)' : 'rgba(255, 255, 255, 0.07)';
 
-  // Process relationships from selectedNode.rows with accurate Inbound, Outbound, External & Internal categorization
+  // Process relationships from selectedNode.rows
   const categorizedRelationships = useMemo(() => {
     if (!selectedNode || !selectedNode.rows) {
-      return { in: [], out: [], lat: [], ad: [], sessions: [], external: [], internal: [] };
+      return { in: [], out: [], lat: [], ad: [], sessions: [] };
     }
 
     const inList = [];
@@ -101,43 +99,62 @@ export default function BloodHoundEntityPanel({
     const latList = [];
     const adList = [];
     const sessionsList = [];
-    const externalList = [];
-    const internalList = [];
 
-    const selfId = (selectedNode.id || '').replace(/^m:/, '');
-    const selfLabel = (selectedNode.label || '').toLowerCase();
+    const selfId = (selectedNode.id || '').replace(/^m:/, '').toLowerCase();
+    const selfLabel = (selectedNode.label || selectedNode.fullLabel || '').toLowerCase();
 
     selectedNode.rows.forEach(r => {
-      // 1. INBOUND vs OUTBOUND (Directional)
-      const isInbound = r._dir === 'in' || (r.dst && (r.dst.toLowerCase() === selfLabel || r.dst.toLowerCase() === selfId.toLowerCase()));
-      if (isInbound) {
-        inList.push(r);
-      } else {
-        outList.push(r);
+      // Determine if traffic or connection is pointing into this node or out of this node
+      const isTarget = r._isTarget !== undefined
+        ? r._isTarget
+        : ((r.dst || '').toLowerCase() === selfLabel || (r.dst || '').toLowerCase() === selfId);
+
+      const otherNodeName = r._otherLabel || (isTarget ? (r.src || r.source) : (r.dst || r.target)) || 'Node';
+      const cleanItem = { ...r, _otherLabel: otherNodeName, _direction: isTarget ? 'in' : 'out' };
+
+      const proto = (r.protocol || r.label || '').toLowerCase();
+      const dir = r._dir || (isTarget ? 'in' : 'out');
+
+      // 1. Sessions & Logons
+      if (
+        r.protocol === 'PrivilegedSession' ||
+        r.protocol === 'Interactive-Logon' ||
+        r.protocol === 'ActiveDirectory-Session' ||
+        proto.includes('session') ||
+        proto === 'hassession' ||
+        proto === 'loggedon'
+      ) {
+        sessionsList.push(cleanItem);
       }
-
-      // 2. EXTERNAL vs INTERNAL (Scope)
-      const otherName = (isInbound ? r.src : r.dst) || '';
-      const isExt = r._isExternal ||
-        r._otherType === 'actor' || r._otherType === 'ip_external' ||
-        otherName.includes('Actor') || otherName.includes('Attacker') || otherName.includes('CobaltStrike') || otherName.includes('APT') ||
-        (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(otherName) && !otherName.startsWith('10.') && !otherName.startsWith('192.168.') && !otherName.startsWith('172.'));
-
-      if (isExt) {
-        externalList.push(r);
-      } else {
-        internalList.push(r);
+      // 2. Active Directory Attack Rights & Exploitation
+      else if (
+        dir === 'ad' ||
+        proto.includes('attack') ||
+        proto.includes('right') ||
+        [
+          'genericall', 'writedacl', 'writeowner', 'dcsync', 'allextendedrights',
+          'owns', 'shadowcred', 'kerberoasting', 'passwordspray', 'overpasshash',
+          'esc1', 'certipyenum', 'addmember'
+        ].includes(proto)
+      ) {
+        adList.push(cleanItem);
       }
-
-      // 3. THREAT & PROTOCOL TYPE
-      const proto = (r.protocol || '').toLowerCase();
-      const edgeDir = r._edgeDir;
-      if (r.protocol === 'PrivilegedSession' || r.protocol === 'Interactive-Logon' || r.protocol === 'ActiveDirectory-Session') {
-        sessionsList.push(r);
-      } else if (edgeDir === 'ad' || proto.includes('attack') || proto.includes('right') || ['genericall', 'writedacl', 'writeowner', 'dcsync', 'allextendedrights', 'owns', 'shadowcred', 'kerberoasting', 'passwordspray', 'esc1'].includes(proto)) {
-        adList.push(r);
-      } else if (edgeDir === 'lat' || proto === 'memberof' || proto === 'containedin' || proto === 'adminto' || proto === 'ssh' || proto === 'winrm' || proto === 'smb') {
-        latList.push(r);
+      // 3. Structural Active Directory & Lateral Privileges
+      else if (
+        proto === 'memberof' ||
+        proto === 'containedin' ||
+        proto === 'adminto' ||
+        proto === 'localadmin'
+      ) {
+        latList.push(cleanItem);
+      }
+      // 4. Inbound Network & Service Connections (traffic entering this node)
+      else if (isTarget || dir === 'in') {
+        inList.push(cleanItem);
+      }
+      // 5. Outbound Network & Service Connections (traffic leaving this node)
+      else {
+        outList.push(cleanItem);
       }
     });
 
@@ -146,9 +163,7 @@ export default function BloodHoundEntityPanel({
       out: outList,
       lat: latList,
       ad: adList,
-      sessions: sessionsList,
-      external: externalList,
-      internal: internalList
+      sessions: sessionsList
     };
   }, [selectedNode]);
 
@@ -431,15 +446,7 @@ export default function BloodHoundEntityPanel({
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
             <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>filter_alt</span>
-            <span>Focus: <b>
-              {activeCategory === 'isolated'
-                ? 'ISOLATED VIEW'
-                : activeCategory === 'external'
-                ? 'EXTERNAL ATTACK PATH'
-                : activeCategory === 'internal'
-                ? 'INTERNAL NETWORK PATH'
-                : activeCategory.toUpperCase()}
-            </b></span>
+            <span>Focus: <b>{activeCategory === 'full_path' ? 'FULL ATTACK PATH' : (activeCategory === 'isolated' ? 'ISOLATED VIEW' : activeCategory.toUpperCase())}</b></span>
           </div>
           <button
             onClick={() => onFocusCategory && onFocusCategory('all')}
@@ -755,6 +762,38 @@ export default function BloodHoundEntityPanel({
         {/* ========================================================================= */}
         {selectedNode && (
           <>
+            {/* Quick Action: Trace Full Attack Path */}
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => onFocusCategory && onFocusCategory(activeCategory === 'full_path' ? 'all' : 'full_path')}
+                title={activeCategory === 'full_path' ? "Reset focus to show all graph nodes" : "Show full attack path from threat roots to targets for this node"}
+                style={{
+                  flex: 1,
+                  padding: '9px 12px',
+                  borderRadius: '7px',
+                  background: activeCategory === 'full_path'
+                    ? 'linear-gradient(135deg, #0052FF, #2563eb)'
+                    : (isLight ? 'rgba(0, 82, 255, 0.08)' : 'rgba(0, 82, 255, 0.16)'),
+                  border: `1px solid ${activeCategory === 'full_path' ? '#0052FF' : 'rgba(0, 82, 255, 0.35)'}`,
+                  color: activeCategory === 'full_path' ? '#ffffff' : '#3b82f6',
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  boxShadow: activeCategory === 'full_path' ? '0 2px 10px rgba(0, 82, 255, 0.35)' : 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>
+                  {activeCategory === 'full_path' ? 'visibility_off' : 'alt_route'}
+                </span>
+                {activeCategory === 'full_path' ? 'Exit Full Attack Path' : 'Show Full Attack Path'}
+              </button>
+            </div>
+
             {/* Accordion 1: Object Information */}
             <div
               style={{
@@ -820,59 +859,18 @@ export default function BloodHoundEntityPanel({
               )}
             </div>
 
-            {/* Accordion: External Attack Path (Full Multi-hop Path from External Threat Actors / WAN IPs) */}
-            <RelationshipAccordion
-              title="External Attack Path"
-              icon="public"
-              iconColor="#ef4444"
-              items={categorizedRelationships.external}
-              isOpen={openAccordions.external}
-              onToggle={() => toggleAccordion('external')}
-              onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'external' ? 'all' : 'external')}
-              isActiveCategory={activeCategory === 'external'}
-              onSelectNodeById={onSelectNodeById}
-              selfLabel={selectedNode?.label || ''}
-              selfId={(selectedNode?.id || '').replace(/^m:/, '')}
-              isLight={isLight}
-              borderColor={borderColor}
-              sectionBg={sectionBg}
-              textColor={textColor}
-              mutedColor={mutedColor}
-            />
-
-            {/* Accordion: Internal Network Path */}
-            <RelationshipAccordion
-              title="Internal Network Path"
-              icon="hub"
-              iconColor="#0ea5e9"
-              items={categorizedRelationships.internal}
-              isOpen={openAccordions.internal}
-              onToggle={() => toggleAccordion('internal')}
-              onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'internal' ? 'all' : 'internal')}
-              isActiveCategory={activeCategory === 'internal'}
-              onSelectNodeById={onSelectNodeById}
-              selfLabel={selectedNode?.label || ''}
-              selfId={(selectedNode?.id || '').replace(/^m:/, '')}
-              isLight={isLight}
-              borderColor={borderColor}
-              sectionBg={sectionBg}
-              textColor={textColor}
-              mutedColor={mutedColor}
-            />
-
             {/* Accordion 2: Inbound Connections */}
             <RelationshipAccordion
               title="Inbound Connections"
               icon="arrow_downward"
-              iconColor="#06b6d4"
+              iconColor="#3b82f6"
               items={categorizedRelationships.in}
               isOpen={openAccordions.inbound}
               onToggle={() => toggleAccordion('inbound')}
               onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'inbound' ? 'all' : 'inbound')}
               isActiveCategory={activeCategory === 'inbound'}
               onSelectNodeById={onSelectNodeById}
-              selfLabel={selectedNode?.label || ''}
-              selfId={(selectedNode?.id || '').replace(/^m:/, '')}
+              targetKey="src"
               isLight={isLight}
               borderColor={borderColor}
               sectionBg={sectionBg}
@@ -891,8 +889,7 @@ export default function BloodHoundEntityPanel({
               onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'outbound' ? 'all' : 'outbound')}
               isActiveCategory={activeCategory === 'outbound'}
               onSelectNodeById={onSelectNodeById}
-              selfLabel={selectedNode?.label || ''}
-              selfId={(selectedNode?.id || '').replace(/^m:/, '')}
+              targetKey="dst"
               isLight={isLight}
               borderColor={borderColor}
               sectionBg={sectionBg}
@@ -911,8 +908,7 @@ export default function BloodHoundEntityPanel({
               onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'lateral' ? 'all' : 'lateral')}
               isActiveCategory={activeCategory === 'lateral'}
               onSelectNodeById={onSelectNodeById}
-              selfLabel={selectedNode?.label || ''}
-              selfId={(selectedNode?.id || '').replace(/^m:/, '')}
+              targetKey="dst"
               isLight={isLight}
               borderColor={borderColor}
               sectionBg={sectionBg}
@@ -931,8 +927,7 @@ export default function BloodHoundEntityPanel({
               onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'ad_attacks' ? 'all' : 'ad_attacks')}
               isActiveCategory={activeCategory === 'ad_attacks'}
               onSelectNodeById={onSelectNodeById}
-              selfLabel={selectedNode?.label || ''}
-              selfId={(selectedNode?.id || '').replace(/^m:/, '')}
+              targetKey="dst"
               isLight={isLight}
               borderColor={borderColor}
               sectionBg={sectionBg}
@@ -980,8 +975,6 @@ function RelationshipAccordion({
   onFocusCategory,
   isActiveCategory,
   onSelectNodeById,
-  selfLabel = '',
-  selfId = '',
   targetKey = 'dst',
   isLight,
   borderColor,
@@ -1091,9 +1084,8 @@ function RelationshipAccordion({
       {isOpen && count > 0 && (
         <div style={{ maxHeight: '170px', overflowY: 'auto', padding: '4px' }}>
           {items.map((it, idx) => {
-            const isSrcSelf = (it.src || '').toLowerCase() === (selfLabel || '').toLowerCase() || (it.src || '').toLowerCase() === (selfId || '').toLowerCase();
-            const targetName = it._otherLabel || (isSrcSelf ? it.dst : it.src) || it.actor || it.target || it[targetKey] || 'Node';
-            const proto = it.protocol || it.attack_type || it._edgeLabel || it._label || '-';
+            const targetName = it._otherLabel || it[targetKey] || it.src || it.dst || it.actor || it.target || 'Node';
+            const proto = it.protocol || it.attack_type || '-';
             return (
               <div
                 key={idx}

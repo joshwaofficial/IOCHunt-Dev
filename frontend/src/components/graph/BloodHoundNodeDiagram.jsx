@@ -883,58 +883,55 @@ export default function BloodHoundNodeDiagram({
         // Keep hidden elements hidden; only manage selection on visible elements
         const visible = cy.elements().not('.hidden');
         visible.removeClass('selected in-chain faded');
-        node.addClass('selected');
+        visible.addClass('faded');
+        node.removeClass('faded').addClass('selected');
+
         const visibleConnectedEdges = node.connectedEdges().not('.hidden');
-        visibleConnectedEdges.addClass('in-chain');
-        visibleConnectedEdges.connectedNodes().not('.hidden').addClass('in-chain');
+        visibleConnectedEdges.removeClass('faded').addClass('in-chain');
+        visibleConnectedEdges.connectedNodes().not('.hidden').removeClass('faded').addClass('in-chain');
       } else {
         // Full graph: blur/fade all other nodes immediately on 1st click
         cy.elements().removeClass('selected in-chain faded');
         cy.elements().addClass('faded');
 
-        // Direct 1-hop connected neighborhood
-        const directNeighborhood = node.closedNeighborhood();
-        directNeighborhood.removeClass('faded').addClass('in-chain');
+        const predecessors = node.predecessors();
+        const successors = node.successors();
+        const direct = node.closedNeighborhood();
+        const chain = node.union(predecessors).union(successors).union(direct);
+        chain.removeClass('faded').addClass('in-chain');
         node.removeClass('faded').addClass('selected');
       }
 
       const connectedEdges = [];
+
       node.connectedEdges().forEach(edge => {
-        const d = edge.data('_detail');
+        const d = edge.data('_detail') || {};
         const dList = edge.data('_detailList');
         const isTarget = edge.target().id() === nid;
         const otherNode = isTarget ? edge.source() : edge.target();
+        const otherLabel = otherNode.data('fullLabel') || otherNode.data('label') || otherNode.id().replace(/^m:/, '');
         const otherType = otherNode.data('entityType') || 'machine';
-        const isExternal = otherType === 'actor' || otherType === 'ip_external' || otherType === 'ad_attack';
 
-        const edgeMeta = {
-          _dir: isTarget ? 'in' : 'out',
-          _isExternal: isExternal,
+        const baseMeta = {
+          _dir: edge.data('dir'),
+          _isTarget: isTarget,
+          _direction: isTarget ? 'in' : 'out',
+          _otherLabel: otherLabel,
           _otherType: otherType,
-          _otherId: otherNode.id(),
-          _otherLabel: otherNode.data('fullLabel') || otherNode.data('label'),
-          _sourceId: edge.source().id(),
-          _targetId: edge.target().id(),
-          _sourceLabel: edge.source().data('fullLabel') || edge.source().data('label'),
-          _targetLabel: edge.target().data('fullLabel') || edge.target().data('label'),
-          _edgeDir: edge.data('dir'),
-          _edgeLabel: edge.data('label') || edge.data('labelList')?.join(', ')
+          protocol: d.protocol || edge.data('label') || '',
+          src: isTarget ? otherLabel : (node.data('fullLabel') || node.data('label')),
+          dst: isTarget ? (node.data('fullLabel') || node.data('label')) : otherLabel,
+          count: edge.data('count') || d.count || 1
         };
 
         if (dList && dList.length > 0) {
           dList.forEach(item => {
-            if (item) connectedEdges.push({ ...item, ...edgeMeta });
+            if (item) connectedEdges.push({ ...item, ...baseMeta });
           });
         } else if (d) {
-          connectedEdges.push({ ...d, ...edgeMeta });
+          connectedEdges.push({ ...d, ...baseMeta });
         } else {
-          connectedEdges.push({
-            src: edgeMeta._sourceLabel,
-            dst: edgeMeta._targetLabel,
-            protocol: edgeMeta._edgeLabel || 'CONNECTED',
-            count: edge.data('count') || 1,
-            ...edgeMeta
-          });
+          connectedEdges.push(baseMeta);
         }
       });
       connectedEdges.sort((a, b) => (b.count || 1) - (a.count || 1));
@@ -1053,19 +1050,21 @@ export default function BloodHoundNodeDiagram({
       const node = cy.getElementById(selectedNode);
       if (!node || node.length === 0) return;
 
-      // Ensure all other nodes are blurred/faded on 1st click
+      // Ensure all other nodes are blurred/faded immediately on 1st click
       cy.elements().removeClass('selected in-chain faded');
       cy.elements().addClass('faded');
 
-      // Direct 1-hop connected neighborhood
-      const directNeighborhood = node.closedNeighborhood();
-      directNeighborhood.removeClass('faded').addClass('in-chain');
+      const predecessors = node.predecessors();
+      const successors = node.successors();
+      const direct = node.closedNeighborhood();
+      const chain = node.union(predecessors).union(successors).union(direct);
+      chain.removeClass('faded').addClass('in-chain');
       node.removeClass('faded').addClass('selected');
       // DO NOT animate fit or reset coordinates! Keep camera and dragged positions intact.
       return;
     }
 
-    // Case B: Subgraph is isolated (user is clicking a node within the isolated sub-graph)
+    // Case B: Subgraph is isolated (user clicked a node within the isolated sub-graph)
     if (focusedCategory === 'isolated') {
       if (!selectedNode) return;
       const node = cy.getElementById(selectedNode);
@@ -1074,41 +1073,27 @@ export default function BloodHoundNodeDiagram({
       // Keep hidden elements hidden; only manage selection on visible elements
       const visible = cy.elements().not('.hidden');
       visible.removeClass('selected in-chain faded');
-      node.addClass('selected');
+      visible.addClass('faded');
+      node.removeClass('faded').addClass('selected');
 
       const visibleConnectedEdges = node.connectedEdges().not('.hidden');
-      visibleConnectedEdges.addClass('in-chain');
-      visibleConnectedEdges.connectedNodes().not('.hidden').addClass('in-chain');
+      visibleConnectedEdges.removeClass('faded').addClass('in-chain');
+      visibleConnectedEdges.connectedNodes().not('.hidden').removeClass('faded').addClass('in-chain');
       return;
     }
 
-    // Case C: Active Category Isolation
-    if (!selectedNode) return;
-    const node = cy.getElementById(selectedNode);
-    if (!node || node.length === 0) return;
+    // Case C: Full Attack Path Mode (Trace complete kill chain from entry points to crown jewels)
+    if (focusedCategory === 'full_path') {
+      if (!selectedNode) return;
+      const node = cy.getElementById(selectedNode);
+      if (!node || node.length === 0) return;
 
-    // 1. External Attack Path (Full Multi-hop Path from External Threat Entry Point to this Node)
-    if (focusedCategory === 'external') {
-      const upstream = node.predecessors();
-      const externalRoots = upstream.nodes().filter(n => ['actor', 'ip_external', 'ad_attack'].includes(n.data('entityType')));
+      const predecessors = node.predecessors();
+      const successors = node.successors();
+      const direct = node.closedNeighborhood();
+      const fullPath = node.union(predecessors).union(successors).union(direct);
 
-      let fullPath = node;
-      if (externalRoots.length > 0) {
-        const pathEdgesAndNodes = externalRoots.union(externalRoots.successors().intersection(upstream)).union(node);
-        fullPath = fullPath.union(pathEdgesAndNodes);
-      }
-
-      // Direct external edges connected to this node
-      const directExtEdges = node.connectedEdges().filter(edge => {
-        const other = edge.source().id() === selectedNode ? edge.target() : edge.source();
-        return ['actor', 'ip_external', 'ad_attack'].includes(other.data('entityType'));
-      });
-      fullPath = fullPath.union(directExtEdges).union(directExtEdges.connectedNodes());
-
-      // If this node reaches downstream crown jewels, include 1 hop
-      const downstreamCrown = node.outgoers().filter(ele => ele.isNode() ? ele.data('isCrownJewel') : true);
-      fullPath = fullPath.union(downstreamCrown);
-
+      // Completely hide all elements not part of the full attack path
       cy.elements().difference(fullPath).addClass('hidden');
       fullPath.removeClass('hidden faded').addClass('in-chain');
       node.addClass('selected');
@@ -1117,7 +1102,7 @@ export default function BloodHoundNodeDiagram({
         fullPath.layout({
           name: 'dagre',
           rankDir: 'LR',
-          nodeSep: 90,
+          nodeSep: 85,
           rankSep: 220,
           animate: true,
           animationDuration: 350,
@@ -1128,34 +1113,12 @@ export default function BloodHoundNodeDiagram({
       return;
     }
 
-    // 2. Internal Network Path (Internal Lateral Movement & Assets)
-    if (focusedCategory === 'internal') {
-      const internalEdges = node.connectedEdges().filter(edge => {
-        const other = edge.source().id() === selectedNode ? edge.target() : edge.source();
-        return !['actor', 'ip_external', 'ad_attack'].includes(other.data('entityType'));
-      });
-      const internalSubGraph = node.union(internalEdges).union(internalEdges.connectedNodes());
+    // Case D: Active Category Isolation (inbound, outbound, lateral, ad_attacks, sessions)
+    if (!selectedNode) return;
+    const node = cy.getElementById(selectedNode);
+    if (!node || node.length === 0) return;
 
-      cy.elements().difference(internalSubGraph).addClass('hidden');
-      internalSubGraph.removeClass('hidden faded').addClass('in-chain');
-      node.addClass('selected');
-
-      if (internalSubGraph.nodes().length > 1) {
-        internalSubGraph.layout({
-          name: 'concentric',
-          concentric: (n) => (n.id() === selectedNode ? 2 : 1),
-          levelWidth: () => 1,
-          spacingFactor: 1.8,
-          animate: true,
-          animationDuration: 350,
-          fit: true,
-          padding: 90
-        }).run();
-      }
-      return;
-    }
-
-    // 3. Filter other categories (inbound, outbound, lateral, ad_attacks, sessions)
+    // Filter connected edges by category
     const allConnectedEdges = node.connectedEdges();
     const filteredEdges = allConnectedEdges.filter(edge => {
       const dir = edge.data('dir');
