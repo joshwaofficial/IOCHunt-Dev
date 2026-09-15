@@ -603,7 +603,7 @@ export default function BloodHoundNodeDiagram({
     const cy = cytoscape({
       container: containerRef.current,
       elements,
-      style: getCytoscapeStylesheet(theme, edgeLabelMode),
+      style: getCytoscapeStylesheet(theme, showNodeLabels, showEdgeLabels),
       minZoom: 0.02,
       maxZoom: 8.0,
       wheelSensitivity: 1.2, // 5x faster mouse wheel zooming (was 0.25)
