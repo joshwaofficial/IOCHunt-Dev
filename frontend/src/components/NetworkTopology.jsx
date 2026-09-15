@@ -642,6 +642,7 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
                   theme={theme}
                   focusedCategory={focusedCategory}
                   focusNodeTarget={focusNodeTarget}
+                  isPanelOpen={Boolean(selectedNode || selectedEdge)}
                   onSelectNode={(n) => {
                     setSelectedNode(n);
                     setSelectedEdge(null);

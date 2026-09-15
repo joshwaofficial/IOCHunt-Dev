@@ -86,6 +86,10 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'background-position-x': '50%',
         'background-position-y': '50%',
         'background-clip': 'node',
+        'outline-width': 0,
+        'outline-opacity': 0,
+        'overlay-opacity': 0, // Removes the gray box on tap/click!
+        'overlay-padding': 0,
         'label': showNodeLabels ? 'data(shortLabel)' : '',
         'text-opacity': showNodeLabels ? 1.0 : 0,
         'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
@@ -107,7 +111,15 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'transition-duration': '0.15s'
       }
     },
-    // Hovered Node: Always reveal full label immediately + concentric outer halo ring
+    // Remove Cytoscape default tap/active gray overlay box completely
+    {
+      selector: ':active, :selected',
+      style: {
+        'overlay-opacity': 0,
+        'overlay-padding': 0
+      }
+    },
+    // Hovered Node: Concentric outer blue halo ring APPEARS ONLY ON HOVER!
     {
       selector: 'node:hover, node.hovered',
       style: {
@@ -118,10 +130,10 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'text-border-width': 1,
         'border-width': 3.8,
         'border-color': 'data(borderColor)',
-        'outline-width': 3.2,
-        'outline-color': isLight ? '#0284c7' : '#38bdf8',
+        'outline-width': 3.5,
+        'outline-color': '#0052FF',
         'outline-offset': 3.5,
-        'outline-opacity': 0.85,
+        'outline-opacity': 0.95,
         'z-index': 95
       }
     },
@@ -134,16 +146,14 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'border-width': 3.8
       }
     },
-    // Active Selection Node: BloodHound CE blue concentric halo circle & blue pill label!
+    // Active Selection Node: Bold colored border + blue pill label, NO outer blue ring when unhovered!
     {
       selector: 'node.selected',
       style: {
         'border-color': 'data(borderColor)',
-        'border-width': 4.2,
-        'outline-width': 4.5,
-        'outline-color': '#0052FF',
-        'outline-offset': 4.5,
-        'outline-opacity': 1.0,
+        'border-width': 4.5,
+        'outline-width': 0,
+        'outline-opacity': 0,
         'label': 'data(fullLabel)',
         'text-opacity': 1.0,
         'text-background-color': '#0052FF',
@@ -161,6 +171,8 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
       style: {
         'border-width': 3.8,
         'border-color': 'data(borderColor)',
+        'outline-width': 0,
+        'outline-opacity': 0,
         'min-zoomed-font-size': 0,
         'z-index': 60,
         'opacity': 1.0,
@@ -202,9 +214,39 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'text-margin-x': 0,
         'text-margin-y': 0,
         'min-zoomed-font-size': showEdgeLabels ? 0 : 9999,
+        'overlay-opacity': 0,
+        'overlay-padding': 0,
         'z-index': 5,
         'transition-property': 'opacity, width, line-color, target-arrow-color',
         'transition-duration': '0.15s'
+      }
+    },
+    // Explicit class to completely hide node labels
+    {
+      selector: 'node.hide-node-labels',
+      style: {
+        'label': '',
+        'text-opacity': 0,
+        'text-background-opacity': 0,
+        'text-border-width': 0,
+        'min-zoomed-font-size': 99999
+      }
+    },
+    // Explicit class to completely hide edge labels
+    {
+      selector: 'edge.hide-edge-labels',
+      style: {
+        'label': '',
+        'text-opacity': 0,
+        'text-background-opacity': 0,
+        'min-zoomed-font-size': 99999
+      }
+    },
+    // BloodHound focus mode: isolated sub-graph display (unrelated elements completely hidden)
+    {
+      selector: '.hidden',
+      style: {
+        'display': 'none'
       }
     },
     // Hovered Edge: Reveal label with high z-index and subtle highlight
@@ -269,6 +311,7 @@ export default function BloodHoundNodeDiagram({
   theme = 'dark',
   focusedCategory = 'all',
   focusNodeTarget = null,
+  isPanelOpen = false,
   onSelectNode,
   onSelectEdge,
   onClearSelection
@@ -293,12 +336,34 @@ export default function BloodHoundNodeDiagram({
     callbacksRef.current = { onSelectNode, onSelectEdge, onClearSelection };
   }, [onSelectNode, onSelectEdge, onClearSelection]);
 
-  // Update Cytoscape stylesheet when theme, showNodeLabels, or showEdgeLabels changes
+  // Update Cytoscape stylesheet when theme changes
   useEffect(() => {
     if (cyRef.current) {
       cyRef.current.style(getCytoscapeStylesheet(theme, showNodeLabels, showEdgeLabels));
     }
-  }, [theme, showNodeLabels, showEdgeLabels]);
+  }, [theme]);
+
+  // Guaranteed instant class-based node label toggling
+  useEffect(() => {
+    if (!cyRef.current) return;
+    const cy = cyRef.current;
+    if (!showNodeLabels) {
+      cy.nodes().addClass('hide-node-labels');
+    } else {
+      cy.nodes().removeClass('hide-node-labels');
+    }
+  }, [showNodeLabels]);
+
+  // Guaranteed instant class-based edge label toggling
+  useEffect(() => {
+    if (!cyRef.current) return;
+    const cy = cyRef.current;
+    if (!showEdgeLabels) {
+      cy.edges().addClass('hide-edge-labels');
+    } else {
+      cy.edges().removeClass('hide-edge-labels');
+    }
+  }, [showEdgeLabels]);
 
   const dataKey = `${inbound.length}|${outbound.length}|${lateral.length}|${adAttacks.length}|${machines.length}|${layoutMode}`;
 
@@ -611,7 +676,11 @@ export default function BloodHoundNodeDiagram({
     });
 
     cyRef.current = cy;
-    window.__cy = cy;    // Run active layout with clean, readable spacing
+    window.__cy = cy;
+    if (!showNodeLabels) cy.nodes().addClass('hide-node-labels');
+    if (!showEdgeLabels) cy.edges().addClass('hide-edge-labels');
+
+    // Run active layout with clean, readable spacing
     let layoutOpts;
     if (layoutMode === 'dagre') {
       layoutOpts = {
@@ -760,11 +829,11 @@ export default function BloodHoundNodeDiagram({
       const nodeMargin = Math.round(Math.min(12, Math.max(4, 6 / Math.pow(z, 0.5))));
 
       cyRef.current.batch(() => {
-        cyRef.current.nodes(':not(:hover):not(.selected)').style({
+        cyRef.current.nodes(':not(:hover):not(.selected):not(.hide-node-labels)').style({
           'font-size': `${nodeFont}px`,
           'text-margin-y': nodeMargin
         });
-        cyRef.current.edges(':not(:hover):not(.selected)').style({
+        cyRef.current.edges(':not(:hover):not(.selected):not(.hide-edge-labels)').style({
           'font-size': `${edgeFont}px`
         });
       });
@@ -856,7 +925,7 @@ export default function BloodHoundNodeDiagram({
       if (evt.target === cy) {
         setSelectedNode(null);
         setSelectedEdge(null);
-        cy.elements().removeClass('selected in-chain faded');
+        cy.elements().removeClass('hidden selected in-chain faded');
         if (callbacksRef.current.onClearSelection) {
           callbacksRef.current.onClearSelection();
         }
@@ -902,7 +971,7 @@ export default function BloodHoundNodeDiagram({
     if (!node || node.length === 0) return;
 
     if (!focusedCategory || focusedCategory === 'all') {
-      cy.elements().removeClass('selected in-chain faded');
+      cy.elements().removeClass('hidden selected in-chain faded');
       cy.elements().addClass('faded');
       const predecessors = node.predecessors();
       const successors = node.successors();
@@ -916,7 +985,7 @@ export default function BloodHoundNodeDiagram({
     const allConnectedEdges = node.connectedEdges();
     const filteredEdges = allConnectedEdges.filter(edge => {
       const dir = edge.data('dir');
-      const label = edge.data('label') || '';
+      const label = (edge.data('label') || '').toLowerCase();
       if (focusedCategory === 'inbound') {
         return edge.target().id() === selectedNode || dir === 'in';
       }
@@ -924,10 +993,10 @@ export default function BloodHoundNodeDiagram({
         return edge.source().id() === selectedNode || dir === 'out';
       }
       if (focusedCategory === 'lateral') {
-        return dir === 'lat' || label === 'MemberOf' || label === 'ContainedIn';
+        return dir === 'lat' || label === 'memberof' || label === 'containedin' || label === 'adminto' || label === 'smb' || label === 'ssh' || label === 'winrm';
       }
       if (focusedCategory === 'ad_attacks') {
-        return dir === 'ad' || label.includes('Attack') || ['GenericAll', 'WriteDacl', 'WriteOwner', 'DCSync', 'PrivilegedSession'].includes(label);
+        return dir === 'ad' || label.includes('attack') || ['genericall', 'writedacl', 'writeowner', 'dcsync', 'privilegedsession', 'certipyenum', 'esc1', 'kerberoasting', 'passwordspray', 'overpasshash'].includes(label);
       }
       return true;
     });
@@ -935,9 +1004,9 @@ export default function BloodHoundNodeDiagram({
     const activeNodes = node.union(filteredEdges.connectedNodes());
     const subGraph = activeNodes.union(filteredEdges);
 
-    cy.elements().removeClass('selected in-chain faded');
-    cy.elements().addClass('faded');
-    subGraph.removeClass('faded').addClass('in-chain');
+    // Completely HIDE all elements not in the focused subGraph (BloodHound focus mode)
+    cy.elements().difference(subGraph).addClass('hidden');
+    subGraph.removeClass('hidden faded').addClass('in-chain');
     node.addClass('selected');
 
     if (activeNodes.length > 1) {
@@ -945,11 +1014,11 @@ export default function BloodHoundNodeDiagram({
         name: 'concentric',
         concentric: (n) => (n.id() === selectedNode ? 2 : 1),
         levelWidth: () => 1,
-        spacingFactor: 1.6,
+        spacingFactor: 1.8,
         animate: true,
         animationDuration: 350,
         fit: true,
-        padding: 80
+        padding: 90
       }).run();
     }
   }, [focusedCategory, selectedNode]);
@@ -1402,7 +1471,8 @@ export default function BloodHoundNodeDiagram({
         style={{
           position: 'absolute',
           bottom: '14px',
-          left: '16px',
+          left: isPanelOpen ? '410px' : '16px',
+          transition: 'left 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
           display: 'flex',
           alignItems: 'center',
           gap: '4px',
