@@ -892,10 +892,9 @@ export default function BloodHoundNodeDiagram({
         cy.elements().removeClass('selected in-chain faded');
         cy.elements().addClass('faded');
 
-        const predecessors = node.predecessors();
-        const successors = node.successors();
-        const chain = node.union(predecessors).union(successors);
-        chain.removeClass('faded').addClass('in-chain');
+        // Direct 1-hop connected neighborhood
+        const directNeighborhood = node.closedNeighborhood();
+        directNeighborhood.removeClass('faded').addClass('in-chain');
         node.removeClass('faded').addClass('selected');
       }
 
@@ -903,12 +902,39 @@ export default function BloodHoundNodeDiagram({
       node.connectedEdges().forEach(edge => {
         const d = edge.data('_detail');
         const dList = edge.data('_detailList');
+        const isTarget = edge.target().id() === nid;
+        const otherNode = isTarget ? edge.source() : edge.target();
+        const otherType = otherNode.data('entityType') || 'machine';
+        const isExternal = otherType === 'actor' || otherType === 'ip_external' || otherType === 'ad_attack';
+
+        const edgeMeta = {
+          _dir: isTarget ? 'in' : 'out',
+          _isExternal: isExternal,
+          _otherType: otherType,
+          _otherId: otherNode.id(),
+          _otherLabel: otherNode.data('fullLabel') || otherNode.data('label'),
+          _sourceId: edge.source().id(),
+          _targetId: edge.target().id(),
+          _sourceLabel: edge.source().data('fullLabel') || edge.source().data('label'),
+          _targetLabel: edge.target().data('fullLabel') || edge.target().data('label'),
+          _edgeDir: edge.data('dir'),
+          _edgeLabel: edge.data('label') || edge.data('labelList')?.join(', ')
+        };
+
         if (dList && dList.length > 0) {
           dList.forEach(item => {
-            if (item) connectedEdges.push({ ...item, _dir: edge.data('dir') });
+            if (item) connectedEdges.push({ ...item, ...edgeMeta });
           });
         } else if (d) {
-          connectedEdges.push({ ...d, _dir: edge.data('dir') });
+          connectedEdges.push({ ...d, ...edgeMeta });
+        } else {
+          connectedEdges.push({
+            src: edgeMeta._sourceLabel,
+            dst: edgeMeta._targetLabel,
+            protocol: edgeMeta._edgeLabel || 'CONNECTED',
+            count: edge.data('count') || 1,
+            ...edgeMeta
+          });
         }
       });
       connectedEdges.sort((a, b) => (b.count || 1) - (a.count || 1));
@@ -1031,10 +1057,9 @@ export default function BloodHoundNodeDiagram({
       cy.elements().removeClass('selected in-chain faded');
       cy.elements().addClass('faded');
 
-      const predecessors = node.predecessors();
-      const successors = node.successors();
-      const chain = node.union(predecessors).union(successors);
-      chain.removeClass('faded').addClass('in-chain');
+      // Direct 1-hop connected neighborhood
+      const directNeighborhood = node.closedNeighborhood();
+      directNeighborhood.removeClass('faded').addClass('in-chain');
       node.removeClass('faded').addClass('selected');
       // DO NOT animate fit or reset coordinates! Keep camera and dragged positions intact.
       return;
@@ -1057,12 +1082,80 @@ export default function BloodHoundNodeDiagram({
       return;
     }
 
-    // Case C: Active Category Isolation (inbound, outbound, lateral, ad_attacks, sessions)
+    // Case C: Active Category Isolation
     if (!selectedNode) return;
     const node = cy.getElementById(selectedNode);
     if (!node || node.length === 0) return;
 
-    // Filter connected edges by category
+    // 1. External Attack Path (Full Multi-hop Path from External Threat Entry Point to this Node)
+    if (focusedCategory === 'external') {
+      const upstream = node.predecessors();
+      const externalRoots = upstream.nodes().filter(n => ['actor', 'ip_external', 'ad_attack'].includes(n.data('entityType')));
+
+      let fullPath = node;
+      if (externalRoots.length > 0) {
+        const pathEdgesAndNodes = externalRoots.union(externalRoots.successors().intersection(upstream)).union(node);
+        fullPath = fullPath.union(pathEdgesAndNodes);
+      }
+
+      // Direct external edges connected to this node
+      const directExtEdges = node.connectedEdges().filter(edge => {
+        const other = edge.source().id() === selectedNode ? edge.target() : edge.source();
+        return ['actor', 'ip_external', 'ad_attack'].includes(other.data('entityType'));
+      });
+      fullPath = fullPath.union(directExtEdges).union(directExtEdges.connectedNodes());
+
+      // If this node reaches downstream crown jewels, include 1 hop
+      const downstreamCrown = node.outgoers().filter(ele => ele.isNode() ? ele.data('isCrownJewel') : true);
+      fullPath = fullPath.union(downstreamCrown);
+
+      cy.elements().difference(fullPath).addClass('hidden');
+      fullPath.removeClass('hidden faded').addClass('in-chain');
+      node.addClass('selected');
+
+      if (fullPath.nodes().length > 1) {
+        fullPath.layout({
+          name: 'dagre',
+          rankDir: 'LR',
+          nodeSep: 90,
+          rankSep: 220,
+          animate: true,
+          animationDuration: 350,
+          fit: true,
+          padding: 80
+        }).run();
+      }
+      return;
+    }
+
+    // 2. Internal Network Path (Internal Lateral Movement & Assets)
+    if (focusedCategory === 'internal') {
+      const internalEdges = node.connectedEdges().filter(edge => {
+        const other = edge.source().id() === selectedNode ? edge.target() : edge.source();
+        return !['actor', 'ip_external', 'ad_attack'].includes(other.data('entityType'));
+      });
+      const internalSubGraph = node.union(internalEdges).union(internalEdges.connectedNodes());
+
+      cy.elements().difference(internalSubGraph).addClass('hidden');
+      internalSubGraph.removeClass('hidden faded').addClass('in-chain');
+      node.addClass('selected');
+
+      if (internalSubGraph.nodes().length > 1) {
+        internalSubGraph.layout({
+          name: 'concentric',
+          concentric: (n) => (n.id() === selectedNode ? 2 : 1),
+          levelWidth: () => 1,
+          spacingFactor: 1.8,
+          animate: true,
+          animationDuration: 350,
+          fit: true,
+          padding: 90
+        }).run();
+      }
+      return;
+    }
+
+    // 3. Filter other categories (inbound, outbound, lateral, ad_attacks, sessions)
     const allConnectedEdges = node.connectedEdges();
     const filteredEdges = allConnectedEdges.filter(edge => {
       const dir = edge.data('dir');
