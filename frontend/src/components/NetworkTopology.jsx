@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useFilter } from '../context/FilterContext';
 import { useTheme } from '../context/ThemeContext';
 import BloodHoundNodeDiagram from './graph/BloodHoundNodeDiagram';
+import BloodHoundEntityPanel from './graph/BloodHoundEntityPanel';
 import { getSimulatedTopologyData } from './graph/simulatedTopologyData';
 import { getADSampleManifest, getADSidMap, loadADSampleFile } from './graph/adSampleParser';
 
@@ -11,7 +13,8 @@ function isPrivate(ip) {
   return /^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.)/.test(ip);
 }
 
-export default function NetworkTopology({ initialData } = {}) {
+export default function NetworkTopology({ initialData, standalone = false, onExit } = {}) {
+  const navigate = useNavigate();
   const rawDataRef = useRef({ inbound: [], outbound: [], lateral: [], ad_attacks: [], machines: [] });
 
   const { theme } = useTheme();
@@ -28,7 +31,10 @@ export default function NetworkTopology({ initialData } = {}) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [viewMode, setViewMode] = useState('graph'); // 'graph' | 'flow'
   const [activeFlows, setActiveFlows] = useState([]);
-  const [details, setDetails] = useState(null);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [selectedEdge, setSelectedEdge] = useState(null);
+  const [focusedCategory, setFocusedCategory] = useState('all');
+  const [focusNodeTarget, setFocusNodeTarget] = useState(null);
   const [infoText, setInfoText] = useState('Click a node or edge to inspect');
 
   // Filter state
@@ -420,47 +426,30 @@ export default function NetworkTopology({ initialData } = {}) {
   }, [isFullscreen]);
 
   const content = (
-    <>
-      {isFullscreen && (
-        <div
-          id="networkTopoOverlay"
-          onClick={toggleFullscreen}
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0,0,0,0.7)',
-            backdropFilter: 'blur(6px)',
-            zIndex: 99998
-          }}
-        />
-      )}
-      <div
-        id="networkTopoContainer"
-        style={{
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: '12px',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          transition: 'all 0.2s ease-out',
-          ...(isFullscreen
-            ? {
-                position: 'fixed',
-                top: '2vh',
-                left: '2vw',
-                width: '96vw',
-                height: '96vh',
-                zIndex: 99999,
-                margin: 0,
-                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)'
-              }
-            : { flex: 1 })
-        }}
-      >
+    <div
+      id="networkTopoContainer"
+      style={{
+        background: 'var(--surface)',
+        border: standalone || isFullscreen ? 'none' : '1px solid var(--border)',
+        borderRadius: standalone || isFullscreen ? '0px' : '12px',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        transition: 'all 0.2s ease-out',
+        ...(standalone || isFullscreen
+          ? {
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100vw',
+              height: '100vh',
+              zIndex: 999999,
+              margin: 0,
+              boxShadow: 'none'
+            }
+          : { flex: 1 })
+      }}
+    >
         {/* Header */}
         <div
           style={{
@@ -726,19 +715,35 @@ export default function NetworkTopology({ initialData } = {}) {
             )}
 
             <button
-              onClick={toggleFullscreen}
+              onClick={() => {
+                if (standalone) {
+                  if (onExit) onExit();
+                  else navigate('/dashboard');
+                } else {
+                  navigate('/network-topology');
+                }
+              }}
               style={{
-                background: 'var(--surface2)',
-                border: '1px solid var(--border)',
-                color: 'var(--text)',
+                background: standalone ? 'rgba(59, 130, 246, 0.2)' : 'linear-gradient(135deg, rgba(59,130,246,0.18), rgba(59,130,246,0.06))',
+                border: standalone ? '1px solid #3b82f6' : '1px solid rgba(59,130,246,0.35)',
+                color: '#60a5fa',
                 borderRadius: '4px',
-                padding: '3px 9px',
+                padding: '4px 10px',
                 cursor: 'pointer',
                 fontSize: '11px',
-                marginLeft: '8px'
+                fontWeight: 700,
+                marginLeft: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                transition: 'all 0.2s'
               }}
+              title={standalone ? "Exit full-screen standalone view" : "Open full-screen page"}
             >
-              {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
+              <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>
+                {standalone ? 'arrow_back' : 'fullscreen'}
+              </span>
+              {standalone ? 'Exit to Dashboard' : 'Full Screen'}
             </button>
           </div>
         </div>
@@ -835,34 +840,54 @@ export default function NetworkTopology({ initialData } = {}) {
           >
             {/* BloodHound WebGL Node Diagram View */}
             {viewMode === 'graph' && (
-              <BloodHoundNodeDiagram
-                inbound={filteredData.inbound}
-                outbound={filteredData.outbound}
-                lateral={filteredData.lateral}
-                adAttacks={filteredData.ad_attacks}
-                machines={filteredData.machines}
-                theme={theme}
-                onSelectNode={(n) => {
-                  setInfoText(`HOST / NODE: ${n.label} (${n.subLabel || ''}) — ${n.rows.length} connection(s)`);
-                  if (n.rows.length) {
-                    setDetails({
-                      title: `NODE: ${n.label} — ${n.rows.length} connection(s)`,
-                      rows: n.rows
-                    });
-                  }
-                }}
-                onSelectEdge={(e) => {
-                  setInfoText(`${e.label} | ${e.detail.src} → ${e.detail.dst} (x${e.detail.count || 1})`);
-                  setDetails({
-                    title: `${e.dir === 'ad' ? 'AD ATTACK' : e.dir === 'lat' ? 'LATERAL' : e.dir === 'in' ? 'INBOUND' : 'OUTBOUND'} — ${e.label} ${e.detail.src} → ${e.detail.dst}`,
-                    rows: [e.detail]
-                  });
-                }}
-                onClearSelection={() => {
-                  setInfoText('Click a node or edge to inspect');
-                  setDetails(null);
-                }}
-              />
+              <>
+                <BloodHoundEntityPanel
+                  selectedNode={selectedNode}
+                  selectedEdge={selectedEdge}
+                  activeCategory={focusedCategory}
+                  onClose={() => {
+                    setSelectedNode(null);
+                    setSelectedEdge(null);
+                    setFocusedCategory('all');
+                    setFocusNodeTarget(null);
+                    setInfoText('Click a node or edge to inspect');
+                  }}
+                  onFocusCategory={(cat) => setFocusedCategory(cat)}
+                  onSelectNodeById={(targetId) => {
+                    setFocusNodeTarget(targetId);
+                  }}
+                  theme={theme}
+                />
+                <BloodHoundNodeDiagram
+                  inbound={filteredData.inbound}
+                  outbound={filteredData.outbound}
+                  lateral={filteredData.lateral}
+                  adAttacks={filteredData.ad_attacks}
+                  machines={filteredData.machines}
+                  theme={theme}
+                  focusedCategory={focusedCategory}
+                  focusNodeTarget={focusNodeTarget}
+                  onSelectNode={(n) => {
+                    setSelectedNode(n);
+                    setSelectedEdge(null);
+                    setFocusedCategory('all');
+                    setInfoText(`HOST / NODE: ${n.label} (${n.subLabel || ''}) — ${n.rows.length} connection(s)`);
+                  }}
+                  onSelectEdge={(e) => {
+                    setSelectedEdge(e);
+                    setSelectedNode(null);
+                    setFocusedCategory('all');
+                    setInfoText(`${e.label} | ${e.detail?.src || ''} → ${e.detail?.dst || ''} (x${e.detail?.count || 1})`);
+                  }}
+                  onClearSelection={() => {
+                    setSelectedNode(null);
+                    setSelectedEdge(null);
+                    setFocusedCategory('all');
+                    setFocusNodeTarget(null);
+                    setInfoText('Click a node or edge to inspect');
+                  }}
+                />
+              </>
             )}
 
             {/* 3-Column Traffic Flow View */}
@@ -985,69 +1010,6 @@ export default function NetworkTopology({ initialData } = {}) {
             )}
           </div>
 
-          {/* Details Inspection Table */}
-          {details && (
-            <div style={{ marginTop: '10px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '7px', padding: '0', overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 14px', borderBottom: '1px solid var(--border)' }}>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: '10px', fontWeight: 700, color: 'var(--accent)', letterSpacing: '1px', textTransform: 'uppercase' }}>
-                  {details.title}
-                </span>
-                <button
-                  onClick={() => setDetails(null)}
-                  style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '15px' }}
-                >
-                  &#x2715;
-                </button>
-              </div>
-              <div style={{ overflowX: 'auto', maxHeight: '200px' }}>
-                <table className="mt" style={{ width: '100%', fontSize: '11px', textAlign: 'left', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface-solid)', padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>First Seen</th>
-                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface-solid)', padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Last Seen</th>
-                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface-solid)', padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Source</th>
-                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface-solid)', padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Destination</th>
-                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface-solid)', padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Protocol</th>
-                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface-solid)', padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Port</th>
-                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface-solid)', padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Count</th>
-                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface-solid)', padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Blocked</th>
-                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface-solid)', padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Severity</th>
-                      <th style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--surface-solid)', padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Detail</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {details.rows.map((r, i) => (
-                      <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                        <td style={{ padding: '6px 12px', fontFamily: 'var(--mono)', color: 'var(--muted)' }}>
-                          {r.first_seen ? new Date(r.first_seen).toLocaleString('sv-SE').slice(0, 16).replace('T', ' ') : '-'}
-                        </td>
-                        <td style={{ padding: '6px 12px', fontFamily: 'var(--mono)', color: 'var(--muted)' }}>
-                          {r.last_seen ? new Date(r.last_seen).toLocaleString('sv-SE').slice(0, 16).replace('T', ' ') : '-'}
-                        </td>
-                        <td style={{ padding: '6px 12px', fontFamily: 'var(--mono)', color: '#f97316' }}>{r.src || '-'}</td>
-                        <td style={{ padding: '6px 12px', fontFamily: 'var(--mono)', color: '#60a5fa' }}>{r.dst || '-'}</td>
-                        <td style={{ padding: '6px 12px', fontFamily: 'var(--mono)', color: '#22d3ee' }}>{r.protocol || '-'}</td>
-                        <td style={{ padding: '6px 12px', fontFamily: 'var(--mono)', color: 'var(--muted)' }}>{r.port || '-'}</td>
-                        <td style={{ padding: '6px 12px', fontFamily: 'var(--mono)', fontWeight: 700 }}>{r.count || 1}</td>
-                        <td style={{ padding: '6px 12px' }}>
-                          {r.blocked ? <span className="badge sev-critical">{r.blocked}</span> : <span style={{ color: 'var(--muted)' }}>0</span>}
-                        </td>
-                        <td style={{ padding: '6px 12px' }}>
-                          <span className={`badge sev-${r.severity || 'info'}`} style={{ textTransform: 'uppercase' }}>
-                            {r.severity || 'info'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '6px 12px', minWidth: '300px', whiteSpace: 'normal', wordBreak: 'break-word' }}>
-                          {r.extra || ''}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
           {/* Info Status Bar */}
           <div
             style={{
@@ -1066,8 +1028,7 @@ export default function NetworkTopology({ initialData } = {}) {
           </div>
         </div>
       </div>
-    </>
   );
 
-  return isFullscreen ? createPortal(content, document.body) : content;
+  return (isFullscreen || standalone) ? createPortal(content, document.body) : content;
 }

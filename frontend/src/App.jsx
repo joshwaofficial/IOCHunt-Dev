@@ -29,6 +29,7 @@ import EmailReports from './pages/EmailReports';
 import Firewall from './pages/Firewall';
 import Aggregators from './pages/Aggregators';
 import AggregatorSettings from './pages/AggregatorSettings';
+import StandaloneTopologyPage from './pages/StandaloneTopologyPage';
 import Layout from './components/Layout';
 import IdleTimerManager from './components/IdleTimerManager';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -97,6 +98,13 @@ function App() {
                   <Route path="/mfa-setup" element={
                     <ProtectedRoute>
                       <MfaSetup />
+                    </ProtectedRoute>
+                  } />
+
+                  {/* Dedicated Fullscreen Network Topology Route (Zero sidebar/navbar) */}
+                  <Route path="/network-topology" element={
+                    <ProtectedRoute>
+                      <StandaloneTopologyPage />
                     </ProtectedRoute>
                   } />
                   

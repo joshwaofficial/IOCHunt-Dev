@@ -249,6 +249,8 @@ export default function BloodHoundNodeDiagram({
   adAttacks = [],
   machines = [],
   theme = 'dark',
+  focusedCategory = 'all',
+  focusNodeTarget = null,
   onSelectNode,
   onSelectEdge,
   onClearSelection
@@ -764,9 +766,12 @@ export default function BloodHoundNodeDiagram({
       if (callbacksRef.current.onSelectNode) {
         callbacksRef.current.onSelectNode({
           id: nid,
-          label: node.data('fullLabel'),
+          label: node.data('fullLabel') || node.data('label'),
+          shortLabel: node.data('shortLabel'),
+          fullLabel: node.data('fullLabel'),
           subLabel: node.data('subLabel'),
           entityType: node.data('entityType'),
+          isCrownJewel: node.data('isCrownJewel'),
           raw: node.data('raw'),
           rows: connectedEdges
         });
@@ -792,6 +797,9 @@ export default function BloodHoundNodeDiagram({
           id: eid,
           label: edgeData.label,
           dir: edgeData.dir,
+          color: edgeData.color,
+          source: edge.source().data('fullLabel') || edge.source().id(),
+          target: edge.target().data('fullLabel') || edge.target().id(),
           detail: edgeData._detail,
           rows: edgeData._detailList || [edgeData._detail]
         });
@@ -811,28 +819,22 @@ export default function BloodHoundNodeDiagram({
     });
 
     // Hover indicators
-    cy.on('mouseover', 'node', () => {
-      if (containerRef.current) containerRef.current.style.cursor = 'pointer';
+    cy.on('mouseover', 'node', (evt) => {
+      evt.target.addClass('hovered');
     });
-    cy.on('mouseout', 'node', () => {
-      if (containerRef.current) containerRef.current.style.cursor = 'default';
-    });
-    cy.on('mouseover', 'edge', () => {
-      if (containerRef.current) containerRef.current.style.cursor = 'pointer';
-    });
-    cy.on('mouseout', 'edge', () => {
-      if (containerRef.current) containerRef.current.style.cursor = 'default';
+    cy.on('mouseout', 'node', (evt) => {
+      evt.target.removeClass('hovered');
     });
 
-    // ResizeObserver
+    // Automatic container resize observer
     let resizeTimer = null;
     const ro = new ResizeObserver(() => {
-      clearTimeout(resizeTimer);
+      if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         if (cyRef.current) {
           cyRef.current.resize();
         }
-      }, 100);
+      }, 60);
     });
     ro.observe(containerRef.current);
 
@@ -846,6 +848,86 @@ export default function BloodHoundNodeDiagram({
       }
     };
   }, [dataKey]);
+
+  // Dynamic Redesign & Radial Layout when focusedCategory or selectedNode changes
+  useEffect(() => {
+    if (!cyRef.current || !selectedNode) return;
+    const cy = cyRef.current;
+    const node = cy.getElementById(selectedNode);
+    if (!node || node.length === 0) return;
+
+    if (!focusedCategory || focusedCategory === 'all') {
+      cy.elements().removeClass('selected in-chain faded');
+      cy.elements().addClass('faded');
+      const predecessors = node.predecessors();
+      const successors = node.successors();
+      const chain = node.union(predecessors).union(successors);
+      chain.removeClass('faded').addClass('in-chain');
+      node.addClass('selected');
+      return;
+    }
+
+    // Filter connected edges by category
+    const allConnectedEdges = node.connectedEdges();
+    const filteredEdges = allConnectedEdges.filter(edge => {
+      const dir = edge.data('dir');
+      const label = edge.data('label') || '';
+      if (focusedCategory === 'inbound') {
+        return edge.target().id() === selectedNode || dir === 'in';
+      }
+      if (focusedCategory === 'outbound') {
+        return edge.source().id() === selectedNode || dir === 'out';
+      }
+      if (focusedCategory === 'lateral') {
+        return dir === 'lat' || label === 'MemberOf' || label === 'ContainedIn';
+      }
+      if (focusedCategory === 'ad_attacks') {
+        return dir === 'ad' || label.includes('Attack') || ['GenericAll', 'WriteDacl', 'WriteOwner', 'DCSync', 'PrivilegedSession'].includes(label);
+      }
+      return true;
+    });
+
+    const activeNodes = node.union(filteredEdges.connectedNodes());
+    const subGraph = activeNodes.union(filteredEdges);
+
+    cy.elements().removeClass('selected in-chain faded');
+    cy.elements().addClass('faded');
+    subGraph.removeClass('faded').addClass('in-chain');
+    node.addClass('selected');
+
+    if (activeNodes.length > 1) {
+      subGraph.layout({
+        name: 'concentric',
+        concentric: (n) => (n.id() === selectedNode ? 2 : 1),
+        levelWidth: () => 1,
+        spacingFactor: 1.6,
+        animate: true,
+        animationDuration: 350,
+        fit: true,
+        padding: 80
+      }).run();
+    }
+  }, [focusedCategory, selectedNode]);
+
+  // Jump to specific node by name/ID when clicked from BloodHound entity panel
+  useEffect(() => {
+    if (!focusNodeTarget || !cyRef.current) return;
+    const cy = cyRef.current;
+    const clean = String(focusNodeTarget).trim().toLowerCase();
+    const targetNode = cy.nodes().filter(n => {
+      const nid = n.id().toLowerCase();
+      const fl = (n.data('fullLabel') || '').toLowerCase();
+      const sl = (n.data('label') || '').toLowerCase();
+      return nid === 'm:' + clean || nid === clean || fl === clean || sl === clean;
+    });
+    if (targetNode.length > 0) {
+      targetNode.first().trigger('tap');
+      cy.animate({
+        center: { eles: targetNode.first() },
+        zoom: Math.max(cy.zoom(), 1.05)
+      }, { duration: 300 });
+    }
+  }, [focusNodeTarget]);
 
   // Floating Controls Handlers (Fast & Snappy)
   const handleZoomIn = useCallback(() => {
