@@ -322,9 +322,11 @@ export default function BloodHoundNodeDiagram({
 }) {
   const containerRef = useRef(null);
   const cyRef = useRef(null);
+  const initialCleanPositionsRef = useRef(new Map());
   const callbacksRef = useRef({ onSelectNode, onSelectEdge, onClearSelection });
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
+  const [isGraphModified, setIsGraphModified] = useState(false);
   const [layoutMode, setLayoutMode] = useState('fcose'); // 'fcose' (Organic) | 'dagre' (Tree) | 'cluster' (Stars)
   const [showNodeLabels, setShowNodeLabels] = useState(true);
   const [showEdgeLabels, setShowEdgeLabels] = useState(true);
@@ -813,6 +815,13 @@ export default function BloodHoundNodeDiagram({
 
     cy.fit(undefined, 50);
 
+    // Save initial pristine coordinates to enable 1-click full reset
+    initialCleanPositionsRef.current.clear();
+    cy.nodes().forEach(n => {
+      initialCleanPositionsRef.current.set(n.id(), { ...n.position() });
+    });
+    setIsGraphModified(false);
+
     // BloodHound-style scale-adaptive font sizing:
     // When zoomed OUT (diagram overview is big), labels scale UP in world space so text remains clearly readable.
     // When zoomed IN, labels scale DOWN in world space so text doesn't bloat up and crowd the nodes and edges.
@@ -846,6 +855,17 @@ export default function BloodHoundNodeDiagram({
     cy.on('zoom', () => {
       if (zoomRaf) cancelAnimationFrame(zoomRaf);
       zoomRaf = requestAnimationFrame(updateAdaptiveFonts);
+    });
+
+    // Track user drag, zoom, and pan modifications so the Clear Graph button appears on any change
+    cy.on('dragfree', 'node', () => {
+      setIsGraphModified(true);
+    });
+    cy.on('userzoom', () => {
+      setIsGraphModified(true);
+    });
+    cy.on('userpan', () => {
+      setIsGraphModified(true);
     });
 
     updateAdaptiveFonts();
@@ -1134,14 +1154,45 @@ export default function BloodHoundNodeDiagram({
     }
   }, []);
 
-  const handleClearSelection = useCallback(() => {
+  const handleFullReset = useCallback(() => {
     setSelectedNode(null);
     setSelectedEdge(null);
+    setIsGraphModified(false);
+
     if (cyRef.current) {
-      cyRef.current.elements().removeClass('hidden selected in-chain faded hovered');
+      const cy = cyRef.current;
+      cy.elements().removeClass('hidden selected in-chain faded hovered');
+
+      // Restore baseline pristine coordinates of all nodes
+      if (initialCleanPositionsRef.current && initialCleanPositionsRef.current.size > 0) {
+        cy.batch(() => {
+          cy.nodes().forEach(n => {
+            const pos = initialCleanPositionsRef.current.get(n.id());
+            if (pos) {
+              n.position({ x: pos.x, y: pos.y });
+            }
+          });
+        });
+      }
+
+      // Smoothly re-fit to center the initial graph
+      cy.animate({
+        fit: { eles: cy.elements(), padding: 50 }
+      }, { duration: 300 });
     }
-    if (onClearSelection) onClearSelection();
-  }, [onClearSelection]);
+
+    if (callbacksRef.current.onClearSelection) {
+      callbacksRef.current.onClearSelection(true);
+    }
+  }, []);
+
+  // Detect any modification or active selection from pristine initial stage
+  const hasChanges = Boolean(
+    selectedNode ||
+    selectedEdge ||
+    (focusedCategory && focusedCategory !== 'all') ||
+    isGraphModified
+  );
 
   // Export JSON Graph Data
   const handleExportJson = useCallback(() => {
@@ -1339,19 +1390,19 @@ export default function BloodHoundNodeDiagram({
         </div>
       </div>
 
-      {/* Top Right Reset Selection Button (when node/edge active) */}
-      {selectedNode && (
+      {/* Top Right Clear & Reset Graph Button (Appears whenever there is any change/selection/drag/zoom) */}
+      {hasChanges && (
         <button
-          onClick={handleClearSelection}
-          title="Clear Selection"
+          onClick={handleFullReset}
+          title="Clear all selections and reset graph to initial view"
           style={{
             position: 'absolute',
             top: '12px',
             right: '14px',
-            height: '28px',
-            padding: '0 10px',
-            background: 'rgba(239, 68, 68, 0.15)',
-            border: '1px solid rgba(239, 68, 68, 0.35)',
+            height: '29px',
+            padding: '0 11px',
+            background: isLight ? 'rgba(239, 68, 68, 0.09)' : 'rgba(239, 68, 68, 0.16)',
+            border: '1px solid rgba(239, 68, 68, 0.4)',
             borderRadius: '6px',
             color: '#ef4444',
             cursor: 'pointer',
@@ -1359,12 +1410,23 @@ export default function BloodHoundNodeDiagram({
             fontWeight: 700,
             display: 'flex',
             alignItems: 'center',
-            gap: '4px',
+            gap: '5px',
             fontFamily: 'var(--mono)',
-            zIndex: 10
+            boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+            transition: 'all 0.15s ease',
+            zIndex: 15
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.background = isLight ? 'rgba(239, 68, 68, 0.18)' : 'rgba(239, 68, 68, 0.28)';
+            e.currentTarget.style.borderColor = '#ef4444';
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.background = isLight ? 'rgba(239, 68, 68, 0.09)' : 'rgba(239, 68, 68, 0.16)';
+            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
           }}
         >
-          ✕ Clear Selection
+          <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>restart_alt</span>
+          Clear Graph
         </button>
       )}
 

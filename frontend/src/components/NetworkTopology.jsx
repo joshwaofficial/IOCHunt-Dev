@@ -654,10 +654,14 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
                     setSelectedNode(null);
                     setInfoText(`${e.label} | ${e.detail?.src || ''} → ${e.detail?.dst || ''} (x${e.detail?.count || 1})`);
                   }}
-                  onClearSelection={() => {
+                  onClearSelection={(isFullReset) => {
                     setSelectedNode(null);
                     setSelectedEdge(null);
-                    setFocusedCategory(prev => (prev && prev !== 'all' ? prev : 'all'));
+                    if (isFullReset) {
+                      setFocusedCategory('all');
+                    } else {
+                      setFocusedCategory(prev => (prev && prev !== 'all' ? prev : 'all'));
+                    }
                     setFocusNodeTarget(null);
                     setInfoText('Click a node or edge to inspect');
                   }}
