@@ -121,7 +121,7 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
     },
     // Hovered Node: Concentric outer blue halo ring APPEARS ONLY ON HOVER!
     {
-      selector: 'node:hover, node.hovered',
+      selector: 'node.hovered',
       style: {
         'min-zoomed-font-size': 0,
         'label': 'data(fullLabel)',
@@ -130,10 +130,11 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'text-border-width': 1,
         'border-width': 3.8,
         'border-color': 'data(borderColor)',
-        'outline-width': 3.5,
+        'outline-width': 3.8,
         'outline-color': '#0052FF',
         'outline-offset': 3.5,
-        'outline-opacity': 0.95,
+        'outline-opacity': 1.0,
+        'outline-style': 'solid',
         'z-index': 95
       }
     },
@@ -146,14 +147,17 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'border-width': 3.8
       }
     },
-    // Active Selection Node: Bold colored border + blue pill label, NO outer blue ring when unhovered!
+    // Active Selection Node: Fixed blue halo ring + highlighted blue pill label (BloodHound CE style)
     {
       selector: 'node.selected',
       style: {
         'border-color': 'data(borderColor)',
-        'border-width': 4.5,
-        'outline-width': 0,
-        'outline-opacity': 0,
+        'border-width': 4.2,
+        'outline-width': 4.5,
+        'outline-color': '#0052FF',
+        'outline-offset': 4.5,
+        'outline-opacity': 1.0,
+        'outline-style': 'solid',
         'label': 'data(fullLabel)',
         'text-opacity': 1.0,
         'text-background-color': '#0052FF',
@@ -251,7 +255,7 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
     },
     // Hovered Edge: Reveal label with high z-index and subtle highlight
     {
-      selector: 'edge:hover',
+      selector: 'edge.hovered',
       style: {
         'width': 2.8,
         'label': 'data(label)',
@@ -318,6 +322,7 @@ export default function BloodHoundNodeDiagram({
 }) {
   const containerRef = useRef(null);
   const cyRef = useRef(null);
+  const initialPositionsRef = useRef(new Map());
   const callbacksRef = useRef({ onSelectNode, onSelectEdge, onClearSelection });
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
@@ -809,6 +814,12 @@ export default function BloodHoundNodeDiagram({
 
     cy.fit(undefined, 50);
 
+    // Save pristine baseline positions of every node so unfocusing restores exact original coordinates!
+    initialPositionsRef.current.clear();
+    cy.nodes().forEach(n => {
+      initialPositionsRef.current.set(n.id(), { ...n.position() });
+    });
+
     // BloodHound-style scale-adaptive font sizing:
     // When zoomed OUT (diagram overview is big), labels scale UP in world space so text remains clearly readable.
     // When zoomed IN, labels scale DOWN in world space so text doesn't bloat up and crowd the nodes and edges.
@@ -925,7 +936,20 @@ export default function BloodHoundNodeDiagram({
       if (evt.target === cy) {
         setSelectedNode(null);
         setSelectedEdge(null);
-        cy.elements().removeClass('hidden selected in-chain faded');
+        cy.elements().removeClass('hidden selected in-chain faded hovered');
+        if (initialPositionsRef.current.size > 0) {
+          cy.batch(() => {
+            cy.nodes().forEach(n => {
+              const orig = initialPositionsRef.current.get(n.id());
+              if (orig) {
+                n.position({ x: orig.x, y: orig.y });
+              }
+            });
+          });
+          cy.animate({
+            fit: { eles: cy.elements(), padding: 50 }
+          }, { duration: 250 });
+        }
         if (callbacksRef.current.onClearSelection) {
           callbacksRef.current.onClearSelection();
         }
@@ -937,6 +961,12 @@ export default function BloodHoundNodeDiagram({
       evt.target.addClass('hovered');
     });
     cy.on('mouseout', 'node', (evt) => {
+      evt.target.removeClass('hovered');
+    });
+    cy.on('mouseover', 'edge', (evt) => {
+      evt.target.addClass('hovered');
+    });
+    cy.on('mouseout', 'edge', (evt) => {
       evt.target.removeClass('hovered');
     });
 
@@ -972,7 +1002,19 @@ export default function BloodHoundNodeDiagram({
 
     if (!focusedCategory || focusedCategory === 'all') {
       cy.elements().removeClass('hidden selected in-chain faded');
-      cy.elements().addClass('faded');
+      if (initialPositionsRef.current.size > 0) {
+        cy.batch(() => {
+          cy.nodes().forEach(n => {
+            const orig = initialPositionsRef.current.get(n.id());
+            if (orig) {
+              n.position({ x: orig.x, y: orig.y });
+            }
+          });
+        });
+        cy.animate({
+          fit: { eles: cy.elements(), padding: 50 }
+        }, { duration: 300 });
+      }
       const predecessors = node.predecessors();
       const successors = node.successors();
       const chain = node.union(predecessors).union(successors);
