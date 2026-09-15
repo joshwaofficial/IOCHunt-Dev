@@ -623,7 +623,7 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
                   onClose={() => {
                     setSelectedNode(null);
                     setSelectedEdge(null);
-                    setFocusedCategory('all');
+                    // Do NOT reset focusedCategory so background nodes remain hidden!
                     setFocusNodeTarget(null);
                     setInfoText('Click a node or edge to inspect');
                   }}

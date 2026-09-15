@@ -1064,9 +1064,16 @@ export default function BloodHoundNodeDiagram({
       return;
     }
 
+    // When focus isolation is active, but no node is selected (e.g. side panel was closed or canvas tapped)
+    if (!selectedNode) {
+      // Keep hidden elements completely hidden! Do NOT reveal background nodes.
+      // Clean up selection and fading on the visible elements
+      cy.elements().not('.hidden').removeClass('selected in-chain faded hovered');
+      return;
+    }
+
     // Case B: Subgraph is isolated (user clicked a node within the isolated sub-graph)
     if (focusedCategory === 'isolated') {
-      if (!selectedNode) return;
       const node = cy.getElementById(selectedNode);
       if (!node || node.length === 0) return;
 

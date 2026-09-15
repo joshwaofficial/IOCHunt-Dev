@@ -448,21 +448,6 @@ export default function BloodHoundEntityPanel({
             <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>filter_alt</span>
             <span>Focus: <b>{activeCategory === 'full_path' ? 'FULL ATTACK PATH' : (activeCategory === 'isolated' ? 'ISOLATED VIEW' : activeCategory.toUpperCase())}</b></span>
           </div>
-          <button
-            onClick={() => onFocusCategory && onFocusCategory('all')}
-            style={{
-              background: 'transparent',
-              border: '1px solid rgba(59, 130, 246, 0.3)',
-              color: '#93c5fd',
-              borderRadius: '4px',
-              padding: '2px 8px',
-              fontSize: '10px',
-              fontWeight: 700,
-              cursor: 'pointer'
-            }}
-          >
-            Reset Focus
-          </button>
         </div>
       )}
 
@@ -765,8 +750,9 @@ export default function BloodHoundEntityPanel({
             {/* Quick Action: Trace Full Attack Path */}
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
-                onClick={() => onFocusCategory && onFocusCategory(activeCategory === 'full_path' ? 'all' : 'full_path')}
-                title={activeCategory === 'full_path' ? "Reset focus to show all graph nodes" : "Show full attack path from threat roots to targets for this node"}
+                onClick={() => onFocusCategory && onFocusCategory('full_path')}
+                disabled={activeCategory === 'full_path'}
+                title="Show full attack path from threat roots to targets for this node"
                 style={{
                   flex: 1,
                   padding: '9px 12px',
@@ -778,7 +764,7 @@ export default function BloodHoundEntityPanel({
                   color: activeCategory === 'full_path' ? '#ffffff' : '#3b82f6',
                   fontSize: '11px',
                   fontWeight: 800,
-                  cursor: 'pointer',
+                  cursor: activeCategory === 'full_path' ? 'default' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -788,9 +774,9 @@ export default function BloodHoundEntityPanel({
                 }}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>
-                  {activeCategory === 'full_path' ? 'visibility_off' : 'alt_route'}
+                  {activeCategory === 'full_path' ? 'check_circle' : 'alt_route'}
                 </span>
-                {activeCategory === 'full_path' ? 'Exit Full Attack Path' : 'Show Full Attack Path'}
+                {activeCategory === 'full_path' ? 'Full Attack Path Active' : 'Show Full Attack Path'}
               </button>
             </div>
 
@@ -867,7 +853,7 @@ export default function BloodHoundEntityPanel({
               items={categorizedRelationships.in}
               isOpen={openAccordions.inbound}
               onToggle={() => toggleAccordion('inbound')}
-              onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'inbound' ? 'all' : 'inbound')}
+              onFocusCategory={() => onFocusCategory && onFocusCategory('inbound')}
               isActiveCategory={activeCategory === 'inbound'}
               onSelectNodeById={onSelectNodeById}
               targetKey="src"
@@ -886,7 +872,7 @@ export default function BloodHoundEntityPanel({
               items={categorizedRelationships.out}
               isOpen={openAccordions.outbound}
               onToggle={() => toggleAccordion('outbound')}
-              onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'outbound' ? 'all' : 'outbound')}
+              onFocusCategory={() => onFocusCategory && onFocusCategory('outbound')}
               isActiveCategory={activeCategory === 'outbound'}
               onSelectNodeById={onSelectNodeById}
               targetKey="dst"
@@ -905,7 +891,7 @@ export default function BloodHoundEntityPanel({
               items={categorizedRelationships.lat}
               isOpen={openAccordions.lateral}
               onToggle={() => toggleAccordion('lateral')}
-              onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'lateral' ? 'all' : 'lateral')}
+              onFocusCategory={() => onFocusCategory && onFocusCategory('lateral')}
               isActiveCategory={activeCategory === 'lateral'}
               onSelectNodeById={onSelectNodeById}
               targetKey="dst"
@@ -924,7 +910,7 @@ export default function BloodHoundEntityPanel({
               items={categorizedRelationships.ad}
               isOpen={openAccordions.adAttacks}
               onToggle={() => toggleAccordion('adAttacks')}
-              onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'ad_attacks' ? 'all' : 'ad_attacks')}
+              onFocusCategory={() => onFocusCategory && onFocusCategory('ad_attacks')}
               isActiveCategory={activeCategory === 'ad_attacks'}
               onSelectNodeById={onSelectNodeById}
               targetKey="dst"
@@ -944,7 +930,7 @@ export default function BloodHoundEntityPanel({
                 items={categorizedRelationships.sessions}
                 isOpen={openAccordions.sessions}
                 onToggle={() => toggleAccordion('sessions')}
-                onFocusCategory={() => onFocusCategory && onFocusCategory(activeCategory === 'sessions' ? 'all' : 'sessions')}
+                onFocusCategory={() => onFocusCategory && onFocusCategory('sessions')}
                 isActiveCategory={activeCategory === 'sessions'}
                 onSelectNodeById={onSelectNodeById}
                 targetKey="dst"
@@ -1009,12 +995,7 @@ function RelationshipAccordion({
         }}
       >
         <div
-          onClick={() => {
-            onToggle();
-            if (count > 0 && onFocusCategory) {
-              onFocusCategory();
-            }
-          }}
+          onClick={onToggle}
           style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0 }}
         >
           <span className="material-symbols-outlined" style={{ fontSize: '15px', color: iconColor }}>
@@ -1040,31 +1021,56 @@ function RelationshipAccordion({
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           {count > 0 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onFocusCategory();
-              }}
-              title={isActiveCategory ? "Reset filter to show all graph nodes" : `Focus graph on ${title}`}
-              style={{
-                background: isActiveCategory ? iconColor : 'transparent',
-                border: `1px solid ${iconColor}`,
-                color: isActiveCategory ? '#ffffff' : iconColor,
-                padding: '2px 6px',
-                borderRadius: '4px',
-                fontSize: '9px',
-                fontWeight: 800,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '2px'
-              }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: '11px' }}>
-                {isActiveCategory ? 'visibility_off' : 'filter_center_focus'}
+            isActiveCategory ? (
+              <span
+                title={`Currently focusing graph on ${title}`}
+                style={{
+                  background: `${iconColor}22`,
+                  border: `1px solid ${iconColor}`,
+                  color: iconColor,
+                  padding: '2px 7px',
+                  borderRadius: '4px',
+                  fontSize: '9px',
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  cursor: 'default',
+                  userSelect: 'none'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '11px' }}>
+                  check_circle
+                </span>
+                Focused
               </span>
-              {isActiveCategory ? 'Focused' : 'Focus'}
-            </button>
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onFocusCategory) onFocusCategory();
+                }}
+                title={`Focus graph on ${title}`}
+                style={{
+                  background: 'transparent',
+                  border: `1px solid ${iconColor}`,
+                  color: iconColor,
+                  padding: '2px 7px',
+                  borderRadius: '4px',
+                  fontSize: '9px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '2px'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '11px' }}>
+                  filter_center_focus
+                </span>
+                Focus
+              </button>
+            )
           )}
 
           <span
