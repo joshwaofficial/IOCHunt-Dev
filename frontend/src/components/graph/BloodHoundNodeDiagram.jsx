@@ -76,13 +76,13 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'width': 'data(size)',
         'height': 'data(size)',
         'shape': 'ellipse',
-        'background-color': isLight ? '#ffffff' : '#0f172a',
+        'background-color': isLight ? '#ffffff' : '#1e293b',
         'border-width': 'data(borderWidth)',
         'border-color': 'data(borderColor)',
         'background-image': 'data(svgIcon)',
         'background-fit': 'none',
-        'background-width': '60%',
-        'background-height': '60%',
+        'background-width': '62%',
+        'background-height': '62%',
         'background-position-x': '50%',
         'background-position-y': '50%',
         'background-clip': 'node',
@@ -93,14 +93,14 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'label': showNodeLabels ? 'data(shortLabel)' : '',
         'text-opacity': showNodeLabels ? 1.0 : 0,
         'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        'font-size': '11px',
+        'font-size': '13px',
         'font-weight': 700,
         'text-valign': 'bottom',
-        'text-margin-y': 6,
+        'text-margin-y': 7,
         'color': isLight ? '#0f172a' : '#f8fafc',
-        'text-background-color': isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.92)',
-        'text-background-opacity': showNodeLabels ? 0.95 : 0,
-        'text-background-padding': '2px 5px',
+        'text-background-color': isLight ? 'rgba(255, 255, 255, 0.96)' : 'rgba(15, 23, 42, 0.94)',
+        'text-background-opacity': showNodeLabels ? 0.96 : 0,
+        'text-background-padding': '2.5px 6px',
         'text-background-shape': 'roundrectangle',
         'text-border-color': isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.14)',
         'text-border-width': showNodeLabels ? 1 : 0,
@@ -206,12 +206,12 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'label': showEdgeLabels ? 'data(label)' : '',
         'text-opacity': showEdgeLabels ? 1.0 : 0,
         'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        'font-size': '8.5px',
-        'font-weight': 600,
-        'color': isLight ? '#475569' : '#94a3b8',
+        'font-size': '11.5px',
+        'font-weight': 700,
+        'color': isLight ? '#334155' : '#e2e8f0',
         'text-background-color': isLight ? '#ffffff' : '#0f172a',
         'text-background-opacity': showEdgeLabels ? 1.0 : 0,
-        'text-background-padding': '1.5px 3.5px',
+        'text-background-padding': '2.5px 5px',
         'text-background-shape': 'roundrectangle',
         'text-border-width': 0,
         'text-rotation': 'autorotate',
@@ -261,7 +261,7 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'label': 'data(label)',
         'text-opacity': 1.0,
         'min-zoomed-font-size': 0,
-        'font-size': '10px',
+        'font-size': '12.5px',
         'font-weight': 700,
         'z-index': 999,
         'text-background-opacity': 1.0,
@@ -283,7 +283,7 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'label': 'data(label)',
         'text-opacity': 1.0,
         'min-zoomed-font-size': 0,
-        'font-size': '9.5px',
+        'font-size': '12px',
         'font-weight': 700,
         'z-index': 85,
         'opacity': 1.0,
@@ -327,7 +327,7 @@ export default function BloodHoundNodeDiagram({
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [isGraphModified, setIsGraphModified] = useState(false);
-  const [layoutMode, setLayoutMode] = useState('fcose'); // 'fcose' (Organic) | 'dagre' (Tree) | 'cluster' (Stars)
+  const [layoutMode, setLayoutMode] = useState('fcose'); // 'fcose' (Organic) | 'dagre' (Tree)
   const [showNodeLabels, setShowNodeLabels] = useState(true);
   const [showEdgeLabels, setShowEdgeLabels] = useState(true);
   const [isLabelMenuOpen, setIsLabelMenuOpen] = useState(false);
@@ -342,9 +342,17 @@ export default function BloodHoundNodeDiagram({
     callbacksRef.current = { onSelectNode, onSelectEdge, onClearSelection };
   }, [onSelectNode, onSelectEdge, onClearSelection]);
 
-  // Update Cytoscape stylesheet when theme changes
+  // Update Cytoscape stylesheet and node icon colors when theme changes
   useEffect(() => {
     if (cyRef.current) {
+      const isLightMode = theme !== 'dark';
+      const iconCol = isLightMode ? '#0f172a' : '#ffffff';
+      cyRef.current.batch(() => {
+        cyRef.current.nodes().forEach(node => {
+          const eType = node.data('entityType') || 'machine';
+          node.data('svgIcon', getNodeSvgDataUri(eType, iconCol));
+        });
+      });
       cyRef.current.style(getCytoscapeStylesheet(theme, showNodeLabels, showEdgeLabels));
     }
   }, [theme]);
@@ -371,7 +379,7 @@ export default function BloodHoundNodeDiagram({
     }
   }, [showEdgeLabels]);
 
-  const dataKey = `${inbound.length}|${outbound.length}|${lateral.length}|${adAttacks.length}|${machines.length}|${layoutMode}`;
+  const dataKey = `${inbound.length}|${outbound.length}|${lateral.length}|${adAttacks.length}|${machines.length}|${layoutMode}|${theme}`;
 
   // Build and render graph in Cytoscape
   useEffect(() => {
@@ -452,8 +460,10 @@ export default function BloodHoundNodeDiagram({
         const col = KIND_COLORS[eType] || KIND_COLORS.default;
         const isCrown = isCrownJewelCheck(cleanId, raw);
         const sLabel = getShortLabel(cleanId);
-        // Colored vector icon matching the border ring color
-        const iconSvg = getNodeSvgDataUri(eType, col);
+        // High-contrast vector icon: Pure White (#ffffff) in dark mode, Crisp Dark Slate (#0f172a) in light mode
+        const isLightMode = theme !== 'dark';
+        const iconCol = isLightMode ? '#0f172a' : '#ffffff';
+        const iconSvg = getNodeSvgDataUri(eType, iconCol);
 
         nodesMap.set(nid, {
           group: 'nodes',
@@ -698,17 +708,6 @@ export default function BloodHoundNodeDiagram({
         animate: false,
         padding: 45
       };
-    } else if (layoutMode === 'cluster') {
-      // Stars / Concentric
-      layoutOpts = {
-        name: 'concentric',
-        concentric: (node) => (node.data('isCrownJewel') ? 10 : (node.degree() >= 4 ? 6 : 2)),
-        levelWidth: () => 3,
-        minNodeSpacing: finalNodeCount > 100 ? 100 : 160,
-        spacingFactor: 1.5,
-        animate: false,
-        padding: 45
-      };
     } else {
       // fCoSE (BloodHound default organic layout) — expansive spring physics
       layoutOpts = {
@@ -833,13 +832,15 @@ export default function BloodHoundNodeDiagram({
       if (lastZ > 0 && Math.abs(z - lastZ) / lastZ < 0.035) return;
       lastZ = z;
 
-      // Optical zoom dampening curve:
-      const nodeFont = Math.round(Math.min(26, Math.max(7, 11 / Math.pow(z, 0.68))));
-      // On dense graphs (>60 edges), cap edgeFont at 10px so 200+ edge labels don't collide or obscure nodes
-      const maxEdge = finalEdgeCount > 60 ? 10 : 20;
-      const baseEdge = finalEdgeCount > 60 ? 6.5 : 8.5;
-      const edgeFont = Math.round(Math.min(maxEdge, Math.max(5, baseEdge / Math.pow(z, 0.55))));
-      const nodeMargin = Math.round(Math.min(12, Math.max(4, 6 / Math.pow(z, 0.5))));
+      // Optical zoom dampening curve (crisp, readable BloodHound labels):
+      // When zoomed OUT (diagram overview is big), labels scale UP in world space so text remains clearly readable.
+      // When zoomed IN, labels scale DOWN in world space so text doesn't bloat up and crowd the nodes and edges.
+      const nodeFont = Math.round(Math.min(30, Math.max(10, 13.5 / Math.pow(z, 0.62))));
+      // Edge labels scaling (clearly readable relationship labels):
+      const maxEdge = finalEdgeCount > 60 ? 18 : 24;
+      const baseEdge = finalEdgeCount > 60 ? 12 : 14;
+      const edgeFont = Math.round(Math.min(maxEdge, Math.max(9, baseEdge / Math.pow(z, 0.52))));
+      const nodeMargin = Math.round(Math.min(14, Math.max(5, 7 / Math.pow(z, 0.5))));
 
       cyRef.current.batch(() => {
         cyRef.current.nodes(':not(:hover):not(.selected):not(.hide-node-labels)').style({
@@ -1157,16 +1158,30 @@ export default function BloodHoundNodeDiagram({
     node.addClass('selected');
 
     if (activeNodes.length > 1) {
-      subGraph.layout({
-        name: 'concentric',
-        concentric: (n) => (n.id() === selectedNode ? 2 : 1),
-        levelWidth: () => 1,
-        spacingFactor: 1.8,
-        animate: true,
-        animationDuration: 350,
-        fit: true,
-        padding: 90
-      }).run();
+      if (layoutMode === 'dagre') {
+        subGraph.layout({
+          name: 'dagre',
+          rankDir: 'LR',
+          nodeSep: 85,
+          rankSep: 200,
+          animate: true,
+          animationDuration: 350,
+          fit: true,
+          padding: 85
+        }).run();
+      } else {
+        subGraph.layout({
+          name: 'fcose',
+          quality: 'default',
+          randomize: false,
+          animate: true,
+          animationDuration: 350,
+          fit: true,
+          padding: 85,
+          nodeRepulsion: 350000,
+          idealEdgeLength: 180
+        }).run();
+      }
     }
   }, [focusedCategory, selectedNode]);
 
@@ -1924,29 +1939,6 @@ export default function BloodHoundNodeDiagram({
               >
                 <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>account_tree</span>
                 Tree (Hierarchical DAG)
-              </button>
-
-              <button
-                onClick={() => { setLayoutMode('cluster'); setIsLayoutMenuOpen(false); }}
-                style={{
-                  width: '100%',
-                  textAlign: 'left',
-                  padding: '9px 16px',
-                  background: layoutMode === 'cluster' ? (isLight ? '#fef9c3' : '#713f12') : 'transparent',
-                  border: 'none',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  color: layoutMode === 'cluster' ? '#eab308' : (isLight ? '#0f172a' : '#f8fafc'),
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}
-                onMouseOver={(e) => { if (layoutMode !== 'cluster') e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'; }}
-                onMouseOut={(e) => { if (layoutMode !== 'cluster') e.currentTarget.style.background = 'transparent'; }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>hub</span>
-                Stars (Radial Concentric)
               </button>
             </div>
           )}

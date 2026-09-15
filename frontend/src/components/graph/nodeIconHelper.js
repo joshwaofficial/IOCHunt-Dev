@@ -82,10 +82,8 @@ export function getNodeSvgDataUri(iconType, iconColor = '#3b82f6') {
   const maxDim = Math.max(w, h);
   const offsetX = ((maxDim - w) / 2).toFixed(1);
   const offsetY = ((maxDim - h) / 2).toFixed(1);
-  const encodedColor = encodeURIComponent(iconColor);
-
-  // Exact 256x256 pixel dimensions with centered path
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 ${maxDim} ${maxDim}"><g transform="translate(${offsetX}, ${offsetY})"><path fill="${encodedColor}" d="${path}"/></g></svg>`;
+  // Exact 256x256 pixel dimensions with centered path (valid hex fill like #ffffff or #0f172a)
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 ${maxDim} ${maxDim}"><g transform="translate(${offsetX}, ${offsetY})"><path fill="${iconColor}" d="${path}"/></g></svg>`;
   const uri = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
   svgDataUriCache.set(cacheKey, uri);
   return uri;
