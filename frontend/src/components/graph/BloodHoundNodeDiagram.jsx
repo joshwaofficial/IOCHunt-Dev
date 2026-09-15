@@ -66,10 +66,10 @@ function baseNodeSize(order) {
   return 32;
 }
 
-const getCytoscapeStylesheet = (theme, edgeLabelMode = 'all') => {
+const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = true) => {
   const isLight = theme !== 'dark';
   return [
-    // Base Node Style - Clean white circular body with colored border ring & centered colored vector icon (matching Image 4)
+    // Base Node Style - Clean circular body with distinct colored border ring & centered colored vector icon
     {
       selector: 'node',
       style: {
@@ -86,7 +86,8 @@ const getCytoscapeStylesheet = (theme, edgeLabelMode = 'all') => {
         'background-position-x': '50%',
         'background-position-y': '50%',
         'background-clip': 'node',
-        'label': 'data(shortLabel)',
+        'label': showNodeLabels ? 'data(shortLabel)' : '',
+        'text-opacity': showNodeLabels ? 1.0 : 0,
         'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         'font-size': '11px',
         'font-weight': 700,
@@ -94,26 +95,33 @@ const getCytoscapeStylesheet = (theme, edgeLabelMode = 'all') => {
         'text-margin-y': 6,
         'color': isLight ? '#0f172a' : '#f8fafc',
         'text-background-color': isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.92)',
-        'text-background-opacity': 0.95,
+        'text-background-opacity': showNodeLabels ? 0.95 : 0,
         'text-background-padding': '2px 5px',
         'text-background-shape': 'roundrectangle',
         'text-border-color': isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.14)',
-        'text-border-width': 1,
-        'text-border-opacity': 0.7,
-        'min-zoomed-font-size': 0, // Adaptive dynamic scaling ensures optimal visibility at all zoom levels!
+        'text-border-width': showNodeLabels ? 1 : 0,
+        'text-border-opacity': showNodeLabels ? 0.7 : 0,
+        'min-zoomed-font-size': showNodeLabels ? 0 : 9999,
         'z-index': 10,
-        'transition-property': 'opacity, border-color, border-width, text-opacity',
+        'transition-property': 'opacity, border-color, border-width, text-opacity, outline-width, outline-color',
         'transition-duration': '0.15s'
       }
     },
-    // Hovered Node: Always show full label immediately
+    // Hovered Node: Always reveal full label immediately + concentric outer halo ring
     {
-      selector: 'node:hover',
+      selector: 'node:hover, node.hovered',
       style: {
         'min-zoomed-font-size': 0,
         'label': 'data(fullLabel)',
-        'border-width': 4.0,
-        'border-color': isLight ? '#0284c7' : '#38bdf8',
+        'text-opacity': 1.0,
+        'text-background-opacity': 0.96,
+        'text-border-width': 1,
+        'border-width': 3.8,
+        'border-color': 'data(borderColor)',
+        'outline-width': 3.2,
+        'outline-color': isLight ? '#0284c7' : '#38bdf8',
+        'outline-offset': 3.5,
+        'outline-opacity': 0.85,
         'z-index': 95
       }
     },
@@ -126,29 +134,37 @@ const getCytoscapeStylesheet = (theme, edgeLabelMode = 'all') => {
         'border-width': 3.8
       }
     },
-    // Active Selection Node
+    // Active Selection Node: BloodHound CE blue concentric halo circle & blue pill label!
     {
       selector: 'node.selected',
       style: {
-        'border-color': isLight ? '#0284c7' : '#38bdf8',
-        'border-width': 4.5,
-        'label': 'data(fullLabel)', // Reveal full label when clicked
+        'border-color': 'data(borderColor)',
+        'border-width': 4.2,
+        'outline-width': 4.5,
+        'outline-color': '#0052FF',
+        'outline-offset': 4.5,
+        'outline-opacity': 1.0,
+        'label': 'data(fullLabel)',
+        'text-opacity': 1.0,
+        'text-background-color': '#0052FF',
+        'color': '#ffffff',
+        'text-border-color': '#0052FF',
+        'text-background-opacity': 1.0,
         'min-zoomed-font-size': 0,
         'z-index': 100,
-        'opacity': 1.0,
-        'text-opacity': 1.0
+        'opacity': 1.0
       }
     },
-    // Connected Attack Chain Nodes
+    // Connected Attack Chain Nodes: PRESERVE ORIGINAL NODE BORDER COLOR!
     {
       selector: 'node.in-chain',
       style: {
         'border-width': 3.8,
-        'border-color': isLight ? '#2563eb' : '#60a5fa',
+        'border-color': 'data(borderColor)',
         'min-zoomed-font-size': 0,
         'z-index': 60,
         'opacity': 1.0,
-        'text-opacity': 1.0
+        'text-opacity': showNodeLabels ? 1.0 : 0
       }
     },
     // Faded Nodes during focus selection
@@ -160,7 +176,7 @@ const getCytoscapeStylesheet = (theme, edgeLabelMode = 'all') => {
         'z-index': 1
       }
     },
-    // Base Edge Style: BloodHound CE authentic edge with centered label on the line (matching Reference Image 2)
+    // Base Edge Style: Centered relationship label on the line
     {
       selector: 'edge',
       style: {
@@ -171,20 +187,21 @@ const getCytoscapeStylesheet = (theme, edgeLabelMode = 'all') => {
         'arrow-scale': 0.95,
         'curve-style': 'bezier',
         'control-point-step-size': 28,
-        'label': edgeLabelMode === 'hover' ? '' : 'data(label)',
+        'label': showEdgeLabels ? 'data(label)' : '',
+        'text-opacity': showEdgeLabels ? 1.0 : 0,
         'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        'font-size': '8.5px', // Exact compact BloodHound CE font size
+        'font-size': '8.5px',
         'font-weight': 600,
-        'color': isLight ? '#475569' : '#94a3b8', // Elegant muted slate text matching Image 2
+        'color': isLight ? '#475569' : '#94a3b8',
         'text-background-color': isLight ? '#ffffff' : '#0f172a',
-        'text-background-opacity': 1.0, // Clean solid mask behind text
-        'text-background-padding': '1.5px 3.5px', // Compact pill matching Image 2
+        'text-background-opacity': showEdgeLabels ? 1.0 : 0,
+        'text-background-padding': '1.5px 3.5px',
         'text-background-shape': 'roundrectangle',
-        'text-border-width': 0, // Clean text on line as in reference Image 2
+        'text-border-width': 0,
         'text-rotation': 'autorotate',
-        'text-margin-x': 0, // STRICTLY 0: Centered right on the edge arrow line!
-        'text-margin-y': 0, // STRICTLY 0: Centered right on the edge arrow line!
-        'min-zoomed-font-size': 0, // Adaptive dynamic scaling keeps edge labels readable
+        'text-margin-x': 0,
+        'text-margin-y': 0,
+        'min-zoomed-font-size': showEdgeLabels ? 0 : 9999,
         'z-index': 5,
         'transition-property': 'opacity, width, line-color, target-arrow-color',
         'transition-duration': '0.15s'
@@ -196,6 +213,7 @@ const getCytoscapeStylesheet = (theme, edgeLabelMode = 'all') => {
       style: {
         'width': 2.8,
         'label': 'data(label)',
+        'text-opacity': 1.0,
         'min-zoomed-font-size': 0,
         'font-size': '10px',
         'font-weight': 700,
@@ -217,12 +235,12 @@ const getCytoscapeStylesheet = (theme, edgeLabelMode = 'all') => {
         'line-color': isLight ? '#2563eb' : '#60a5fa',
         'target-arrow-color': isLight ? '#2563eb' : '#60a5fa',
         'label': 'data(label)',
+        'text-opacity': 1.0,
         'min-zoomed-font-size': 0,
         'font-size': '9.5px',
         'font-weight': 700,
         'z-index': 85,
         'opacity': 1.0,
-        'text-opacity': 1.0,
         'text-background-opacity': 1.0,
         'text-border-color': isLight ? '#2563eb' : '#60a5fa',
         'text-border-width': 1.2,
@@ -261,19 +279,26 @@ export default function BloodHoundNodeDiagram({
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [layoutMode, setLayoutMode] = useState('fcose'); // 'fcose' (Organic) | 'dagre' (Tree) | 'cluster' (Stars)
-  const [edgeLabelMode, setEdgeLabelMode] = useState('all'); // 'all' (Spread + Staggered) | 'hover' (BloodHound Clean)
+  const [showNodeLabels, setShowNodeLabels] = useState(true);
+  const [showEdgeLabels, setShowEdgeLabels] = useState(true);
+  const [isLabelMenuOpen, setIsLabelMenuOpen] = useState(false);
+  const [isLayoutMenuOpen, setIsLayoutMenuOpen] = useState(false);
+  const [isDownloadMenuOpen, setIsDownloadMenuOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [allGraphNodes, setAllGraphNodes] = useState([]);
   const [counts, setCounts] = useState({ nodes: 0, edges: 0 });
 
   useEffect(() => {
     callbacksRef.current = { onSelectNode, onSelectEdge, onClearSelection };
   }, [onSelectNode, onSelectEdge, onClearSelection]);
 
-  // Update Cytoscape stylesheet when theme or edgeLabelMode changes
+  // Update Cytoscape stylesheet when theme, showNodeLabels, or showEdgeLabels changes
   useEffect(() => {
     if (cyRef.current) {
-      cyRef.current.style(getCytoscapeStylesheet(theme, edgeLabelMode));
+      cyRef.current.style(getCytoscapeStylesheet(theme, showNodeLabels, showEdgeLabels));
     }
-  }, [theme, edgeLabelMode]);
+  }, [theme, showNodeLabels, showEdgeLabels]);
 
   const dataKey = `${inbound.length}|${outbound.length}|${lateral.length}|${adAttacks.length}|${machines.length}|${layoutMode}`;
 
@@ -289,15 +314,16 @@ export default function BloodHoundNodeDiagram({
     const totalConnections = inbound.length + outbound.length + lateral.length + adAttacks.length;
     if (totalConnections === 0 && machines.length === 0) {
       requestAnimationFrame(() => setCounts({ nodes: 0, edges: 0 }));
+      setAllGraphNodes([]);
       return;
     }
 
     const elements = [];
-    const nodeSet = new Set();
-    const edgeSet = new Set();
+    const nodesMap = new Map();
+    const edgeMap = new Map();
+    const connectedNodeIds = new Set();
 
     // Pre-calculate approx order
-    // Calculate approx node count for optimal node sizing (based on actual nodes, not edges)
     const approxOrder = Math.max(machines.length, Math.round(totalConnections * 0.45), 12);
     const nSize = baseNodeSize(approxOrder);
 
@@ -317,10 +343,11 @@ export default function BloodHoundNodeDiagram({
 
     function ensureNode(id, type = 'machine', raw = {}) {
       if (!id) return null;
-      const cleanId = String(id).trim();
+      // Strip any raw HTML tags (e.g. <b>Test Injection</b>)
+      const cleanId = String(id).replace(/<[^>]*>/g, '').trim();
+      if (!cleanId) return null;
       const nid = 'm:' + cleanId;
-      if (!nodeSet.has(nid)) {
-        nodeSet.add(nid);
+      if (!nodesMap.has(nid)) {
         const u = cleanId.toUpperCase();
         let eType = raw.entityType || type;
 
@@ -354,10 +381,10 @@ export default function BloodHoundNodeDiagram({
         const col = KIND_COLORS[eType] || KIND_COLORS.default;
         const isCrown = isCrownJewelCheck(cleanId, raw);
         const sLabel = getShortLabel(cleanId);
-        // Colored vector icon matching the border ring color as seen in Image 4
+        // Colored vector icon matching the border ring color
         const iconSvg = getNodeSvgDataUri(eType, col);
 
-        elements.push({
+        nodesMap.set(nid, {
           group: 'nodes',
           data: {
             id: nid,
@@ -385,9 +412,10 @@ export default function BloodHoundNodeDiagram({
     });
 
     // Bundle / Aggregate parallel edges between the same nodes to prevent overlapping text collision!
-    const edgeMap = new Map();
     function addEdge(fromId, toId, edgeData) {
       if (!fromId || !toId || fromId === toId) return;
+      connectedNodeIds.add(fromId);
+      connectedNodeIds.add(toId);
       const key = `${fromId}->${toId}`;
       if (edgeMap.has(key)) {
         const existing = edgeMap.get(key);
@@ -529,6 +557,23 @@ export default function BloodHoundNodeDiagram({
       }
     });
 
+    // Only add nodes that have active incoming or outgoing connections (excludes orphan nodes!)
+    const availableNodes = [];
+    nodesMap.forEach((nodeObj, nid) => {
+      if (connectedNodeIds.has(nid)) {
+        elements.push(nodeObj);
+        availableNodes.push({
+          id: nid,
+          label: nodeObj.data.fullLabel,
+          shortLabel: nodeObj.data.shortLabel,
+          entityType: nodeObj.data.entityType,
+          color: nodeObj.data.color,
+          subLabel: nodeObj.data.subLabel
+        });
+      }
+    });
+    setAllGraphNodes(availableNodes);
+
     // Add consolidated edges to elements
     edgeMap.forEach(e => {
       elements.push({
@@ -548,7 +593,7 @@ export default function BloodHoundNodeDiagram({
       });
     });
 
-    const finalNodeCount = nodeSet.size;
+    const finalNodeCount = elements.filter(e => e.group === 'nodes').length;
     const finalEdgeCount = edgeMap.size;
     requestAnimationFrame(() => {
       setCounts({ nodes: finalNodeCount, edges: finalEdgeCount });
@@ -965,9 +1010,101 @@ export default function BloodHoundNodeDiagram({
     if (onClearSelection) onClearSelection();
   }, [onClearSelection]);
 
+  // Export JSON Graph Data
+  const handleExportJson = useCallback(() => {
+    if (!cyRef.current) return;
+    const cy = cyRef.current;
+    const nodesData = cy.nodes().map(n => ({
+      id: n.id(),
+      label: n.data('fullLabel') || n.data('label'),
+      shortLabel: n.data('shortLabel'),
+      entityType: n.data('entityType'),
+      isCrownJewel: n.data('isCrownJewel'),
+      ip: n.data('subLabel') || '',
+      position: n.position()
+    }));
+    const edgesData = cy.edges().map(e => ({
+      id: e.id(),
+      source: e.source().data('fullLabel') || e.source().id(),
+      target: e.target().data('fullLabel') || e.target().id(),
+      label: e.data('label'),
+      dir: e.data('dir'),
+      count: e.data('count') || 1,
+      color: e.data('color'),
+      detail: e.data('_detail')
+    }));
+
+    const exportPayload = {
+      generator: 'IOC Hunt BloodHound Network Topology',
+      exportDate: new Date().toISOString(),
+      summary: {
+        totalNodes: nodesData.length,
+        totalEdges: edgesData.length
+      },
+      nodes: nodesData,
+      edges: edgesData
+    };
+
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `iochunt_topology_export_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, []);
+
+  // Export High-Res PNG Screenshot
+  const handleExportPng = useCallback(() => {
+    if (!cyRef.current) return;
+    const isLightNow = theme === 'light';
+    const pngUri = cyRef.current.png({
+      full: true,
+      scale: 2.0,
+      bg: isLightNow ? '#f8fafc' : '#0b1326'
+    });
+    const link = document.createElement('a');
+    link.href = pngUri;
+    link.download = `iochunt_topology_${new Date().toISOString().slice(0, 10)}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [theme]);
+
+  // Jump to Searched Node
+  const handleSelectSearchedNode = useCallback((targetId) => {
+    if (!cyRef.current) return;
+    const cy = cyRef.current;
+    const node = cy.getElementById(targetId);
+    if (node && node.length > 0) {
+      node.trigger('tap');
+      cy.animate({
+        center: { eles: node },
+        zoom: Math.max(cy.zoom(), 1.25)
+      }, { duration: 300 });
+      setIsSearchOpen(false);
+      setSearchQuery('');
+    }
+  }, []);
+
+  // Close menus on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (!e.target.closest('#bh-bottom-toolbar') && !e.target.closest('#bh-search-popover')) {
+        setIsLabelMenuOpen(false);
+        setIsLayoutMenuOpen(false);
+        setIsDownloadMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const isLight = theme === 'light';
-  const controlBg = isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(15, 23, 42, 0.85)';
-  const controlBorder = isLight ? 'rgba(0, 0, 0, 0.14)' : 'rgba(255, 255, 255, 0.12)';
+  const controlBg = isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(15, 23, 42, 0.90)';
+  const controlBorder = isLight ? 'rgba(0, 0, 0, 0.14)' : 'rgba(255, 255, 255, 0.14)';
   const controlColor = isLight ? '#0f172a' : '#f8fafc';
   const controlHoverBg = isLight ? '#f1f5f9' : '#1e293b';
   const badgeBg = isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(15, 23, 42, 0.85)';
@@ -977,6 +1114,17 @@ export default function BloodHoundNodeDiagram({
   const legendBorder = isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.08)';
   const legendText = isLight ? '#334155' : 'var(--muted)';
   const legendNodeCore = isLight ? '#ffffff' : '#111526';
+
+  const filteredSearchNodes = allGraphNodes.filter(n => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return (
+      (n.label && n.label.toLowerCase().includes(q)) ||
+      (n.shortLabel && n.shortLabel.toLowerCase().includes(q)) ||
+      (n.subLabel && n.subLabel.toLowerCase().includes(q)) ||
+      (n.entityType && n.entityType.toLowerCase().includes(q))
+    );
+  }).slice(0, 15);
 
   return (
     <div
@@ -1058,11 +1206,40 @@ export default function BloodHoundNodeDiagram({
         </div>
       </div>
 
-      {/* Floating Canvas Controls (Right-Hand Side) */}
+      {/* Top Right Reset Selection Button (when node/edge active) */}
+      {selectedNode && (
+        <button
+          onClick={handleClearSelection}
+          title="Clear Selection"
+          style={{
+            position: 'absolute',
+            top: '12px',
+            right: '14px',
+            height: '28px',
+            padding: '0 10px',
+            background: 'rgba(239, 68, 68, 0.15)',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
+            borderRadius: '6px',
+            color: '#ef4444',
+            cursor: 'pointer',
+            fontSize: '11px',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            fontFamily: 'var(--mono)',
+            zIndex: 10
+          }}
+        >
+          ✕ Clear Selection
+        </button>
+      )}
+
+      {/* Floating Zoom Controls (Right-Hand Side) */}
       <div
         style={{
           position: 'absolute',
-          top: '12px',
+          top: '50px',
           right: '14px',
           display: 'flex',
           flexDirection: 'column',
@@ -1121,17 +1298,132 @@ export default function BloodHoundNodeDiagram({
         >
           −
         </button>
+      </div>
 
+      {/* Search Node Floating Popover (Above Search Button) */}
+      {isSearchOpen && (
+        <div
+          id="bh-search-popover"
+          style={{
+            position: 'absolute',
+            bottom: '60px',
+            left: '16px',
+            width: '300px',
+            maxHeight: '360px',
+            background: isLight ? '#ffffff' : '#0f172a',
+            border: `1px solid ${controlBorder}`,
+            borderRadius: '8px',
+            boxShadow: isLight ? '0 12px 36px rgba(0,0,0,0.14)' : '0 12px 36px rgba(0,0,0,0.6)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            zIndex: 999
+          }}
+        >
+          <div style={{ padding: '8px 10px', borderBottom: `1px solid ${controlBorder}`, display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)' }}>search</span>
+            <input
+              autoFocus
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search node name or IP…"
+              style={{
+                flex: 1,
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: isLight ? '#0f172a' : '#f8fafc',
+                fontSize: '12px',
+                fontFamily: 'var(--mono)'
+              }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '12px' }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', padding: '4px' }}>
+            {filteredSearchNodes.length > 0 ? (
+              filteredSearchNodes.map(n => (
+                <div
+                  key={n.id}
+                  onClick={() => handleSelectSearchedNode(n.id)}
+                  style={{
+                    padding: '7px 10px',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '8px',
+                    transition: 'background 0.15s'
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: n.color || '#3b82f6', flexShrink: 0 }}></span>
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: isLight ? '#0f172a' : '#f8fafc', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                      {n.label}
+                    </span>
+                  </div>
+                  <span style={{
+                    fontSize: '9px',
+                    fontWeight: 700,
+                    padding: '2px 5px',
+                    borderRadius: '4px',
+                    background: `${n.color || '#3b82f6'}22`,
+                    color: n.color || '#3b82f6',
+                    textTransform: 'uppercase',
+                    flexShrink: 0
+                  }}>
+                    {n.entityType}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div style={{ padding: '16px', textAlign: 'center', color: 'var(--muted)', fontSize: '11px' }}>
+                No matching nodes found
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* BloodHound CE Authentic Bottom Toolbar (Bottom Left - Matching Reference Image 2) */}
+      <div
+        id="bh-bottom-toolbar"
+        style={{
+          position: 'absolute',
+          bottom: '14px',
+          left: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+          background: controlBg,
+          backdropFilter: 'blur(12px)',
+          border: `1px solid ${controlBorder}`,
+          boxShadow: isLight ? '0 4px 16px rgba(0,0,0,0.08)' : '0 4px 16px rgba(0,0,0,0.4)',
+          borderRadius: '8px',
+          padding: '4px',
+          zIndex: 40
+        }}
+      >
+        {/* 1. Fit to Screen (crop_free) */}
         <button
           onClick={handleResetFit}
-          title="Fit to Center"
+          title="Fit Graph to Screen (Center)"
           style={{
             width: '32px',
             height: '32px',
-            background: controlBg,
-            backdropFilter: 'blur(8px)',
-            border: `1px solid ${controlBorder}`,
-            boxShadow: isLight ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+            background: 'transparent',
+            border: 'none',
             borderRadius: '6px',
             color: controlColor,
             cursor: 'pointer',
@@ -1140,163 +1432,389 @@ export default function BloodHoundNodeDiagram({
             justifyContent: 'center',
             transition: 'all 0.15s'
           }}
-          onMouseOver={(e) => { e.currentTarget.style.background = controlHoverBg; e.currentTarget.style.borderColor = '#3b82f6'; }}
-          onMouseOut={(e) => { e.currentTarget.style.background = controlBg; e.currentTarget.style.borderColor = controlBorder; }}
+          onMouseOver={(e) => e.currentTarget.style.background = controlHoverBg}
+          onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>filter_center_focus</span>
+          <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>crop_free</span>
         </button>
 
-        {/* Layout Switcher: fCoSE | Tree | Stars */}
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '4px',
-            background: controlBg,
-            backdropFilter: 'blur(8px)',
-            border: `1px solid ${controlBorder}`,
-            boxShadow: isLight ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
-            borderRadius: '6px',
-            padding: '3px'
-          }}
-        >
+        {/* 2. Label Visibility (eye icon with popup menu) */}
+        <div style={{ position: 'relative' }}>
           <button
-            onClick={() => setLayoutMode('fcose')}
-            title="fCoSE Organic Spring Layout (Official BloodHound)"
-            style={{
-              height: '26px',
-              padding: '0 6px',
-              background: layoutMode === 'fcose' ? (isLight ? '#dbeafe' : '#1e3a8a') : 'transparent',
-              border: layoutMode === 'fcose' ? '1px solid #3b82f6' : '1px solid transparent',
-              borderRadius: '4px',
-              color: layoutMode === 'fcose' ? '#3b82f6' : controlColor,
-              cursor: 'pointer',
-              fontSize: '10px',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontFamily: 'var(--mono)',
-              transition: 'all 0.15s'
+            onClick={() => {
+              setIsLabelMenuOpen(!isLabelMenuOpen);
+              setIsLayoutMenuOpen(false);
+              setIsDownloadMenuOpen(false);
+              setIsSearchOpen(false);
             }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>scatter_plot</span>
-            fCoSE
-          </button>
-
-          <button
-            onClick={() => setLayoutMode('dagre')}
-            title="Hierarchical Attack Tree (BloodHound DAG)"
+            title="Label Visibility Settings"
             style={{
-              height: '26px',
-              padding: '0 6px',
-              background: layoutMode === 'dagre' ? (isLight ? '#f3e8ff' : '#581c87') : 'transparent',
-              border: layoutMode === 'dagre' ? '1px solid #a855f7' : '1px solid transparent',
-              borderRadius: '4px',
-              color: layoutMode === 'dagre' ? '#a855f7' : controlColor,
-              cursor: 'pointer',
-              fontSize: '10px',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontFamily: 'var(--mono)',
-              transition: 'all 0.15s'
-            }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>account_tree</span>
-            Tree
-          </button>
-
-          <button
-            onClick={() => setLayoutMode('cluster')}
-            title="Star Clusters (Radial Hub & Spoke)"
-            style={{
-              height: '26px',
-              padding: '0 6px',
-              background: layoutMode === 'cluster' ? (isLight ? '#fef9c3' : '#713f12') : 'transparent',
-              border: layoutMode === 'cluster' ? '1px solid #eab308' : '1px solid transparent',
-              borderRadius: '4px',
-              color: layoutMode === 'cluster' ? '#eab308' : controlColor,
-              cursor: 'pointer',
-              fontSize: '10px',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontFamily: 'var(--mono)',
-              transition: 'all 0.15s'
-            }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>hub</span>
-            Stars
-          </button>
-        </div>
-
-        {/* Edge Labels Mode: All Labels vs On Hover */}
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '4px',
-            background: controlBg,
-            backdropFilter: 'blur(8px)',
-            border: `1px solid ${controlBorder}`,
-            boxShadow: isLight ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
-            borderRadius: '6px',
-            padding: '3px'
-          }}
-        >
-          <button
-            onClick={() => setEdgeLabelMode(prev => prev === 'all' ? 'hover' : 'all')}
-            title={edgeLabelMode === 'all' ? 'Edge Labels: Showing All (Click for BloodHound Clean Hover mode)' : 'Edge Labels: Hover Only (Click to Show All Labels)'}
-            style={{
-              height: '26px',
-              padding: '0 6px',
-              background: edgeLabelMode === 'all' ? (isLight ? '#ecfdf5' : '#064e3b') : 'transparent',
-              border: edgeLabelMode === 'all' ? '1px solid #10b981' : '1px solid transparent',
-              borderRadius: '4px',
-              color: edgeLabelMode === 'all' ? '#10b981' : controlColor,
-              cursor: 'pointer',
-              fontSize: '10px',
-              fontWeight: 700,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              fontFamily: 'var(--mono)',
-              transition: 'all 0.15s'
-            }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>
-              {edgeLabelMode === 'all' ? 'label' : 'label_off'}
-            </span>
-            {edgeLabelMode === 'all' ? 'Labels: All' : 'Labels: Hover'}
-          </button>
-        </div>
-
-        {selectedNode && (
-          <button
-            onClick={handleClearSelection}
-            title="Clear Selection"
-            style={{
-              height: '28px',
-              padding: '0 8px',
-              background: 'rgba(239, 68, 68, 0.15)',
-              border: '1px solid rgba(239, 68, 68, 0.35)',
+              width: '32px',
+              height: '32px',
+              background: (!showNodeLabels || !showEdgeLabels) ? (isLight ? '#ede9fe' : '#3b0764') : (isLabelMenuOpen ? controlHoverBg : 'transparent'),
+              border: 'none',
               borderRadius: '6px',
-              color: '#ef4444',
+              color: (!showNodeLabels || !showEdgeLabels) ? '#a855f7' : controlColor,
               cursor: 'pointer',
-              fontSize: '11px',
-              fontWeight: 700,
               display: 'flex',
               alignItems: 'center',
-              gap: '4px',
-              fontFamily: 'var(--mono)'
+              justifyContent: 'center',
+              transition: 'all 0.15s'
             }}
+            onMouseOver={(e) => e.currentTarget.style.background = controlHoverBg}
+            onMouseOut={(e) => e.currentTarget.style.background = (!showNodeLabels || !showEdgeLabels) ? (isLight ? '#ede9fe' : '#3b0764') : (isLabelMenuOpen ? controlHoverBg : 'transparent')}
           >
-            ✕ Reset
+            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>
+              {(!showNodeLabels && !showEdgeLabels) ? 'visibility_off' : 'visibility'}
+            </span>
           </button>
-        )}
+
+          {/* BloodHound CE Label Dropdown Menu */}
+          {isLabelMenuOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '42px',
+                left: '0',
+                minWidth: '170px',
+                background: isLight ? '#ffffff' : '#0f172a',
+                border: `1px solid ${controlBorder}`,
+                borderRadius: '8px',
+                boxShadow: isLight ? '0 10px 30px rgba(0,0,0,0.12)' : '0 10px 30px rgba(0,0,0,0.6)',
+                padding: '6px 0',
+                zIndex: 999
+              }}
+            >
+              <button
+                onClick={() => {
+                  const next = !(showNodeLabels || showEdgeLabels);
+                  setShowNodeLabels(next);
+                  setShowEdgeLabels(next);
+                  setIsLabelMenuOpen(false);
+                }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 16px',
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: isLight ? '#0f172a' : '#f8fafc',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  transition: 'background 0.15s'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'}
+                onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                {showNodeLabels || showEdgeLabels ? 'Hide All Labels' : 'Show All Labels'}
+                {!(showNodeLabels || showEdgeLabels) && (
+                  <span style={{ fontSize: '10px', color: '#a855f7', fontWeight: 800 }}>HIDDEN</span>
+                )}
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowNodeLabels(!showNodeLabels);
+                  setIsLabelMenuOpen(false);
+                }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 16px',
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: isLight ? '#0f172a' : '#f8fafc',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  transition: 'background 0.15s'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'}
+                onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                {showNodeLabels ? 'Hide Node Labels' : 'Show Node Labels'}
+                {!showNodeLabels && (
+                  <span style={{ fontSize: '10px', color: '#a855f7', fontWeight: 800 }}>HIDDEN</span>
+                )}
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowEdgeLabels(!showEdgeLabels);
+                  setIsLabelMenuOpen(false);
+                }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 16px',
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: isLight ? '#0f172a' : '#f8fafc',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  transition: 'background 0.15s'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'}
+                onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                {showEdgeLabels ? 'Hide Edge Labels' : 'Show Edge Labels'}
+                {!showEdgeLabels && (
+                  <span style={{ fontSize: '10px', color: '#a855f7', fontWeight: 800 }}>HIDDEN</span>
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 3. Layout Selector (schema icon with menu) */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => {
+              setIsLayoutMenuOpen(!isLayoutMenuOpen);
+              setIsLabelMenuOpen(false);
+              setIsDownloadMenuOpen(false);
+              setIsSearchOpen(false);
+            }}
+            title="Graph Layout Mode"
+            style={{
+              width: '32px',
+              height: '32px',
+              background: isLayoutMenuOpen ? controlHoverBg : 'transparent',
+              border: 'none',
+              borderRadius: '6px',
+              color: controlColor,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.15s'
+            }}
+            onMouseOver={(e) => e.currentTarget.style.background = controlHoverBg}
+            onMouseOut={(e) => e.currentTarget.style.background = isLayoutMenuOpen ? controlHoverBg : 'transparent'}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>schema</span>
+          </button>
+
+          {isLayoutMenuOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '42px',
+                left: '0',
+                minWidth: '200px',
+                background: isLight ? '#ffffff' : '#0f172a',
+                border: `1px solid ${controlBorder}`,
+                borderRadius: '8px',
+                boxShadow: isLight ? '0 10px 30px rgba(0,0,0,0.12)' : '0 10px 30px rgba(0,0,0,0.6)',
+                padding: '6px 0',
+                zIndex: 999
+              }}
+            >
+              <button
+                onClick={() => { setLayoutMode('fcose'); setIsLayoutMenuOpen(false); }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 16px',
+                  background: layoutMode === 'fcose' ? (isLight ? '#eff6ff' : '#1e3a8a') : 'transparent',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: layoutMode === 'fcose' ? '#3b82f6' : (isLight ? '#0f172a' : '#f8fafc'),
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+                onMouseOver={(e) => { if (layoutMode !== 'fcose') e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'; }}
+                onMouseOut={(e) => { if (layoutMode !== 'fcose') e.currentTarget.style.background = 'transparent'; }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>scatter_plot</span>
+                Organic (fCoSE Spring)
+              </button>
+
+              <button
+                onClick={() => { setLayoutMode('dagre'); setIsLayoutMenuOpen(false); }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 16px',
+                  background: layoutMode === 'dagre' ? (isLight ? '#f3e8ff' : '#581c87') : 'transparent',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: layoutMode === 'dagre' ? '#a855f7' : (isLight ? '#0f172a' : '#f8fafc'),
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+                onMouseOver={(e) => { if (layoutMode !== 'dagre') e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'; }}
+                onMouseOut={(e) => { if (layoutMode !== 'dagre') e.currentTarget.style.background = 'transparent'; }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>account_tree</span>
+                Tree (Hierarchical DAG)
+              </button>
+
+              <button
+                onClick={() => { setLayoutMode('cluster'); setIsLayoutMenuOpen(false); }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 16px',
+                  background: layoutMode === 'cluster' ? (isLight ? '#fef9c3' : '#713f12') : 'transparent',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: layoutMode === 'cluster' ? '#eab308' : (isLight ? '#0f172a' : '#f8fafc'),
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+                onMouseOver={(e) => { if (layoutMode !== 'cluster') e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'; }}
+                onMouseOut={(e) => { if (layoutMode !== 'cluster') e.currentTarget.style.background = 'transparent'; }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>hub</span>
+                Stars (Radial Concentric)
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 4. Download Export (download icon with JSON & PNG options) */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => {
+              setIsDownloadMenuOpen(!isDownloadMenuOpen);
+              setIsLabelMenuOpen(false);
+              setIsLayoutMenuOpen(false);
+              setIsSearchOpen(false);
+            }}
+            title="Download Graph Data / PNG Image"
+            style={{
+              width: '32px',
+              height: '32px',
+              background: isDownloadMenuOpen ? controlHoverBg : 'transparent',
+              border: 'none',
+              borderRadius: '6px',
+              color: controlColor,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.15s'
+            }}
+            onMouseOver={(e) => e.currentTarget.style.background = controlHoverBg}
+            onMouseOut={(e) => e.currentTarget.style.background = isDownloadMenuOpen ? controlHoverBg : 'transparent'}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>download</span>
+          </button>
+
+          {isDownloadMenuOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '42px',
+                left: '0',
+                minWidth: '200px',
+                background: isLight ? '#ffffff' : '#0f172a',
+                border: `1px solid ${controlBorder}`,
+                borderRadius: '8px',
+                boxShadow: isLight ? '0 10px 30px rgba(0,0,0,0.12)' : '0 10px 30px rgba(0,0,0,0.6)',
+                padding: '6px 0',
+                zIndex: 999
+              }}
+            >
+              <button
+                onClick={() => { handleExportJson(); setIsDownloadMenuOpen(false); }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 16px',
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: isLight ? '#0f172a' : '#f8fafc',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'}
+                onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#3b82f6' }}>data_object</span>
+                Download JSON Data
+              </button>
+
+              <button
+                onClick={() => { handleExportPng(); setIsDownloadMenuOpen(false); }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 16px',
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: isLight ? '#0f172a' : '#f8fafc',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'}
+                onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#10b981' }}>image</span>
+                Export PNG Screenshot
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 5. Search Node (search icon with popover) */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => {
+              setIsSearchOpen(!isSearchOpen);
+              setIsLabelMenuOpen(false);
+              setIsLayoutMenuOpen(false);
+              setIsDownloadMenuOpen(false);
+            }}
+            title="Search and Highlight Node"
+            style={{
+              width: '32px',
+              height: '32px',
+              background: isSearchOpen ? (isLight ? '#eff6ff' : '#1e3a8a') : 'transparent',
+              border: 'none',
+              borderRadius: '6px',
+              color: isSearchOpen ? '#3b82f6' : controlColor,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.15s'
+            }}
+            onMouseOver={(e) => e.currentTarget.style.background = controlHoverBg}
+            onMouseOut={(e) => e.currentTarget.style.background = isSearchOpen ? (isLight ? '#eff6ff' : '#1e3a8a') : 'transparent'}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>search</span>
+          </button>
+        </div>
       </div>
 
       {/* Bottom Subtle Legend Indicator */}

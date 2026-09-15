@@ -6,6 +6,7 @@ import { useFilter } from '../context/FilterContext';
 import { useTheme } from '../context/ThemeContext';
 import BloodHoundNodeDiagram from './graph/BloodHoundNodeDiagram';
 import BloodHoundEntityPanel from './graph/BloodHoundEntityPanel';
+import { generateSimulationData } from './graph/simulationData';
 
 function isPrivate(ip) {
   return /^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.)/.test(ip);
@@ -19,6 +20,7 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
 
   const { machine } = useFilter();
   const [counts, setCounts] = useState({ in: 0, out: 0, lat: 0, ad: 0 });
+  const [isSimulated, setIsSimulated] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [viewMode, setViewMode] = useState('graph'); // 'graph' | 'flow'
   const [activeFlows, setActiveFlows] = useState([]);
@@ -227,8 +229,30 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
     }
   }, [localRange, machine, applyFilter]);
 
+  const toggleSimulation = useCallback((enable) => {
+    if (enable) {
+      const sim = generateSimulationData();
+      rawDataRef.current = sim;
+      setCounts({
+        in: sim.inbound.length,
+        out: sim.outbound.length,
+        lat: sim.lateral.length,
+        ad: sim.ad_attacks.length
+      });
+      setIsSimulated(true);
+      updateActiveDatasets(sim.inbound, sim.outbound, sim.ad_attacks, sim.lateral, sim.machines);
+    } else {
+      setIsSimulated(false);
+      fetchTopology();
+    }
+  }, [fetchTopology, updateActiveDatasets]);
+
+  const isFirstMountRef = useRef(true);
+
   useEffect(() => {
-    if (initialData && (!rawDataRef.current.inbound || rawDataRef.current.inbound.length === 0)) {
+    if (isSimulated) return;
+    if (isFirstMountRef.current && initialData && (initialData.inbound?.length || initialData.lateral?.length || initialData.ad_attacks?.length)) {
+      isFirstMountRef.current = false;
       rawDataRef.current = initialData;
       const { inbound = [], outbound = [], lateral = [], ad_attacks = [] } = initialData;
       setCounts({
@@ -240,9 +264,10 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
       applyFilter();
       return;
     }
+    isFirstMountRef.current = false;
     localStorage.setItem('topoRange', localRange);
     fetchTopology();
-  }, [localRange, machine, initialData, applyFilter, fetchTopology]);
+  }, [localRange, machine, initialData, applyFilter, fetchTopology, isSimulated]);
 
   const isMountedRef = useRef(false);
   useEffect(() => {
@@ -414,6 +439,55 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
             <span><span style={{ display: 'inline-block', width: '8px', height: '2px', background: '#3b82f6', marginRight: '4px', verticalAlign: 'middle' }}></span>{counts.out} outbound</span>
             <span><span style={{ display: 'inline-block', width: '8px', height: '2px', background: '#ef4444', marginRight: '4px', verticalAlign: 'middle' }}></span>{counts.lat} lateral</span>
             <span style={{ color: '#a855f7' }}><span style={{ display: 'inline-block', width: '8px', height: '2px', background: '#a855f7', marginRight: '4px', verticalAlign: 'middle' }}></span>{counts.ad} AD</span>
+
+            {/* Simulation Mode Toggle */}
+            {isSimulated ? (
+              <button
+                onClick={() => toggleSimulation(false)}
+                style={{
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  color: '#ef4444',
+                  borderRadius: '4px',
+                  padding: '4px 10px',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  marginLeft: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  transition: 'all 0.2s'
+                }}
+                title="Exit simulation mode and restore real database data"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>restart_alt</span>
+                Return to Live Data
+              </button>
+            ) : (
+              <button
+                onClick={() => toggleSimulation(true)}
+                style={{
+                  background: 'linear-gradient(135deg, rgba(168,85,247,0.2), rgba(168,85,247,0.08))',
+                  border: '1px solid rgba(168,85,247,0.4)',
+                  color: '#c084fc',
+                  borderRadius: '4px',
+                  padding: '4px 10px',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  marginLeft: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  transition: 'all 0.2s'
+                }}
+                title="Simulate 100 realistic nodes across all Active Directory & network entity types"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>bolt</span>
+                ⚡ Simulate (100 Nodes)
+              </button>
+            )}
 
             <button
               onClick={() => {
