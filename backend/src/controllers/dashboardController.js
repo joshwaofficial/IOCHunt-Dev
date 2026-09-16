@@ -272,7 +272,7 @@ const getStats = async (req, res) => {
       req.queryTenant('SELECT COUNT(*) AS n FROM events ' + nw, bp),
       req.queryTenant('SELECT severity,COUNT(*) AS n FROM events ' + nw + ' GROUP BY severity', bp),
       req.queryTenant('SELECT category,COUNT(*) AS n FROM events ' + nw + ' GROUP BY category ORDER BY n DESC', bp),
-      req.queryTenant('SELECT machine,COUNT(*) AS n FROM events ' + nw + ' GROUP BY machine ORDER BY n DESC', bp),
+      req.queryTenant('SELECT machine,COUNT(*) AS n,MAX(ts) AS last_seen FROM events ' + nw + ' GROUP BY machine ORDER BY n DESC', bp),
       req.queryTenant("SELECT machine,severity,COUNT(*) AS n FROM events " + nw + " AND severity IN ('critical','high') GROUP BY machine,severity", bp),
       req.queryTenant(machinesQuery, machinesParams),
       req.queryTenant("SELECT TO_CHAR(ts::timestamp, 'YYYY-MM-DD HH24:00') AS hour,severity,COUNT(*) AS n FROM events " + nw + " GROUP BY hour,severity ORDER BY hour", bp),
@@ -286,7 +286,33 @@ const getStats = async (req, res) => {
     const byCat = byCatRes.rows;
     const byMachine = byMachineRes.rows;
     const byMachineSev = byMachineSevRes.rows;
-    const machines = machinesRes.rows;
+    let machines = machinesRes.rows || [];
+
+    // Ensure every machine that has events is represented and has an accurate last_seen timestamp
+    const machineMap = new Map();
+    machines.forEach(m => {
+      const key = m.name || m.id || m.machine;
+      if (key) machineMap.set(key, { ...m });
+    });
+
+    byMachine.forEach(bm => {
+      if (bm.machine) {
+        if (!machineMap.has(bm.machine)) {
+          machineMap.set(bm.machine, {
+            id: bm.machine,
+            name: bm.machine,
+            last_seen: bm.last_seen
+          });
+        } else if (bm.last_seen) {
+          const existing = machineMap.get(bm.machine);
+          if (!existing.last_seen || new Date(bm.last_seen) > new Date(existing.last_seen)) {
+            existing.last_seen = bm.last_seen;
+          }
+        }
+      }
+    });
+
+    machines = Array.from(machineMap.values());
     const hourly = hourlyRes.rows;
     const critical = criticalRes.rows;
     const criticalStats = criticalStatsRes.rows;

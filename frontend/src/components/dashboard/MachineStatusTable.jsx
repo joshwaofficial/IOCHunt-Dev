@@ -1,14 +1,32 @@
 import React, { useMemo } from 'react';
 
-const getHoursAgo = (ts) => {
+const formatLastSeen = (ts) => {
   if (!ts) return '-';
-  let t = Number(ts);
-  if (isNaN(t)) return '-';
-  if (t < 100000000000) t *= 1000;
+  let t;
+  if (typeof ts === 'number') {
+    t = ts < 100000000000 ? ts * 1000 : ts;
+  } else if (typeof ts === 'string' && /^\d+$/.test(ts.trim())) {
+    const num = Number(ts.trim());
+    t = num < 100000000000 ? num * 1000 : num;
+  } else {
+    t = new Date(ts).getTime();
+  }
+
+  if (!t || isNaN(t)) return '-';
   const ms = Date.now() - t;
-  if (isNaN(ms) || ms < 0) return '0h ago';
-  const hrs = Math.floor(ms / 3600000);
-  return `${hrs}h ago`;
+  if (isNaN(ms) || ms < 0) return 'Just now';
+  
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return 'Just now';
+  
+  const mins = Math.floor(seconds / 60);
+  if (mins < 60) return `${mins}m ago`;
+  
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
 };
 
 const MachineStatusTable = ({ stats, topoData, range }) => {
@@ -37,7 +55,7 @@ const MachineStatusTable = ({ stats, topoData, range }) => {
               <th style={{ padding: '16px 24px', fontSize: '10px', fontFamily: 'var(--mono)', color: '#94a3b8', borderBottom: '1px solid var(--border)', fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase', background: 'var(--surface)' }}>HIGH</th>
               <th style={{ padding: '16px 24px', fontSize: '10px', fontFamily: 'var(--mono)', color: '#94a3b8', borderBottom: '1px solid var(--border)', fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase', background: 'var(--surface)' }}>AD ATTACKS</th>
               <th style={{ padding: '16px 24px', fontSize: '10px', fontFamily: 'var(--mono)', color: '#94a3b8', borderBottom: '1px solid var(--border)', fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase', background: 'var(--surface)' }}>LAST SEEN</th>
-              <th style={{ padding: '16px 24px', fontSize: '10px', fontFamily: 'var(--mono)', color: '#94a3b8', borderBottom: '1px solid var(--border)', fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase', background: 'var(--surface)' }}>ACTIVITY</th>
+              <th title="Relative event volume compared to highest-traffic machine" style={{ padding: '16px 24px', fontSize: '10px', fontFamily: 'var(--mono)', color: '#94a3b8', borderBottom: '1px solid var(--border)', fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase', background: 'var(--surface)' }}>ACTIVITY</th>
             </tr>
           </thead>
           <tbody>
@@ -61,6 +79,15 @@ const MachineStatusTable = ({ stats, topoData, range }) => {
                 
                 const actPct = Math.min(100, Math.max(1, (mStats.n / maxEvents) * 100));
 
+                let rawLastSeen = m.last_seen || mStats?.last_seen || m.lastSeen || m.updated_at;
+                if (m.last_seen && mStats?.last_seen) {
+                  const t1 = new Date(m.last_seen).getTime();
+                  const t2 = new Date(mStats.last_seen).getTime();
+                  if (!isNaN(t2) && (isNaN(t1) || t2 > t1)) {
+                    rawLastSeen = mStats.last_seen;
+                  }
+                }
+
                 return (
                   <tr key={mId} className="hover-row" style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
                     <td style={{ padding: '16px 24px' }}>
@@ -82,12 +109,17 @@ const MachineStatusTable = ({ stats, topoData, range }) => {
                         <div style={{ color: '#94a3b8', fontSize: '13px', paddingLeft: '8px', fontWeight: 600 }}>-</div>
                       )}
                     </td>
-                    <td style={{ padding: '16px 24px', fontSize: '12px', color: '#64748b' }}>
-                      {getHoursAgo(m.last_seen)}
+                    <td style={{ padding: '16px 24px', fontSize: '12px', color: '#64748b' }} title={rawLastSeen ? new Date(rawLastSeen).toLocaleString() : ''}>
+                      {formatLastSeen(rawLastSeen)}
                     </td>
-                    <td style={{ padding: '16px 24px', width: '120px' }}>
-                      <div style={{ height: '4px', width: '100%', background: 'var(--surface2)', borderRadius: '2px', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${actPct}%`, background: '#3b82f6', borderRadius: '2px', transition: 'width 0.5s ease-out' }}></div>
+                    <td style={{ padding: '16px 24px', width: '150px' }} title={`Relative Activity: ${Math.round(actPct)}% (${mStats.n} events)`}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ flex: 1, height: '4px', background: 'var(--surface2)', borderRadius: '2px', overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${actPct}%`, background: '#3b82f6', borderRadius: '2px', transition: 'width 0.5s ease-out' }}></div>
+                        </div>
+                        <span style={{ fontSize: '11px', fontFamily: 'var(--mono)', color: '#64748b', minWidth: '32px', textAlign: 'right' }}>
+                          {Math.round(actPct)}%
+                        </span>
                       </div>
                     </td>
                   </tr>
