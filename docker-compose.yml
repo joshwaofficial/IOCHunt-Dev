@@ -70,7 +70,7 @@ services:
       - "${APP_PORT:-4001}:4001"
       - "5515:5515/udp" # Tenant 1 syslog receiver
       - "5517-5540:5517-5540/udp" # Multi-tenant isolated syslog receivers (5516 reserved for aggregator)
-      - "9510:9510/udp" # Custom syslog receiver port
+      - "9500-9600:9500-9600/udp" # Multi-tenant syslog receivers block (supports all provisioned tenants)
     volumes:
       - ./nginx/ssl:/app/nginx/ssl
     depends_on:

@@ -472,3 +472,71 @@ exports.getConfigInfo = async (req, res) => {
     return res.status(500).json({ error: 'Failed to retrieve syslog config info' });
   }
 };
+
+exports.ingestSyslog = async (req, res) => {
+  try {
+    const rawApiKey = req.headers['x-api-key'] || req.headers['x-aggregator-key'] || req.query.apiKey;
+    let tenantId = req.tenantId || req.session?.tenant_id || req.session?.user?.tenant_id;
+
+    if (!tenantId && rawApiKey && typeof req.queryControlPlane === 'function') {
+      const crypto = require('crypto');
+      const hash = (text) => crypto.createHash('sha256').update(text).digest('hex');
+      const apiKeyHash = hash(String(rawApiKey).trim());
+
+      const tenantRes = await req.queryControlPlane(
+        'SELECT tenant_id FROM tenants WHERE api_key_hash = $1 AND status = $2',
+        [apiKeyHash, 'active']
+      );
+      if (tenantRes && tenantRes.rows && tenantRes.rows.length > 0) {
+        tenantId = tenantRes.rows[0].tenant_id;
+      }
+    }
+
+    if (!tenantId) {
+      tenantId = 'default';
+    }
+
+    let logs = [];
+    if (Array.isArray(req.body?.logs)) {
+      logs = req.body.logs;
+    } else if (Array.isArray(req.body)) {
+      logs = req.body;
+    } else if (typeof req.body === 'string') {
+      logs = req.body.split(/\r?\n/).filter(l => l.trim());
+    } else if (typeof req.body?.log === 'string') {
+      logs = [req.body.log];
+    }
+
+    if (!logs.length) {
+      return res.status(400).json({ error: 'No logs provided. Expecting logs array or raw text body.' });
+    }
+
+    const { parseFwLog, batchIngestFw } = require('../utils/fwWatcher');
+    const { publishToStream } = require('../services/redisIngestion');
+    const remoteIp = req.ip || req.connection?.remoteAddress || '';
+
+    const rows = [];
+    for (const item of logs) {
+      const line = typeof item === 'string' ? item : (item.raw || JSON.stringify(item));
+      const parsed = parseFwLog(line, remoteIp, 'UTC');
+      if (parsed) {
+        parsed.raw = parsed.raw || line;
+        rows.push(parsed);
+      }
+    }
+
+    if (rows.length > 0) {
+      if (appMode.isAggregator()) {
+        await batchIngestFw(rows);
+      } else {
+        await publishToStream('ingest:syslog', tenantId, rows);
+      }
+      return res.json({ ok: true, ingested: rows.length, tenant_id: tenantId });
+    }
+
+    return res.status(400).json({ error: 'No logs could be parsed as firewall events.' });
+  } catch (err) {
+    console.error('[Firewall Ingest Error]', err);
+    return res.status(500).json({ error: 'Failed to process firewall log stream' });
+  }
+};

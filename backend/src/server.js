@@ -143,6 +143,7 @@ app.get('/api/firewall/stats', requireSession, firewallController.getFirewallSta
 app.get('/api/firewall/alerts', requireSession, firewallController.getSecurityAlerts);
 app.get('/api/firewall/live', requireSession, firewallController.getLiveEvents);
 app.get('/api/firewall/config-info', requireSession, firewallController.getConfigInfo);
+app.post('/api/firewall/ingest', express.json({ limit: '10mb' }), express.text({ limit: '10mb' }), firewallController.ingestSyslog);
 
 // SSE Real-Time Stream
 app.get('/api/stream', sseBroadcaster.subscribe);

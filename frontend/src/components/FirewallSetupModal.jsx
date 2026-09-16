@@ -25,11 +25,17 @@ export default function FirewallSetupModal({ isOpen, onClose, configInfo }) {
 end`;
 
   const powershellTest = `$client = New-Object System.Net.Sockets.UdpClient
-$msg = '<189>date=${new Date().toISOString().slice(0, 10)} time=${new Date().toTimeString().slice(0, 8)} devname="FGT-OFFICE" type="traffic" srcip=185.220.101.5 srcport=49152 dstip=10.90.122.247 dstport=3389 action="deny" proto=6 service="RDP"'
+$msg = '<189>date=${new Date().toISOString().slice(0, 10)} time=${new Date().toISOString().slice(11, 19)} devname="FGT-OFFICE" type="traffic" srcip=185.220.101.5 srcport=49152 dstip=10.90.122.247 dstport=3389 action="deny" proto=6 service="RDP"'
 $bytes = [System.Text.Encoding]::UTF8.GetBytes($msg)
 $client.Send($bytes, $bytes.Length, "${serverHost}", ${syslogPort})
 $client.Close()
 Write-Host "Test Firewall Log Sent to Port ${syslogPort} Successfully!" -ForegroundColor Green`;
+
+  const bashTest = `echo "<189>date=$(date -u +%Y-%m-%d) time=$(date -u +%H:%M:%S) devname=\\"FGT-OFFICE\\" type=\\"traffic\\" srcip=\\"185.220.101.5\\" srcport=49152 dstip=\\"10.90.122.247\\" dstport=3389 action=\\"deny\\" proto=6 service=\\"RDP\\"" | nc -u -w1 ${serverHost} ${syslogPort}`;
+
+  const curlTest = `curl -k -X POST https://${serverHost}:${window.location.port || 8082}/api/firewall/ingest \\
+  -H "Content-Type: application/json" \\
+  -d '{"logs":["<189>date=${new Date().toISOString().slice(0, 10)} time=${new Date().toISOString().slice(11, 19)} devname=\\"FGT-OFFICE\\" type=\\"traffic\\" srcip=\\"185.220.101.5\\" srcport=49152 dstip=\\"10.90.122.247\\" dstport=3389 action=\\"deny\\" proto=6 service=\\"RDP\\""]}'`;
 
   return (
     <div
@@ -119,6 +125,8 @@ Write-Host "Test Firewall Log Sent to Port ${syslogPort} Successfully!" -Foregro
                 { id: 'fortinet', label: 'Fortinet FortiGate' },
                 { id: 'paloalto', label: 'Palo Alto Networks' },
                 { id: 'pfsense', label: 'pfSense / OPNsense' },
+                { id: 'curl', label: 'HTTPS API (curl)' },
+                { id: 'terminal', label: 'Mac / Linux (nc)' },
                 { id: 'powershell', label: 'PowerShell Test' }
               ].map(t => (
                 <button
@@ -195,6 +203,46 @@ Write-Host "Test Firewall Log Sent to Port ${syslogPort} Successfully!" -Foregro
                   <li>Enter Remote log server: <code>{serverHost}:{syslogPort}</code></li>
                   <li>Check <strong>Firewall Events</strong> and Save.</li>
                 </ol>
+              </div>
+            )}
+
+            {/* Tab: HTTPS API Ingest (curl) */}
+            {activeTab === 'curl' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0, lineHeight: 1.5 }}>
+                  Send firewall syslogs directly to Central over standard <strong>HTTPS (Port 8082 / 443)</strong> without opening any UDP ports:
+                </p>
+                <div style={{ position: 'relative' }}>
+                  <pre style={{ background: '#0b0f19', border: '1px solid var(--border)', borderRadius: '8px', padding: '14px 16px', fontSize: '11px', color: '#38bdf8', fontFamily: 'var(--mono)', overflowX: 'auto', margin: 0 }}>
+                    {curlTest}
+                  </pre>
+                  <button
+                    onClick={() => copyToClipboard(curlTest, 'cURL command')}
+                    style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>content_copy</span> Copy cURL
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Tab: Mac / Linux Terminal (nc) */}
+            {activeTab === 'terminal' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <p style={{ fontSize: '12px', color: 'var(--muted)', margin: 0, lineHeight: 1.5 }}>
+                  Send a live UDP test log from macOS or Linux terminal using built-in <code>nc</code> (uses UTC time):
+                </p>
+                <div style={{ position: 'relative' }}>
+                  <pre style={{ background: '#0b0f19', border: '1px solid var(--border)', borderRadius: '8px', padding: '14px 16px', fontSize: '11px', color: '#a7f3d0', fontFamily: 'var(--mono)', overflowX: 'auto', margin: 0 }}>
+                    {bashTest}
+                  </pre>
+                  <button
+                    onClick={() => copyToClipboard(bashTest, 'Terminal command')}
+                    style={{ position: 'absolute', top: '10px', right: '10px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>content_copy</span> Copy Command
+                  </button>
+                </div>
               </div>
             )}
 

@@ -1,5 +1,6 @@
 const dgram = require('dgram');
 const db = require('../config/db'); // Control plane database
+const appMode = require('../config/appMode');
 const { parseFwLog, batchIngestFw } = require('./fwWatcher');
 const { publishToStream } = require('../services/redisIngestion');
 
@@ -36,14 +37,22 @@ function startListenerOnPort(port, tenantId) {
     if (rows.length) {
       console.log(`[SYSLOG] Received ${rows.length} firewall event(s) from ${rinfo.address} on port ${p} (Tenant: ${tenantId})`);
       
-      try {
-        await publishToStream('ingest:syslog', tenantId, rows);
-      } catch (e) {
-        console.warn(`[SYSLOG] Redis stream publish error on port ${p}, falling back to direct DB insert:`, e.message);
+      if (appMode.isAggregator()) {
         try {
           await batchIngestFw(rows);
         } catch (dbErr) {
-          console.error(`[SYSLOG] Direct DB insert failed:`, dbErr.message);
+          console.error(`[SYSLOG] Direct DB insert failed on aggregator:`, dbErr.message);
+        }
+      } else {
+        try {
+          await publishToStream('ingest:syslog', tenantId, rows);
+        } catch (e) {
+          console.warn(`[SYSLOG] Redis stream publish error on port ${p}, falling back to direct DB insert:`, e.message);
+          try {
+            await batchIngestFw(rows);
+          } catch (dbErr) {
+            console.error(`[SYSLOG] Direct DB insert failed:`, dbErr.message);
+          }
         }
       }
     } else if (rawText.length > 0) {
@@ -76,9 +85,10 @@ async function initSyslogReceiver() {
     console.warn('[SYSLOG] No control plane port mappings table or query error:', err.message);
   }
 
-  // Ensure default port 5515 is ALWAYS bound for default tenant
-  const defaultPort = Number(process.env.SYSLOG_PORT || 5515);
-  const defaultTenant = process.env.TENANT_ID || 'default';
+  // Ensure default port is ALWAYS bound (5516 for aggregator, 5515 for central default tenant)
+  const isAgg = appMode.isAggregator();
+  const defaultPort = Number(process.env.SYSLOG_PORT || (isAgg ? 5516 : 5515));
+  const defaultTenant = process.env.TENANT_ID || (isAgg ? 'aggregator' : 'default');
   
   const hasDefaultPort = portMappings.some(m => Number(m.port) === defaultPort);
   if (!hasDefaultPort) {

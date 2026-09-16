@@ -55,8 +55,9 @@ services:
       REDIS_URL: redis://iochunt-redis-aggregator:6379
       DISPLAY_TZ: Asia/Kolkata
       APP_VERSION: 2.0.0
+      SYSLOG_PORT: 5516
     ports:
-      - "5516:5514/udp" # Syslog receiver
+      - "5516:5516/udp" # Syslog receiver
     volumes:
       - ./nginx/ssl:/app/nginx/ssl
     depends_on:
