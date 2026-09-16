@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
+import { useInstance } from "../context/InstanceContext";
 import { toast } from "react-hot-toast";
 
 const INC_STATUS_META = {
@@ -40,7 +41,9 @@ export default function IncidentDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const role = user?.role;
+  const { isAggregator } = useInstance();
+  const role = user?.role?.toUpperCase();
+  const isAgg = isAggregator() || Boolean(user?.aggregator_name) || role === 'AGGREGATOR_ADMIN';
   const queryClient = useQueryClient();
   
   const [newNote, setNewNote] = useState("");
@@ -70,7 +73,8 @@ export default function IncidentDetail() {
     queryFn: async () => {
       const res = await axios.get('/api/users/assignable');
       return res.data;
-    }
+    },
+    enabled: !isAgg
   });
   const allowedAssignees = assignableData?.users || [];
 
@@ -179,11 +183,11 @@ export default function IncidentDetail() {
   const isOpen = !['resolved','closed'].includes(incident.status?.toLowerCase());
   const isContained = ['contained', 'resolved', 'closed'].includes(incident.status?.toLowerCase());
   
-  // Incident Action buttons logic (Restored to previous)
-  const canTransition = (isOpen && (role === 'ADMIN' || incident.assigned_to === user?.username)) || (!isOpen && (role === 'ADMIN' || role === 'L3_ANALYST'));
+  // Incident Action buttons logic (Strictly disabled on Branch Aggregators)
+  const canTransition = !isAgg && ((isOpen && (role === 'ADMIN' || incident.assigned_to === user?.username)) || (!isOpen && (role === 'ADMIN' || role === 'L3_ANALYST')));
   
-  // Assignee Dropdown logic (Global for Admin and L3)
-  const canReassign = role === 'ADMIN' || role === 'L3_ANALYST' || (isOpen && incident.assigned_to === user?.username);
+  // Assignee Dropdown logic (Strictly disabled on Branch Aggregators)
+  const canReassign = !isAgg && (role === 'ADMIN' || role === 'L3_ANALYST' || (isOpen && incident.assigned_to === user?.username));
 
   const age = Math.floor((Date.now()/1000) - incident.created_at);
   const ageStr = age < 3600 ? Math.floor(age/60)+'m'
@@ -201,6 +205,28 @@ export default function IncidentDetail() {
         <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>arrow_back</span>
         Back to Incidents
       </button>
+
+      {/* Aggregator Read-Only Banner */}
+      {isAgg && (
+        <div style={{
+          background: 'rgba(168, 85, 247, 0.06)',
+          border: '1px solid rgba(168, 85, 247, 0.25)',
+          borderRadius: '10px',
+          padding: '12px 18px',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          color: '#e879f9',
+          fontSize: '12px',
+          lineHeight: 1.5
+        }}>
+          <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#c084fc', flexShrink: 0 }}>visibility</span>
+          <span>
+            <strong>Read-Only View:</strong> Incident response actions, containment, assignments, and notes are managed centrally. Branch aggregators cannot perform actions or add notes.
+          </span>
+        </div>
+      )}
 
       {/* Two Column Layout Container */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '24px', alignItems: 'start' }}>
@@ -410,7 +436,14 @@ export default function IncidentDetail() {
             </div>
 
             {/* Status transition buttons */}
-            {canTransition && INC_TRANSITIONS[incident.status?.toLowerCase()] ? (
+            {isAgg ? (
+              <div style={{ fontSize: '12px', color: 'var(--muted)', background: 'var(--surface2)', padding: '14px', borderRadius: '8px', border: '1px solid var(--border)', lineHeight: 1.5 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#c084fc', fontWeight: 700, marginBottom: '4px' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>lock</span> Read-Only Mode
+                </div>
+                Incident response actions, containment playbooks, and status transitions are managed centrally and cannot be executed from this branch aggregator.
+              </div>
+            ) : canTransition && INC_TRANSITIONS[incident.status?.toLowerCase()] ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {INC_TRANSITIONS[incident.status?.toLowerCase()].map(ns => {
                   const tm = INC_STATUS_META[ns];
@@ -448,7 +481,7 @@ export default function IncidentDetail() {
           </div>
 
           {/* Containment Playbook Action Modal */}
-          {showContainModal && (
+          {!isAgg && showContainModal && (
             <div style={{ 
               background: 'var(--surface)', 
               border: '1px solid rgba(234, 179, 8, 0.4)',
@@ -545,7 +578,7 @@ export default function IncidentDetail() {
           )}
 
           {/* Confirmation panel for resolving/closing */}
-          {closingTargetStatus && (
+          {!isAgg && closingTargetStatus && (
             <div style={{ 
               background: 'var(--surface)', 
               border: '1px solid var(--border)',
@@ -654,29 +687,36 @@ export default function IncidentDetail() {
             </div>
 
             {/* Add note */}
-            <div style={{ paddingTop: '20px', borderTop: '1px dashed var(--border)' }}>
-              <textarea 
-                rows="3" 
-                className="input-field"
-                placeholder="Add a new note..."
-                value={newNote}
-                onChange={e => setNewNote(e.target.value)}
-                style={{ width: '100%', background: 'transparent', border: '2px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '13px', padding: '12px 16px', borderRadius: '8px', resize: 'vertical', lineHeight: 1.6, marginBottom: '16px', outline: 'none', transition: 'border-color 0.2s' }}
-                onFocus={e => e.target.style.borderColor = 'var(--accent)'}
-                onBlur={e => e.target.style.borderColor = 'var(--border)'}
-              />
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button 
-                  onClick={() => addNoteMutation.mutate(newNote)}
-                  disabled={addNoteMutation.isPending || !newNote.trim()}
-                  style={{ background: 'var(--accent)', color: '#fff', border: '1px solid var(--accent)', padding: '8px 20px', borderRadius: '6px', fontSize: '12px', fontWeight: 700, fontFamily: 'var(--mono)', cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '1px', boxShadow: '0 4px 12px rgba(37,99,235,0.2)', transition: 'background 0.2s', opacity: (addNoteMutation.isPending || !newNote.trim()) ? 0.5 : 1 }}
-                  onMouseOver={e => e.target.style.background = '#1d4ed8'}
-                  onMouseOut={e => e.target.style.background = 'var(--accent)'}
-                >
-                  Add Note
-                </button>
+            {!isAgg ? (
+              <div style={{ paddingTop: '20px', borderTop: '1px dashed var(--border)' }}>
+                <textarea 
+                  rows="3" 
+                  className="input-field"
+                  placeholder="Add a new note..."
+                  value={newNote}
+                  onChange={e => setNewNote(e.target.value)}
+                  style={{ width: '100%', background: 'transparent', border: '2px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '13px', padding: '12px 16px', borderRadius: '8px', resize: 'vertical', lineHeight: 1.6, marginBottom: '16px', outline: 'none', transition: 'border-color 0.2s' }}
+                  onFocus={e => e.target.style.borderColor = 'var(--accent)'}
+                  onBlur={e => e.target.style.borderColor = 'var(--border)'}
+                />
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button 
+                    onClick={() => addNoteMutation.mutate(newNote)}
+                    disabled={addNoteMutation.isPending || !newNote.trim()}
+                    style={{ background: 'var(--accent)', color: '#fff', border: '1px solid var(--accent)', padding: '8px 20px', borderRadius: '6px', fontSize: '12px', fontWeight: 700, fontFamily: 'var(--mono)', cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '1px', boxShadow: '0 4px 12px rgba(37,99,235,0.2)', transition: 'background 0.2s', opacity: (addNoteMutation.isPending || !newNote.trim()) ? 0.5 : 1 }}
+                    onMouseOver={e => e.target.style.background = '#1d4ed8'}
+                    onMouseOut={e => e.target.style.background = 'var(--accent)'}
+                  >
+                    Add Note
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div style={{ paddingTop: '16px', borderTop: '1px dashed var(--border)', fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '14px', color: 'var(--muted2)' }}>info</span>
+                Incident notes and comments are managed centrally.
+              </div>
+            )}
           </div>
 
         </div>

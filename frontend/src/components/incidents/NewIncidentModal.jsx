@@ -3,8 +3,14 @@ import axios from 'axios';
 import { useQuery } from '@tanstack/react-query';
 import { useFilter } from '../../context/FilterContext';
 import { useAuth } from '../../context/AuthContext';
+import { useInstance } from '../../context/InstanceContext';
 
 export default function NewIncidentModal({ onClose, onCreated, prefillChain }) {
+  const { user } = useAuth();
+  const { isAggregator } = useInstance();
+  const isAgg = isAggregator() || Boolean(user?.aggregator_name) || user?.role?.toUpperCase() === 'AGGREGATOR_ADMIN';
+  if (isAgg) return null;
+
   const { range, machine } = useFilter();
   const [activeTab, setActiveTab] = useState(prefillChain ? 'manual' : 'manual');
   const [title, setTitle] = useState(prefillChain ? `Incident on ${prefillChain.machine}` : '');
@@ -37,8 +43,6 @@ export default function NewIncidentModal({ onClose, onCreated, prefillChain }) {
   // For promoting a chain
   const [selectedChainId, setSelectedChainId] = useState(prefillChain ? prefillChain.id : null);
   const [eventIds, setEventIds] = useState(prefillChain ? prefillChain.events?.map(e => e.id) || [] : []);
-
-  const { user } = useAuth();
   
   // Fetch users for assignee dropdown
   const { data: assignableData } = useQuery({

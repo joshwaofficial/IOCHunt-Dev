@@ -5,6 +5,7 @@ import axios from "axios";
 import { formatDistanceToNow } from "date-fns";
 import NewIncidentModal from "../components/incidents/NewIncidentModal";
 import { useAuth } from "../context/AuthContext";
+import { useInstance } from "../context/InstanceContext";
 
 const INC_STATUS_META = {
   new:           { label:'New',           col:'#6b7280', bg:'rgba(107,114,128,.15)' },
@@ -35,18 +36,22 @@ export default function Incidents() {
   const [assigneeTab, setAssigneeTab] = useState("all"); // 'all' | 'me' | 'unassigned'
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { isAggregator } = useInstance();
+  const isAgg = isAggregator() || Boolean(user?.aggregator_name) || user?.role?.toUpperCase() === 'AGGREGATOR_ADMIN';
 
-  // Check for navigation state indicating we should open the modal
+  // Check for navigation state indicating we should open the modal (only permitted on Central Server)
   React.useEffect(() => {
-    if (location.state?.action === 'openNewModal') {
+    if (!isAgg && location.state?.action === 'openNewModal') {
       setShowNewModal(true);
       if (location.state?.prefillChain) {
         setPrefillChain(location.state.prefillChain);
       }
+    }
+    if (location.state?.action === 'openNewModal') {
       // Clear the state so a refresh doesn't pop the modal again
       navigate(location.pathname, { replace: true, state: {} });
     }
-  }, [location, navigate]);
+  }, [location, navigate, isAgg]);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['incidents', filterStatus, filterPriority, searchTerm],
@@ -133,11 +138,51 @@ export default function Incidents() {
           <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '6px 0 0', fontFamily: 'var(--mono)' }}>Track, assign, and resolve security incidents and ongoing investigations.</p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {isAgg && (
+            <span style={{ 
+              background: 'rgba(168, 85, 247, 0.12)', 
+              border: '1px solid rgba(168, 85, 247, 0.35)', 
+              color: '#c084fc', 
+              fontSize: '11px', 
+              padding: '6px 12px', 
+              borderRadius: '6px', 
+              fontFamily: 'var(--mono)', 
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>visibility</span>
+              READ-ONLY VIEW
+            </span>
+          )}
           <span style={{ background: 'var(--surface2)', border: '1px solid var(--border)', fontSize: '11px', padding: '6px 14px', borderRadius: '6px', fontFamily: 'var(--mono)', color: 'var(--muted)' }}>
             {displayedIncidents.length} of {allIncidents.length} incidents
           </span>
         </div>
       </div>
+
+      {/* Aggregator Read-Only Banner */}
+      {isAgg && (
+        <div style={{
+          background: 'rgba(168, 85, 247, 0.06)',
+          border: '1px solid rgba(168, 85, 247, 0.25)',
+          borderRadius: '10px',
+          padding: '12px 18px',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          color: '#e879f9',
+          fontSize: '12px',
+          lineHeight: 1.5
+        }}>
+          <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#c084fc', flexShrink: 0 }}>info</span>
+          <span>
+            Incidents are managed centrally. This Branch Aggregator provides a <strong>view-only</strong> perspective of security incidents. Incident creation, assignments, notes, and lifecycle actions must be managed from the Central Command Hub.
+          </span>
+        </div>
+      )}
 
       {/* Assignment Quick Filter Tabs */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -284,15 +329,19 @@ export default function Incidents() {
           </select>
         </div>
 
-        <div style={{ width: '1px', height: '24px', background: 'var(--border)', flexShrink: 0 }}></div>
-        
-        <button 
-          style={{ background: 'var(--accent)', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '1px', boxShadow: '0 4px 12px rgba(37,99,235,0.2)' }} 
-          onClick={() => setShowNewModal(true)}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>add</span>
-          New Incident
-        </button>
+        {!isAgg && (
+          <>
+            <div style={{ width: '1px', height: '24px', background: 'var(--border)', flexShrink: 0 }}></div>
+            
+            <button 
+              style={{ background: 'var(--accent)', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '1px', boxShadow: '0 4px 12px rgba(37,99,235,0.2)' }} 
+              onClick={() => setShowNewModal(true)}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>add</span>
+              New Incident
+            </button>
+          </>
+        )}
       </div>
 
       {/* Summary Cards */}
@@ -419,7 +468,7 @@ export default function Incidents() {
         )}
       </div>
 
-      {showNewModal && (
+      {!isAgg && showNewModal && (
         <NewIncidentModal 
           prefillChain={prefillChain}
           onClose={() => {

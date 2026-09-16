@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useFilter } from '../context/FilterContext';
 import { useInstance } from '../context/InstanceContext';
+import { useAuth } from '../context/AuthContext';
 import { getTodayStartAndEnd } from '../utils/dateUtils';
 
 const sevColor = {
@@ -35,6 +36,9 @@ function formatTime(isoStr) {
 
 export default function AdAttacks() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { isCentral, isAggregator } = useInstance();
+  const isAgg = isAggregator() || Boolean(user?.aggregator_name) || user?.role?.toUpperCase() === 'AGGREGATOR_ADMIN';
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -61,7 +65,6 @@ export default function AdAttacks() {
   const [sortFilter, setSortFilter] = useState('newest');
         
   const { aggregator } = useFilter();
-  const { isCentral } = useInstance();
   
   const [customFrom, setCustomFrom] = useState(() => {
     return localStorage.getItem('iochunt_ad_custom_from') || (() => {
@@ -441,7 +444,7 @@ export default function AdAttacks() {
                                 <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check_circle</span>
                                 Escalated to {a.incident_assigned_to || 'Unassigned'}
                               </button>
-                            ) : (
+                            ) : !isAgg ? (
                               <button 
                                 onClick={(e) => { 
                                   e.stopPropagation(); 
@@ -457,7 +460,7 @@ export default function AdAttacks() {
                                 <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>assignment_late</span>
                                 Escalate
                               </button>
-                            )}
+                            ) : null}
                           </div>
                         </td>
                       </tr>

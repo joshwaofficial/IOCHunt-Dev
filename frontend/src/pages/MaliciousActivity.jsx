@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useThreatStore } from '../store/useThreatStore';
 import { useFilter } from '../context/FilterContext';
 import { useInstance } from '../context/InstanceContext';
+import { useAuth } from '../context/AuthContext';
 import { getTodayStartAndEnd } from '../utils/dateUtils';
 
 const sevColor = {
@@ -38,7 +39,9 @@ const formatTime = (ts) => {
 
 export default function MaliciousActivity() {
   const { aggregator } = useFilter();
-  const { isCentral } = useInstance();
+  const { user } = useAuth();
+  const { isCentral, isAggregator } = useInstance();
+  const isAgg = isAggregator() || Boolean(user?.aggregator_name) || user?.role?.toUpperCase() === 'AGGREGATOR_ADMIN';
 
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -441,7 +444,7 @@ export default function MaliciousActivity() {
                                 <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check_circle</span>
                                 Escalated to {a.incident_assigned_to || 'Unassigned'}
                               </button>
-                            ) : (
+                            ) : !isAgg ? (
                               <button 
                                 onClick={(e) => { 
                                   e.stopPropagation(); 
@@ -457,7 +460,7 @@ export default function MaliciousActivity() {
                                 <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>assignment_late</span>
                                 Escalate
                               </button>
-                            )}
+                            ) : null}
                           </div>
                         </td>
                       </tr>

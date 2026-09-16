@@ -21,21 +21,30 @@ const AllEventsModal = lazyRetry(() => import('../components/dashboard/AllEvents
 import NewIncidentModal from '../components/incidents/NewIncidentModal';
 
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { useInstance } from '../context/InstanceContext';
 
 export default function Dashboard() {
   const { range, machine, setMachine, aggregator } = useFilter();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { isAggregator } = useInstance();
+  const isAgg = isAggregator() || Boolean(user?.aggregator_name) || user?.role?.toUpperCase() === 'AGGREGATOR_ADMIN';
   const [showCriticalModal, setShowCriticalModal] = useState(false);
 
-  // Attach the global function so AllEventsModal can trigger it
+  // Attach the global function so AllEventsModal can trigger it (Central Server only)
   React.useEffect(() => {
-    window.handlePromoteChainFromModal = (chain) => {
-      navigate('/incidents', { state: { prefillChain: chain, action: 'openNewModal' } });
-    };
+    if (!isAgg) {
+      window.handlePromoteChainFromModal = (chain) => {
+        navigate('/incidents', { state: { prefillChain: chain, action: 'openNewModal' } });
+      };
+    } else {
+      delete window.handlePromoteChainFromModal;
+    }
     return () => {
       delete window.handlePromoteChainFromModal;
     };
-  }, [navigate]);
+  }, [navigate, isAgg]);
 
   // Zustand SSE Store
   const { events, connectSSE, disconnectSSE, fetchInitialEvents } = useThreatStore();
