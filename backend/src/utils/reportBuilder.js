@@ -12,9 +12,16 @@ async function generateAndSendReport(schedule) {
   }
 
   // ── Time window ────────────────────────────────────────────────────────────
-  const hours = schedule.duration || 24;
   const to = new Date().toISOString().slice(0, 19).replace('T', ' ');
-  const from = new Date(Date.now() - hours * 3600000).toISOString().slice(0, 19).replace('T', ' ');
+  let from;
+  if (schedule.duration === 'today') {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    from = d.toISOString().slice(0, 19).replace('T', ' ');
+  } else {
+    const hours = Number(schedule.duration) || 24;
+    from = new Date(Date.now() - hours * 3600000).toISOString().slice(0, 19).replace('T', ' ');
+  }
 
   // ── Build WHERE clause with filters ────────────────────────────────────────
   const evConds = ['ts>=$1', 'ts<=$2', 'is_noise=false'];

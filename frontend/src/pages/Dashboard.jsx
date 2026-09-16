@@ -4,6 +4,7 @@ import axios from 'axios';
 import { useFilter } from '../context/FilterContext';
 import { useThreatStore } from '../store/useThreatStore';
 import lazyRetry from '../utils/lazyRetry';
+import { getTodayStartAndEnd } from '../utils/dateUtils';
 
 // Lazy loaded widgets with auto-recovery on new deployment version mismatch
 const ThreatSummaryCards = lazyRetry(() => import('../components/dashboard/ThreatSummaryCards'));
@@ -50,7 +51,12 @@ export default function Dashboard() {
   const { data: stats, isLoading: statsLoading, error: statsError } = useQuery({
     queryKey: ['stats', range, machine, aggregator],
     queryFn: async () => {
-      const res = await axios.get(`/api/events/stats?range=${range}&machine=${machine}&aggregator=${aggregator}`);
+      let url = `/api/events/stats?range=${range}&machine=${machine}&aggregator=${aggregator}`;
+      if (range === 'today') {
+        const { from, to } = getTodayStartAndEnd();
+        url += `&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+      }
+      const res = await axios.get(url);
       return res.data;
     }
   });
@@ -59,7 +65,12 @@ export default function Dashboard() {
   const { data: topoData } = useQuery({
     queryKey: ['topology', range, machine, aggregator],
     queryFn: async () => {
-      const res = await axios.get(`/api/events/network/topology?hours=${range}&machine=${machine}&aggregator=${aggregator}`);
+      let url = `/api/events/network/topology?hours=${range}&machine=${machine}&aggregator=${aggregator}`;
+      if (range === 'today') {
+        const { from, to } = getTodayStartAndEnd();
+        url += `&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+      }
+      const res = await axios.get(url);
       return res.data;
     }
   });

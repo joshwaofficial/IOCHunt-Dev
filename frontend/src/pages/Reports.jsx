@@ -72,6 +72,7 @@ export default function Reports() {
     (ev.bySeverity || []).forEach(r => { sevMap[r.severity] = r.n; });
 
     let durLabel = 'Last 24 hours';
+    if (f.duration === 'today') durLabel = 'Today (00:00 to now)';
     if (f.duration == 1) durLabel = 'Last 1 hour';
     if (f.duration == 4) durLabel = 'Last 4 hours';
     if (f.duration == 72) durLabel = 'Last 3 days';
@@ -263,6 +264,7 @@ export default function Reports() {
     const tlColor = threatLevel === 'CRITICAL' ? 'var(--critical)' : threatLevel === 'HIGH' ? 'var(--high)' : threatLevel === 'ELEVATED' ? 'var(--medium)' : 'var(--low)';
 
     let durLabel = 'Last 24 hours';
+    if (f.duration === 'today') durLabel = 'Today (00:00 to now)';
     if (f.duration == 1) durLabel = 'Last 1 hour';
     if (f.duration == 4) durLabel = 'Last 4 hours';
     if (f.duration == 72) durLabel = 'Last 3 days';
@@ -571,6 +573,7 @@ export default function Reports() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '100px' }}>
               <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Duration</label>
               <select value={filters.duration} onChange={e => setFilters({ ...filters, duration: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px' }}>
+                <option value="today">Today (00:00 to now)</option>
                 <option value="1">Last 1 hour</option>
                 <option value="4">Last 4 hours</option>
                 <option value="24">Last 24 hours</option>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { getTodayStartAndEnd } from '../utils/dateUtils';
 
 const chipDefs = [
   { key: 'bruteForce',   label: 'Brute Force',    col: '#ef4444' },
@@ -24,8 +25,17 @@ export default function FirewallAlerts({ from, to, device, severity, aggregator 
   const fetchAlerts = async () => {
     setLoading(true);
     try {
+      let f = from;
+      let t = to;
+      if (range === 'today') {
+        const { from: todayFrom, to: todayTo } = getTodayStartAndEnd();
+        f = todayFrom;
+        t = todayTo;
+      } else if (range !== 'all') {
+        f = new Date(Date.now() - Number(range) * 3600000).toISOString().slice(0, 19).replace('T', ' ');
+      }
       const res = await axios.get('/api/firewall/alerts', {
-        params: { from, to, device, severity, aggregator, show_logins: showLogins ? '1' : '0', limit: 500 }
+        params: { from: f, to: t, device, severity, aggregator, show_logins: showLogins ? '1' : '0', limit: 500 }
       });
       setData(res.data);
       setPage(1);
@@ -50,6 +60,7 @@ export default function FirewallAlerts({ from, to, device, severity, aggregator 
          </h3>
          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <select value={range} onChange={e => setRange(e.target.value)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '11px', padding: '3px 8px', borderRadius: '5px' }}>
+              <option value="today">Today</option>
               <option value="1">Last 1h</option>
               <option value="24">Last 24h</option>
               <option value="168">Last 7d</option>

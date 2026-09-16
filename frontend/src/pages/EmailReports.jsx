@@ -139,7 +139,7 @@ export default function EmailReports() {
     if (!isAdmin) return;
     setLoadingSchedules(true);
     try {
-      const payload = { ...formData, duration: Number(formData.duration), aggregator: formData.aggregator.join(',') };
+      const payload = { ...formData, duration: formData.duration === 'today' ? 'today' : Number(formData.duration), aggregator: formData.aggregator.join(',') };
       if (editId) {
         await axios.patch(`/api/smtp/schedules/${editId}`, payload);
       } else {
@@ -351,6 +351,7 @@ export default function EmailReports() {
                 <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>Report Duration</label>
                 <select id="sched-duration" className="input-field" value={formData.duration} onChange={handleFormChange}
                   style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', outline: 'none' }}>
+                  <option value="today">Today (00:00 to now)</option>
                   <option value="1">Last 1 hour</option>
                   <option value="4">Last 4 hours</option>
                   <option value="24">Last 24 hours</option>
@@ -495,7 +496,7 @@ export default function EmailReports() {
                       <td style={{ padding: '14px 16px', color: '#728bb2', fontSize: '11px' }}>{s.recipients.length > 20 ? s.recipients.substring(0, 20) + '...' : s.recipients}</td>
                       <td style={{ padding: '14px 16px', color: '#38bdf8', fontSize: '11px' }}>{s.cron_expr}</td>
                       <td style={{ padding: '14px 16px', color: 'var(--text)', fontSize: '11px' }}>
-                        {s.duration === 1 ? '1h' : s.duration === 4 ? '4h' : s.duration === 24 ? '24h' : s.duration === 72 ? '3d' : s.duration === 168 ? '7d' : s.duration === 720 ? '30d' : `${s.duration}h`}
+                        {s.duration === 'today' ? 'Today' : s.duration === 1 ? '1h' : s.duration === 4 ? '4h' : s.duration === 24 ? '24h' : s.duration === 72 ? '3d' : s.duration === 168 ? '7d' : s.duration === 720 ? '30d' : `${s.duration}h`}
                       </td>
                       <td style={{ padding: '14px 16px', color: '#728bb2', fontSize: '11px' }}>{s.aggregator ? (s.aggregator.split(',').length > 1 ? `${s.aggregator.split(',').length} selected` : s.aggregator) : 'All'}</td>
                       <td style={{ padding: '14px 16px', color: '#728bb2', fontSize: '11px' }}>{s.machine || 'All'}</td>

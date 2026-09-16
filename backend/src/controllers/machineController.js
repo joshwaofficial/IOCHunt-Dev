@@ -58,6 +58,11 @@ async function getClients(req, res) {
     if (req.query.from && req.query.to && req.query.from !== 'undefined' && req.query.to !== 'undefined') {
       from = req.query.from;
       to = req.query.to;
+    } else if (req.query.hours === 'today' || req.query.range === 'today') {
+      to = new Date().toISOString();
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      from = d.toISOString();
     } else {
       const rawHours = Number(req.query.hours);
       const hours = (!isNaN(rawHours) && rawHours > 0) ? rawHours : 168;

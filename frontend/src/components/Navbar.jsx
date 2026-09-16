@@ -127,7 +127,8 @@ export default function Navbar() {
           ))}
         </select>
         
-        <select className="ctl" id="rangeFilter" value={range} onChange={(e) => setRange(Number(e.target.value))}>
+        <select className="ctl" id="rangeFilter" value={range} onChange={(e) => setRange(e.target.value === 'today' ? 'today' : Number(e.target.value))}>
+          <option value="today">Today</option>
           <option value="1">Last 1h</option>
           <option value="24">Last 24h</option>
           <option value="168">Last 7d</option>

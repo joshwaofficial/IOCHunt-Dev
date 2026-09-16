@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useFilter } from '../context/FilterContext';
+import { getTodayStartAndEnd } from '../utils/dateUtils';
 
 const sevColor = {
   critical: '#f04f5a',
@@ -94,6 +95,11 @@ export default function UsbEvents() {
         if (range === 'custom') {
           params.from = customFrom;
           params.to = customTo;
+        } else if (range === 'today') {
+          const { from, to } = getTodayStartAndEnd();
+          params.from = from;
+          params.to = to;
+          params.hours = 'today';
         } else {
           params.hours = range;
         }
@@ -271,6 +277,8 @@ export default function UsbEvents() {
           }}
           style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', color: 'var(--text)', outline: 'none', cursor: 'pointer' }}
         >
+          <option value="today">Today</option>
+          <option value="1">Last 1h</option>
           <option value="24">Last 24h</option>
           <option value="168">Last 7d</option>
           <option value="720">Last 30d</option>

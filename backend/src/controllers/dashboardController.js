@@ -58,6 +58,9 @@ const getEvents = async (req, res) => {
     if (from) {
       params.push(from);
       whereClauses.push(`ts >= $${params.length}`);
+    } else if (hours === 'today' || req.query.range === 'today') {
+      params.push(todayStartString());
+      whereClauses.push(`ts >= $${params.length}`);
     } else if (hours && Number(hours) > 0) {
       const hoursNum = Number(hours);
       const computedFrom = hoursAgoUTC(hoursNum);
@@ -67,6 +70,9 @@ const getEvents = async (req, res) => {
 
     if (to) {
       params.push(to);
+      whereClauses.push(`ts <= $${params.length}`);
+    } else if (hours === 'today' || req.query.range === 'today') {
+      params.push(nowUTC());
       whereClauses.push(`ts <= $${params.length}`);
     }
     
@@ -170,6 +176,36 @@ function hoursAgoUTC(hours) {
     String(d.getUTCSeconds()).padStart(2, '0');
 }
 
+function todayStartString() {
+  const d = new Date();
+  return d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0') + ' 00:00:00';
+}
+
+function resolveTimeRange(req, defaultHours = 168) {
+  let from = req.query.from;
+  let to = req.query.to;
+  const hoursParam = req.query.hours || req.query.range;
+
+  if (from && to && from !== 'undefined' && to !== 'undefined') {
+    return { from, to };
+  }
+
+  if (hoursParam === 'today' || req.query.range === 'today' || req.query.duration === 'today') {
+    return {
+      from: from && from !== 'undefined' ? from : todayStartString(),
+      to: to && to !== 'undefined' ? to : nowUTC()
+    };
+  }
+
+  const hours = Number(hoursParam || defaultHours);
+  return {
+    from: from && from !== 'undefined' ? from : hoursAgoUTC(isNaN(hours) ? defaultHours : hours),
+    to: to && to !== 'undefined' ? to : nowUTC()
+  };
+}
+
 const crypto = require('crypto');
 
 async function buildChains(req, from, to, machine, aggregator) {
@@ -228,9 +264,7 @@ const getStats = async (req, res) => {
   try {
     const aggregator = getEffectiveAggregator(req);
     const machine = req.query.machine || '';
-    const hours = Number(req.query.hours || req.query.range || 24);
-    const to = nowUTC();
-    const from = hoursAgoUTC(hours);
+    const { from, to } = resolveTimeRange(req, 24);
 
     
     let nw = "WHERE ts>=$1 AND ts<=$2 AND is_noise=false AND message NOT ILIKE '%iochuntwatchdog%' AND tag NOT ILIKE '%iochuntwatchdog%'";
@@ -330,15 +364,7 @@ const getADAttacks = async (req, res) => {
   try {
     const aggregator = getEffectiveAggregator(req);
     const machine = req.query.machine || '';
-    let from, to;
-    if (req.query.from && req.query.to) {
-      from = req.query.from;
-      to = req.query.to;
-    } else {
-      const hours = Number(req.query.hours || 168);
-      to = nowUTC();
-      from = hoursAgoUTC(hours);
-    }
+    const { from, to } = resolveTimeRange(req, 168);
     const source = (req.query.source || '').toLowerCase();
     const action = (req.query.action || '').toLowerCase();
     const isPrivileged = req.query.isPrivileged === 'true';
@@ -438,15 +464,7 @@ const getMaliciousEvents = async (req, res) => {
     const excludeSystem = req.query.excludeSystem === 'true';
     const page = parseSafeInt(req.query.page, 1, 1, 10000);
     const limit = parseSafeInt(req.query.limit, 10, 1, 500);
-    let from, to;
-    if (req.query.from && req.query.to) {
-      from = req.query.from;
-      to = req.query.to;
-    } else {
-      const hours = Number(req.query.hours || 168);
-      to = nowUTC();
-      from = hoursAgoUTC(hours);
-    }
+    const { from, to } = resolveTimeRange(req, 168);
 
     const rows = await Event.getMaliciousEvents(req, aggregator, machine, 3000, from, to);
     let events = rows.map(r => {
@@ -515,15 +533,7 @@ const getUsbEvents = async (req, res) => {
   try {
     const aggregator = getEffectiveAggregator(req);
     const machine = req.query.machine || '';
-    let from, to;
-    if (req.query.from && req.query.to) {
-      from = req.query.from;
-      to = req.query.to;
-    } else {
-      const hours = Number(req.query.hours || 168);
-      to = nowUTC();
-      from = hoursAgoUTC(hours);
-    }
+    const { from, to } = resolveTimeRange(req, 168);
     const rows = await Event.getUsbEvents(req, aggregator, machine, 500, from, to);
     const out = rows.map(r => ({ ...parseUsbEvent(r), aggregator_name: r.aggregator_name })).filter(Boolean);
     return res.status(200).json({ events: out, stats: { total: out.length } });
@@ -537,15 +547,7 @@ const getUserEvents = async (req, res) => {
   try {
     const aggregator = getEffectiveAggregator(req);
     const machine = req.query.machine || '';
-    let from, to;
-    if (req.query.from && req.query.to) {
-      from = req.query.from;
-      to = req.query.to;
-    } else {
-      const hours = Number(req.query.hours || 168);
-      to = nowUTC();
-      from = hoursAgoUTC(hours);
-    }
+    const { from, to } = resolveTimeRange(req, 168);
     const rows = await Event.getUserEvents(req, aggregator, machine, 500, from, to);
     let out = rows.map(r => ({ ...parseUserEvent(r), aggregator_name: r.aggregator_name }))
                   .filter(e => e.action !== 'Modified');
@@ -657,8 +659,7 @@ const getNetworkTopology = async (req, res) => {
     const lateral = [];
     const ad_attacks = [];
     
-    const from = hoursAgoUTC(Number(hours));
-    const to = nowUTC();
+    const { from, to } = resolveTimeRange(req, 168);
     const rows = await Event.getNetworkEvents(req, aggregator, machine, 5000, from, to);
     
     rows.forEach(r => {

@@ -26,6 +26,9 @@ const generateReport = async (req, res) => {
         toDate = new Date();
         fromDate = new Date(toDate.getTime() - 24 * 3600000);
       }
+    } else if (duration === 'today') {
+      toDate = new Date();
+      fromDate = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate(), 0, 0, 0, 0);
     } else {
       const rawHours = parseFloat(duration);
       const hours = (!isNaN(rawHours) && rawHours > 0 && rawHours <= 8760) ? rawHours : 24;

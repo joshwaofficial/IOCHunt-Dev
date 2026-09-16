@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { getTodayStartAndEnd } from '../utils/dateUtils';
 
 const esc = (s) => (s || '').toString().replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'");
 
@@ -41,6 +42,11 @@ export default function Clients() {
         if (range === 'custom') {
           params.from = customFrom;
           params.to = customTo;
+        } else if (range === 'today') {
+          const { from, to } = getTodayStartAndEnd();
+          params.from = from;
+          params.to = to;
+          params.hours = 'today';
         } else {
           params.hours = range;
         }
@@ -266,6 +272,8 @@ export default function Clients() {
           onChange={(e) => { setRange(e.target.value); setPage(1); }}
           style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', color: 'var(--text)', outline: 'none', cursor: 'pointer' }}
         >
+          <option value="today">Today</option>
+          <option value="1">Last 1h</option>
           <option value="24">Last 24h</option>
           <option value="168">Last 7 Days</option>
           <option value="720">Last 30 Days</option>

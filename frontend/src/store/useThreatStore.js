@@ -113,7 +113,15 @@ export const useThreatStore = create((set, get) => ({
   // Initial fetch to populate the buffer
   fetchInitialEvents: async (range, machine, aggregator = '') => {
     try {
-      const res = await axios.get(`/api/events?limit=500&hours=${range}&machine=${machine}&aggregator=${aggregator}`);
+      let url = `/api/events?limit=500&hours=${range}&machine=${machine}&aggregator=${aggregator}`;
+      if (range === 'today') {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        url += `&from=${encodeURIComponent(`${y}-${m}-${d} 00:00:00`)}`;
+      }
+      const res = await axios.get(url);
       set({ events: res.data.events || res.data || [] });
     } catch (err) {
       console.error('[Store] Failed to fetch initial events:', err);

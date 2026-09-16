@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useFilter } from '../context/FilterContext';
 import { useTheme } from '../context/ThemeContext';
+import { getTodayStartAndEnd } from '../utils/dateUtils';
 import BloodHoundNodeDiagram from './graph/BloodHoundNodeDiagram';
 import BloodHoundEntityPanel from './graph/BloodHoundEntityPanel';
 import { generateSimulationData } from './graph/simulationData';
@@ -48,7 +49,9 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
   });
 
   const [localRange, setLocalRange] = useState(() => {
-    return Number(localStorage.getItem('topoRange')) || 24;
+    const saved = localStorage.getItem('topoRange');
+    if (saved === 'today') return 'today';
+    return Number(saved) || 24;
   });
 
   const updateActiveDatasets = useCallback((inbound, outbound, adAttacks, lateral, machines) => {
@@ -213,7 +216,12 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
 
   const fetchTopology = useCallback(async () => {
     try {
-      const res = await axios.get(`/api/events/network/topology?hours=${localRange}&machine=${machine}`);
+      let url = `/api/events/network/topology?hours=${localRange}&machine=${machine}`;
+      if (localRange === 'today') {
+        const { from, to } = getTodayStartAndEnd();
+        url += `&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+      }
+      const res = await axios.get(url);
       rawDataRef.current = res.data || { inbound: [], outbound: [], lateral: [], ad_attacks: [], machines: [] };
 
       const { inbound = [], outbound = [], lateral = [], ad_attacks = [] } = rawDataRef.current;
@@ -415,7 +423,7 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
           <div style={{ display: 'flex', gap: '8px', fontFamily: 'var(--mono)', fontSize: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
             <select
               value={localRange}
-              onChange={(e) => setLocalRange(Number(e.target.value))}
+              onChange={(e) => setLocalRange(e.target.value === 'today' ? 'today' : Number(e.target.value))}
               style={{
                 fontSize: '11px',
                 padding: '5px 10px',
@@ -428,6 +436,7 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
                 marginRight: '8px'
               }}
             >
+              <option value="today">Today</option>
               <option value="1">Last 1h</option>
               <option value="7">Last 7h</option>
               <option value="24">Last 24h</option>
