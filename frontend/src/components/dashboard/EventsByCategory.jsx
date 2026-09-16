@@ -16,9 +16,10 @@ const EventsByCategory = ({ data }) => {
     }
   };
 
+  // Accurately parse numbers to prevent string concatenation bugs
   const totalEvents = useMemo(() => {
     if (!data || !data.byCat) return 0;
-    return data.byCat.reduce((acc, curr) => acc + (curr.n || 0), 0);
+    return data.byCat.reduce((acc, curr) => acc + Number(curr.n || curr.count || curr.value || 0), 0);
   }, [data]);
 
   const option = useMemo(() => {
@@ -43,46 +44,29 @@ const EventsByCategory = ({ data }) => {
       '#f97316'  // Orange
     ];
 
-    // Sort descending by event count
-    const sorted = [...data.byCat].sort((a, b) => b.n - a.n);
+    // Sort descending by numeric event count
+    const sorted = [...data.byCat].sort(
+      (a, b) => Number(b.n || b.count || b.value || 0) - Number(a.n || a.count || a.value || 0)
+    );
 
     const seriesData = sorted.map((c, idx) => ({
-      name: c.category,
-      value: c.n,
+      name: c.category || 'Other',
+      value: Number(c.n || c.count || c.value || 0),
       itemStyle: {
         color: colorPalette[idx % colorPalette.length],
-        borderRadius: 8,
+        borderRadius: 10,
         borderColor: surfaceColor,
-        borderWidth: 3
+        borderWidth: 2
       }
     }));
 
     return {
-      // Center KPI Stat (Total Events count & subtitle)
-      title: {
-        text: totalEvents.toLocaleString(),
-        subtext: 'TOTAL EVENTS',
-        left: 'center',
-        top: '32%',
-        textStyle: {
-          fontSize: 24,
-          fontWeight: 800,
-          color: textColor,
-          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-        },
-        subtextStyle: {
-          fontSize: 10,
-          fontWeight: 700,
-          color: subTextColor,
-          letterSpacing: 1.2
-        }
-      },
       tooltip: {
         trigger: 'item',
         backgroundColor: isLight ? 'rgba(255, 255, 255, 0.98)' : 'rgba(15, 23, 42, 0.96)',
         borderColor: isLight ? '#e2e8f0' : 'rgba(255, 255, 255, 0.12)',
         borderWidth: 1,
-        padding: [8, 12],
+        padding: [8, 14],
         textStyle: {
           color: textColor,
           fontSize: 12
@@ -94,64 +78,40 @@ const EventsByCategory = ({ data }) => {
               ${params.name}
             </div>
             <div style="font-size: 11px; color: ${subTextColor};">
-              Count: <b style="color: ${textColor}">${params.value.toLocaleString()}</b> (${params.percent}%)
+              Count: <b style="color: ${textColor}">${Number(params.value).toLocaleString()}</b> (${params.percent}%)
             </div>
           `;
         }
       },
-      // Rich Multi-Column Legend (Name, Value, Percentage)
       legend: {
-        bottom: 8,
+        top: '3%',
         left: 'center',
-        width: '96%',
+        width: '95%',
         icon: 'circle',
-        itemWidth: 8,
-        itemHeight: 8,
-        itemGap: 12,
-        formatter: function (name) {
+        itemWidth: 10,
+        itemHeight: 10,
+        itemGap: 16,
+        formatter: (name) => {
           const item = seriesData.find(d => d.name === name);
-          const val = item ? item.value : 0;
-          const pct = totalEvents > 0 ? ((val / totalEvents) * 100).toFixed(1) : '0';
-          return `{name|${name}} {val|${val.toLocaleString()}} {pct|(${pct}%)}`;
+          return item ? `${name} (${item.value.toLocaleString()})` : name;
         },
         textStyle: {
           color: textColor,
-          fontSize: 11,
-          rich: {
-            name: {
-              width: 90,
-              fontSize: 11,
-              fontWeight: 600,
-              color: textColor
-            },
-            val: {
-              width: 45,
-              fontSize: 11,
-              fontWeight: 700,
-              color: textColor,
-              align: 'right'
-            },
-            pct: {
-              width: 48,
-              fontSize: 10,
-              color: subTextColor,
-              align: 'right'
-            }
-          }
+          fontSize: 12,
+          fontWeight: 600
         }
       },
       series: [
         {
           name: 'Events by Category',
           type: 'pie',
-          radius: ['46%', '70%'],
-          center: ['50%', '38%'],
+          radius: ['45%', '72%'],
+          center: ['50%', '56%'],
           avoidLabelOverlap: false,
-          padAngle: 3,
           itemStyle: {
-            borderRadius: 8,
+            borderRadius: 10,
             borderColor: surfaceColor,
-            borderWidth: 3
+            borderWidth: 2
           },
           label: {
             show: false,
@@ -159,9 +119,14 @@ const EventsByCategory = ({ data }) => {
           },
           emphasis: {
             scale: true,
-            scaleSize: 6,
+            scaleSize: 8,
             label: {
-              show: false
+              show: true,
+              fontSize: 24,
+              fontWeight: 'bold',
+              color: textColor,
+              lineHeight: 32,
+              formatter: '{b}\n{c} ({d}%)'
             }
           },
           labelLine: {
@@ -171,7 +136,7 @@ const EventsByCategory = ({ data }) => {
         }
       ]
     };
-  }, [data, theme, totalEvents]);
+  }, [data, theme]);
 
   useEffect(() => {
     if (chartRef.current && option) {
@@ -190,8 +155,8 @@ const EventsByCategory = ({ data }) => {
             Events by Category
           </h3>
         </div>
-        <div style={{ fontSize: '11px', color: 'var(--muted)', background: 'var(--border)', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
-          {totalEvents.toLocaleString()} events
+        <div style={{ fontSize: '11px', color: 'var(--muted)', background: 'var(--border)', padding: '3px 10px', borderRadius: '12px', fontWeight: 700 }}>
+          {totalEvents.toLocaleString()} total events
         </div>
       </div>
       <div style={{ padding: '16px 20px', height: '380px', width: '100%' }}>
