@@ -34,11 +34,23 @@ export default function AllLogs() {
   const [showNoise, setShowNoise] = useState(false);
 
   const [customFrom, setCustomFrom] = useState(() => {
-    const d = new Date();
-    d.setHours(d.getHours() - 24);
-    return formatTime(d.toISOString());
+    return localStorage.getItem('iochunt-logs-from') || (() => {
+      const d = new Date();
+      d.setHours(d.getHours() - 24);
+      return formatTime(d.toISOString());
+    })();
   });
-  const [customTo, setCustomTo] = useState(() => formatTime(new Date().toISOString()));
+  const [customTo, setCustomTo] = useState(() => {
+    return localStorage.getItem('iochunt-logs-to') || formatTime(new Date().toISOString());
+  });
+
+  useEffect(() => {
+    if (customFrom) localStorage.setItem('iochunt-logs-from', customFrom);
+  }, [customFrom]);
+
+  useEffect(() => {
+    if (customTo) localStorage.setItem('iochunt-logs-to', customTo);
+  }, [customTo]);
   
   const [branchFilter, setBranchFilter] = useState(() => localStorage.getItem('iochunt-logs-branch') || (globalAggregator !== 'All Aggregators' ? globalAggregator : '') || '');
   const [aggregators, setAggregators] = useState([]);
@@ -105,6 +117,8 @@ export default function AllLogs() {
       localStorage.setItem('iochunt-logs-severity', severityFilter);
       localStorage.setItem('iochunt-logs-category', categoryFilter);
       localStorage.setItem('iochunt-logs-branch', branchFilter);
+      if (customFrom) localStorage.setItem('iochunt-logs-from', customFrom);
+      if (customTo) localStorage.setItem('iochunt-logs-to', customTo);
 
       const offset = (page - 1) * perPage;
       const params = {
@@ -158,6 +172,8 @@ export default function AllLogs() {
     setSearchTerm('');
     setShowNoise(false);
     setPage(1);
+    localStorage.removeItem('iochunt-logs-from');
+    localStorage.removeItem('iochunt-logs-to');
   };
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));

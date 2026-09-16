@@ -24,7 +24,7 @@ const adCol = (type) => {
 
 const esc = (s) => (s || '').toString().replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#039;/g, "'");
 
-let savedRange = '168';
+
 
 export default function UsbEvents() {
   const { aggregator } = useFilter();
@@ -37,7 +37,9 @@ export default function UsbEvents() {
     return isoStr.replace('T', ' ').slice(0, 19);
   }
   
-  const [range, setRange] = useState(savedRange);
+  const [range, setRange] = useState(() => {
+    return localStorage.getItem('iochunt_usb_range') || '24';
+  });
   const [branchFilter, setBranchFilter] = useState('');
   const [aggregators, setAggregators] = useState([]);
   const [machine, setMachine] = useState('');
@@ -51,11 +53,27 @@ export default function UsbEvents() {
   const [severityFilter, setSeverityFilter] = useState('all');
 
   const [customFrom, setCustomFrom] = useState(() => {
-    const d = new Date();
-    d.setHours(d.getHours() - 24);
-    return formatTime(d.toISOString());
+    return localStorage.getItem('iochunt_usb_custom_from') || (() => {
+      const d = new Date();
+      d.setHours(d.getHours() - 24);
+      return formatTime(d.toISOString());
+    })();
   });
-  const [customTo, setCustomTo] = useState(() => formatTime(new Date().toISOString()));
+  const [customTo, setCustomTo] = useState(() => {
+    return localStorage.getItem('iochunt_usb_custom_to') || formatTime(new Date().toISOString());
+  });
+
+  useEffect(() => {
+    localStorage.setItem('iochunt_usb_range', range);
+  }, [range]);
+
+  useEffect(() => {
+    if (customFrom) localStorage.setItem('iochunt_usb_custom_from', customFrom);
+  }, [customFrom]);
+
+  useEffect(() => {
+    if (customTo) localStorage.setItem('iochunt_usb_custom_to', customTo);
+  }, [customTo]);
 
   useEffect(() => {
     const fetchAggregators = async () => {
@@ -272,7 +290,7 @@ export default function UsbEvents() {
           onChange={(e) => { 
             const val = e.target.value;
             setRange(val); 
-            savedRange = val;
+            localStorage.setItem('iochunt_usb_range', val);
             setPage(1); 
           }}
           style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', color: 'var(--text)', outline: 'none', cursor: 'pointer' }}

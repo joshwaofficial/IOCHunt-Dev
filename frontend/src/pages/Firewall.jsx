@@ -6,6 +6,7 @@ import FirewallTopSources from '../components/FirewallTopSources';
 import FirewallSourcesModal from '../components/FirewallSourcesModal';
 import FirewallSetupModal from '../components/FirewallSetupModal';
 import { useFilter } from '../context/FilterContext';
+import { getTodayStartAndEnd } from '../utils/dateUtils';
 
 const sevColor = {
   critical: '#f04f5a',
@@ -48,12 +49,72 @@ export default function Firewall() {
   const [setupModalOpen, setSetupModalOpen] = useState(false);
   const [configInfo, setConfigInfo] = useState(null);
 
-  const [from, setFrom] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return formatTime(d.toISOString());
+  const [range, setRange] = useState(() => {
+    return localStorage.getItem('iochunt_firewall_range') || '24';
   });
-  const [to, setTo] = useState(() => formatTime(new Date().toISOString()));
+
+  const [customFrom, setCustomFrom] = useState(() => {
+    return localStorage.getItem('iochunt_firewall_custom_from') || (() => {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      return formatTime(d.toISOString());
+    })();
+  });
+
+  const [customTo, setCustomTo] = useState(() => {
+    return localStorage.getItem('iochunt_firewall_custom_to') || formatTime(new Date().toISOString());
+  });
+
+  const computeDates = (currentRange, cFrom, cTo) => {
+    if (currentRange === 'today') {
+      const { from: f, to: t } = getTodayStartAndEnd();
+      return { from: f, to: t };
+    }
+    if (currentRange === 'custom') {
+      return { from: cFrom, to: cTo };
+    }
+    const hours = Number(currentRange) || 24;
+    const f = formatTime(new Date(Date.now() - hours * 3600000).toISOString());
+    const t = formatTime(new Date().toISOString());
+    return { from: f, to: t };
+  };
+
+  const [from, setFrom] = useState(() => {
+    const initRange = localStorage.getItem('iochunt_firewall_range') || '24';
+    const initCFrom = localStorage.getItem('iochunt_firewall_custom_from') || (() => {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      return formatTime(d.toISOString());
+    })();
+    const initCTo = localStorage.getItem('iochunt_firewall_custom_to') || formatTime(new Date().toISOString());
+    return computeDates(initRange, initCFrom, initCTo).from;
+  });
+
+  const [to, setTo] = useState(() => {
+    const initRange = localStorage.getItem('iochunt_firewall_range') || '24';
+    const initCFrom = localStorage.getItem('iochunt_firewall_custom_from') || (() => {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      return formatTime(d.toISOString());
+    })();
+    const initCTo = localStorage.getItem('iochunt_firewall_custom_to') || formatTime(new Date().toISOString());
+    return computeDates(initRange, initCFrom, initCTo).to;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('iochunt_firewall_range', range);
+    const dates = computeDates(range, customFrom, customTo);
+    setFrom(dates.from);
+    setTo(dates.to);
+  }, [range, customFrom, customTo]);
+
+  useEffect(() => {
+    if (customFrom) localStorage.setItem('iochunt_firewall_custom_from', customFrom);
+  }, [customFrom]);
+
+  useEffect(() => {
+    if (customTo) localStorage.setItem('iochunt_firewall_custom_to', customTo);
+  }, [customTo]);
   const [action, setAction] = useState('');
   const [service, setService] = useState('');
   const [ip, setIp] = useState('');
@@ -273,10 +334,33 @@ export default function Firewall() {
           </div>
           
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-            <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)' }}>RANGE:</span>
-            <input type="datetime-local" value={from.replace(' ', 'T')} onChange={e => { setFrom(formatTime(e.target.value)); setPage(1); }} disabled={liveMode} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '11px', padding: '6px 10px', borderRadius: '6px' }} />
-            <span style={{ fontSize: '10px', color: 'var(--muted)' }}>to</span>
-            <input type="datetime-local" value={to.replace(' ', 'T')} onChange={e => { setTo(formatTime(e.target.value)); setPage(1); }} disabled={liveMode} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '11px', padding: '6px 10px', borderRadius: '6px' }} />
+            <select 
+              value={range} 
+              onChange={(e) => { 
+                const val = e.target.value;
+                setRange(val); 
+                localStorage.setItem('iochunt_firewall_range', val);
+                setPage(1); 
+              }}
+              disabled={liveMode}
+              style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', color: 'var(--text)', outline: 'none', cursor: 'pointer' }}
+            >
+              <option value="today">Today</option>
+              <option value="1">Last 1h</option>
+              <option value="24">Last 24h</option>
+              <option value="168">Last 7d</option>
+              <option value="720">Last 30d</option>
+              <option value="custom">Custom Range</option>
+            </select>
+
+            {range === 'custom' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)' }}>RANGE:</span>
+                <input type="datetime-local" value={customFrom.replace(' ', 'T')} onChange={e => { setCustomFrom(formatTime(e.target.value)); setPage(1); }} disabled={liveMode} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '11px', padding: '6px 10px', borderRadius: '6px' }} />
+                <span style={{ fontSize: '10px', color: 'var(--muted)' }}>to</span>
+                <input type="datetime-local" value={customTo.replace(' ', 'T')} onChange={e => { setCustomTo(formatTime(e.target.value)); setPage(1); }} disabled={liveMode} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '11px', padding: '6px 10px', borderRadius: '6px' }} />
+              </div>
+            )}
           </div>
         </div>
         

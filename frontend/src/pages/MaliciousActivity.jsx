@@ -40,12 +40,13 @@ export default function MaliciousActivity() {
   const { aggregator } = useFilter();
   const { isCentral } = useInstance();
 
-  let savedRange = (localStorage.getItem('iochunt_mal_range') || '24').replace('h', '');
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
-  const [range, setRange] = useState(savedRange);
+  const [range, setRange] = useState(() => {
+    return (localStorage.getItem('iochunt_mal_range') || '24').replace('h', '');
+  });
   const [branchFilter, setBranchFilter] = useState('');
   const [aggregators, setAggregators] = useState([]);
   const [machine, setMachine] = useState('');
@@ -64,11 +65,27 @@ export default function MaliciousActivity() {
   const [typeFilter, setTypeFilter] = useState('');
   const [sortFilter, setSortFilter] = useState('newest');
   const [customFrom, setCustomFrom] = useState(() => {
-    const d = new Date();
-    d.setHours(d.getHours() - 24);
-    return formatTime(d.toISOString());
+    return localStorage.getItem('iochunt_mal_custom_from') || (() => {
+      const d = new Date();
+      d.setHours(d.getHours() - 24);
+      return formatTime(d.toISOString());
+    })();
   });
-  const [customTo, setCustomTo] = useState(() => formatTime(new Date().toISOString()));
+  const [customTo, setCustomTo] = useState(() => {
+    return localStorage.getItem('iochunt_mal_custom_to') || formatTime(new Date().toISOString());
+  });
+
+  useEffect(() => {
+    localStorage.setItem('iochunt_mal_range', range);
+  }, [range]);
+
+  useEffect(() => {
+    if (customFrom) localStorage.setItem('iochunt_mal_custom_from', customFrom);
+  }, [customFrom]);
+
+  useEffect(() => {
+    if (customTo) localStorage.setItem('iochunt_mal_custom_to', customTo);
+  }, [customTo]);
 
   const navigate = useNavigate();
 
@@ -297,7 +314,7 @@ export default function MaliciousActivity() {
           onChange={(e) => { 
             const val = e.target.value;
             setRange(val); 
-            savedRange = val;
+            localStorage.setItem('iochunt_mal_range', val);
             setPage(1); 
           }}
           style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', color: 'var(--text)', outline: 'none', cursor: 'pointer' }}

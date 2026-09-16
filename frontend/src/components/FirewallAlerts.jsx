@@ -16,7 +16,13 @@ export default function FirewallAlerts({ from, to, device, severity, aggregator 
   const [showLogins, setShowLogins] = useState(false);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
-  const [range, setRange] = useState('all');
+  const [range, setRange] = useState(() => {
+    return localStorage.getItem('iochunt_firewall_alerts_range') || 'today';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('iochunt_firewall_alerts_range', range);
+  }, [range]);
 
   useEffect(() => {
     fetchAlerts();
