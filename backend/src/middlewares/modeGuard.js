@@ -13,6 +13,13 @@ async function requireCentralServer(req, res, next) {
   if (req.path === '/provision-remote' || req.path === '/pair' || req.path === '/batch' || req.path === '/events') {
     return next();
   }
+  if (appMode.isAggregator()) {
+    return res.status(403).json({
+      error: 'This feature is only available on a Central Server instance',
+      currentMode: appMode.getConfig().mode
+    });
+  }
+
   if (appMode.isCentralServer()) {
     return next();
   }

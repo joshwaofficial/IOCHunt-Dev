@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import axios from 'axios';
 import { useFilter } from '../../context/FilterContext';
-import { useAuth } from '../../context/AuthContext';
 import { useInstance } from '../../context/InstanceContext';
+import { useAuth } from '../../context/AuthContext';
 
 const formatTime = (ts) => {
   if (!ts) return '';
@@ -19,9 +19,10 @@ const formatTime = (ts) => {
 
 export default function AllEventsModal({ isOpen, onClose, filterType, filterHour }) {
   const { range, machine } = useFilter();
+  const { isCentral, isAggregator } = useInstance();
   const { user } = useAuth();
-  const { isAggregator } = useInstance();
-  const isAgg = isAggregator() || Boolean(user?.aggregator_name) || user?.role?.toUpperCase() === 'AGGREGATOR_ADMIN';
+  const isCentralNode = isCentral() && !isAggregator() && !user?.aggregator_name && user?.role !== 'AGGREGATOR_ADMIN';
+
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(false);
   
@@ -225,7 +226,7 @@ export default function AllEventsModal({ isOpen, onClose, filterType, filterHour
                                 <span style={{ fontFamily: 'var(--mono)', fontSize: '10px', color: 'var(--muted)' }}>
                                   {chain.events ? chain.events.length : 0} events
                                 </span>
-                                {!isAgg && (
+                                {isCentralNode && (
                                   <button 
                                     onClick={(e) => {
                                       e.stopPropagation();

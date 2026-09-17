@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { useFilter } from '../context/FilterContext';
 import { useThreatStore } from '../store/useThreatStore';
+import { useInstance } from '../context/InstanceContext';
+import { useAuth } from '../context/AuthContext';
 import lazyRetry from '../utils/lazyRetry';
 import { getTodayStartAndEnd } from '../utils/dateUtils';
 
@@ -18,33 +20,27 @@ const ADAttackSummary = lazyRetry(() => import('../components/dashboard/ADAttack
 const NetworkTopology = lazyRetry(() => import('../components/NetworkTopology'));
 const AllEventsModal = lazyRetry(() => import('../components/dashboard/AllEventsModal'));
 
-import NewIncidentModal from '../components/incidents/NewIncidentModal';
-
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { useInstance } from '../context/InstanceContext';
 
 export default function Dashboard() {
   const { range, machine, setMachine, aggregator } = useFilter();
-  const navigate = useNavigate();
+  const { isCentral, isAggregator } = useInstance();
   const { user } = useAuth();
-  const { isAggregator } = useInstance();
-  const isAgg = isAggregator() || Boolean(user?.aggregator_name) || user?.role?.toUpperCase() === 'AGGREGATOR_ADMIN';
+  const isCentralNode = isCentral() && !isAggregator() && !user?.aggregator_name && user?.role !== 'AGGREGATOR_ADMIN';
+  const navigate = useNavigate();
   const [showCriticalModal, setShowCriticalModal] = useState(false);
 
-  // Attach the global function so AllEventsModal can trigger it (Central Server only)
+  // Attach the global function so AllEventsModal can trigger it (Central Server SOC analyst only)
   React.useEffect(() => {
-    if (!isAgg) {
+    if (isCentralNode) {
       window.handlePromoteChainFromModal = (chain) => {
         navigate('/incidents', { state: { prefillChain: chain, action: 'openNewModal' } });
       };
-    } else {
-      delete window.handlePromoteChainFromModal;
     }
     return () => {
       delete window.handlePromoteChainFromModal;
     };
-  }, [navigate, isAgg]);
+  }, [navigate, isCentralNode]);
 
   // Zustand SSE Store
   const { events, connectSSE, disconnectSSE, fetchInitialEvents } = useThreatStore();

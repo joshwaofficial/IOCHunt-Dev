@@ -8,17 +8,13 @@ const {
   sanitizeText
 } = require('../utils/inputValidator');
 
-function isAggregatorRequest(req) {
-  const role = req.session?.role?.toUpperCase();
-  return appMode.isAggregator() || 
-         role === 'AGGREGATOR_ADMIN' || 
-         Boolean(req.session?.aggregator_name);
-}
-
 const VALID_STATUSES = ['new', 'investigating', 'contained', 'resolved', 'closed'];
 const VALID_PRIORITIES = ['P1', 'P2', 'P3', 'P4'];
 
 async function getIncidents(req, res) {
+  if (appMode.isAggregator()) {
+    return res.status(403).json({ error: 'Incidents cannot be created or managed on an Aggregator instance' });
+  }
   try {
     const { status, priority, assigned_to, search } = req.query || {};
     const limit = parseSafeInt(req.query.limit, 100, 1, 1000);
@@ -78,6 +74,9 @@ async function getIncidents(req, res) {
 }
 
 async function getIncidentSummary(req, res) {
+  if (appMode.isAggregator()) {
+    return res.status(403).json({ error: 'Incidents cannot be created or managed on an Aggregator instance' });
+  }
   try {
 
     const conds = [];
@@ -124,11 +123,10 @@ async function getIncidentSummary(req, res) {
 }
 
 async function createIncident(req, res) {
+  if (appMode.isAggregator()) {
+    return res.status(403).json({ error: 'Aggregators cannot create incidents. Incidents can only be created on the Central Server.' });
+  }
   try {
-    if (isAggregatorRequest(req)) {
-      return res.status(403).json({ error: 'Forbidden: Incidents are managed centrally. Branch aggregators have read-only access.' });
-    }
-
     const {
       title, description = '', status = 'new', priority = 'P2',
       assigned_to = null, machine = '', source_chain_id = null, event_ids = []
@@ -189,6 +187,9 @@ async function createIncident(req, res) {
 }
 
 async function getIncident(req, res) {
+  if (appMode.isAggregator()) {
+    return res.status(403).json({ error: 'Incidents cannot be created or managed on an Aggregator instance' });
+  }
   try {
     const { id } = req.params;
     if (!isPositiveInteger(id)) {
@@ -242,10 +243,6 @@ async function getIncident(req, res) {
 
 async function updateIncident(req, res) {
   try {
-    if (isAggregatorRequest(req)) {
-      return res.status(403).json({ error: 'Forbidden: Incidents are managed centrally. Branch aggregators have read-only access.' });
-    }
-
     const { id } = req.params;
     if (!isPositiveInteger(id)) {
       return res.status(400).json({ error: 'Invalid incident ID parameter' });
@@ -336,10 +333,6 @@ async function updateIncident(req, res) {
 
 async function addNote(req, res) {
   try {
-    if (isAggregatorRequest(req)) {
-      return res.status(403).json({ error: 'Forbidden: Incidents are managed centrally. Branch aggregators have read-only access.' });
-    }
-
     const { id } = req.params;
     if (!isPositiveInteger(id)) {
       return res.status(400).json({ error: 'Invalid incident ID parameter' });
@@ -379,10 +372,6 @@ async function addNote(req, res) {
 
 async function linkEvents(req, res) {
   try {
-    if (isAggregatorRequest(req)) {
-      return res.status(403).json({ error: 'Forbidden: Incidents are managed centrally. Branch aggregators have read-only access.' });
-    }
-
     const { id } = req.params;
     if (!isPositiveInteger(id)) {
       return res.status(400).json({ error: 'Invalid incident ID parameter' });
@@ -427,10 +416,6 @@ async function linkEvents(req, res) {
 
 async function assignIncident(req, res) {
   try {
-    if (isAggregatorRequest(req)) {
-      return res.status(403).json({ error: 'Forbidden: Incidents are managed centrally. Branch aggregators have read-only access.' });
-    }
-
     const { id } = req.params;
     if (!isPositiveInteger(id)) {
       return res.status(400).json({ error: 'Invalid incident ID parameter' });

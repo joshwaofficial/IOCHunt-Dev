@@ -3,7 +3,6 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useFilter } from '../context/FilterContext';
 import { useInstance } from '../context/InstanceContext';
-import { useAuth } from '../context/AuthContext';
 import { getTodayStartAndEnd } from '../utils/dateUtils';
 
 const sevColor = {
@@ -36,9 +35,6 @@ function formatTime(isoStr) {
 
 export default function AdAttacks() {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const { isCentral, isAggregator } = useInstance();
-  const isAgg = isAggregator() || Boolean(user?.aggregator_name) || user?.role?.toUpperCase() === 'AGGREGATOR_ADMIN';
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -65,6 +61,9 @@ export default function AdAttacks() {
   const [sortFilter, setSortFilter] = useState('newest');
         
   const { aggregator } = useFilter();
+  const { isCentral, isAggregator } = useInstance();
+  const { user } = useAuth();
+  const isCentralNode = isCentral() && !isAggregator() && !user?.aggregator_name && user?.role !== 'AGGREGATOR_ADMIN';
   
   const [customFrom, setCustomFrom] = useState(() => {
     return localStorage.getItem('iochunt_ad_custom_from') || (() => {
@@ -397,7 +396,7 @@ export default function AdAttacks() {
                     <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Protocol</th>
                     <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Time</th>
                     <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Description</th>
-                    <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Actions</th>
+                    {isCentralNode && <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -431,38 +430,40 @@ export default function AdAttacks() {
                         <td style={{ padding: '14px 16px', fontSize: '11px', color: 'var(--text)', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={esc(a.description || a.message)}>
                           {esc(a.description || a.message || '')}
                         </td>
-                        <td style={{ padding: '14px 16px' }}>
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            {a.incident_id ? (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigate('/incidents');
-                                }}
-                                style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(34,197,94,0.1)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.2)', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check_circle</span>
-                                Escalated to {a.incident_assigned_to || 'Unassigned'}
-                              </button>
-                            ) : !isAgg ? (
-                              <button 
-                                onClick={(e) => { 
-                                  e.stopPropagation(); 
-                                  const chain = {
-                                    machine: a.target_machine || a.machine,
-                                    severity: a.severity || 'high',
-                                    events: [a]
-                                  };
-                                  navigate('/incidents', { state: { prefillChain: chain, action: 'openNewModal' } }); 
-                                }}
-                                style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(240,79,90,0.1)', color: '#f04f5a', border: '1px solid rgba(240,79,90,0.2)', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>assignment_late</span>
-                                Escalate
-                              </button>
-                            ) : null}
-                          </div>
-                        </td>
+                        {isCentralNode && (
+                          <td style={{ padding: '14px 16px' }}>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              {a.incident_id ? (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigate('/incidents');
+                                  }}
+                                  style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(34,197,94,0.1)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.2)', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}
+                                >
+                                  <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check_circle</span>
+                                  Escalated to {a.incident_assigned_to || 'Unassigned'}
+                                </button>
+                              ) : (
+                                <button 
+                                  onClick={(e) => { 
+                                    e.stopPropagation(); 
+                                    const chain = {
+                                      machine: a.target_machine || a.machine,
+                                      severity: a.severity || 'high',
+                                      events: [a]
+                                    };
+                                    navigate('/incidents', { state: { prefillChain: chain, action: 'openNewModal' } }); 
+                                  }}
+                                  style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(240,79,90,0.1)', color: '#f04f5a', border: '1px solid rgba(240,79,90,0.2)', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}
+                                >
+                                  <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>assignment_late</span>
+                                  Escalate
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}

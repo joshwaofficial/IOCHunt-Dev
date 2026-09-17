@@ -96,7 +96,9 @@ export default function Sidebar({ collapsed, toggle }) {
             <NavLink to="/aggregator-settings" className={navClass}><span className="icon material-symbols-outlined">sync</span> Node Sync & Pair</NavLink>
           )}
 
-          <NavLink to="/incidents" className={navClass}><span className="icon material-symbols-outlined">emergency</span> Incidents</NavLink>
+          {isCentral() && !isAggregator() && !user?.aggregator_name && user?.role !== 'AGGREGATOR_ADMIN' && (
+            <NavLink to="/incidents" className={navClass}><span className="icon material-symbols-outlined">emergency</span> Incidents</NavLink>
+          )}
           <NavLink to="/reports" className={navClass}><span className="icon material-symbols-outlined">bar_chart</span> Reports</NavLink>
           <NavLink to="/email-reports" className={navClass}><span className="icon material-symbols-outlined">mail</span> Email Reports</NavLink>
           <NavLink to="/users" className={navClass}>

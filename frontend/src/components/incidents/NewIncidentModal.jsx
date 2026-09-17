@@ -7,8 +7,8 @@ import { useInstance } from '../../context/InstanceContext';
 
 export default function NewIncidentModal({ onClose, onCreated, prefillChain }) {
   const { user } = useAuth();
-  const { isAggregator } = useInstance();
-  const isAgg = isAggregator() || Boolean(user?.aggregator_name) || user?.role?.toUpperCase() === 'AGGREGATOR_ADMIN';
+  const { isCentral, isAggregator } = useInstance();
+  const isAgg = !isCentral() || isAggregator() || Boolean(user?.aggregator_name) || user?.role?.toUpperCase() === 'AGGREGATOR_ADMIN';
   if (isAgg) return null;
 
   const { range, machine } = useFilter();
@@ -43,7 +43,7 @@ export default function NewIncidentModal({ onClose, onCreated, prefillChain }) {
   // For promoting a chain
   const [selectedChainId, setSelectedChainId] = useState(prefillChain ? prefillChain.id : null);
   const [eventIds, setEventIds] = useState(prefillChain ? prefillChain.events?.map(e => e.id) || [] : []);
-  
+
   // Fetch users for assignee dropdown
   const { data: assignableData } = useQuery({
     queryKey: ['assignableUsers'],

@@ -73,6 +73,22 @@ const ProtectedRoute = ({ children, requiredRole }) => {
   return children;
 };
 
+// Central Server Only Route Wrapper
+const CentralOnlyRoute = ({ children }) => {
+  const { isCentral, isAggregator, loading: instanceLoading } = useInstance();
+  const { user, loading: authLoading } = useAuth();
+
+  if (authLoading || instanceLoading) {
+    return null;
+  }
+
+  if (!isCentral() || isAggregator() || user?.aggregator_name || user?.role === 'AGGREGATOR_ADMIN') {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return children;
+};
+
 
 
 function App() {
@@ -139,8 +155,16 @@ function App() {
                         <Users />
                       </ProtectedRoute>
                     } />
-                    <Route path="incidents" element={<Incidents />} />
-                    <Route path="incidents/:id" element={<IncidentDetail />} />
+                    <Route path="incidents" element={
+                      <CentralOnlyRoute>
+                        <Incidents />
+                      </CentralOnlyRoute>
+                    } />
+                    <Route path="incidents/:id" element={
+                      <CentralOnlyRoute>
+                        <IncidentDetail />
+                      </CentralOnlyRoute>
+                    } />
                     <Route path="reports" element={<Reports />} />
                     <Route path="email-reports" element={<EmailReports />} />
                   </Route>

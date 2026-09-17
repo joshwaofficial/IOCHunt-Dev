@@ -1,8 +1,13 @@
 import React, { useState } from 'react';
 import AllEventsModal from './AllEventsModal';
+import { useInstance } from '../../context/InstanceContext';
+import { useAuth } from '../../context/AuthContext';
 
 const ThreatSummaryCards = ({ stats }) => {
   const [modalFilter, setModalFilter] = useState(null);
+  const { isCentral, isAggregator } = useInstance();
+  const { user } = useAuth();
+  const isAgg = !isCentral() || isAggregator() || Boolean(user?.aggregator_name) || user?.role?.toUpperCase() === 'AGGREGATOR_ADMIN';
 
   if (!stats) return null;
 
@@ -105,8 +110,8 @@ const ThreatSummaryCards = ({ stats }) => {
 
         <div className="sc info" onClick={() => handleCardClick('incidents')}>
           <div className="sc-top">
-            <div className="sc-icon-wrap"><span className="material-symbols-outlined" style={{ fontSize: '20px' }}>emergency</span></div>
-            <div className="sc-title">Incidents</div>
+            <div className="sc-icon-wrap"><span className="material-symbols-outlined" style={{ fontSize: '20px' }}>{isAgg ? 'polyline' : 'emergency'}</span></div>
+            <div className="sc-title">{isAgg ? 'Correlated Chains' : 'Incidents'}</div>
           </div>
           <div>
             <div className="sn">{chains.toLocaleString()}</div>

@@ -125,7 +125,16 @@ app.use('/api/logs', express.json({ limit: '50mb' }), logRoutes);
 
 // Machines & Incidents
 app.use('/api/machines', express.json(), machineRoutes);
-app.use('/api/incidents', express.json(), incidentRoutes);
+app.use('/api/incidents', (req, res, next) => {
+  const appMode = require('./config/appMode');
+  if (appMode.isAggregator()) {
+    return res.status(403).json({
+      error: 'Incidents cannot be created or managed on an Aggregator instance',
+      currentMode: 'aggregator'
+    });
+  }
+  next();
+}, requireCentralServer, express.json(), incidentRoutes);
 
 // Reports & Email Schedules
 app.use('/api/reports', express.json(), reportRoutes);
@@ -307,6 +316,9 @@ db.initDB().then(async () => {
   // If running in Aggregator mode, start local syslog, watchers, and central sync
   if (appMode.isAggregator()) {
     console.log('[Bootstrap] Initializing Aggregator Background Services...');
+    // Ensure aggregator database has no local incident records
+    const db = require('./config/db');
+    db.query('TRUNCATE TABLE incidents, incident_notes, incident_events CASCADE;').catch(() => {});
     initSyslogReceiver().catch(err => console.error('[Syslog Error]', err.message));
     initSourceWatchers().catch(err => console.error('[Watcher Error]', err.message));
     startSyncService();
