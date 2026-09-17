@@ -1,6 +1,52 @@
-// ════════════════════════════════════════════════════════════════
-// IOC Hunt — Session Cookie Configuration Helper
-// ════════════════════════════════════════════════════════════════
+const appMode = require('../config/appMode');
+
+const DEFAULT_CENTRAL_COOKIE_NAME = 'iochunt_central_session';
+const DEFAULT_AGGREGATOR_COOKIE_NAME = 'iochunt_aggregator_session';
+const LEGACY_COOKIE_NAME = 'iochunt_session';
+
+/**
+ * Returns the primary session cookie name for the current instance mode.
+ * - Central Server: 'iochunt_central_session'
+ * - Branch Aggregator: 'iochunt_aggregator_session'
+ * Can be overridden globally via process.env.SESSION_COOKIE_NAME.
+ *
+ * @param {import('express').Request} [req] - Optional request object
+ * @returns {string}
+ */
+function getSessionCookieName(req) {
+  if (process.env.SESSION_COOKIE_NAME) {
+    return process.env.SESSION_COOKIE_NAME;
+  }
+  return appMode.isAggregator() ? DEFAULT_AGGREGATOR_COOKIE_NAME : DEFAULT_CENTRAL_COOKIE_NAME;
+}
+
+/**
+ * Returns candidates of cookie names to check when reading incoming request cookies.
+ * Checks the instance-specific cookie first, followed by legacy 'iochunt_session'
+ * for backward compatibility with active sessions.
+ *
+ * @param {import('express').Request} [req] - Optional request object
+ * @returns {string[]}
+ */
+function getCandidateCookieNames(req) {
+  const primary = getSessionCookieName(req);
+  const candidates = [primary];
+  if (primary !== LEGACY_COOKIE_NAME) {
+    candidates.push(LEGACY_COOKIE_NAME);
+  }
+  return candidates;
+}
+
+/**
+ * Returns cookie names to clear on logout or session reset.
+ * Clears the active instance cookie and legacy cookie, but never clears the opposing instance cookie.
+ *
+ * @param {import('express').Request} [req] - Optional request object
+ * @returns {string[]}
+ */
+function getClearCookieNames(req) {
+  return getCandidateCookieNames(req);
+}
 
 /**
  * Resolves standard secure cookie options for session management.
@@ -55,6 +101,13 @@ function getClearCookieOptions(req) {
 }
 
 module.exports = {
+  DEFAULT_CENTRAL_COOKIE_NAME,
+  DEFAULT_AGGREGATOR_COOKIE_NAME,
+  LEGACY_COOKIE_NAME,
+  getSessionCookieName,
+  getCandidateCookieNames,
+  getClearCookieNames,
   getSessionCookieOptions,
   getClearCookieOptions
 };
+

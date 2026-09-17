@@ -7,6 +7,7 @@ const db = require('../config/db');
 const { normalizeRole, isRoleAboveOrEqual } = require('../config/roles');
 const appMode = require('../config/appMode');
 const { logSecurityEvent, EVENTS, SEVERITY } = require('../utils/securityLogger');
+const { getCandidateCookieNames } = require('../utils/cookieHelper');
 
 const hash = (text) => crypto.createHash('sha256').update(text).digest('hex');
 
@@ -37,16 +38,32 @@ function parseSessionCookie(req) {
     return req.headers['x-session-token'].trim();
   }
 
-  // 3. Check Cookie headers
-  const raw = req.headers.cookie || '';
-  for (const part of raw.split(';')) {
-    const [k, ...v] = part.trim().split('=');
-    if (k.trim() === 'iochunt_session') return decodeURIComponent(v.join('='));
+  const candidateNames = getCandidateCookieNames(req);
+
+  // 3. Check parsed req.cookies if cookie-parser is active
+  if (req.cookies) {
+    for (const name of candidateNames) {
+      if (req.cookies[name]) {
+        return req.cookies[name];
+      }
+    }
   }
 
-  // 4. Check parsed req.cookies if cookie-parser is active
-  if (req.cookies?.iochunt_session) {
-    return req.cookies.iochunt_session;
+  // 4. Check raw Cookie headers
+  const raw = req.headers.cookie || '';
+  if (raw) {
+    const cookiePairs = {};
+    for (const part of raw.split(';')) {
+      const [k, ...v] = part.trim().split('=');
+      if (k) {
+        cookiePairs[k.trim()] = decodeURIComponent(v.join('='));
+      }
+    }
+    for (const name of candidateNames) {
+      if (cookiePairs[name]) {
+        return cookiePairs[name];
+      }
+    }
   }
 
   return null;
@@ -80,7 +97,7 @@ async function getSession(token) {
  * for which tenant database to route queries to.
  */
 async function requireSession(req, res, next) {
-  const token = parseSessionCookie(req) || req.cookies?.iochunt_session;
+  const token = parseSessionCookie(req);
   if (!token) {
     return res.status(401).json({ error: 'Unauthorized: No session token provided' });
   }
@@ -161,7 +178,7 @@ async function requireSession(req, res, next) {
  */
 async function optionalSession(req, res, next) {
   try {
-    const token = parseSessionCookie(req) || req.cookies?.iochunt_session;
+    const token = parseSessionCookie(req);
     if (token) {
       const session = await getSession(token);
       if (session) {

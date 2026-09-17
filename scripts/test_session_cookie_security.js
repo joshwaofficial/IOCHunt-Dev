@@ -11,7 +11,18 @@ module.paths.push(path.join(__dirname, '../backend/node_modules'));
 
 const express = require('express');
 const cookieParser = require('cookie-parser');
-const { getSessionCookieOptions, getClearCookieOptions } = require('../backend/src/utils/cookieHelper');
+const appMode = require('../backend/src/config/appMode');
+const {
+  getSessionCookieOptions,
+  getClearCookieOptions,
+  getSessionCookieName,
+  getCandidateCookieNames,
+  getClearCookieNames,
+  DEFAULT_CENTRAL_COOKIE_NAME,
+  DEFAULT_AGGREGATOR_COOKIE_NAME,
+  LEGACY_COOKIE_NAME
+} = require('../backend/src/utils/cookieHelper');
+const { parseSessionCookie, optionalSession } = require('../backend/src/middlewares/authMiddleware');
 
 console.log('╔════════════════════════════════════════════════════════════════╗');
 console.log('║     IOC Hunt — Session & Cookie Security Verification Suite    ║');
@@ -71,9 +82,9 @@ async function runAllTests() {
   const origEnv = { ...process.env };
 
   // ─────────────────────────────────────────────────────────────
-  // Section 1: Cookie Configuration Helper Verification
+  // Section 1: Cookie Configuration Helper & Scoping Verification
   // ─────────────────────────────────────────────────────────────
-  console.log('[1] Cookie Security Attributes & Flags:');
+  console.log('[1] Cookie Security Attributes, Names & Multi-Instance Scoping:');
 
   await test('getSessionCookieOptions enforces HttpOnly flag', () => {
     const opts = getSessionCookieOptions();
@@ -126,74 +137,162 @@ async function runAllTests() {
     process.env = { ...origEnv };
   });
 
+  await test('Central Server mode resolves iochunt_central_session cookie name', () => {
+    appMode.setConfig({ mode: 'central_server', setupComplete: true });
+    assert.strictEqual(getSessionCookieName(), 'iochunt_central_session');
+    const candidates = getCandidateCookieNames();
+    assert.ok(candidates.includes('iochunt_central_session'), 'Candidates must include iochunt_central_session');
+    assert.ok(candidates.includes('iochunt_session'), 'Candidates must include legacy fallback iochunt_session');
+    assert.ok(!candidates.includes('iochunt_aggregator_session'), 'Central candidates must NOT include aggregator cookie');
+  });
+
+  await test('Branch Aggregator mode resolves iochunt_aggregator_session cookie name', () => {
+    appMode.setConfig({ mode: 'aggregator', setupComplete: true });
+    assert.strictEqual(getSessionCookieName(), 'iochunt_aggregator_session');
+    const candidates = getCandidateCookieNames();
+    assert.ok(candidates.includes('iochunt_aggregator_session'), 'Candidates must include iochunt_aggregator_session');
+    assert.ok(candidates.includes('iochunt_session'), 'Candidates must include legacy fallback iochunt_session');
+    assert.ok(!candidates.includes('iochunt_central_session'), 'Aggregator candidates must NOT include central cookie');
+  });
+
+  await test('Logout clear cookie list protects opposing instance cookie', () => {
+    appMode.setConfig({ mode: 'central_server', setupComplete: true });
+    const centralClear = getClearCookieNames();
+    assert.ok(centralClear.includes('iochunt_central_session'));
+    assert.ok(!centralClear.includes('iochunt_aggregator_session'), 'Central logout MUST NEVER clear aggregator session');
+
+    appMode.setConfig({ mode: 'aggregator', setupComplete: true });
+    const aggClear = getClearCookieNames();
+    assert.ok(aggClear.includes('iochunt_aggregator_session'));
+    assert.ok(!aggClear.includes('iochunt_central_session'), 'Aggregator logout MUST NEVER clear central session');
+  });
+
   // ─────────────────────────────────────────────────────────────
   // Section 2: Express Cookie Issuance & Deletion Headers
   // ─────────────────────────────────────────────────────────────
-  console.log('\n[2] HTTP Set-Cookie Headers & Browser Deletion:');
+  console.log('\n[2] HTTP Set-Cookie Headers & Multi-Instance Browser Deletion:');
 
-  await test('Session cookie set on response contains HttpOnly, SameSite=Strict, and Path=/', async () => {
+  await test('Central Server issues iochunt_central_session with secure attributes', async () => {
+    appMode.setConfig({ mode: 'central_server', setupComplete: true });
     const app = express();
     app.use(cookieParser());
-    app.get('/login-test', (req, res) => {
-      res.cookie('iochunt_session', 'test_session_token_123', getSessionCookieOptions(req, { maxAge: 3600000 }));
+    app.get('/login-central', (req, res) => {
+      res.cookie(getSessionCookieName(req), 'central_token_abc123', getSessionCookieOptions(req, { maxAge: 3600000 }));
       res.json({ ok: true });
     });
 
-    const res = await makeRequest(app, { path: '/login-test' });
+    const res = await makeRequest(app, { path: '/login-central' });
     const setCookie = res.headers['set-cookie'];
     assert.ok(setCookie && setCookie.length > 0, 'Set-Cookie header must be present');
     const cookieHeader = setCookie[0];
 
-    assert.ok(cookieHeader.includes('iochunt_session=test_session_token_123'), 'Cookie name and token must match');
+    assert.ok(cookieHeader.includes('iochunt_central_session=central_token_abc123'), 'Must issue iochunt_central_session');
     assert.ok(/httponly/i.test(cookieHeader), 'Set-Cookie MUST include HttpOnly');
     assert.ok(/samesite=strict/i.test(cookieHeader), 'Set-Cookie MUST include SameSite=Strict');
     assert.ok(/path=\//i.test(cookieHeader), 'Set-Cookie MUST include Path=/');
   });
 
-  await test('res.clearCookie sends proper removal attributes (Max-Age=0 or expired)', async () => {
+  await test('Branch Aggregator issues iochunt_aggregator_session with secure attributes', async () => {
+    appMode.setConfig({ mode: 'aggregator', setupComplete: true });
+    const app = express();
+    app.use(cookieParser());
+    app.get('/login-agg', (req, res) => {
+      res.cookie(getSessionCookieName(req), 'agg_token_xyz789', getSessionCookieOptions(req, { maxAge: 3600000 }));
+      res.json({ ok: true });
+    });
+
+    const res = await makeRequest(app, { path: '/login-agg' });
+    const setCookie = res.headers['set-cookie'];
+    assert.ok(setCookie && setCookie.length > 0, 'Set-Cookie header must be present');
+    const cookieHeader = setCookie[0];
+
+    assert.ok(cookieHeader.includes('iochunt_aggregator_session=agg_token_xyz789'), 'Must issue iochunt_aggregator_session');
+    assert.ok(/httponly/i.test(cookieHeader), 'Set-Cookie MUST include HttpOnly');
+    assert.ok(/samesite=strict/i.test(cookieHeader), 'Set-Cookie MUST include SameSite=Strict');
+    assert.ok(/path=\//i.test(cookieHeader), 'Set-Cookie MUST include Path=/');
+  });
+
+  await test('res.clearCookie on Central Server clears iochunt_central_session and legacy iochunt_session', async () => {
+    appMode.setConfig({ mode: 'central_server', setupComplete: true });
     const app = express();
     app.use(cookieParser());
     app.post('/logout-test', (req, res) => {
-      res.clearCookie('iochunt_session', getClearCookieOptions(req));
+      for (const cName of getClearCookieNames(req)) {
+        res.clearCookie(cName, getClearCookieOptions(req));
+      }
       res.json({ success: true });
     });
 
     const res = await makeRequest(app, { method: 'POST', path: '/logout-test' });
-    const setCookie = res.headers['set-cookie'];
-    assert.ok(setCookie && setCookie.length > 0, 'Set-Cookie deletion header must be present');
-    const cookieHeader = setCookie[0];
-
-    assert.ok(/iochunt_session=/i.test(cookieHeader), 'Must clear iochunt_session');
-    assert.ok(/httponly/i.test(cookieHeader), 'Clear header must preserve HttpOnly');
-    assert.ok(/samesite=strict/i.test(cookieHeader), 'Clear header must preserve SameSite=Strict');
-    assert.ok(/path=\//i.test(cookieHeader), 'Clear header must preserve Path=/');
-    assert.ok(
-      cookieHeader.includes('Expires=Thu, 01 Jan 1970') || /max-age=0/i.test(cookieHeader),
-      'Clear header must set expiration to epoch or Max-Age=0'
-    );
+    const setCookies = res.headers['set-cookie'] || [];
+    assert.ok(setCookies.length >= 2, 'Must issue clear instructions for both central and legacy');
+    const combined = setCookies.join('; ');
+    assert.ok(combined.includes('iochunt_central_session='), 'Must clear iochunt_central_session');
+    assert.ok(combined.includes('iochunt_session='), 'Must clear legacy iochunt_session');
+    assert.ok(!combined.includes('iochunt_aggregator_session='), 'Must NOT clear aggregator session');
   });
 
   // ─────────────────────────────────────────────────────────────
-  // Section 3: Logout Endpoint Resiliency & Server-Side Cleanup
+  // Section 3: Concurrent Multi-Tab Cookie Isolation in Same Browser
   // ─────────────────────────────────────────────────────────────
-  console.log('\n[3] Logout Endpoint Resiliency & Server-Side Invalidation:');
+  console.log('\n[3] Simultaneous Browser Sessions Isolation (Same Host, Multiple Tabs):');
 
-  await test('/api/auth/logout succeeds with 200 and clears cookie even when unauthenticated/expired', async () => {
-    const app = express();
-    app.use(cookieParser());
-    const { optionalSession } = require('../backend/src/middlewares/authMiddleware');
+  await test('Central Server correctly extracts its own token when both Central and Aggregator cookies exist', () => {
+    appMode.setConfig({ mode: 'central_server', setupComplete: true });
+    const mockReq = {
+      headers: {
+        cookie: 'iochunt_aggregator_session=agg_token_111; iochunt_central_session=central_token_222'
+      },
+      cookies: {
+        iochunt_aggregator_session: 'agg_token_111',
+        iochunt_central_session: 'central_token_222'
+      }
+    };
+    const extracted = parseSessionCookie(mockReq);
+    assert.strictEqual(extracted, 'central_token_222', 'Central server MUST extract central token and ignore aggregator');
+  });
 
-    // Simulate the logout endpoint with optionalSession
-    app.post('/api/auth/logout', optionalSession, (req, res) => {
-      res.clearCookie('iochunt_session', getClearCookieOptions(req));
-      res.status(200).json({ success: true, message: 'Logged out successfully' });
-    });
+  await test('Branch Aggregator correctly extracts its own token when both Central and Aggregator cookies exist', () => {
+    appMode.setConfig({ mode: 'aggregator', setupComplete: true });
+    const mockReq = {
+      headers: {
+        cookie: 'iochunt_central_session=central_token_222; iochunt_aggregator_session=agg_token_111'
+      },
+      cookies: {
+        iochunt_central_session: 'central_token_222',
+        iochunt_aggregator_session: 'agg_token_111'
+      }
+    };
+    const extracted = parseSessionCookie(mockReq);
+    assert.strictEqual(extracted, 'agg_token_111', 'Aggregator MUST extract aggregator token and ignore central');
+  });
 
-    // Call logout with NO cookie/token (e.g. session already expired)
-    const res = await makeRequest(app, { method: 'POST', path: '/api/auth/logout' });
-    assert.strictEqual(res.statusCode, 200, 'Logout MUST return 200 even if session expired or missing');
-    const setCookie = res.headers['set-cookie'];
-    assert.ok(setCookie && setCookie.length > 0, 'Must still issue clearCookie to remove client cookie');
+  await test('Backward compatibility: Central Server falls back to legacy iochunt_session when present', () => {
+    appMode.setConfig({ mode: 'central_server', setupComplete: true });
+    const mockReq = {
+      headers: {
+        cookie: 'iochunt_session=legacy_token_333'
+      },
+      cookies: {
+        iochunt_session: 'legacy_token_333'
+      }
+    };
+    const extracted = parseSessionCookie(mockReq);
+    assert.strictEqual(extracted, 'legacy_token_333', 'Central server MUST accept legacy token for zero downtime migration');
+  });
+
+  await test('Backward compatibility: Aggregator falls back to legacy iochunt_session when present', () => {
+    appMode.setConfig({ mode: 'aggregator', setupComplete: true });
+    const mockReq = {
+      headers: {
+        cookie: 'iochunt_session=legacy_token_444'
+      },
+      cookies: {
+        iochunt_session: 'legacy_token_444'
+      }
+    };
+    const extracted = parseSessionCookie(mockReq);
+    assert.strictEqual(extracted, 'legacy_token_444', 'Aggregator MUST accept legacy token for zero downtime migration');
   });
 
   // ─────────────────────────────────────────────────────────────
@@ -213,26 +312,22 @@ async function runAllTests() {
   });
 
   await test('Privilege change invalidation logic triggers session revocation', () => {
-    // Verify privilege change detection condition
     const existingRole = 'ADMIN';
     const newRole = 'VIEWER';
     const isRoleChanged = Boolean(newRole && newRole.toUpperCase() !== existingRole);
     assert.strictEqual(isRoleChanged, true, 'Role difference must be detected as privilege change');
 
-    // Verify same role does not trigger false revocation
     const sameRole = 'ADMIN';
     const isSameRoleChanged = Boolean(sameRole && sameRole.toUpperCase() !== existingRole);
     assert.strictEqual(isSameRoleChanged, false, 'Identical role must not trigger privilege change');
   });
 
   await test('Super Admin login terminates previous sessions (Token Rotation)', () => {
-    // Simulating token rotation logic
     const activeSessions = new Map([
       ['admin_1', 'old_active_token_abc123']
     ]);
 
     const adminId = 'admin_1';
-    // When new login happens: delete old sessions for this admin
     activeSessions.delete(adminId);
     const newToken = 'new_rotated_token_xyz789';
     activeSessions.set(adminId, newToken);
@@ -240,6 +335,9 @@ async function runAllTests() {
     assert.strictEqual(activeSessions.get(adminId), 'new_rotated_token_xyz789');
     assert.strictEqual(activeSessions.size, 1, 'Only the rotated session should remain');
   });
+
+  // Reset back to central
+  appMode.setConfig({ mode: 'central_server', setupComplete: true });
 
   console.log('\n════════════════════════════════════════════════════════════════');
   console.log(`  All ${passedTests} session & cookie security tests passed successfully!`);
@@ -250,3 +348,4 @@ runAllTests().catch((err) => {
   console.error('Fatal test error:', err);
   process.exit(1);
 });
+

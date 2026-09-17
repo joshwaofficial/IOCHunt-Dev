@@ -26,7 +26,7 @@ async function requireCentralServer(req, res, next) {
 
   let session = req.session;
   if (!session) {
-    const token = parseSessionCookie(req) || req.cookies?.iochunt_session;
+    const token = parseSessionCookie(req);
     if (token) {
       session = await getSession(token);
       if (session) {
@@ -53,7 +53,7 @@ async function requireAggregator(req, res, next) {
 
   let session = req.session;
   if (!session) {
-    const token = parseSessionCookie(req) || req.cookies?.iochunt_session;
+    const token = parseSessionCookie(req);
     if (token) {
       session = await getSession(token);
       if (session) {

@@ -9,7 +9,7 @@ const cryptoHelper = require('../utils/cryptoHelper');
 const User = require('../models/User');
 const axios = require('axios');
 const https = require('https');
-const { getSessionCookieOptions } = require('../utils/cookieHelper');
+const { getSessionCookieOptions, getSessionCookieName } = require('../utils/cookieHelper');
 
 /**
  * Returns current instance setup status and metadata dynamically from DB
@@ -147,17 +147,17 @@ async function completeSetup(req, res) {
       const token = await User.createSession(adminUser.id, adminUser.username, adminUser.role);
       await User.updateLastLogin(adminUser.id);
 
-      // Set secure session cookie (8 hours default)
-      res.cookie('iochunt_session', token, getSessionCookieOptions(req, {
-        maxAge: 8 * 3600 * 1000
-      }));
-
       setConfig({
         mode: MODES.CENTRAL,
         instanceName: safeInstanceName,
         setupComplete: true,
         source: 'database'
       });
+
+      // Set secure session cookie (8 hours default)
+      res.cookie(getSessionCookieName(req), token, getSessionCookieOptions(req, {
+        maxAge: 8 * 3600 * 1000
+      }));
 
       return res.status(200).json({
         success: true,
@@ -267,17 +267,17 @@ async function completeSetup(req, res) {
       const token = await User.createSession(localUser.id, localUser.username, localUser.role);
       await User.updateLastLogin(localUser.id);
 
-      // Set secure session cookie (8 hours default)
-      res.cookie('iochunt_session', token, getSessionCookieOptions(req, {
-        maxAge: 8 * 3600 * 1000
-      }));
-
       setConfig({
         mode: MODES.AGGREGATOR,
         instanceName: safeInstanceName,
         setupComplete: true,
         source: 'database'
       });
+
+      // Set secure session cookie (8 hours default)
+      res.cookie(getSessionCookieName(req), token, getSessionCookieOptions(req, {
+        maxAge: 8 * 3600 * 1000
+      }));
 
       return res.status(200).json({
         success: true,

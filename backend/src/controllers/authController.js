@@ -12,7 +12,8 @@ const appMode = require('../config/appMode');
 const sseBroadcaster = require('../services/sseBroadcaster');
 const { sendSecurityAlertEmail } = require('../utils/emailHelper');
 const { logSecurityEvent, EVENTS, SEVERITY } = require('../utils/securityLogger');
-const { getSessionCookieOptions, getClearCookieOptions } = require('../utils/cookieHelper');
+const { getSessionCookieOptions, getClearCookieOptions, getSessionCookieName, getClearCookieNames } = require('../utils/cookieHelper');
+const { parseSessionCookie } = require('../middlewares/authMiddleware');
 
 /**
  * Validates password complexity
@@ -497,7 +498,7 @@ async function login(req, res) {
       await tenantPool.query('UPDATE users SET last_login = $1 WHERE id = $2', [now, user.id]);
 
       // Set secure session cookie with dynamic policy lifetime
-      res.cookie('iochunt_session', token, getSessionCookieOptions(req, {
+      res.cookie(getSessionCookieName(req), token, getSessionCookieOptions(req, {
         maxAge: durationHours * 3600 * 1000
       }));
 
@@ -633,7 +634,7 @@ async function login(req, res) {
     await User.updateLastLogin(user.id);
 
     // Set secure session cookie with dynamic policy lifetime
-    res.cookie('iochunt_session', token, getSessionCookieOptions(req, {
+    res.cookie(getSessionCookieName(req), token, getSessionCookieOptions(req, {
       maxAge: durationHours * 3600 * 1000
     }));
 
@@ -744,7 +745,9 @@ async function changePassword(req, res) {
     await User.deleteSessionsByUserId(user.id, req.tenantId);
 
     // Clear session cookie so existing token cannot be reused
-    res.clearCookie('iochunt_session', getClearCookieOptions(req));
+    for (const cookieName of getClearCookieNames(req)) {
+      res.clearCookie(cookieName, getClearCookieOptions(req));
+    }
 
     logSecurityEvent({
       event: EVENTS.AUTH_PASSWORD_CHANGED,
@@ -859,7 +862,7 @@ async function mfaVerify(req, res) {
     const token = await User.createSession(user.id, user.username, user.role, targetTenant, clientIp, userAgent, isForcedChange ? 1 : 0, durationHours, idleMins);
     await User.updateLastLogin(user.id, queryFn);
 
-    res.cookie('iochunt_session', token, getSessionCookieOptions(req, {
+    res.cookie(getSessionCookieName(req), token, getSessionCookieOptions(req, {
       maxAge: durationHours * 3600 * 1000
     }));
 
@@ -898,12 +901,14 @@ async function mfaVerify(req, res) {
 
 async function logout(req, res) {
   try {
-    const token = req.cookies?.iochunt_session || req.headers['x-session-token'] || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7).trim() : null) || req.session?.token;
+    const token = parseSessionCookie(req) || req.session?.token;
     if (token) {
       await User.deleteSession(token).catch(() => {});
     }
     
-    res.clearCookie('iochunt_session', getClearCookieOptions(req));
+    for (const cookieName of getClearCookieNames(req)) {
+      res.clearCookie(cookieName, getClearCookieOptions(req));
+    }
 
     const isIdle = req.query?.reason === 'inactivity_timeout' || req.body?.reason === 'inactivity_timeout';
     
@@ -931,7 +936,9 @@ async function logout(req, res) {
   } catch (error) {
     console.error('[Auth Error] Logout failed:', error);
     try {
-      res.clearCookie('iochunt_session', getClearCookieOptions(req));
+      for (const cookieName of getClearCookieNames(req)) {
+        res.clearCookie(cookieName, getClearCookieOptions(req));
+      }
     } catch (_) {}
     return res.status(200).json({ message: 'Logout successful' });
   }
@@ -1077,7 +1084,7 @@ async function setupBranchNode(req, res) {
     await User.updateLastLogin(localUser.id);
 
     // Set secure session cookie (8 hours default)
-    res.cookie('iochunt_session', token, getSessionCookieOptions(req, {
+    res.cookie(getSessionCookieName(req), token, getSessionCookieOptions(req, {
       maxAge: 8 * 3600 * 1000
     }));
 
@@ -1145,7 +1152,7 @@ async function getApiKey(req, res) {
 
 async function keepAlive(req, res) {
   try {
-    const token = req.session?.token || req.cookies?.iochunt_session || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7).trim() : null);
+    const token = req.session?.token || parseSessionCookie(req);
     if (!token) {
       return res.status(401).json({ error: 'No active session token' });
     }

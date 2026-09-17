@@ -4,7 +4,7 @@
 
 const User = require('../models/User');
 const { hashPassword, verifyPassword } = require('../utils/cryptoHelper');
-const { getClearCookieOptions } = require('../utils/cookieHelper');
+const { getClearCookieOptions, getClearCookieNames } = require('../utils/cookieHelper');
 const totpHelper = require('../utils/totpHelper');
 const QRCodeLib = require('qrcode');
 const db = require('../config/db');
@@ -261,7 +261,9 @@ async function updateUser(req, res) {
         });
       } catch (_) {}
       if (isOwnAccount) {
-        res.clearCookie('iochunt_session', getClearCookieOptions(req));
+        for (const cookieName of getClearCookieNames(req)) {
+          res.clearCookie(cookieName, getClearCookieOptions(req));
+        }
       }
     } else if (custom_idle_mins !== undefined || session_policy !== undefined) {
       let effectiveIdle = 0;
