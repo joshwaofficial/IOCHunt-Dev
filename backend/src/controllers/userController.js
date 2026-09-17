@@ -147,11 +147,21 @@ async function updateUser(req, res) {
 
     if (!isAdmin && !isOwnAccount) return res.status(403).json({ error: 'Forbidden' });
     if (role && role !== existing.role && !isAdmin) return res.status(403).json({ error: 'Forbidden' });
-    if ((session_policy !== undefined || custom_session_hours !== undefined || custom_idle_mins !== undefined) && !isAdmin) {
+    const isPolicyModified = (
+      (session_policy !== undefined && session_policy !== existing.session_policy) ||
+      (custom_session_hours !== undefined && (custom_session_hours ? Number(custom_session_hours) : null) !== (existing.custom_session_hours ? Number(existing.custom_session_hours) : null)) ||
+      (custom_idle_mins !== undefined && (custom_idle_mins !== '' && custom_idle_mins !== null ? Number(custom_idle_mins) : null) !== (existing.custom_idle_mins !== null ? Number(existing.custom_idle_mins) : null))
+    );
+    if (isPolicyModified && !isAdmin) {
       return res.status(403).json({ error: 'Forbidden: Only administrators can modify session policies.' });
     }
 
-    if (email && (typeof email !== 'string' || !isEmail(email))) {
+    if (username !== undefined && (!username || !username.trim())) {
+      return res.status(400).json({ error: 'Username cannot be empty' });
+    }
+
+    const trimmedEmail = typeof email === 'string' ? email.trim() : undefined;
+    if (trimmedEmail && !isEmail(trimmedEmail)) {
       return res.status(400).json({ error: 'Invalid email address format' });
     }
 
@@ -205,19 +215,19 @@ async function updateUser(req, res) {
       salt = hashed.salt;
     }
 
-    const upperRole = role ? role.toUpperCase() : existing.role;
+    const upperRole = (isAdmin && role) ? role.toUpperCase() : existing.role;
     const targetUsername = existing.role === 'ADMIN' ? existing.username : (username ? username.trim().toLowerCase() : existing.username);
 
     await User.updateUser(id, {
       username: targetUsername,
-      email: email !== undefined ? email : existing.email,
+      email: trimmedEmail !== undefined ? trimmedEmail : existing.email,
       role: upperRole,
       passwordHash,
       salt,
       forcePasswordChange: enforcedForcePasswordChange,
-      sessionPolicy: session_policy !== undefined ? session_policy : existing.session_policy,
-      customSessionHours: custom_session_hours !== undefined ? (custom_session_hours ? Math.min(168, Math.max(1, Number(custom_session_hours))) : null) : existing.custom_session_hours,
-      customIdleMins: custom_idle_mins !== undefined ? (custom_idle_mins !== null && custom_idle_mins !== '' ? Math.max(0, Number(custom_idle_mins)) : null) : existing.custom_idle_mins
+      sessionPolicy: (isAdmin && session_policy !== undefined) ? session_policy : existing.session_policy,
+      customSessionHours: (isAdmin && custom_session_hours !== undefined) ? (custom_session_hours ? Math.min(168, Math.max(1, Number(custom_session_hours))) : null) : existing.custom_session_hours,
+      customIdleMins: (isAdmin && custom_idle_mins !== undefined) ? (custom_idle_mins !== null && custom_idle_mins !== '' ? Math.max(0, Number(custom_idle_mins)) : null) : existing.custom_idle_mins
     }, req.queryTenant);
 
     const isRoleChanged = role && upperRole !== existing.role;
@@ -249,6 +259,9 @@ async function updateUser(req, res) {
 
     if (targetUsername !== existing.username) {
       await req.queryControlPlane('UPDATE sessions SET username = $1 WHERE user_id = $2 AND tenant_id = $3', [targetUsername, id, req.tenantId]);
+      if (isOwnAccount && req.session) {
+        req.session.username = targetUsername;
+      }
     }
 
     if (password) {

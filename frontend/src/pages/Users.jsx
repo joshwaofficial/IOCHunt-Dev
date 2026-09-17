@@ -294,17 +294,33 @@ export default function Users() {
     const form = editForms[id];
     setEditErrors(prev => ({ ...prev, [id]: '' }));
     try {
-      await axios.patch(`/api/users/${id}`, {
-        username: form.username,
-        email: form.email,
-        role: form.role,
-        session_policy: form.session_policy || 'inherit',
-        custom_session_hours: form.custom_session_hours ? Number(form.custom_session_hours) : null,
-        custom_idle_mins: form.custom_idle_mins !== '' && form.custom_idle_mins !== null ? Number(form.custom_idle_mins) : null
-      });
+      const payload = {
+        username: form.username?.trim(),
+        email: form.email?.trim()
+      };
+      if (isAdmin) {
+        payload.role = form.role;
+        payload.session_policy = form.session_policy || 'inherit';
+        payload.custom_session_hours = form.custom_session_hours ? Number(form.custom_session_hours) : null;
+        payload.custom_idle_mins = form.custom_idle_mins !== '' && form.custom_idle_mins !== null ? Number(form.custom_idle_mins) : null;
+      }
+      await axios.patch(`/api/users/${id}`, payload);
       setExpandedEditId(null);
+      if (String(id) === String(currentUser?.id)) {
+        const updatedUser = {
+          ...currentUser,
+          username: form.username?.trim() || currentUser?.username,
+          email: form.email?.trim() || currentUser?.email
+        };
+        setUser(updatedUser);
+        try {
+          localStorage.setItem('iochunt_user', JSON.stringify(updatedUser));
+        } catch (_) {}
+      }
       fetchData();
-      fetchSessions(false);
+      if (isAdmin) {
+        fetchSessions(false);
+      }
       toast.success('User updated successfully');
     } catch (e) {
       setEditErrors(prev => ({ ...prev, [id]: e.response?.data?.error || 'Failed to update user' }));
