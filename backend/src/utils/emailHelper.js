@@ -2,8 +2,9 @@ const nodemailer = require('nodemailer');
 const db = require('../config/db');
 const { decryptText } = require('./cryptoHelper');
 
-async function getSmtpConfig() {
-  const cfgRes = await db.query('SELECT * FROM smtp_config WHERE id=1');
+async function getSmtpConfig(queryFn) {
+  const q = queryFn || db.query.bind(db);
+  const cfgRes = await q('SELECT * FROM smtp_config WHERE id=1');
   const cfg = cfgRes.rows[0];
   if (cfg && cfg.password) {
     cfg.password = decryptText(cfg.password);

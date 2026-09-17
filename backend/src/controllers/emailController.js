@@ -14,7 +14,8 @@ exports.getSmtpConfig = async (req, res) => {
     return res.status(403).json({ error: 'Email reporting is only available on Central Server' });
   }
   try {
-    const cfg = await getSmtpConfig();
+    const q = req.queryTenant || req.queryControlPlane;
+    const cfg = await getSmtpConfig(q);
     if (cfg) delete cfg.password;  // Never send password to frontend
     res.json(cfg || {});
   } catch (err) {
@@ -83,7 +84,8 @@ exports.testSmtp = async (req, res) => {
   }
 
   try {
-    const cfg = await getSmtpConfig();
+    const q = req.queryTenant || req.queryControlPlane;
+    const cfg = await getSmtpConfig(q);
     if (!cfg || !cfg.host) throw new Error('SMTP not configured');
     const t = createTransporter(cfg);
     await t.sendMail({
@@ -95,7 +97,8 @@ exports.testSmtp = async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('[SMTP Test] Error:', e.message);
-    res.status(400).json({ error: 'Failed to send test email. Please check your SMTP settings.' });
+    const detail = e.response || e.message || 'Please check your SMTP settings.';
+    res.status(400).json({ error: `Failed to send test email: ${detail}` });
   }
 };
 
