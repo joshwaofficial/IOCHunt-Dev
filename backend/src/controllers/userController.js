@@ -469,15 +469,15 @@ async function getActiveSessions(req, res) {
     const now = Math.floor(Date.now() / 1000);
     const q = req.queryControlPlane || db.query.bind(db);
 
-    let sql = 'SELECT * FROM sessions WHERE expires_at > $1';
-    let params = [now];
-
-    if (req.tenantId && req.tenantId !== 'default' && req.tenantId !== 'aggregator') {
-      sql += ' AND (tenant_id = $2 OR tenant_id = \'\' OR tenant_id IS NULL)';
-      params.push(req.tenantId);
-    }
-
-    sql += ' ORDER BY last_activity_at DESC';
+    const tenantId = req.tenantId || req.session?.tenant_id || 'default';
+    let sql = `
+      SELECT * FROM sessions 
+      WHERE expires_at > $1 
+        AND tenant_id = $2 
+        AND LOWER(username) != 'superadmin'
+      ORDER BY last_activity_at DESC
+    `;
+    let params = [now, tenantId];
 
     const sessionRes = await q(sql, params);
     const rawSessions = sessionRes.rows || [];
@@ -558,8 +558,9 @@ async function terminateSession(req, res) {
     }
 
     const q = req.queryControlPlane || db.query.bind(db);
+    const tenantId = req.tenantId || req.session?.tenant_id || 'default';
 
-    const sRes = await q('SELECT * FROM sessions WHERE token = $1', [targetToken]);
+    const sRes = await q('SELECT * FROM sessions WHERE token = $1 AND tenant_id = $2', [targetToken, tenantId]);
     if (sRes.rows.length === 0) {
       return res.status(404).json({ error: 'Session not found or already terminated' });
     }
@@ -567,7 +568,7 @@ async function terminateSession(req, res) {
     const targetSession = sRes.rows[0];
 
     // Delete session immediately
-    await q('DELETE FROM sessions WHERE token = $1', [targetToken]);
+    await q('DELETE FROM sessions WHERE token = $1 AND tenant_id = $2', [targetToken, tenantId]);
     try {
       sseBroadcaster.broadcast('session_revoked', {
         user_id: targetSession.user_id,
@@ -581,7 +582,7 @@ async function terminateSession(req, res) {
       await q(
         'INSERT INTO audit_log (tenant_id, user_id, username, action, resource, detail, ip_address, user_agent, result) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
         [
-          targetSession.tenant_id || req.tenantId || '',
+          targetSession.tenant_id || tenantId,
           targetSession.user_id,
           targetSession.username,
           'AUTH_SESSION_TERMINATED',
@@ -615,14 +616,10 @@ async function terminateAllOtherSessions(req, res) {
 
     const q = req.queryControlPlane || db.query.bind(db);
     const currentToken = req.session.token;
+    const tenantId = req.tenantId || req.session?.tenant_id || 'default';
 
-    let sql = 'DELETE FROM sessions WHERE token != $1';
-    let params = [currentToken];
-
-    if (req.tenantId && req.tenantId !== 'default' && req.tenantId !== 'aggregator') {
-      sql += ' AND (tenant_id = $2 OR tenant_id = \'\' OR tenant_id IS NULL)';
-      params.push(req.tenantId);
-    }
+    const sql = 'DELETE FROM sessions WHERE token != $1 AND tenant_id = $2 AND LOWER(username) != \'superadmin\'';
+    const params = [currentToken, tenantId];
 
     const delRes = await q(sql, params);
     const deletedCount = delRes.rowCount || 0;
@@ -632,7 +629,7 @@ async function terminateAllOtherSessions(req, res) {
       await q(
         'INSERT INTO audit_log (tenant_id, user_id, username, action, resource, detail, ip_address, user_agent, result) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
         [
-          req.tenantId || '',
+          tenantId,
           req.session.user_id,
           req.session.username,
           'AUTH_MASS_SESSION_TERMINATED',
@@ -669,13 +666,24 @@ async function getSessionAuditLogs(req, res) {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
     const search = req.query.search ? String(req.query.search).trim().toLowerCase() : '';
 
-    let sql = 'SELECT * FROM audit_log WHERE 1=1';
-    let params = [];
+    const tenantId = req.tenantId || req.session?.tenant_id || 'default';
 
-    if (req.tenantId && req.tenantId !== 'default' && req.tenantId !== 'aggregator') {
-      params.push(req.tenantId);
-      sql += ` AND (tenant_id = $${params.length} OR tenant_id = '' OR tenant_id IS NULL)`;
-    }
+    // In the Central Server, strictly filter audit logs by the current tenant.
+    // Exclude superadmin and global control-plane actions completely.
+    let sql = `
+      SELECT * FROM audit_log 
+      WHERE tenant_id = $1 
+        AND LOWER(username) != 'superadmin'
+        AND action NOT LIKE 'SUPERADMIN_%'
+        AND action NOT IN ('UPDATE_SETTINGS', 'PROVISION_TENANT', 'DELETE_TENANT', 'REGENERATE_API_KEY', 'UPDATE_TENANT_STATUS', 'UPDATE_SUPER_ADMIN_PASSWORD')
+        AND (resource IS NULL OR resource NOT IN ('super_admins', 'settings'))
+    `;
+    let params = [tenantId];
+
+    // Exclude any username registered in super_admins table as extra protection
+    try {
+      sql += ` AND LOWER(username) NOT IN (SELECT LOWER(username) FROM super_admins)`;
+    } catch (_) {}
 
     if (search) {
       params.push(`%${search}%`);
@@ -695,12 +703,13 @@ async function getSessionAuditLogs(req, res) {
     // Also include real-time Idle events for active sessions that are currently away from keyboard
     const now = Math.floor(Date.now() / 1000);
     try {
-      let sessionSql = 'SELECT * FROM sessions WHERE expires_at > $1';
-      let sessionParams = [now];
-      if (req.tenantId && req.tenantId !== 'default' && req.tenantId !== 'aggregator') {
-        sessionParams.push(req.tenantId);
-        sessionSql += ` AND (tenant_id = $2 OR tenant_id = '' OR tenant_id IS NULL)`;
-      }
+      const sessionSql = `
+        SELECT * FROM sessions 
+        WHERE expires_at > $1 
+          AND tenant_id = $2 
+          AND LOWER(username) != 'superadmin'
+      `;
+      const sessionParams = [now, tenantId];
       const activeRes = await q(sessionSql, sessionParams);
       const activeSessions = activeRes.rows || [];
 
@@ -733,6 +742,16 @@ async function getSessionAuditLogs(req, res) {
         }
       });
     } catch (_) {}
+
+    // Post-filter to strictly ensure no superadmin or global control plane items remain
+    logs = logs.filter(l => {
+      const u = (l.username || '').toLowerCase();
+      if (u === 'superadmin') return false;
+      if (l.action && l.action.startsWith('SUPERADMIN_')) return false;
+      if (l.action === 'UPDATE_SETTINGS') return false;
+      if (l.resource === 'super_admins' || l.resource === 'settings') return false;
+      return true;
+    });
 
     // Sort combined logs by timestamp descending
     logs.sort((a, b) => {

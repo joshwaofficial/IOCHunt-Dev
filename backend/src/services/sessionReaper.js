@@ -57,7 +57,7 @@ async function purgeIdleSessions(queryControlPlane, queryTenant) {
           INSERT INTO audit_log (tenant_id, user_id, username, action, resource, detail, ip_address, user_agent, result, created_at)
           VALUES ($1, $2, $3, $4, 'sessions', $5, $6, $7, 'SUCCESS', $8)
         `, [
-          s.tenant_id || '',
+          s.tenant_id || 'default',
           s.user_id,
           s.username,
           isIdle ? 'SESSION_IDLE_TIMEOUT' : 'SESSION_EXPIRED',

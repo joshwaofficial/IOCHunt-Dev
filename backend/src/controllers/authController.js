@@ -947,6 +947,17 @@ async function logout(req, res) {
 async function me(req, res) {
   try {
     const isForcedChange = req.session.force_password_change === 1 || req.session.force_password_change === true;
+    const tenantId = req.session.tenant_id || req.tenantId || 'default';
+    let companyName = appMode.getConfig().companyName || '';
+
+    if (!companyName && tenantId && tenantId !== 'default' && tenantId !== 'aggregator') {
+      try {
+        const tRes = await db.query('SELECT company_name FROM tenants WHERE tenant_id = $1', [tenantId]);
+        if (tRes.rows.length > 0 && tRes.rows[0].company_name) {
+          companyName = tRes.rows[0].company_name;
+        }
+      } catch (_) {}
+    }
 
     return res.status(200).json({
       user: {
@@ -959,7 +970,8 @@ async function me(req, res) {
         force_password_change: isForcedChange,
         instance_mode: appMode.getConfig().mode,
         deployment_mode: appMode.getConfig().deploymentMode,
-        company_name: appMode.getConfig().companyName,
+        company_name: companyName,
+        tenant_id: tenantId,
         idle_timeout_mins: Number(req.session.idle_timeout_mins) || 0,
         session_expires_at: Number(req.session.expires_at) || null,
         last_activity_at: Number(req.session.last_activity_at) || null

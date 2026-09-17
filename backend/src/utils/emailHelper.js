@@ -15,9 +15,12 @@ async function getSmtpConfig(queryFn) {
 function createTransporter(cfg) {
   const opts = {
     host: cfg.host,
-    port: cfg.port,
+    port: Number(cfg.port) || 587,
     secure: !!cfg.secure,
-    tls: { rejectUnauthorized: false }
+    tls: { rejectUnauthorized: false },
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000
   };
   if (cfg.username && cfg.password) {
     opts.auth = { user: cfg.username, pass: cfg.password };

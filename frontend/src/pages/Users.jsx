@@ -529,6 +529,13 @@ export default function Users() {
 
   // Filtered audit logs in Tab 4
   const filteredAuditLogs = auditLogs.filter(l => {
+    // Exclude superadmin audit logs and global control-plane actions completely from Central Server audit view
+    const u = (l.username || '').toLowerCase();
+    if (u === 'superadmin') return false;
+    if (l.action && l.action.startsWith('SUPERADMIN_')) return false;
+    if (l.action === 'UPDATE_SETTINGS') return false;
+    if (l.resource === 'super_admins' || l.resource === 'settings') return false;
+
     if (auditFilterAction !== 'all') {
       if (auditFilterAction === 'IDLE') {
         if (!l.action.includes('IDLE') && l.result !== 'IDLE') return false;

@@ -16,7 +16,7 @@ export default function Navbar() {
   const [latency, setLatency] = useState('--');
 
   const isBranchAdmin = Boolean(user?.aggregator_name);
-  const activeBranchName = user?.aggregator_name || instanceInfo?.tenant_id || 'default';
+  const activeBranchName = user?.aggregator_name || user?.company_name || user?.tenant_id || instanceInfo?.tenant_id || 'default';
 
   useEffect(() => {
     if (isBranchAdmin && user?.aggregator_name) {

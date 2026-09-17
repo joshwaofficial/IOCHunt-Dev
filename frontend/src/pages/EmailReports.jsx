@@ -117,6 +117,13 @@ export default function EmailReports() {
     if (!isAdmin) return;
     const { id, value, type, checked } = e.target;
     const key = id.replace('smtp-', '');
+    if (key === 'secure') {
+      const nextPort = checked 
+        ? (Number(smtpConfig.port) === 587 ? 465 : smtpConfig.port) 
+        : (Number(smtpConfig.port) === 465 ? 587 : smtpConfig.port);
+      setSmtpConfig({ ...smtpConfig, secure: checked, port: nextPort });
+      return;
+    }
     setSmtpConfig({ ...smtpConfig, [key]: type === 'checkbox' ? checked : value });
   };
 
