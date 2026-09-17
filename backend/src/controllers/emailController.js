@@ -1,5 +1,6 @@
 
 const cron = require('node-cron');
+const appMode = require('../config/appMode');
 const { getSmtpConfig, createTransporter } = require('../utils/emailHelper');
 const { startSchedule, stopSchedule } = require('../utils/emailScheduler');
 const { generateAndSendReport } = require('../utils/reportBuilder');
@@ -9,6 +10,9 @@ const { isString, isEmail, isInteger, parseSafeInt, isPositiveInteger, sanitizeT
 // ── GET /api/smtp/config ─────────────────────────────────────────────────────
 // Returns SMTP settings (password stripped for security)
 exports.getSmtpConfig = async (req, res) => {
+  if (appMode.isAggregator()) {
+    return res.status(403).json({ error: 'Email reporting is only available on Central Server' });
+  }
   try {
     const cfg = await getSmtpConfig();
     if (cfg) delete cfg.password;  // Never send password to frontend
@@ -22,6 +26,9 @@ exports.getSmtpConfig = async (req, res) => {
 // ── POST /api/smtp/config ────────────────────────────────────────────────────
 // Saves SMTP settings. Password is AES-encrypted before storage.
 exports.updateSmtpConfig = async (req, res) => {
+  if (appMode.isAggregator()) {
+    return res.status(403).json({ error: 'Email reporting is only available on Central Server' });
+  }
   try {
     const {
       host = '', port = 587, secure = 0, username = '',
@@ -67,6 +74,9 @@ exports.updateSmtpConfig = async (req, res) => {
 // ── POST /api/smtp/test ──────────────────────────────────────────────────────
 // Sends a test email to verify SMTP connectivity
 exports.testSmtp = async (req, res) => {
+  if (appMode.isAggregator()) {
+    return res.status(403).json({ error: 'Email reporting is only available on Central Server' });
+  }
   const { to } = req.body;
   if (!isEmail(to)) {
     return res.status(400).json({ error: 'Valid destination email address required' });
@@ -91,6 +101,9 @@ exports.testSmtp = async (req, res) => {
 
 // ── GET /api/smtp/schedules ──────────────────────────────────────────────────
 exports.getSchedules = async (req, res) => {
+  if (appMode.isAggregator()) {
+    return res.status(403).json({ error: 'Email reporting is only available on Central Server' });
+  }
   try {
     const rowsRes = await req.queryTenant('SELECT * FROM email_schedules ORDER BY id DESC');
     res.json(rowsRes.rows);
@@ -111,6 +124,9 @@ function validateRecipients(recipientsStr) {
 // ── POST /api/smtp/schedules ─────────────────────────────────────────────────
 // Creates a new schedule and starts its cron job if enabled
 exports.createSchedule = async (req, res) => {
+  if (appMode.isAggregator()) {
+    return res.status(403).json({ error: 'Email reporting is only available on Central Server' });
+  }
   try {
     const {
       name, recipients, cron_expr = '0 8 * * 1', duration = 24,
@@ -160,6 +176,9 @@ exports.createSchedule = async (req, res) => {
 // ── PATCH /api/smtp/schedules/:id ────────────────────────────────────────────
 // Updates an existing schedule, restarts its cron job
 exports.updateSchedule = async (req, res) => {
+  if (appMode.isAggregator()) {
+    return res.status(403).json({ error: 'Email reporting is only available on Central Server' });
+  }
   try {
     if (!isPositiveInteger(req.params.id)) {
       return res.status(400).json({ error: 'Invalid schedule ID' });
@@ -225,6 +244,9 @@ exports.updateSchedule = async (req, res) => {
 
 // ── DELETE /api/smtp/schedules/:id ───────────────────────────────────────────
 exports.deleteSchedule = async (req, res) => {
+  if (appMode.isAggregator()) {
+    return res.status(403).json({ error: 'Email reporting is only available on Central Server' });
+  }
   try {
     if (!isPositiveInteger(req.params.id)) {
       return res.status(400).json({ error: 'Invalid schedule ID' });
@@ -250,6 +272,9 @@ exports.deleteSchedule = async (req, res) => {
 // ── POST /api/smtp/schedules/:id/run ─────────────────────────────────────────
 // Manually triggers a schedule to send a report immediately
 exports.runSchedule = async (req, res) => {
+  if (appMode.isAggregator()) {
+    return res.status(403).json({ error: 'Email reporting is only available on Central Server' });
+  }
   try {
     if (!isPositiveInteger(req.params.id)) {
       return res.status(400).json({ error: 'Invalid schedule ID' });

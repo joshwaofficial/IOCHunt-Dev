@@ -2,9 +2,18 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Mail, Router, Lock, Save, CalendarDays, Plus, Play, Edit, Trash2, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useInstance } from '../context/InstanceContext';
+import { Navigate } from 'react-router-dom';
 
 export default function EmailReports() {
   const { user } = useAuth();
+  const { isCentral, isAggregator, loading: instanceLoading } = useInstance();
+  const isAgg = !isCentral() || isAggregator() || Boolean(user?.aggregator_name) || user?.role?.toUpperCase() === 'AGGREGATOR_ADMIN';
+
+  if (!instanceLoading && isAgg) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   const isAdmin = (user?.role?.toUpperCase() === 'ADMIN' || user?.role?.toUpperCase() === 'SUPERADMIN') && !user?.aggregator_name;
 
   const [smtpConfig, setSmtpConfig] = useState({
@@ -31,13 +40,14 @@ export default function EmailReports() {
   });
 
   useEffect(() => {
+    if (isAgg) return;
     if (isAdmin) {
       fetchConfig();
     }
     fetchSchedules();
     fetchMachines();
     fetchAggregators();
-  }, [isAdmin]);
+  }, [isAdmin, isAgg]);
 
   const fetchConfig = async () => {
     try {

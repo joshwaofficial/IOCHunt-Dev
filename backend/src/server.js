@@ -138,7 +138,16 @@ app.use('/api/incidents', (req, res, next) => {
 
 // Reports & Email Schedules
 app.use('/api/reports', express.json(), reportRoutes);
-app.use('/api/smtp', express.json(), emailRoutes);
+app.use('/api/smtp', (req, res, next) => {
+  const appMode = require('./config/appMode');
+  if (appMode.isAggregator()) {
+    return res.status(403).json({
+      error: 'Email reports and SMTP settings cannot be managed on an Aggregator instance',
+      currentMode: 'aggregator'
+    });
+  }
+  next();
+}, requireCentralServer, express.json(), emailRoutes);
 
 // Policy & Machine Groups
 app.use('/api/policy', express.json(), policyRoutes);
@@ -310,15 +319,18 @@ db.initDB().then(async () => {
   console.log(`  Port:            ${PORT}`);
   console.log('══════════════════════════════════════════════════════');
 
-  // Initialize Email Reporting Schedules
-  initSchedules().catch(console.error);
+  // Initialize Email Reporting Schedules (Central Server only)
+  if (!appMode.isAggregator()) {
+    initSchedules().catch(console.error);
+  }
 
   // If running in Aggregator mode, start local syslog, watchers, and central sync
   if (appMode.isAggregator()) {
     console.log('[Bootstrap] Initializing Aggregator Background Services...');
-    // Ensure aggregator database has no local incident records
+    // Ensure aggregator database has no local incident or email reporting records
     const db = require('./config/db');
     db.query('TRUNCATE TABLE incidents, incident_notes, incident_events CASCADE;').catch(() => {});
+    db.query('TRUNCATE TABLE email_schedules CASCADE;').catch(() => {});
     initSyslogReceiver().catch(err => console.error('[Syslog Error]', err.message));
     initSourceWatchers().catch(err => console.error('[Watcher Error]', err.message));
     startSyncService();

@@ -2,7 +2,9 @@ const express = require('express');
 const router = express.Router();
 const emailController = require('../controllers/emailController');
 const { requireSession, requireAdmin } = require('../middlewares/authMiddleware');
+const { requireCentralServer } = require('../middlewares/modeGuard');
 
+router.use(requireCentralServer);
 router.use(requireSession);
 
 // SMTP Configuration (admin only)

@@ -166,7 +166,11 @@ function App() {
                       </CentralOnlyRoute>
                     } />
                     <Route path="reports" element={<Reports />} />
-                    <Route path="email-reports" element={<EmailReports />} />
+                    <Route path="email-reports" element={
+                      <CentralOnlyRoute>
+                        <EmailReports />
+                      </CentralOnlyRoute>
+                    } />
                   </Route>
                   
                   <Route path="*" element={<Navigate to="/" replace />} />
