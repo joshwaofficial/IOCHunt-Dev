@@ -5,11 +5,18 @@ const appMode = require('../config/appMode');
 const { parseSafeInt } = require('../utils/inputValidator');
 const displayTz = process.env.DISPLAY_TZ || 'UTC';
 
-function displayTs(tsStr) {
-  if (!tsStr) return '';
+function displayTs(tsInput) {
+  if (!tsInput) return '';
   
-  // If the string doesn't end in Z, assume it's UTC if it looks like an ISO string
-  let parseStr = tsStr;
+  if (tsInput instanceof Date) {
+    const dt = DateTime.fromJSDate(tsInput, { zone: 'utc' });
+    if (dt.isValid) {
+      return dt.setZone(displayTz).toFormat('yyyy-MM-dd HH:mm:ss');
+    }
+    return tsInput.toISOString().replace('T', ' ').slice(0, 19);
+  }
+
+  let parseStr = String(tsInput);
   if (!parseStr.endsWith('Z') && parseStr.includes('T')) {
     parseStr += 'Z';
   }
@@ -20,7 +27,7 @@ function displayTs(tsStr) {
   }
   
   // Fallback if parsing fails
-  return tsStr.replace('T', ' ').replace('Z', '');
+  return parseStr.replace('T', ' ').replace('Z', '');
 }
 
 function isPrivateIp(ip) {
