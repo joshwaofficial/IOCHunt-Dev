@@ -520,20 +520,20 @@ export default function FirewallEntityPanel({
         {/* ================= NODE INSPECTION MODE ================= */}
         {!isEdgeMode && selectedNode && (
           <>
-            {/* Quick Action: Trace Full Attack Path */}
+            {/* Quick Action: Trace Full Attack Path (Enable / Disable Toggle) */}
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
                 onClick={() => onFocusCategory && onFocusCategory(activeCategory === 'full_path' ? 'all' : 'full_path')}
-                title="Show full attack path from threat roots to targets for this node"
+                title={activeCategory === 'full_path' ? 'Disable full attack path and show all nodes' : 'Show full attack path from threat roots to targets for this node'}
                 style={{
                   flex: 1,
                   padding: '9px 12px',
                   borderRadius: '7px',
                   background: activeCategory === 'full_path'
-                    ? 'linear-gradient(135deg, #0052FF, #2563eb)'
+                    ? (isLight ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.22)')
                     : (isLight ? 'rgba(0, 82, 255, 0.08)' : 'rgba(0, 82, 255, 0.16)'),
-                  border: `1px solid ${activeCategory === 'full_path' ? '#0052FF' : 'rgba(0, 82, 255, 0.35)'}`,
-                  color: activeCategory === 'full_path' ? '#ffffff' : '#3b82f6',
+                  border: `1px solid ${activeCategory === 'full_path' ? '#ef4444' : 'rgba(0, 82, 255, 0.35)'}`,
+                  color: activeCategory === 'full_path' ? '#ef4444' : '#3b82f6',
                   fontSize: '11px',
                   fontWeight: 800,
                   cursor: 'pointer',
@@ -541,37 +541,15 @@ export default function FirewallEntityPanel({
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '6px',
-                  boxShadow: activeCategory === 'full_path' ? '0 2px 10px rgba(0, 82, 255, 0.35)' : 'none',
+                  boxShadow: activeCategory === 'full_path' ? '0 2px 10px rgba(239, 68, 68, 0.25)' : 'none',
                   transition: 'all 0.15s ease'
                 }}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>
-                  {activeCategory === 'full_path' ? 'check_circle' : 'alt_route'}
+                  {activeCategory === 'full_path' ? 'close' : 'alt_route'}
                 </span>
-                {activeCategory === 'full_path' ? 'Full Attack Path Active' : 'Show Full Attack Path'}
+                {activeCategory === 'full_path' ? 'Disable Full Path Filter' : 'Show Full Attack Path'}
               </button>
-              {activeCategory && activeCategory !== 'all' && (
-                <button
-                  onClick={() => onFocusCategory && onFocusCategory('all')}
-                  title="Reset to show all nodes"
-                  style={{
-                    padding: '9px 12px',
-                    borderRadius: '7px',
-                    background: isLight ? '#f1f5f9' : '#1e293b',
-                    border: `1px solid ${borderColor}`,
-                    color: textColor,
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>restart_alt</span>
-                  Reset
-                </button>
-              )}
             </div>
             {/* Object Information Card */}
             <div
@@ -687,11 +665,11 @@ export default function FirewallEntityPanel({
                         fontWeight: 700,
                         border: 'none',
                         cursor: 'pointer',
-                        background: activeCategory === 'inbound' ? '#f97316' : (isLight ? '#e2e8f0' : '#1e293b'),
+                        background: activeCategory === 'inbound' ? '#ef4444' : (isLight ? '#e2e8f0' : '#1e293b'),
                         color: activeCategory === 'inbound' ? '#ffffff' : mutedColor
                       }}
                     >
-                      {activeCategory === 'inbound' ? 'Active' : 'Focus'}
+                      {activeCategory === 'inbound' ? '✕ Cancel' : 'Focus'}
                     </button>
                   )}
                   <span className="material-symbols-outlined" style={{ fontSize: '16px', color: mutedColor }}>
@@ -787,11 +765,11 @@ export default function FirewallEntityPanel({
                         fontWeight: 700,
                         border: 'none',
                         cursor: 'pointer',
-                        background: activeCategory === 'outbound' ? '#3b82f6' : (isLight ? '#e2e8f0' : '#1e293b'),
+                        background: activeCategory === 'outbound' ? '#ef4444' : (isLight ? '#e2e8f0' : '#1e293b'),
                         color: activeCategory === 'outbound' ? '#ffffff' : mutedColor
                       }}
                     >
-                      {activeCategory === 'outbound' ? 'Active' : 'Focus'}
+                      {activeCategory === 'outbound' ? '✕ Cancel' : 'Focus'}
                     </button>
                   )}
                   <span className="material-symbols-outlined" style={{ fontSize: '16px', color: mutedColor }}>
@@ -887,11 +865,11 @@ export default function FirewallEntityPanel({
                         fontWeight: 700,
                         border: 'none',
                         cursor: 'pointer',
-                        background: activeCategory === 'lateral' ? '#06b6d4' : (isLight ? '#e2e8f0' : '#1e293b'),
+                        background: activeCategory === 'lateral' ? '#ef4444' : (isLight ? '#e2e8f0' : '#1e293b'),
                         color: activeCategory === 'lateral' ? '#ffffff' : mutedColor
                       }}
                     >
-                      {activeCategory === 'lateral' ? 'Active' : 'Focus'}
+                      {activeCategory === 'lateral' ? '✕ Cancel' : 'Focus'}
                     </button>
                   )}
                   <span className="material-symbols-outlined" style={{ fontSize: '16px', color: mutedColor }}>

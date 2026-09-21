@@ -211,6 +211,13 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'label': '',
         'text-opacity': 0
       }
+    },
+    // Sub-graph & Full Attack Path isolation: completely hide unrelated elements
+    {
+      selector: '.hidden',
+      style: {
+        'display': 'none'
+      }
     }
   ];
 };
@@ -485,22 +492,61 @@ export default function FirewallNodeDiagram({
       }
     });
 
-    // Populate elements (strictly only nodes that participate in active flows to avoid disconnected orphan grids!)
+    // Populate elements with deterministic tiered layout (WAN -> Firewalls -> DMZ -> Core -> Endpoints)
+    const tierWeight = {
+      actor: 1,
+      ip_external: 2,
+      firewall: 3,
+      server: 4,
+      dc: 5,
+      ip_private: 6,
+      machine: 7
+    };
+
     const availableNodes = [];
     nodesMap.forEach((nodeObj, nid) => {
       if (connectedNodeIds.has(nid)) {
-        elements.push(nodeObj);
-        availableNodes.push({
-          id: nid,
-          label: nodeObj.data.fullLabel,
-          shortLabel: nodeObj.data.shortLabel,
-          entityType: nodeObj.data.entityType,
-          color: nodeObj.data.color,
-          subLabel: nodeObj.data.subLabel
-        });
+        availableNodes.push(nodeObj);
       }
     });
-    setAllGraphNodes(availableNodes);
+
+    // Deterministically sort nodes by tier and label so initial positions never change randomly on refresh
+    availableNodes.sort((a, b) => {
+      const wA = tierWeight[a.data.entityType] || 8;
+      const wB = tierWeight[b.data.entityType] || 8;
+      if (wA !== wB) return wA - wB;
+      return (a.data.fullLabel || a.data.id).localeCompare(b.data.fullLabel || b.data.id);
+    });
+
+    const tierCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0 };
+    const tierX = {
+      1: 100,  // External threats
+      2: 280,  // External WAN IPs
+      3: 560,  // Perimeter Firewalls & Gateways
+      4: 920,  // Application Servers & Proxies
+      5: 1260, // Domain Controllers & Core Databases
+      6: 1560, // Internal subnets & Branch
+      7: 1860, // Endpoints & Workstations
+      8: 2060
+    };
+
+    availableNodes.forEach(nodeObj => {
+      const tw = tierWeight[nodeObj.data.entityType] || 8;
+      const idx = tierCounts[tw]++;
+      const x = tierX[tw] || 1000;
+      const y = 140 + idx * 115 + (idx % 2 === 0 ? 0 : 35);
+      nodeObj.position = { x, y };
+      elements.push(nodeObj);
+    });
+
+    setAllGraphNodes(availableNodes.map(n => ({
+      id: n.data.id,
+      label: n.data.fullLabel,
+      shortLabel: n.data.shortLabel,
+      entityType: n.data.entityType,
+      color: n.data.color,
+      subLabel: n.data.subLabel
+    })));
 
     edgeMap.forEach(e => elements.push({ group: 'edges', data: e }));
 
@@ -510,23 +556,22 @@ export default function FirewallNodeDiagram({
       style: getCytoscapeStylesheet(theme, showNodeLabels, showEdgeLabels),
       minZoom: 0.05,
       maxZoom: 6.0,
-      wheelSensitivity: 1.8, // Ultra-fast, highly responsive mouse wheel zoom (was 0.25)
+      wheelSensitivity: 1.8, // Ultra-fast, highly responsive mouse wheel zoom
       boxSelectionEnabled: false
     });
 
     cyRef.current = cy;
     setCounts({ nodes: elements.filter(e => e.group === 'nodes').length, edges: edgeMap.size });
 
-    // Apply Layout
+    // Apply Layout (Deterministic fCoSE layout that never changes on page refresh)
     const runLayout = () => {
       if (layoutMode === 'dagre') {
         const layout = cy.layout({
           name: 'dagre',
           rankDir: 'LR',
-          nodeSep: 60,
-          rankSep: 140,
-          animate: true,
-          animationDuration: 500,
+          nodeSep: 70,
+          rankSep: 180,
+          animate: false,
           fit: true,
           padding: 60
         });
@@ -535,14 +580,19 @@ export default function FirewallNodeDiagram({
         const layout = cy.layout({
           name: 'fcose',
           quality: 'default',
-          randomize: true,
-          animate: true,
-          animationDuration: 600,
+          randomize: false, // 100% DETERMINISTIC: NEVER changes randomly on refresh!
+          animate: false,
           fit: true,
-          padding: 60,
-          nodeSeparation: 120,
-          idealEdgeLength: 140,
-          nodeRepulsion: 7500
+          padding: 65,
+          nodeDimensionsIncludeLabels: true,
+          uniformNodeDimensions: false,
+          packComponents: false,
+          nodeSeparation: 140,
+          idealEdgeLength: 180,
+          nodeRepulsion: 350000,
+          edgeElasticity: 0.045,
+          gravity: 0.04,
+          numIter: 1200
         });
         layout.run();
       }
@@ -776,12 +826,12 @@ export default function FirewallNodeDiagram({
         fullPath.layout({
           name: 'dagre',
           rankDir: 'LR',
-          nodeSep: 75,
-          rankSep: 200,
+          nodeSep: 90,
+          rankSep: 240,
           animate: true,
           animationDuration: 300,
           fit: true,
-          padding: 70
+          padding: 80
         }).run();
       }
       return;
@@ -849,9 +899,15 @@ export default function FirewallNodeDiagram({
   };
 
   const handleReset = () => {
+    handleFullReset();
+  };
+
+  const handleFullReset = useCallback(() => {
     if (!cyRef.current) return;
     const cy = cyRef.current;
-    cy.elements().removeClass('selected in-chain faded hovered');
+    setSelectedNode(null);
+    setSelectedEdge(null);
+    cy.elements().removeClass('hidden selected in-chain faded hovered');
     if (initialPositionsRef.current.size > 0) {
       cy.batch(() => {
         initialPositionsRef.current.forEach((pos, id) => {
@@ -859,12 +915,12 @@ export default function FirewallNodeDiagram({
           if (ele) ele.position(pos);
         });
       });
-      cy.fit(undefined, 50);
+      cy.animate({ fit: { eles: cy.elements(), padding: 60 } }, { duration: 250 });
     }
     if (callbacksRef.current.onClearSelection) {
       callbacksRef.current.onClearSelection(true);
     }
-  };
+  }, []);
 
   // Export handlers
   const handleExport = (format) => {
@@ -909,6 +965,46 @@ export default function FirewallNodeDiagram({
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* Top Right Clear & Reset Graph Button (Appears whenever there is any change/selection/filter) */}
+      {(selectedNode || selectedEdge || (focusedCategory && focusedCategory !== 'all')) && (
+        <button
+          onClick={handleFullReset}
+          title="Clear all selections and reset graph to initial view"
+          style={{
+            position: 'absolute',
+            top: '12px',
+            right: '14px',
+            height: '29px',
+            padding: '0 11px',
+            background: isLight ? 'rgba(239, 68, 68, 0.09)' : 'rgba(239, 68, 68, 0.16)',
+            border: '1px solid rgba(239, 68, 68, 0.4)',
+            borderRadius: '6px',
+            color: '#ef4444',
+            cursor: 'pointer',
+            fontSize: '11px',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            fontFamily: 'var(--mono)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+            transition: 'all 0.15s ease',
+            zIndex: 15
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.background = isLight ? 'rgba(239, 68, 68, 0.18)' : 'rgba(239, 68, 68, 0.28)';
+            e.currentTarget.style.borderColor = '#ef4444';
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.background = isLight ? 'rgba(239, 68, 68, 0.09)' : 'rgba(239, 68, 68, 0.16)';
+            e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>restart_alt</span>
+          Clear Graph
+        </button>
+      )}
 
       {/* Floating Bottom-Left Toolbar */}
       <div

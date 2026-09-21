@@ -802,6 +802,7 @@ export default function FirewallTopology({
                 onClose={() => {
                   setSelectedNode(null);
                   setSelectedEdge(null);
+                  setFocusedCategory('all');
                   setFocusNodeTarget(null);
                   setInfoText('Click a node or edge to inspect');
                 }}
@@ -845,11 +846,7 @@ export default function FirewallTopology({
                 onClearSelection={(isFullReset) => {
                   setSelectedNode(null);
                   setSelectedEdge(null);
-                  if (isFullReset) {
-                    setFocusedCategory('all');
-                  } else {
-                    setFocusedCategory(prev => (prev && prev !== 'all' ? prev : 'all'));
-                  }
+                  setFocusedCategory('all');
                   setFocusNodeTarget(null);
                   setSelectedFilterPill(null);
                   setInfoText('Click a node or edge to inspect');
