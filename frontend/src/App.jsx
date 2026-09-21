@@ -30,6 +30,7 @@ import Firewall from './pages/Firewall';
 import Aggregators from './pages/Aggregators';
 import AggregatorSettings from './pages/AggregatorSettings';
 import StandaloneTopologyPage from './pages/StandaloneTopologyPage';
+import StandaloneFirewallTopologyPage from './pages/StandaloneFirewallTopologyPage';
 import Layout from './components/Layout';
 import IdleTimerManager from './components/IdleTimerManager';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -121,6 +122,13 @@ function App() {
                   <Route path="/network-topology" element={
                     <ProtectedRoute>
                       <StandaloneTopologyPage />
+                    </ProtectedRoute>
+                  } />
+                  
+                  {/* Dedicated Fullscreen Firewall Topology Route (Zero sidebar/navbar) */}
+                  <Route path="/firewall-topology" element={
+                    <ProtectedRoute>
+                      <StandaloneFirewallTopologyPage />
                     </ProtectedRoute>
                   } />
                   

@@ -107,20 +107,36 @@ exports.getFirewallStats = async (req, res) => {
 
 exports.getTopology = async (req, res) => {
   try {
-    const { 
-      from = new Date(Date.now() - 3600000).toISOString().slice(0, 19).replace('T', ' '),
-      to = new Date().toISOString().slice(0, 19).replace('T', ' '),
+    let { 
+      from,
+      to,
+      hours,
       action, service, ip, src_ip, dst_ip, device, severity, aggregator
     } = req.query;
+
+    if (!from) {
+      if (hours === 'today') {
+        const d = new Date();
+        d.setHours(0, 0, 0, 0);
+        from = d.toISOString().slice(0, 19).replace('T', ' ');
+        to = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      } else {
+        const h = Number(hours) || 1;
+        from = new Date(Date.now() - h * 3600000).toISOString().slice(0, 19).replace('T', ' ');
+        to = to || new Date().toISOString().slice(0, 19).replace('T', ' ');
+      }
+    } else if (!to) {
+      to = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    }
 
     const conds = ['ts>=$1', 'ts<=$2'];
     const p = [from, to];
     let pIdx = 3;
 
     if (action) {
-      if (action === 'block') {
+      if (action === 'block' || action === 'deny' || action === 'drop') {
         conds.push(`(action='block' OR action='deny' OR action='drop')`);
-      } else if (action === 'accept') {
+      } else if (action === 'accept' || action === 'allow' || action === 'permit') {
         conds.push(`(action='accept' OR action='allow' OR action='permit')`);
       } else {
         conds.push(`action=$${pIdx++}`); p.push(action); 
@@ -158,7 +174,55 @@ exports.getTopology = async (req, res) => {
     
     const devices = [...ipSet].map(ip => ({ ip, is_internal: isPrivateIp(ip) }));
 
-    res.json({ devices, connections: grouped });
+    const inbound = [];
+    const outbound = [];
+    const lateral = [];
+
+    grouped.forEach(r => {
+      const isSrcPriv = isPrivateIp(r.src_ip);
+      const isDstPriv = isPrivateIp(r.dst_ip);
+      const act = (r.action || '').toLowerCase();
+      const isBlocked = act === 'deny' || act === 'drop' || act === 'block' || act === 'close';
+      const isAccept = act === 'accept' || act === 'allow' || act === 'permit';
+      const col = isBlocked ? '#ef4444' : (isAccept ? '#22c55e' : '#f97316');
+
+      const item = {
+        ...r,
+        protocol: r.service || (r.dst_port ? 'Port ' + r.dst_port : 'IP'),
+        port: r.dst_port,
+        count: Number(r.count) || 1,
+        blocked: isBlocked ? (Number(r.count) || 1) : 0,
+        color: col,
+        description: `Firewall ${act.toUpperCase()}: ${r.service || ''} (${r.src_ip} → ${r.dst_ip}:${r.dst_port || ''})`
+      };
+
+      if (!isSrcPriv && isDstPriv) {
+        item.from_ip = r.src_ip;
+        item.to_machine = r.dst_ip;
+        inbound.push(item);
+      } else if (isSrcPriv && !isDstPriv) {
+        item.from_machine = r.src_ip;
+        item.to_ip = r.dst_ip;
+        outbound.push(item);
+      } else if (isSrcPriv && isDstPriv) {
+        item.source = r.src_ip;
+        item.target = r.dst_ip;
+        lateral.push(item);
+      } else {
+        item.from_ip = r.src_ip;
+        item.to_machine = r.dst_ip;
+        inbound.push(item);
+      }
+    });
+
+    const machines = devices.map(d => ({
+      name: d.ip,
+      ip: d.ip,
+      entityType: d.is_internal ? 'server' : 'ip_external',
+      is_internal: d.is_internal
+    }));
+
+    res.json({ devices, connections: grouped, inbound, outbound, lateral, machines });
   } catch (e) { 
     console.error('[Firewall Error]', e.message);
     res.status(500).json({ error: 'Failed to retrieve network topology' }); 
