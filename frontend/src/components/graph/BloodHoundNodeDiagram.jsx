@@ -687,7 +687,7 @@ export default function BloodHoundNodeDiagram({
       style: getCytoscapeStylesheet(theme, showNodeLabels, showEdgeLabels),
       minZoom: 0.02,
       maxZoom: 8.0,
-      wheelSensitivity: 1.2, // 5x faster mouse wheel zooming (was 0.25)
+      wheelSensitivity: 1.8, // Ultra-fast, highly responsive mouse wheel zoom
       boxSelectionEnabled: false
     });
 

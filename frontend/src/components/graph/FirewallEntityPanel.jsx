@@ -47,6 +47,8 @@ const KIND_LABELS = {
 export default function FirewallEntityPanel({
   selectedNode,
   selectedEdge,
+  activeCategory = 'all',
+  onFocusCategory,
   onClose,
   onSelectNodeById,
   theme = 'dark'
@@ -66,15 +68,13 @@ export default function FirewallEntityPanel({
 
   const isLight = theme === 'light';
 
-  // Theme-aware styles
-  const panelBg = isLight
-    ? 'rgba(255, 255, 255, 0.95)'
-    : 'rgba(13, 19, 33, 0.94)';
-  const borderColor = isLight ? 'rgba(203, 213, 225, 0.8)' : 'rgba(255, 255, 255, 0.12)';
+  // 100% Solid opaque styles (no transparency / bleed-through)
+  const panelBg = isLight ? '#ffffff' : '#0f172a';
+  const borderColor = isLight ? '#cbd5e1' : '#1e293b';
   const textColor = isLight ? '#0f172a' : '#f8fafc';
   const mutedColor = isLight ? '#64748b' : '#94a3b8';
-  const sectionBg = isLight ? 'rgba(241, 245, 249, 0.75)' : 'rgba(255, 255, 255, 0.03)';
-  const hoverBg = isLight ? 'rgba(226, 232, 240, 0.8)' : 'rgba(255, 255, 255, 0.07)';
+  const sectionBg = isLight ? '#f8fafc' : '#141e33';
+  const hoverBg = isLight ? '#f1f5f9' : '#1e293b';
 
   // Categorize connected flows for selected node
   const categorizedFlows = useMemo(() => {
@@ -128,7 +128,6 @@ export default function FirewallEntityPanel({
           borderBottomRightRadius: '8px',
           padding: '6px 8px',
           boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-          backdropFilter: 'blur(12px)',
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
@@ -158,17 +157,16 @@ export default function FirewallEntityPanel({
       id="firewall-entity-panel"
       style={{
         position: 'absolute',
-        top: '12px',
-        bottom: '12px',
-        left: '12px',
-        width: '360px',
-        maxWidth: 'calc(100% - 24px)',
+        top: '16px',
+        bottom: '16px',
+        left: '16px',
+        width: '380px',
+        maxWidth: 'calc(100% - 32px)',
         zIndex: 80,
         background: panelBg,
         border: `1px solid ${borderColor}`,
-        borderRadius: '10px',
-        boxShadow: isLight ? '0 12px 36px rgba(0,0,0,0.12)' : '0 12px 36px rgba(0,0,0,0.6)',
-        backdropFilter: 'blur(14px)',
+        borderRadius: '12px',
+        boxShadow: '0 12px 32px rgba(0, 0, 0, 0.5)',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -522,6 +520,59 @@ export default function FirewallEntityPanel({
         {/* ================= NODE INSPECTION MODE ================= */}
         {!isEdgeMode && selectedNode && (
           <>
+            {/* Quick Action: Trace Full Attack Path */}
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => onFocusCategory && onFocusCategory(activeCategory === 'full_path' ? 'all' : 'full_path')}
+                title="Show full attack path from threat roots to targets for this node"
+                style={{
+                  flex: 1,
+                  padding: '9px 12px',
+                  borderRadius: '7px',
+                  background: activeCategory === 'full_path'
+                    ? 'linear-gradient(135deg, #0052FF, #2563eb)'
+                    : (isLight ? 'rgba(0, 82, 255, 0.08)' : 'rgba(0, 82, 255, 0.16)'),
+                  border: `1px solid ${activeCategory === 'full_path' ? '#0052FF' : 'rgba(0, 82, 255, 0.35)'}`,
+                  color: activeCategory === 'full_path' ? '#ffffff' : '#3b82f6',
+                  fontSize: '11px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  boxShadow: activeCategory === 'full_path' ? '0 2px 10px rgba(0, 82, 255, 0.35)' : 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>
+                  {activeCategory === 'full_path' ? 'check_circle' : 'alt_route'}
+                </span>
+                {activeCategory === 'full_path' ? 'Full Attack Path Active' : 'Show Full Attack Path'}
+              </button>
+              {activeCategory && activeCategory !== 'all' && (
+                <button
+                  onClick={() => onFocusCategory && onFocusCategory('all')}
+                  title="Reset to show all nodes"
+                  style={{
+                    padding: '9px 12px',
+                    borderRadius: '7px',
+                    background: isLight ? '#f1f5f9' : '#1e293b',
+                    border: `1px solid ${borderColor}`,
+                    color: textColor,
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>restart_alt</span>
+                  Reset
+                </button>
+              )}
+            </div>
             {/* Object Information Card */}
             <div
               style={{
@@ -621,9 +672,32 @@ export default function FirewallEntityPanel({
                   <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#f97316' }}>arrow_downward</span>
                   <span>Inbound Traffic ({categorizedFlows.in.length})</span>
                 </div>
-                <span className="material-symbols-outlined" style={{ fontSize: '16px', color: mutedColor }}>
-                  {openAccordions.inbound ? 'expand_less' : 'expand_more'}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {categorizedFlows.in.length > 0 && onFocusCategory && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onFocusCategory(activeCategory === 'inbound' ? 'all' : 'inbound');
+                      }}
+                      title="Focus inbound connections for this node"
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: activeCategory === 'inbound' ? '#f97316' : (isLight ? '#e2e8f0' : '#1e293b'),
+                        color: activeCategory === 'inbound' ? '#ffffff' : mutedColor
+                      }}
+                    >
+                      {activeCategory === 'inbound' ? 'Active' : 'Focus'}
+                    </button>
+                  )}
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: mutedColor }}>
+                    {openAccordions.inbound ? 'expand_less' : 'expand_more'}
+                  </span>
+                </div>
               </div>
 
               {openAccordions.inbound && (
@@ -698,9 +772,32 @@ export default function FirewallEntityPanel({
                   <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#3b82f6' }}>arrow_upward</span>
                   <span>Outbound Traffic ({categorizedFlows.out.length})</span>
                 </div>
-                <span className="material-symbols-outlined" style={{ fontSize: '16px', color: mutedColor }}>
-                  {openAccordions.outbound ? 'expand_less' : 'expand_more'}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {categorizedFlows.out.length > 0 && onFocusCategory && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onFocusCategory(activeCategory === 'outbound' ? 'all' : 'outbound');
+                      }}
+                      title="Focus outbound connections for this node"
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: activeCategory === 'outbound' ? '#3b82f6' : (isLight ? '#e2e8f0' : '#1e293b'),
+                        color: activeCategory === 'outbound' ? '#ffffff' : mutedColor
+                      }}
+                    >
+                      {activeCategory === 'outbound' ? 'Active' : 'Focus'}
+                    </button>
+                  )}
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: mutedColor }}>
+                    {openAccordions.outbound ? 'expand_less' : 'expand_more'}
+                  </span>
+                </div>
               </div>
 
               {openAccordions.outbound && (
@@ -775,9 +872,32 @@ export default function FirewallEntityPanel({
                   <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#06b6d4' }}>swap_horiz</span>
                   <span>Internal Lateral Flows ({categorizedFlows.lat.length})</span>
                 </div>
-                <span className="material-symbols-outlined" style={{ fontSize: '16px', color: mutedColor }}>
-                  {openAccordions.lateral ? 'expand_less' : 'expand_more'}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {categorizedFlows.lat.length > 0 && onFocusCategory && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onFocusCategory(activeCategory === 'lateral' ? 'all' : 'lateral');
+                      }}
+                      title="Focus lateral flows for this node"
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: activeCategory === 'lateral' ? '#06b6d4' : (isLight ? '#e2e8f0' : '#1e293b'),
+                        color: activeCategory === 'lateral' ? '#ffffff' : mutedColor
+                      }}
+                    >
+                      {activeCategory === 'lateral' ? 'Active' : 'Focus'}
+                    </button>
+                  )}
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: mutedColor }}>
+                    {openAccordions.lateral ? 'expand_less' : 'expand_more'}
+                  </span>
+                </div>
               </div>
 
               {openAccordions.lateral && (

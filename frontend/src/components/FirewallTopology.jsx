@@ -41,6 +41,7 @@ export default function FirewallTopology({
   const [focusNodeTarget, setFocusNodeTarget] = useState(null);
   const [infoText, setInfoText] = useState('Click a node or edge to inspect');
   const [selectedFilterPill, setSelectedFilterPill] = useState(null);
+  const [focusedCategory, setFocusedCategory] = useState('all');
 
   // Filter state
   const [filterSrc, setFilterSrc] = useState('');
@@ -408,7 +409,7 @@ export default function FirewallTopology({
     <div
       id="fwTopoContainer"
       style={{
-        background: 'var(--surface)',
+        background: theme === 'light' ? '#ffffff' : '#0a0f1d',
         border: standalone || isFullscreen ? 'none' : '1px solid var(--border)',
         borderRadius: standalone || isFullscreen ? '0px' : '10px',
         overflow: 'hidden',
@@ -424,7 +425,8 @@ export default function FirewallTopology({
               height: '100vh',
               zIndex: 999999,
               margin: 0,
-              boxShadow: 'none'
+              boxShadow: 'none',
+              background: theme === 'light' ? '#ffffff' : '#0a0f1d'
             }
           : { flex: 1, minHeight: '520px' })
       }}
@@ -433,11 +435,11 @@ export default function FirewallTopology({
       <div
         style={{
           padding: '14px 18px',
-          borderBottom: '1px solid var(--border)',
+          borderBottom: theme === 'light' ? '1px solid #cbd5e1' : '1px solid #1e293b',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          background: 'rgba(255,255,255,0.02)',
+          background: theme === 'light' ? '#ffffff' : '#0f172a',
           flexWrap: 'wrap',
           gap: '10px'
         }}
@@ -466,9 +468,9 @@ export default function FirewallTopology({
           <div
             style={{
               display: 'flex',
-              background: 'var(--surface2)',
+              background: theme === 'light' ? '#f1f5f9' : '#141e33',
               borderRadius: '6px',
-              border: '1px solid var(--border)',
+              border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid #1e293b',
               padding: '2px',
               gap: '2px',
               marginLeft: '6px'
@@ -526,9 +528,9 @@ export default function FirewallTopology({
               fontSize: '11px',
               padding: '5px 10px',
               borderRadius: '6px',
-              background: 'var(--surface2)',
-              border: '1px solid var(--border)',
-              color: 'var(--text)',
+              background: theme === 'light' ? '#f1f5f9' : '#141e33',
+              border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid #1e293b',
+              color: theme === 'light' ? '#0f172a' : '#f8fafc',
               cursor: 'pointer',
               fontFamily: 'var(--sans)',
               marginRight: '6px'
@@ -645,7 +647,7 @@ export default function FirewallTopology({
       </div>
 
       {/* Main Container */}
-      <div className="pb" style={{ padding: '12px 16px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <div className="pb" style={{ padding: '12px 16px', flex: 1, display: 'flex', flexDirection: 'column', background: theme === 'light' ? '#f8fafc' : '#0a0f1d' }}>
         {/* Filter Bar */}
         <div
           style={{
@@ -653,8 +655,8 @@ export default function FirewallTopology({
             gap: '6px',
             flexWrap: 'wrap',
             marginBottom: '10px',
-            background: 'var(--surface2)',
-            border: '1px solid var(--border)',
+            background: theme === 'light' ? '#f1f5f9' : '#0d1527',
+            border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid #1e293b',
             borderRadius: '7px',
             padding: '8px 12px',
             alignItems: 'center'
@@ -665,9 +667,9 @@ export default function FirewallTopology({
             value={filterSrc}
             onChange={e => setFilterSrc(e.target.value)}
             style={{
-              background: 'var(--surface-solid)',
-              border: '1px solid var(--border)',
-              color: 'var(--text)',
+              background: theme === 'light' ? '#ffffff' : '#141e33',
+              border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid #1e293b',
+              color: theme === 'light' ? '#0f172a' : '#f8fafc',
               fontFamily: 'var(--mono)',
               fontSize: '11px',
               padding: '4px 8px',
@@ -680,9 +682,9 @@ export default function FirewallTopology({
             value={filterDst}
             onChange={e => setFilterDst(e.target.value)}
             style={{
-              background: 'var(--surface-solid)',
-              border: '1px solid var(--border)',
-              color: 'var(--text)',
+              background: theme === 'light' ? '#ffffff' : '#141e33',
+              border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid #1e293b',
+              color: theme === 'light' ? '#0f172a' : '#f8fafc',
               fontFamily: 'var(--mono)',
               fontSize: '11px',
               padding: '4px 8px',
@@ -695,9 +697,9 @@ export default function FirewallTopology({
             value={filterPort}
             onChange={e => setFilterPort(e.target.value)}
             style={{
-              background: 'var(--surface-solid)',
-              border: '1px solid var(--border)',
-              color: 'var(--text)',
+              background: theme === 'light' ? '#ffffff' : '#141e33',
+              border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid #1e293b',
+              color: theme === 'light' ? '#0f172a' : '#f8fafc',
               fontFamily: 'var(--mono)',
               fontSize: '11px',
               padding: '4px 8px',
@@ -710,9 +712,9 @@ export default function FirewallTopology({
             value={filterProto}
             onChange={e => setFilterProto(e.target.value)}
             style={{
-              background: 'var(--surface-solid)',
-              border: '1px solid var(--border)',
-              color: 'var(--text)',
+              background: theme === 'light' ? '#ffffff' : '#141e33',
+              border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid #1e293b',
+              color: theme === 'light' ? '#0f172a' : '#f8fafc',
               fontFamily: 'var(--sans)',
               fontSize: '11px',
               padding: '4px 8px',
@@ -738,9 +740,9 @@ export default function FirewallTopology({
             value={filterAction}
             onChange={e => setFilterAction(e.target.value)}
             style={{
-              background: 'var(--surface-solid)',
-              border: '1px solid var(--border)',
-              color: 'var(--text)',
+              background: theme === 'light' ? '#ffffff' : '#141e33',
+              border: theme === 'light' ? '1px solid #cbd5e1' : '1px solid #1e293b',
+              color: theme === 'light' ? '#0f172a' : '#f8fafc',
               fontFamily: 'var(--sans)',
               fontSize: '11px',
               padding: '4px 8px',
@@ -796,12 +798,14 @@ export default function FirewallTopology({
               <FirewallEntityPanel
                 selectedNode={selectedNode}
                 selectedEdge={selectedEdge}
+                activeCategory={focusedCategory}
                 onClose={() => {
                   setSelectedNode(null);
                   setSelectedEdge(null);
                   setFocusNodeTarget(null);
                   setInfoText('Click a node or edge to inspect');
                 }}
+                onFocusCategory={(cat) => setFocusedCategory(cat)}
                 onSelectNodeById={(targetId) => {
                   setFocusNodeTarget(targetId);
                 }}
@@ -813,10 +817,13 @@ export default function FirewallTopology({
                 lateral={filteredData.lateral}
                 machines={filteredData.machines}
                 theme={theme}
+                focusedCategory={focusedCategory}
                 focusNodeTarget={focusNodeTarget}
+                isPanelOpen={Boolean(selectedNode || selectedEdge)}
                 onSelectNode={(n) => {
                   setSelectedNode(n);
                   setSelectedEdge(null);
+                  setFocusedCategory(prev => (prev && prev !== 'all' ? 'isolated' : 'all'));
                   setInfoText(`HOST / IP: ${n.label} (${n.subLabel || ''}) — ${n.rows.length} connection(s)`);
                   const nodeIp = n.raw?.ip || n.label;
                   setSelectedFilterPill({ type: 'ip', ip: nodeIp });
@@ -835,9 +842,14 @@ export default function FirewallTopology({
                   setSelectedFilterPill({ type: 'flow', ...flow });
                   if (onFlowSelect) onFlowSelect(flow);
                 }}
-                onClearSelection={() => {
+                onClearSelection={(isFullReset) => {
                   setSelectedNode(null);
                   setSelectedEdge(null);
+                  if (isFullReset) {
+                    setFocusedCategory('all');
+                  } else {
+                    setFocusedCategory(prev => (prev && prev !== 'all' ? prev : 'all'));
+                  }
                   setFocusNodeTarget(null);
                   setSelectedFilterPill(null);
                   setInfoText('Click a node or edge to inspect');
@@ -1127,5 +1139,21 @@ export default function FirewallTopology({
     </div>
   );
 
-  return (isFullscreen || standalone) ? createPortal(content, document.body) : content;
+  return (isFullscreen || standalone) ? createPortal(
+    <>
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          background: theme === 'light' ? '#ffffff' : '#0a0f1d',
+          zIndex: 999998
+        }}
+      />
+      {content}
+    </>,
+    document.body
+  ) : content;
 }

@@ -221,7 +221,9 @@ export default function FirewallNodeDiagram({
   lateral = [],
   machines = [],
   theme = 'dark',
+  focusedCategory = 'all',
   focusNodeTarget = null,
+  isPanelOpen = false,
   onSelectNode,
   onSelectEdge,
   onClearSelection
@@ -231,6 +233,8 @@ export default function FirewallNodeDiagram({
   const initialPositionsRef = useRef(new Map());
   const callbacksRef = useRef({ onSelectNode, onSelectEdge, onClearSelection });
 
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [selectedEdge, setSelectedEdge] = useState(null);
   const [layoutMode, setLayoutMode] = useState('fcose'); // 'fcose' | 'dagre'
   const [showNodeLabels, setShowNodeLabels] = useState(true);
   const [showEdgeLabels, setShowEdgeLabels] = useState(true);
@@ -359,9 +363,14 @@ export default function FirewallNodeDiagram({
       ensureNode(m.name || m.ip, m.entityType || 'machine', m.raw || m);
     });
 
+    // Track active connected node IDs to completely exclude orphan/single nodes with 0 connections
+    const connectedNodeIds = new Set();
+
     // Add & bundle edges
     function addEdge(fromId, toId, edgeData) {
       if (!fromId || !toId || fromId === toId) return;
+      connectedNodeIds.add(fromId);
+      connectedNodeIds.add(toId);
       const key = `${fromId}->${toId}`;
       if (edgeMap.has(key)) {
         const existing = edgeMap.get(key);
@@ -476,34 +485,37 @@ export default function FirewallNodeDiagram({
       }
     });
 
-    // Populate elements
-    nodesMap.forEach(n => elements.push(n));
+    // Populate elements (strictly only nodes that participate in active flows to avoid disconnected orphan grids!)
+    const availableNodes = [];
+    nodesMap.forEach((nodeObj, nid) => {
+      if (connectedNodeIds.has(nid)) {
+        elements.push(nodeObj);
+        availableNodes.push({
+          id: nid,
+          label: nodeObj.data.fullLabel,
+          shortLabel: nodeObj.data.shortLabel,
+          entityType: nodeObj.data.entityType,
+          color: nodeObj.data.color,
+          subLabel: nodeObj.data.subLabel
+        });
+      }
+    });
+    setAllGraphNodes(availableNodes);
+
     edgeMap.forEach(e => elements.push({ group: 'edges', data: e }));
 
     const cy = cytoscape({
       container: containerRef.current,
       elements,
       style: getCytoscapeStylesheet(theme, showNodeLabels, showEdgeLabels),
-      minZoom: 0.1,
-      maxZoom: 4.0,
-      wheelSensitivity: 0.25,
+      minZoom: 0.05,
+      maxZoom: 6.0,
+      wheelSensitivity: 1.8, // Ultra-fast, highly responsive mouse wheel zoom (was 0.25)
       boxSelectionEnabled: false
     });
 
     cyRef.current = cy;
-    setCounts({ nodes: nodesMap.size, edges: edgeMap.size });
-
-    // Store nodes for search modal
-    const searchList = [];
-    nodesMap.forEach(n => {
-      searchList.push({
-        id: n.data.id,
-        label: n.data.fullLabel || n.data.label,
-        type: n.data.entityType,
-        sub: n.data.subLabel
-      });
-    });
-    setAllGraphNodes(searchList);
+    setCounts({ nodes: elements.filter(e => e.group === 'nodes').length, edges: edgeMap.size });
 
     // Apply Layout
     const runLayout = () => {
@@ -558,17 +570,38 @@ export default function FirewallNodeDiagram({
     cy.on('tap', 'node', (evt) => {
       const node = evt.target;
       const nid = node.id();
+      setSelectedNode(nid);
+      setSelectedEdge(null);
 
-      cy.elements().removeClass('selected in-chain faded');
-      cy.elements().addClass('faded');
-      node.removeClass('faded').addClass('selected');
+      // Check if we are currently in an isolated sub-graph view (some elements are hidden)
+      const hasHidden = cy.elements('.hidden').length > 0;
+      if (hasHidden) {
+        // Keep hidden elements hidden; only manage selection on visible elements
+        const visible = cy.elements().not('.hidden');
+        visible.removeClass('selected in-chain faded');
+        visible.addClass('faded');
+        node.removeClass('faded').addClass('selected');
+
+        const visibleConnectedEdges = node.connectedEdges().not('.hidden');
+        visibleConnectedEdges.removeClass('faded').addClass('in-chain');
+        visibleConnectedEdges.connectedNodes().not('.hidden').removeClass('faded').addClass('in-chain');
+      } else {
+        // Full graph: blur/fade all other nodes immediately on 1st click
+        cy.elements().removeClass('selected in-chain faded');
+        cy.elements().addClass('faded');
+
+        // MULTI-HOP ATTACK & TRAFFIC PATH: Trace full upstream & downstream flow chain
+        const predecessors = node.predecessors();
+        const successors = node.successors();
+        const direct = node.closedNeighborhood();
+        const chain = node.union(predecessors).union(successors).union(direct);
+        chain.removeClass('faded').addClass('in-chain');
+        node.removeClass('faded').addClass('selected');
+      }
 
       const connectedEdges = [];
       node.connectedEdges().forEach(edge => {
-        edge.removeClass('faded').addClass('in-chain');
         const otherNode = edge.source().id() === nid ? edge.target() : edge.source();
-        otherNode.removeClass('faded').addClass('in-chain');
-
         const eData = edge.data();
         if (eData._detail) {
           const isTarget = edge.target().id() === nid;
@@ -600,6 +633,8 @@ export default function FirewallNodeDiagram({
     cy.on('tap', 'edge', (evt) => {
       const edge = evt.target;
       const eid = edge.id();
+      setSelectedEdge(eid);
+      setSelectedNode(null);
 
       cy.elements().removeClass('selected in-chain faded');
       cy.elements().addClass('faded');
@@ -625,9 +660,16 @@ export default function FirewallNodeDiagram({
     // Click background (Clear Selection)
     cy.on('tap', (evt) => {
       if (evt.target === cy) {
-        cy.elements().removeClass('selected in-chain faded hovered');
+        setSelectedNode(null);
+        setSelectedEdge(null);
+        const hasHidden = cy.elements('.hidden').length > 0;
+        if (hasHidden) {
+          cy.elements().not('.hidden').removeClass('selected in-chain faded hovered');
+        } else {
+          cy.elements().removeClass('selected in-chain faded hovered');
+        }
         if (callbacksRef.current.onClearSelection) {
-          callbacksRef.current.onClearSelection(true);
+          callbacksRef.current.onClearSelection(false);
         }
       }
     });
@@ -662,13 +704,139 @@ export default function FirewallNodeDiagram({
     }
   }, [focusNodeTarget]);
 
+  // Dynamic Isolation & Hierarchical Layout when focusedCategory or selectedNode changes
+  useEffect(() => {
+    if (!cyRef.current) return;
+    const cy = cyRef.current;
+
+    // Case A: Full graph mode (show all connected nodes)
+    if (!focusedCategory || focusedCategory === 'all') {
+      cy.elements().removeClass('hidden');
+
+      if (!selectedNode) {
+        cy.elements().removeClass('selected in-chain faded');
+        return;
+      }
+
+      const node = cy.getElementById(selectedNode);
+      if (!node || node.length === 0) return;
+
+      // Highlight full multi-hop path immediately
+      cy.elements().removeClass('selected in-chain faded');
+      cy.elements().addClass('faded');
+
+      const predecessors = node.predecessors();
+      const successors = node.successors();
+      const direct = node.closedNeighborhood();
+      const chain = node.union(predecessors).union(successors).union(direct);
+      chain.removeClass('faded').addClass('in-chain');
+      node.removeClass('faded').addClass('selected');
+      return;
+    }
+
+    // When focus isolation is active, but no node is selected
+    if (!selectedNode) {
+      cy.elements().not('.hidden').removeClass('selected in-chain faded hovered');
+      return;
+    }
+
+    // Case B: Subgraph is isolated
+    if (focusedCategory === 'isolated') {
+      const node = cy.getElementById(selectedNode);
+      if (!node || node.length === 0) return;
+
+      const visible = cy.elements().not('.hidden');
+      visible.removeClass('selected in-chain faded');
+      visible.addClass('faded');
+      node.removeClass('faded').addClass('selected');
+
+      const visibleConnectedEdges = node.connectedEdges().not('.hidden');
+      visibleConnectedEdges.removeClass('faded').addClass('in-chain');
+      visibleConnectedEdges.connectedNodes().not('.hidden').removeClass('faded').addClass('in-chain');
+      return;
+    }
+
+    // Case C: Full Attack Path Mode (Trace complete multi-hop chain from threat roots to targets)
+    if (focusedCategory === 'full_path') {
+      if (!selectedNode) return;
+      const node = cy.getElementById(selectedNode);
+      if (!node || node.length === 0) return;
+
+      const predecessors = node.predecessors();
+      const successors = node.successors();
+      const direct = node.closedNeighborhood();
+      const fullPath = node.union(predecessors).union(successors).union(direct);
+
+      // Completely hide all elements not part of the full attack path
+      cy.elements().difference(fullPath).addClass('hidden');
+      fullPath.removeClass('hidden faded').addClass('in-chain');
+      node.addClass('selected');
+
+      if (fullPath.nodes().length > 1) {
+        fullPath.layout({
+          name: 'dagre',
+          rankDir: 'LR',
+          nodeSep: 75,
+          rankSep: 200,
+          animate: true,
+          animationDuration: 300,
+          fit: true,
+          padding: 70
+        }).run();
+      }
+      return;
+    }
+
+    // Case D: Active Category Isolation (inbound, outbound, lateral)
+    if (!selectedNode) return;
+    const node = cy.getElementById(selectedNode);
+    if (!node || node.length === 0) return;
+
+    const allConnectedEdges = node.connectedEdges();
+    const filteredEdges = allConnectedEdges.filter(edge => {
+      const dir = edge.data('dir');
+      if (focusedCategory === 'inbound') {
+        return edge.target().id() === selectedNode || dir === 'in';
+      }
+      if (focusedCategory === 'outbound') {
+        return edge.source().id() === selectedNode || dir === 'out';
+      }
+      if (focusedCategory === 'lateral') {
+        return dir === 'lat';
+      }
+      return true;
+    });
+
+    const activeNodes = node.union(filteredEdges.connectedNodes());
+    const subGraph = activeNodes.union(filteredEdges);
+
+    cy.elements().difference(subGraph).addClass('hidden');
+    subGraph.removeClass('hidden faded').addClass('in-chain');
+    node.addClass('selected');
+
+    if (activeNodes.length > 1) {
+      subGraph.layout({
+        name: 'dagre',
+        rankDir: 'LR',
+        nodeSep: 75,
+        rankSep: 180,
+        animate: true,
+        animationDuration: 300,
+        fit: true,
+        padding: 70
+      }).run();
+    }
+  }, [focusedCategory, selectedNode]);
+
   // Toolbar Actions
   const handleZoom = (direction) => {
     if (!cyRef.current) return;
-    const factor = direction === 'in' ? 1.3 : 0.7;
+    const factor = direction === 'in' ? 1.65 : 1 / 1.65;
     cyRef.current.animate({
       zoom: cyRef.current.zoom() * factor,
-      duration: 200
+      renderedPosition: { x: cyRef.current.width() / 2, y: cyRef.current.height() / 2 }
+    }, {
+      duration: 120
     });
   };
 
@@ -732,10 +900,11 @@ export default function FirewallNodeDiagram({
   };
 
   const isLight = theme === 'light';
-  const controlBg = isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(13, 19, 33, 0.92)';
-  const controlBorder = isLight ? 'rgba(203, 213, 225, 0.8)' : 'rgba(255, 255, 255, 0.14)';
+  // 100% Solid opaque toolbar styles (no transparent bleed-through)
+  const controlBg = isLight ? '#ffffff' : '#0f172a';
+  const controlBorder = isLight ? '#cbd5e1' : '#1e293b';
   const controlColor = isLight ? '#0f172a' : '#f8fafc';
-  const controlHoverBg = isLight ? '#e2e8f0' : 'rgba(255, 255, 255, 0.1)';
+  const controlHoverBg = isLight ? '#f1f5f9' : '#1e293b';
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
@@ -755,7 +924,6 @@ export default function FirewallNodeDiagram({
           borderRadius: '8px',
           padding: '4px',
           boxShadow: isLight ? '0 4px 16px rgba(0,0,0,0.08)' : '0 6px 24px rgba(0,0,0,0.5)',
-          backdropFilter: 'blur(12px)',
           zIndex: 70
         }}
       >
@@ -1016,8 +1184,7 @@ export default function FirewallNodeDiagram({
             borderRadius: '8px',
             boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
             padding: '10px',
-            zIndex: 85,
-            backdropFilter: 'blur(12px)'
+            zIndex: 85
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
@@ -1028,9 +1195,15 @@ export default function FirewallNodeDiagram({
               onChange={e => setSearchQuery(e.target.value)}
               autoFocus
               style={{
-                flex: 1, background: isLight ? '#ffffff' : 'rgba(0,0,0,0.3)',
-                border: `1px solid ${controlBorder}`, color: controlColor,
-                padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontFamily: 'var(--mono)', outline: 'none'
+                flex: 1,
+                background: isLight ? '#f8fafc' : '#141e33',
+                border: `1px solid ${controlBorder}`,
+                color: controlColor,
+                padding: '4px 8px',
+                borderRadius: '4px',
+                fontSize: '11px',
+                fontFamily: 'var(--mono)',
+                outline: 'none'
               }}
             />
             <button

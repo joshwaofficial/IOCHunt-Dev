@@ -311,7 +311,7 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
     <div
       id="networkTopoContainer"
       style={{
-        background: 'var(--surface)',
+        background: theme === 'light' ? '#ffffff' : '#0a0f1d',
         border: standalone || isFullscreen ? 'none' : '1px solid var(--border)',
         borderRadius: standalone || isFullscreen ? '0px' : '12px',
         overflow: 'hidden',
@@ -327,7 +327,8 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
               height: '100vh',
               zIndex: 999999,
               margin: 0,
-              boxShadow: 'none'
+              boxShadow: 'none',
+              background: theme === 'light' ? '#ffffff' : '#0a0f1d'
             }
           : { flex: 1 })
       }}
@@ -336,11 +337,11 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
         <div
           style={{
             padding: '16px 20px',
-            borderBottom: '1px solid var(--border)',
+            borderBottom: theme === 'light' ? '1px solid #cbd5e1' : '1px solid #1e293b',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            background: 'rgba(255,255,255,0.02)',
+            background: theme === 'light' ? '#ffffff' : '#0f172a',
             flexWrap: 'wrap',
             gap: '10px'
           }}
@@ -818,5 +819,21 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
       </div>
   );
 
-  return (isFullscreen || standalone) ? createPortal(content, document.body) : content;
+  return (isFullscreen || standalone) ? createPortal(
+    <>
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          background: theme === 'light' ? '#ffffff' : '#0a0f1d',
+          zIndex: 999998
+        }}
+      />
+      {content}
+    </>,
+    document.body
+  ) : content;
 }
