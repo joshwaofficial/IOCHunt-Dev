@@ -101,7 +101,7 @@ async function clearAllDatabases() {
 
     // 4. Seed ONLY Central Server Admin credentials: admin / admin (with force_password_change = 1)
     console.log('\n[4/4] Seeding default Central Admin account (admin / admin)...');
-    const { hash, salt } = cryptoHelper.hashPassword('admin');
+    const { hash, salt } = await cryptoHelper.hashPassword('admin');
     const now = Math.floor(Date.now() / 1000);
     await centralPool.query(`
       INSERT INTO users (username, password_hash, salt, role, force_password_change, created_at)

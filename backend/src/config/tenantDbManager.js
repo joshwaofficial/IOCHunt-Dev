@@ -369,7 +369,7 @@ async function provisionTenantDb(opts) {
 
     // Seed the initial admin user
     const { hashPassword } = require('../utils/cryptoHelper');
-    const { hash, salt } = hashPassword(adminPassword);
+    const { hash, salt } = await hashPassword(adminPassword);
     const createdAt = Math.floor(Date.now() / 1000);
 
     await tenantClient.query(

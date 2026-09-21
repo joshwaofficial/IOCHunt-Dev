@@ -111,7 +111,7 @@ async function createUser(req, res) {
     const existing = await User.findByUsername(username, req.queryTenant);
     if (existing) return res.status(400).json({ error: 'Username already exists' });
 
-    const { hash: passwordHash, salt } = hashPassword(password);
+    const { hash: passwordHash, salt } = await hashPassword(password);
     await User.createUser({
       username,
       email: email || '',
@@ -191,7 +191,7 @@ async function updateUser(req, res) {
             error: 'Current password is required to change your own password.'
           });
         }
-        const isCurrentValid = verifyPassword(current_password.trim(), existing.password_hash, existing.salt);
+        const isCurrentValid = await verifyPassword(current_password.trim(), existing.password_hash, existing.salt);
         if (!isCurrentValid) {
           return res.status(400).json({ error: 'Current password is incorrect' });
         }
@@ -210,7 +210,7 @@ async function updateUser(req, res) {
       if (pwdError) {
         return res.status(400).json({ error: pwdError });
       }
-      const hashed = hashPassword(password);
+      const hashed = await hashPassword(password);
       passwordHash = hashed.hash;
       salt = hashed.salt;
     }

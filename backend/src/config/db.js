@@ -465,7 +465,7 @@ const initDB = async (retries = 10, delay = 3000) => {
           // Default Central Super Administrator Seeding (admin / admin with mandatory password change)
           const userRes = await client.query("SELECT * FROM users WHERE role='ADMIN'");
           if (userRes.rows.length === 0) {
-            const { hash, salt } = cryptoHelper.hashPassword('admin');
+            const { hash, salt } = await cryptoHelper.hashPassword('admin');
             const createdAt = Math.floor(Date.now() / 1000);
             await client.query(
               "INSERT INTO users (username, password_hash, salt, role, force_password_change, created_at) VALUES ('admin', $1, $2, 'ADMIN', 1, $3)",
@@ -481,7 +481,7 @@ const initDB = async (retries = 10, delay = 3000) => {
           const defaultUsername = 'admin'; // Changed to standard admin
           const userRes = await client.query("SELECT * FROM users WHERE role='AGGREGATOR_ADMIN'");
           if (userRes.rows.length === 0) {
-            const { hash, salt } = cryptoHelper.hashPassword('admin');
+            const { hash, salt } = await cryptoHelper.hashPassword('admin');
             const createdAt = Math.floor(Date.now() / 1000);
             await client.query(
               "INSERT INTO users (username, password_hash, salt, role, aggregator_name, force_password_change, created_at) VALUES ($1, $2, $3, 'AGGREGATOR_ADMIN', $4, 1, $5)",

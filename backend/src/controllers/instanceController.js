@@ -103,7 +103,7 @@ async function completeSetup(req, res) {
       }
 
       const safeInstanceName = (typeof instance_name === 'string' ? instance_name.trim() : '') || 'IOC Hunt Central Command Hub';
-      const { hash, salt } = cryptoHelper.hashPassword(admin_password);
+      const { hash, salt } = await cryptoHelper.hashPassword(admin_password);
       const createdAt = Math.floor(Date.now() / 1000);
       const username = trimmedUser;
 

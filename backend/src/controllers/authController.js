@@ -402,7 +402,7 @@ async function login(req, res) {
       }
 
       const user = userRes.rows[0];
-      const isValid = verifyPassword(password, user.password_hash, user.salt);
+      const isValid = await verifyPassword(password, user.password_hash, user.salt);
       
       if (!isValid) {
         return await handleFailedLogin(lockoutKey, res, req, username, tenantId);
@@ -542,7 +542,7 @@ async function login(req, res) {
       return await handleFailedLogin(lockoutKey, res, req, username, 'default');
     }
 
-    const isValid = verifyPassword(password, user.password_hash, user.salt);
+    const isValid = await verifyPassword(password, user.password_hash, user.salt);
     if (!isValid) {
       return await handleFailedLogin(lockoutKey, res, req, username, user.aggregator_name ? 'aggregator' : 'default');
     }
@@ -732,13 +732,13 @@ async function changePassword(req, res) {
       return res.status(404).json({ error: 'User account not found' });
     }
 
-    const isCurrentValid = verifyPassword(current_password, user.password_hash, user.salt);
+    const isCurrentValid = await verifyPassword(current_password, user.password_hash, user.salt);
     if (!isCurrentValid) {
       return res.status(400).json({ error: 'Current password is incorrect' });
     }
 
     // Hash new password and reset force_password_change flag
-    const { hash, salt } = hashPassword(new_password);
+    const { hash, salt } = await hashPassword(new_password);
     await User.updatePassword(user.id, hash, salt, queryFn);
 
     // Invalidate all active sessions for this user across all devices/browsers (INT-WAPT-M-002 remediation)
