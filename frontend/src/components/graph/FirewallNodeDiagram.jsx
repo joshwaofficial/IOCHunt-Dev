@@ -222,6 +222,15 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
   ];
 };
 
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
 export default function FirewallNodeDiagram({
   inbound = [],
   outbound = [],
@@ -252,6 +261,7 @@ export default function FirewallNodeDiagram({
   const [searchQuery, setSearchQuery] = useState('');
   const [allGraphNodes, setAllGraphNodes] = useState([]);
   const [counts, setCounts] = useState({ nodes: 0, edges: 0 });
+  const [isGraphModified, setIsGraphModified] = useState(false);
 
   useEffect(() => {
     callbacksRef.current = { onSelectNode, onSelectEdge, onClearSelection };
@@ -492,51 +502,12 @@ export default function FirewallNodeDiagram({
       }
     });
 
-    // Populate elements with deterministic tiered layout (WAN -> Firewalls -> DMZ -> Core -> Endpoints)
-    const tierWeight = {
-      actor: 1,
-      ip_external: 2,
-      firewall: 3,
-      server: 4,
-      dc: 5,
-      ip_private: 6,
-      machine: 7
-    };
-
+    // Only add nodes that have active incoming or outgoing connections (excludes orphan nodes!)
     const availableNodes = [];
     nodesMap.forEach((nodeObj, nid) => {
       if (connectedNodeIds.has(nid)) {
         availableNodes.push(nodeObj);
       }
-    });
-
-    // Deterministically sort nodes by tier and label so initial positions never change randomly on refresh
-    availableNodes.sort((a, b) => {
-      const wA = tierWeight[a.data.entityType] || 8;
-      const wB = tierWeight[b.data.entityType] || 8;
-      if (wA !== wB) return wA - wB;
-      return (a.data.fullLabel || a.data.id).localeCompare(b.data.fullLabel || b.data.id);
-    });
-
-    const tierCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0 };
-    const tierX = {
-      1: 100,  // External threats
-      2: 280,  // External WAN IPs
-      3: 560,  // Perimeter Firewalls & Gateways
-      4: 920,  // Application Servers & Proxies
-      5: 1260, // Domain Controllers & Core Databases
-      6: 1560, // Internal subnets & Branch
-      7: 1860, // Endpoints & Workstations
-      8: 2060
-    };
-
-    availableNodes.forEach(nodeObj => {
-      const tw = tierWeight[nodeObj.data.entityType] || 8;
-      const idx = tierCounts[tw]++;
-      const x = tierX[tw] || 1000;
-      const y = 140 + idx * 115 + (idx % 2 === 0 ? 0 : 35);
-      nodeObj.position = { x, y };
-      elements.push(nodeObj);
     });
 
     setAllGraphNodes(availableNodes.map(n => ({
@@ -548,65 +519,226 @@ export default function FirewallNodeDiagram({
       subLabel: n.data.subLabel
     })));
 
+    // Deterministic position persistence across page refreshes
+    const nodeKeyHash = availableNodes.map(n => n.data.id).sort().join('|');
+    const cacheKey = `fw_layout_${layoutMode}_${nodeKeyHash.length}_${simpleHash(nodeKeyHash)}`;
+
+    let cachedPositions = null;
+    try {
+      const raw = sessionStorage.getItem(cacheKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (availableNodes.every(n => parsed[n.data.id])) {
+          cachedPositions = parsed;
+        }
+      }
+    } catch (e) {
+      cachedPositions = null;
+    }
+
+    availableNodes.forEach(nodeObj => {
+      if (cachedPositions && cachedPositions[nodeObj.data.id]) {
+        nodeObj.position = { ...cachedPositions[nodeObj.data.id] };
+      } else {
+        delete nodeObj.position;
+      }
+      elements.push(nodeObj);
+    });
+
     edgeMap.forEach(e => elements.push({ group: 'edges', data: e }));
+
+    const finalNodeCount = availableNodes.length;
+    const finalEdgeCount = edgeMap.size;
 
     const cy = cytoscape({
       container: containerRef.current,
       elements,
       style: getCytoscapeStylesheet(theme, showNodeLabels, showEdgeLabels),
-      minZoom: 0.05,
-      maxZoom: 6.0,
+      minZoom: 0.02,
+      maxZoom: 8.0,
       wheelSensitivity: 1.8, // Ultra-fast, highly responsive mouse wheel zoom
       boxSelectionEnabled: false
     });
 
     cyRef.current = cy;
-    setCounts({ nodes: elements.filter(e => e.group === 'nodes').length, edges: edgeMap.size });
+    setCounts({ nodes: finalNodeCount, edges: finalEdgeCount });
+    if (!showNodeLabels) cy.nodes().addClass('hide-node-labels');
+    if (!showEdgeLabels) cy.edges().addClass('hide-edge-labels');
 
-    // Apply Layout (Deterministic fCoSE layout that never changes on page refresh)
-    const runLayout = () => {
+    if (cachedPositions) {
+      // 100% Deterministic: Instant restore from clean cached layout without random jumping
+      cy.fit(undefined, 60);
+      initialPositionsRef.current.clear();
+      cy.nodes().forEach(n => {
+        initialPositionsRef.current.set(n.id(), { ...n.position() });
+      });
+      setIsGraphModified(false);
+    } else {
+      // Run expansive layout physics with anti-collision separation
+      let layoutOpts;
       if (layoutMode === 'dagre') {
-        const layout = cy.layout({
+        layoutOpts = {
           name: 'dagre',
           rankDir: 'LR',
-          nodeSep: 70,
-          rankSep: 180,
+          nodeSep: finalNodeCount > 100 ? 70 : 90,
+          rankSep: finalNodeCount > 100 ? 250 : 340,
+          ranker: 'network-simplex',
           animate: false,
-          fit: true,
-          padding: 60
-        });
-        layout.run();
+          padding: 45
+        };
       } else {
-        const layout = cy.layout({
+        layoutOpts = {
           name: 'fcose',
-          quality: 'default',
-          randomize: false, // 100% DETERMINISTIC: NEVER changes randomly on refresh!
+          quality: finalNodeCount > 30 ? 'proof' : 'default',
+          randomize: true,
           animate: false,
           fit: true,
-          padding: 65,
+          padding: 60,
           nodeDimensionsIncludeLabels: true,
           uniformNodeDimensions: false,
-          packComponents: false,
-          nodeSeparation: 140,
-          idealEdgeLength: 180,
-          nodeRepulsion: 350000,
-          edgeElasticity: 0.045,
-          gravity: 0.04,
-          numIter: 1200
-        });
-        layout.run();
+          packComponents: true,
+          // Exponential repulsion pushes hubs and clusters far apart to prevent central clutter
+          nodeRepulsion: (node) => {
+            if (finalNodeCount <= 15) return 320000;
+            if (finalNodeCount <= 40) return 850000;
+            const deg = node.degree();
+            return Math.min(12000000, 2000000 + Math.pow(deg, 1.5) * 85000);
+          },
+          // Hub-aware edge length: connected hubs pushed up to 1500px apart
+          idealEdgeLength: (edge) => {
+            if (finalNodeCount <= 15) return 300;
+            const sDeg = edge.source().degree();
+            const tDeg = edge.target().degree();
+            const maxDeg = Math.max(sDeg, tDeg);
+            const minDeg = Math.min(sDeg, tDeg);
+            if (minDeg >= 3) {
+              return Math.min(1500, 750 + (sDeg + tDeg) * 16);
+            }
+            if (finalNodeCount <= 40) return Math.min(600, 360 + maxDeg * 14);
+            return Math.min(1100, 500 + maxDeg * 22);
+          },
+          edgeElasticity: (edge) => (finalNodeCount <= 15 ? 0.05 : (finalNodeCount <= 40 ? 0.02 : 0.006)),
+          nestingFactor: 0.1,
+          gravity: finalNodeCount <= 15 ? 0.04 : (finalNodeCount <= 40 ? 0.008 : 0.001),
+          gravityRange: finalNodeCount <= 15 ? 1.5 : 5.0,
+          numIter: finalNodeCount > 40 ? 4500 : 2500,
+          tile: true,
+          tilingPaddingVertical: finalNodeCount > 30 ? 200 : 70,
+          tilingPaddingHorizontal: finalNodeCount > 30 ? 200 : 70,
+          nodeSeparation: finalNodeCount <= 15 ? 180 : (finalNodeCount <= 40 ? 300 : 480)
+        };
       }
 
-      cy.once('layoutstop', () => {
-        const posMap = new Map();
-        cy.nodes().forEach(node => {
-          posMap.set(node.id(), { ...node.position() });
+      const l = cy.layout(layoutOpts);
+      l.run();
+
+      // Post-layout anti-collision relaxation loop:
+      // Physically pushes every pair of nodes at least 240px-280px apart so labels & nodes NEVER overlap!
+      if (layoutMode === 'fcose' && finalNodeCount > 15) {
+        cy.batch(() => {
+          const nArray = cy.nodes().toArray();
+          const minSpacing = finalNodeCount > 80 ? 280 : 240;
+          for (let iter = 0; iter < 12; iter++) {
+            let hadCollision = false;
+            for (let i = 0; i < nArray.length; i++) {
+              const n1 = nArray[i];
+              const p1 = n1.position();
+              for (let j = i + 1; j < nArray.length; j++) {
+                const n2 = nArray[j];
+                const p2 = n2.position();
+                const dx = p2.x - p1.x;
+                const dy = p2.y - p1.y;
+                const dist = Math.hypot(dx, dy) || 1;
+                if (dist < minSpacing) {
+                  hadCollision = true;
+                  const overlap = (minSpacing - dist) / 2;
+                  const nx = dx / dist;
+                  const ny = dy / dist;
+                  n1.position({ x: p1.x - nx * overlap, y: p1.y - ny * overlap });
+                  n2.position({ x: p2.x + nx * overlap, y: p2.y + ny * overlap });
+                }
+              }
+            }
+            if (!hadCollision) break;
+          }
         });
-        initialPositionsRef.current = posMap;
+      }
+
+      // Adaptively expand horizontal width for tall diagrams using empty side space
+      const bb = cy.nodes().boundingBox();
+      if (bb.h > bb.w && bb.w > 10) {
+        const centerX = (bb.x1 + bb.x2) / 2;
+        const targetW = Math.min(bb.h * 0.75, bb.w * 2.8);
+        const xMultiplier = Math.max(1.0, targetW / bb.w);
+        if (xMultiplier > 1.05) {
+          cy.batch(() => {
+            cy.nodes().forEach(node => {
+              const p = node.position();
+              node.position({
+                x: centerX + (p.x - centerX) * xMultiplier,
+                y: p.y
+              });
+            });
+          });
+        }
+      }
+
+      cy.fit(undefined, 50);
+
+      // Save initial clean coordinates and cache to sessionStorage
+      initialPositionsRef.current.clear();
+      const posToCache = {};
+      cy.nodes().forEach(n => {
+        const pos = { ...n.position() };
+        initialPositionsRef.current.set(n.id(), pos);
+        posToCache[n.id()] = pos;
+      });
+      try {
+        sessionStorage.setItem(cacheKey, JSON.stringify(posToCache));
+      } catch (err) {}
+      setIsGraphModified(false);
+    }
+
+    // Scale-adaptive font sizing on zoom: keeps labels crisp and readable without visual crowding
+    let zoomRaf = null;
+    let lastZ = -1;
+    const updateAdaptiveFonts = () => {
+      if (!cyRef.current) return;
+      const z = cyRef.current.zoom();
+      if (lastZ > 0 && Math.abs(z - lastZ) / lastZ < 0.035) return;
+      lastZ = z;
+
+      const nodeFont = Math.round(Math.min(30, Math.max(10, 13.5 / Math.pow(z, 0.62))));
+      const maxEdge = finalEdgeCount > 60 ? 18 : 24;
+      const baseEdge = finalEdgeCount > 60 ? 12 : 14;
+      const edgeFont = Math.round(Math.min(maxEdge, Math.max(9, baseEdge / Math.pow(z, 0.52))));
+      const nodeMargin = Math.round(Math.min(14, Math.max(5, 7 / Math.pow(z, 0.5))));
+
+      cyRef.current.batch(() => {
+        cyRef.current.nodes(':not(:hover):not(.selected):not(.hide-node-labels)').style({
+          'font-size': `${nodeFont}px`,
+          'text-margin-y': nodeMargin
+        });
+        cyRef.current.edges(':not(:hover):not(.selected):not(.hide-edge-labels)').style({
+          'font-size': `${edgeFont}px`
+        });
       });
     };
 
-    runLayout();
+    cy.on('zoom', () => {
+      if (zoomRaf) cancelAnimationFrame(zoomRaf);
+      zoomRaf = requestAnimationFrame(updateAdaptiveFonts);
+    });
+
+    cy.on('dragfree', 'node', () => {
+      setIsGraphModified(true);
+    });
+    cy.on('userzoom', () => {
+      setIsGraphModified(true);
+    });
+    cy.on('userpan', () => {
+      setIsGraphModified(true);
+    });
 
     // Node Hover
     cy.on('mouseover', 'node', (evt) => {
@@ -907,6 +1039,7 @@ export default function FirewallNodeDiagram({
     const cy = cyRef.current;
     setSelectedNode(null);
     setSelectedEdge(null);
+    setIsGraphModified(false);
     cy.elements().removeClass('hidden selected in-chain faded hovered');
     if (initialPositionsRef.current.size > 0) {
       cy.batch(() => {
@@ -967,7 +1100,7 @@ export default function FirewallNodeDiagram({
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
       {/* Top Right Clear & Reset Graph Button (Appears whenever there is any change/selection/filter) */}
-      {(selectedNode || selectedEdge || (focusedCategory && focusedCategory !== 'all')) && (
+      {(selectedNode || selectedEdge || (focusedCategory && focusedCategory !== 'all') || isGraphModified) && (
         <button
           onClick={handleFullReset}
           title="Clear all selections and reset graph to initial view"
