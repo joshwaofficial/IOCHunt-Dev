@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useFilter } from '../context/FilterContext';
 import { useInstance } from '../context/InstanceContext';
+import { useAuth } from '../context/AuthContext';
 import { getTodayStartAndEnd } from '../utils/dateUtils';
 
 const sevColor = {
