@@ -68,6 +68,27 @@ async function purgeIdleSessions(queryControlPlane, queryTenant) {
           s.user_agent || '',
           now
         ]);
+
+        // Also write into isolated tenant database if dedicated tenant in multi-tenant mode
+        if (s.tenant_id && s.tenant_id !== 'default' && s.tenant_id !== 'aggregator') {
+          try {
+            await tenantDbManager.queryTenant(s.tenant_id, `
+              INSERT INTO audit_log (tenant_id, user_id, username, action, resource, detail, ip_address, user_agent, result, created_at)
+              VALUES ($1, $2, $3, $4, 'sessions', $5, $6, $7, 'SUCCESS', $8)
+            `, [
+              s.tenant_id,
+              s.user_id,
+              s.username,
+              isIdle ? 'SESSION_IDLE_TIMEOUT' : 'SESSION_EXPIRED',
+              isIdle 
+                ? `Session automatically terminated due to inactivity (${idleMins}m idle, threshold: ${s.idle_timeout_mins}m)`
+                : 'Session lifetime limit reached',
+              s.ip_address || '',
+              s.user_agent || '',
+              now
+            ]);
+          } catch (_) {}
+        }
       } catch (_) {}
 
       // 4. Update last_idle_signout on user record in tenant DB

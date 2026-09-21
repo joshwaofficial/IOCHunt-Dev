@@ -65,7 +65,7 @@ function logSecurityEvent({ event, severity = SEVERITY.INFO, ip = 'unknown', use
     console.log(output);
   }
 
-  // Asynchronously persist AUTH events to control plane audit_log table
+  // Asynchronously persist AUTH events to control plane audit_log table and isolated tenant database
   try {
     const db = require('../config/db');
     if (db && db.query && typeof event === 'string' && (event.startsWith('AUTH_') || event.startsWith('SESSION_'))) {
@@ -81,6 +81,26 @@ function logSecurityEvent({ event, severity = SEVERITY.INFO, ip = 'unknown', use
           severity === SEVERITY.ERROR || severity === SEVERITY.CRITICAL ? 'FAILURE' : 'SUCCESS'
         ]
       ).catch(() => {});
+
+      // Also persist to isolated tenant database if dedicated tenant in multi-tenant mode
+      if (tenant && tenant !== 'default' && tenant !== 'aggregator') {
+        try {
+          const tenantDbManager = require('../config/tenantDbManager');
+          tenantDbManager.queryTenant(
+            tenant,
+            'INSERT INTO audit_log (tenant_id, username, action, resource, detail, ip_address, result) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+            [
+              tenant,
+              user || 'unknown',
+              event,
+              'sessions',
+              typeof detail === 'object' ? JSON.stringify(detail) : String(detail || ''),
+              ip || 'unknown',
+              severity === SEVERITY.ERROR || severity === SEVERITY.CRITICAL ? 'FAILURE' : 'SUCCESS'
+            ]
+          ).catch(() => {});
+        } catch (_) {}
+      }
     }
   } catch (_) {}
 

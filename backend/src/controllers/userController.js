@@ -593,6 +593,22 @@ async function terminateSession(req, res) {
           'SUCCESS'
         ]
       );
+      if (req.queryTenant && req.tenantId && req.tenantId !== 'default' && req.tenantId !== 'aggregator') {
+        await req.queryTenant(
+          'INSERT INTO audit_log (tenant_id, user_id, username, action, resource, detail, ip_address, user_agent, result) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+          [
+            targetSession.tenant_id || tenantId,
+            targetSession.user_id,
+            targetSession.username,
+            'AUTH_SESSION_TERMINATED',
+            'sessions',
+            `Session revoked by administrator ${req.session.username}`,
+            req.ip || '127.0.0.1',
+            req.headers['user-agent'] || '',
+            'SUCCESS'
+          ]
+        ).catch(() => {});
+      }
     } catch (_) {}
 
     return res.status(200).json({
@@ -640,6 +656,22 @@ async function terminateAllOtherSessions(req, res) {
           'SUCCESS'
         ]
       );
+      if (req.queryTenant && req.tenantId && req.tenantId !== 'default' && req.tenantId !== 'aggregator') {
+        await req.queryTenant(
+          'INSERT INTO audit_log (tenant_id, user_id, username, action, resource, detail, ip_address, user_agent, result) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+          [
+            tenantId,
+            req.session.user_id,
+            req.session.username,
+            'AUTH_MASS_SESSION_TERMINATED',
+            'sessions',
+            `Administrator ${req.session.username} terminated ${deletedCount} other active session(s)`,
+            req.ip || '127.0.0.1',
+            req.headers['user-agent'] || '',
+            'SUCCESS'
+          ]
+        ).catch(() => {});
+      }
     } catch (_) {}
 
     return res.status(200).json({
@@ -668,36 +700,61 @@ async function getSessionAuditLogs(req, res) {
 
     const tenantId = req.tenantId || req.session?.tenant_id || 'default';
 
-    // In the Central Server, strictly filter audit logs by the current tenant.
-    // Exclude superadmin and global control-plane actions completely.
-    let sql = `
-      SELECT * FROM audit_log 
-      WHERE tenant_id = $1 
-        AND LOWER(username) != 'superadmin'
-        AND action NOT LIKE 'SUPERADMIN_%'
-        AND action NOT IN ('UPDATE_SETTINGS', 'PROVISION_TENANT', 'DELETE_TENANT', 'REGENERATE_API_KEY', 'UPDATE_TENANT_STATUS', 'UPDATE_SUPER_ADMIN_PASSWORD')
-        AND (resource IS NULL OR resource NOT IN ('super_admins', 'settings'))
-    `;
-    let params = [tenantId];
+    let logs = [];
 
-    // Exclude any username registered in super_admins table as extra protection
-    try {
-      sql += ` AND LOWER(username) NOT IN (SELECT LOWER(username) FROM super_admins)`;
-    } catch (_) {}
-
-    if (search) {
-      params.push(`%${search}%`);
-      sql += ` AND (LOWER(username) LIKE $${params.length} OR LOWER(action) LIKE $${params.length} OR LOWER(detail) LIKE $${params.length} OR ip_address LIKE $${params.length})`;
+    // 1. In multi-tenant SaaS mode, attempt reading directly from the tenant's isolated database first
+    if (req.queryTenant && req.tenantId && req.tenantId !== 'default' && req.tenantId !== 'aggregator') {
+      try {
+        let tenantSql = `
+          SELECT * FROM audit_log 
+          WHERE LOWER(username) != 'superadmin'
+            AND action NOT LIKE 'SUPERADMIN_%'
+            AND action NOT IN ('UPDATE_SETTINGS', 'PROVISION_TENANT', 'DELETE_TENANT', 'REGENERATE_API_KEY', 'UPDATE_TENANT_STATUS', 'UPDATE_SUPER_ADMIN_PASSWORD')
+            AND (resource IS NULL OR resource NOT IN ('super_admins', 'settings'))
+        `;
+        let tenantParams = [];
+        if (search) {
+          tenantParams.push(`%${search}%`);
+          tenantSql += ` AND (LOWER(username) LIKE $1 OR LOWER(action) LIKE $1 OR LOWER(detail) LIKE $1 OR ip_address LIKE $1)`;
+        }
+        tenantSql += ` ORDER BY created_at DESC LIMIT ${limit}`;
+        const tRes = await req.queryTenant(tenantSql, tenantParams);
+        if (tRes && tRes.rows && tRes.rows.length > 0) {
+          logs = tRes.rows;
+        }
+      } catch (_) {}
     }
 
-    sql += ` ORDER BY created_at DESC LIMIT ${limit}`;
+    // 2. If no logs in isolated tenant DB (or onprem/default mode), retrieve from control plane with strict isolation
+    if (logs.length === 0) {
+      let sql = `
+        SELECT * FROM audit_log 
+        WHERE tenant_id = $1 
+          AND LOWER(username) != 'superadmin'
+          AND action NOT LIKE 'SUPERADMIN_%'
+          AND action NOT IN ('UPDATE_SETTINGS', 'PROVISION_TENANT', 'DELETE_TENANT', 'REGENERATE_API_KEY', 'UPDATE_TENANT_STATUS', 'UPDATE_SUPER_ADMIN_PASSWORD')
+          AND (resource IS NULL OR resource NOT IN ('super_admins', 'settings'))
+      `;
+      let params = [tenantId];
 
-    let logs = [];
-    try {
-      const r = await q(sql, params);
-      logs = r.rows || [];
-    } catch (_) {
-      logs = [];
+      // Exclude any username registered in super_admins table as extra protection
+      try {
+        sql += ` AND LOWER(username) NOT IN (SELECT LOWER(username) FROM super_admins)`;
+      } catch (_) {}
+
+      if (search) {
+        params.push(`%${search}%`);
+        sql += ` AND (LOWER(username) LIKE $${params.length} OR LOWER(action) LIKE $${params.length} OR LOWER(detail) LIKE $${params.length} OR ip_address LIKE $${params.length})`;
+      }
+
+      sql += ` ORDER BY created_at DESC LIMIT ${limit}`;
+
+      try {
+        const r = await q(sql, params);
+        logs = r.rows || [];
+      } catch (_) {
+        logs = [];
+      }
     }
 
     // Also include real-time Idle events for active sessions that are currently away from keyboard
