@@ -379,6 +379,21 @@ export default function BloodHoundNodeDiagram({
     }
   }, [showEdgeLabels]);
 
+  // When side panel is closed (✕ button), clean up selection on visible nodes without unhiding background nodes
+  useEffect(() => {
+    if (!isPanelOpen && cyRef.current) {
+      setSelectedNode(null);
+      setSelectedEdge(null);
+      const hasHidden = cyRef.current.elements('.hidden').length > 0;
+      if (hasHidden) {
+        // Keep hidden elements strictly hidden! Clean up fading on visible elements so they stay crisp and un-faded
+        cyRef.current.elements().not('.hidden').removeClass('selected in-chain faded hovered');
+      } else {
+        cyRef.current.elements().removeClass('selected in-chain faded hovered');
+      }
+    }
+  }, [isPanelOpen]);
+
   const dataKey = `${inbound.length}|${outbound.length}|${lateral.length}|${adAttacks.length}|${machines.length}|${layoutMode}|${theme}`;
 
   // Build and render graph in Cytoscape
