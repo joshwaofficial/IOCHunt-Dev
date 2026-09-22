@@ -30,16 +30,18 @@ function getShortLabel(label) {
 }
 
 function baseNodeSize(order) {
-  if (order <= 25)  return 60;
-  if (order <= 60)  return 52;
-  if (order <= 120) return 46;
-  if (order <= 250) return 40;
-  return 34;
+  if (order <= 25)  return 64;
+  if (order <= 60)  return 56;
+  if (order <= 120) return 48;
+  if (order <= 250) return 42;
+  if (order <= 500) return 36;
+  return 32;
 }
 
 const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = true) => {
   const isLight = theme !== 'dark';
   return [
+    // Base Node Style - Clean circular body with distinct colored border ring & centered vector icon
     {
       selector: 'node',
       style: {
@@ -51,24 +53,26 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'border-color': 'data(borderColor)',
         'background-image': 'data(svgIcon)',
         'background-fit': 'none',
-        'background-width': '60%',
-        'background-height': '60%',
+        'background-width': '62%',
+        'background-height': '62%',
         'background-position-x': '50%',
         'background-position-y': '50%',
         'background-clip': 'node',
         'outline-width': 0,
+        'outline-opacity': 0,
         'overlay-opacity': 0,
+        'overlay-padding': 0,
         'label': showNodeLabels ? 'data(shortLabel)' : '',
         'text-opacity': showNodeLabels ? 1.0 : 0,
         'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        'font-size': '12px',
+        'font-size': '13px',
         'font-weight': 700,
         'text-valign': 'bottom',
-        'text-margin-y': 6,
+        'text-margin-y': 7,
         'color': isLight ? '#0f172a' : '#f8fafc',
         'text-background-color': isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.92)',
         'text-background-opacity': showNodeLabels ? 0.95 : 0,
-        'text-background-padding': '2px 5px',
+        'text-background-padding': '3px 6px',
         'text-background-shape': 'roundrectangle',
         'text-border-color': isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.12)',
         'text-border-width': showNodeLabels ? 1 : 0,
@@ -93,7 +97,7 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'text-opacity': 1.0,
         'text-background-opacity': 0.95,
         'text-border-width': 1,
-        'border-width': 3.5,
+        'border-width': 3.8,
         'border-color': 'data(borderColor)',
         'outline-width': 3.5,
         'outline-color': '#06b6d4',
@@ -107,8 +111,8 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
       selector: 'node.selected',
       style: {
         'border-color': 'data(borderColor)',
-        'border-width': 4.0,
-        'outline-width': 4.0,
+        'border-width': 4.5,
+        'outline-width': 4.5,
         'outline-color': '#06b6d4',
         'outline-offset': 4.0,
         'outline-opacity': 1.0,
@@ -127,7 +131,7 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
     {
       selector: 'node.in-chain',
       style: {
-        'border-width': 3.5,
+        'border-width': 3.8,
         'border-color': 'data(borderColor)',
         'outline-width': 0,
         'outline-opacity': 0,
@@ -140,7 +144,7 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
     {
       selector: 'node.faded',
       style: {
-        'opacity': 0.20,
+        'opacity': 0.16,
         'text-opacity': 0,
         'z-index': 1
       }
@@ -148,26 +152,26 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
     {
       selector: 'edge',
       style: {
-        'width': 2.0,
+        'width': 'data(width)',
         'line-color': 'data(color)',
         'target-arrow-color': 'data(color)',
         'target-arrow-shape': 'triangle',
-        'arrow-scale': 1.1,
+        'arrow-scale': 1.25,
         'curve-style': 'bezier',
         'label': showEdgeLabels ? 'data(label)' : '',
         'text-opacity': showEdgeLabels ? 1.0 : 0,
         'font-family': 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',
-        'font-size': '10px',
+        'font-size': '11px',
         'font-weight': 700,
         'color': isLight ? '#0f172a' : '#f8fafc',
         'text-background-color': isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.92)',
         'text-background-opacity': showEdgeLabels ? 0.95 : 0,
-        'text-background-padding': '2px 5px',
+        'text-background-padding': '3px 6px',
         'text-background-shape': 'roundrectangle',
         'text-border-color': 'data(color)',
         'text-border-width': showEdgeLabels ? 1 : 0,
         'text-rotation': 'autorotate',
-        'text-margin-y': -7,
+        'text-margin-y': -8,
         'min-zoomed-font-size': showEdgeLabels ? 0 : 9999,
         'z-index': 5,
         'opacity': 0.85,
@@ -178,10 +182,10 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
     {
       selector: 'edge.in-chain',
       style: {
-        'width': 3.8,
+        'width': 4.2,
         'line-color': 'data(color)',
         'target-arrow-color': 'data(color)',
-        'arrow-scale': 1.3,
+        'arrow-scale': 1.4,
         'opacity': 1.0,
         'z-index': 80,
         'text-opacity': 1.0,
@@ -193,7 +197,7 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
     {
       selector: 'edge.faded',
       style: {
-        'opacity': 0.12,
+        'opacity': 0.08,
         'text-opacity': 0,
         'z-index': 1
       }
@@ -212,7 +216,6 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'text-opacity': 0
       }
     },
-    // Sub-graph & Full Attack Path isolation: completely hide unrelated elements
     {
       selector: '.hidden',
       style: {
@@ -221,15 +224,6 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
     }
   ];
 };
-
-function simpleHash(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash) + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash).toString(36);
-}
 
 export default function FirewallNodeDiagram({
   inbound = [],
@@ -246,11 +240,12 @@ export default function FirewallNodeDiagram({
 }) {
   const containerRef = useRef(null);
   const cyRef = useRef(null);
-  const initialPositionsRef = useRef(new Map());
+  const initialCleanPositionsRef = useRef(new Map());
   const callbacksRef = useRef({ onSelectNode, onSelectEdge, onClearSelection });
 
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
+  const [isGraphModified, setIsGraphModified] = useState(false);
   const [layoutMode, setLayoutMode] = useState('fcose'); // 'fcose' | 'dagre'
   const [showNodeLabels, setShowNodeLabels] = useState(true);
   const [showEdgeLabels, setShowEdgeLabels] = useState(true);
@@ -261,13 +256,23 @@ export default function FirewallNodeDiagram({
   const [searchQuery, setSearchQuery] = useState('');
   const [allGraphNodes, setAllGraphNodes] = useState([]);
   const [counts, setCounts] = useState({ nodes: 0, edges: 0 });
-  const [isGraphModified, setIsGraphModified] = useState(false);
+
+  // Clear any legacy cached positions from previous versions on mount
+  useEffect(() => {
+    try {
+      Object.keys(sessionStorage).forEach(k => {
+        if (k.startsWith('fw_layout_')) {
+          sessionStorage.removeItem(k);
+        }
+      });
+    } catch (e) {}
+  }, []);
 
   useEffect(() => {
     callbacksRef.current = { onSelectNode, onSelectEdge, onClearSelection };
   }, [onSelectNode, onSelectEdge, onClearSelection]);
 
-  // Update Cytoscape stylesheet when theme changes
+  // Update Cytoscape stylesheet and node icon colors when theme changes
   useEffect(() => {
     if (cyRef.current) {
       const isLightMode = theme !== 'dark';
@@ -302,7 +307,9 @@ export default function FirewallNodeDiagram({
     }
   }, [showEdgeLabels]);
 
-  // Build and render graph in Cytoscape
+  const dataKey = `${inbound.length}|${outbound.length}|${lateral.length}|${machines.length}|${layoutMode}|${theme}`;
+
+  // Build and render graph in Cytoscape (Matching Network Topology exactly)
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -321,7 +328,9 @@ export default function FirewallNodeDiagram({
     const elements = [];
     const nodesMap = new Map();
     const edgeMap = new Map();
-    const approxOrder = Math.max(machines.length, Math.round(totalConnections * 0.5), 12);
+    const connectedNodeIds = new Set();
+
+    const approxOrder = Math.max(machines.length, Math.round(totalConnections * 0.45), 12);
     const nSize = baseNodeSize(approxOrder);
 
     function ensureNode(id, type = 'machine', raw = {}) {
@@ -380,10 +389,7 @@ export default function FirewallNodeDiagram({
       ensureNode(m.name || m.ip, m.entityType || 'machine', m.raw || m);
     });
 
-    // Track active connected node IDs to completely exclude orphan/single nodes with 0 connections
-    const connectedNodeIds = new Set();
-
-    // Add & bundle edges
+    // Bundle / Aggregate parallel edges between the same nodes
     function addEdge(fromId, toId, edgeData) {
       if (!fromId || !toId || fromId === toId) return;
       connectedNodeIds.add(fromId);
@@ -412,7 +418,7 @@ export default function FirewallNodeDiagram({
           labelList: edgeData.label ? [edgeData.label] : [],
           dir: edgeData.dir,
           color: edgeData.color || '#06b6d4',
-          width: edgeData.width || 2.2,
+          width: edgeData.width || 2.5,
           count: edgeData.count || 1,
           severity: edgeData.severity || 'info',
           _detail: edgeData._detail,
@@ -431,7 +437,7 @@ export default function FirewallNodeDiagram({
         const isAccept = act === 'accept' || act === 'allow';
         const col = c.color || (bl ? '#ef4444' : isAccept ? '#22c55e' : '#f97316');
         addEdge(fromId, toId, {
-          label: c.protocol || 'INBOUND',
+          label: c.protocol || c.service || 'INBOUND',
           dir: 'in',
           color: col,
           width: Math.min(2 + Math.log((c.count || 1) + 1), 5),
@@ -440,7 +446,7 @@ export default function FirewallNodeDiagram({
           _detail: {
             first_seen: c.first_seen, last_seen: c.last_seen,
             src: c.from_machine || c.from_ip || '?', dst: c.to_machine || c.to_ip || '?',
-            protocol: c.protocol || '', port: c.port || '', action: c.action || '',
+            protocol: c.protocol || c.service || '', port: c.port || '', action: c.action || '',
             count: c.count || 1, blocked: c.blocked || 0, severity: c.severity || 'info',
             extra: c.description || (bl ? 'BLOCKED' : '')
           }
@@ -458,7 +464,7 @@ export default function FirewallNodeDiagram({
         const isAccept = act === 'accept' || act === 'allow';
         const col = c.color || (bl ? '#ef4444' : isAccept ? '#22c55e' : '#f97316');
         addEdge(fromId, toId, {
-          label: c.protocol || 'OUTBOUND',
+          label: c.protocol || c.service || 'OUTBOUND',
           dir: 'out',
           color: col,
           width: Math.min(2 + Math.log((c.count || 1) + 1), 5),
@@ -467,7 +473,7 @@ export default function FirewallNodeDiagram({
           _detail: {
             first_seen: c.first_seen, last_seen: c.last_seen,
             src: c.from_machine || '?', dst: c.to_machine || c.to_ip || '?',
-            protocol: c.protocol || '', port: c.port || '', action: c.action || '',
+            protocol: c.protocol || c.service || '', port: c.port || '', action: c.action || '',
             count: c.count || 1, blocked: c.blocked || 0, severity: c.severity || 'info',
             extra: c.description || (bl ? 'BLOCKED' : '')
           }
@@ -477,24 +483,24 @@ export default function FirewallNodeDiagram({
 
     // Process Lateral
     lateral.forEach(c => {
-      const fromId = ensureNode(c.source, 'machine');
-      const toId = ensureNode(c.target, 'machine');
+      const fromId = ensureNode(c.source || c.from_machine, 'machine');
+      const toId = ensureNode(c.target || c.to_machine, 'machine');
       if (fromId && toId && fromId !== toId) {
         const bl = c.blocked > 0;
         const act = (c.action || '').toLowerCase();
         const isAccept = act === 'accept' || act === 'allow';
         const col = c.color || (bl ? '#ef4444' : isAccept ? '#22c55e' : '#06b6d4');
         addEdge(fromId, toId, {
-          label: c.protocol || 'LATERAL',
+          label: c.protocol || c.service || 'LATERAL',
           dir: 'lat',
           color: col,
-          width: Math.min(2.2 + Math.log((c.count || 1) + 1), 5.5),
+          width: Math.min(2.5 + Math.log((c.count || 1) + 1), 5.5),
           count: c.count || 1,
           severity: c.severity || 'info',
           _detail: {
             first_seen: c.first_seen, last_seen: c.last_seen,
-            src: c.source, dst: c.target,
-            protocol: c.protocol || '', port: c.port || '', action: c.action || '',
+            src: c.source || c.from_machine, dst: c.target || c.to_machine,
+            protocol: c.protocol || c.service || '', port: c.port || '', action: c.action || '',
             count: c.count || 1, blocked: c.blocked || 0, severity: c.severity || 'info',
             extra: c.description || (bl ? 'BLOCKED' : '')
           }
@@ -502,204 +508,180 @@ export default function FirewallNodeDiagram({
       }
     });
 
-    // Only add nodes that have active incoming or outgoing connections (excludes orphan nodes!)
+    // Only add nodes that have active incoming or outgoing connections
     const availableNodes = [];
     nodesMap.forEach((nodeObj, nid) => {
       if (connectedNodeIds.has(nid)) {
-        availableNodes.push(nodeObj);
+        elements.push(nodeObj);
+        availableNodes.push({
+          id: nid,
+          label: nodeObj.data.fullLabel,
+          shortLabel: nodeObj.data.shortLabel,
+          entityType: nodeObj.data.entityType,
+          color: nodeObj.data.color,
+          subLabel: nodeObj.data.subLabel
+        });
       }
     });
+    setAllGraphNodes(availableNodes);
 
-    setAllGraphNodes(availableNodes.map(n => ({
-      id: n.data.id,
-      label: n.data.fullLabel,
-      shortLabel: n.data.shortLabel,
-      entityType: n.data.entityType,
-      color: n.data.color,
-      subLabel: n.data.subLabel
-    })));
-
-    // Deterministic position persistence across page refreshes
-    const nodeKeyHash = availableNodes.map(n => n.data.id).sort().join('|');
-    const cacheKey = `fw_layout_${layoutMode}_${nodeKeyHash.length}_${simpleHash(nodeKeyHash)}`;
-
-    let cachedPositions = null;
-    try {
-      const raw = sessionStorage.getItem(cacheKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (availableNodes.every(n => parsed[n.data.id])) {
-          cachedPositions = parsed;
+    // Add consolidated edges
+    edgeMap.forEach(e => {
+      elements.push({
+        group: 'edges',
+        data: {
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          label: e.label,
+          dir: e.dir,
+          color: e.color,
+          width: e.width,
+          textMarginX: 0,
+          _detail: e._detail,
+          _detailList: e._detailList
         }
-      }
-    } catch (e) {
-      cachedPositions = null;
-    }
-
-    availableNodes.forEach(nodeObj => {
-      if (cachedPositions && cachedPositions[nodeObj.data.id]) {
-        nodeObj.position = { ...cachedPositions[nodeObj.data.id] };
-      } else {
-        delete nodeObj.position;
-      }
-      elements.push(nodeObj);
+      });
     });
 
-    edgeMap.forEach(e => elements.push({ group: 'edges', data: e }));
-
-    const finalNodeCount = availableNodes.length;
+    const finalNodeCount = elements.filter(e => e.group === 'nodes').length;
     const finalEdgeCount = edgeMap.size;
+    requestAnimationFrame(() => {
+      setCounts({ nodes: finalNodeCount, edges: finalEdgeCount });
+    });
 
+    // Initialize Cytoscape instance with responsive zoom
     const cy = cytoscape({
       container: containerRef.current,
       elements,
       style: getCytoscapeStylesheet(theme, showNodeLabels, showEdgeLabels),
       minZoom: 0.02,
       maxZoom: 8.0,
-      wheelSensitivity: 1.8, // Ultra-fast, highly responsive mouse wheel zoom
+      wheelSensitivity: 1.8,
       boxSelectionEnabled: false
     });
 
     cyRef.current = cy;
-    setCounts({ nodes: finalNodeCount, edges: finalEdgeCount });
+    window.__cy = cy;
     if (!showNodeLabels) cy.nodes().addClass('hide-node-labels');
     if (!showEdgeLabels) cy.edges().addClass('hide-edge-labels');
 
-    if (cachedPositions) {
-      // 100% Deterministic: Instant restore from clean cached layout without random jumping
-      cy.fit(undefined, 60);
-      initialPositionsRef.current.clear();
-      cy.nodes().forEach(n => {
-        initialPositionsRef.current.set(n.id(), { ...n.position() });
-      });
-      setIsGraphModified(false);
+    // Run active layout with clean, readable spacing (Matching Network Topology exactly)
+    let layoutOpts;
+    if (layoutMode === 'dagre') {
+      layoutOpts = {
+        name: 'dagre',
+        rankDir: 'LR',
+        nodeSep: finalNodeCount > 100 ? 70 : 90,
+        rankSep: finalNodeCount > 100 ? 250 : 340,
+        ranker: 'network-simplex',
+        animate: false,
+        padding: 45
+      };
     } else {
-      // Run expansive layout physics with anti-collision separation
-      let layoutOpts;
-      if (layoutMode === 'dagre') {
-        layoutOpts = {
-          name: 'dagre',
-          rankDir: 'LR',
-          nodeSep: finalNodeCount > 100 ? 70 : 90,
-          rankSep: finalNodeCount > 100 ? 250 : 340,
-          ranker: 'network-simplex',
-          animate: false,
-          padding: 45
-        };
-      } else {
-        layoutOpts = {
-          name: 'fcose',
-          quality: finalNodeCount > 30 ? 'proof' : 'default',
-          randomize: true,
-          animate: false,
-          fit: true,
-          padding: 60,
-          nodeDimensionsIncludeLabels: true,
-          uniformNodeDimensions: false,
-          packComponents: true,
-          // Exponential repulsion pushes hubs and clusters far apart to prevent central clutter
-          nodeRepulsion: (node) => {
-            if (finalNodeCount <= 15) return 320000;
-            if (finalNodeCount <= 40) return 850000;
-            const deg = node.degree();
-            return Math.min(12000000, 2000000 + Math.pow(deg, 1.5) * 85000);
-          },
-          // Hub-aware edge length: connected hubs pushed up to 1500px apart
-          idealEdgeLength: (edge) => {
-            if (finalNodeCount <= 15) return 300;
-            const sDeg = edge.source().degree();
-            const tDeg = edge.target().degree();
-            const maxDeg = Math.max(sDeg, tDeg);
-            const minDeg = Math.min(sDeg, tDeg);
-            if (minDeg >= 3) {
-              return Math.min(1500, 750 + (sDeg + tDeg) * 16);
-            }
-            if (finalNodeCount <= 40) return Math.min(600, 360 + maxDeg * 14);
-            return Math.min(1100, 500 + maxDeg * 22);
-          },
-          edgeElasticity: (edge) => (finalNodeCount <= 15 ? 0.05 : (finalNodeCount <= 40 ? 0.02 : 0.006)),
-          nestingFactor: 0.1,
-          gravity: finalNodeCount <= 15 ? 0.04 : (finalNodeCount <= 40 ? 0.008 : 0.001),
-          gravityRange: finalNodeCount <= 15 ? 1.5 : 5.0,
-          numIter: finalNodeCount > 40 ? 4500 : 2500,
-          tile: true,
-          tilingPaddingVertical: finalNodeCount > 30 ? 200 : 70,
-          tilingPaddingHorizontal: finalNodeCount > 30 ? 200 : 70,
-          nodeSeparation: finalNodeCount <= 15 ? 180 : (finalNodeCount <= 40 ? 300 : 480)
-        };
-      }
-
-      const l = cy.layout(layoutOpts);
-      l.run();
-
-      // Post-layout anti-collision relaxation loop:
-      // Physically pushes every pair of nodes at least 240px-280px apart so labels & nodes NEVER overlap!
-      if (layoutMode === 'fcose' && finalNodeCount > 15) {
-        cy.batch(() => {
-          const nArray = cy.nodes().toArray();
-          const minSpacing = finalNodeCount > 80 ? 280 : 240;
-          for (let iter = 0; iter < 12; iter++) {
-            let hadCollision = false;
-            for (let i = 0; i < nArray.length; i++) {
-              const n1 = nArray[i];
-              const p1 = n1.position();
-              for (let j = i + 1; j < nArray.length; j++) {
-                const n2 = nArray[j];
-                const p2 = n2.position();
-                const dx = p2.x - p1.x;
-                const dy = p2.y - p1.y;
-                const dist = Math.hypot(dx, dy) || 1;
-                if (dist < minSpacing) {
-                  hadCollision = true;
-                  const overlap = (minSpacing - dist) / 2;
-                  const nx = dx / dist;
-                  const ny = dy / dist;
-                  n1.position({ x: p1.x - nx * overlap, y: p1.y - ny * overlap });
-                  n2.position({ x: p2.x + nx * overlap, y: p2.y + ny * overlap });
-                }
-              }
-            }
-            if (!hadCollision) break;
+      layoutOpts = {
+        name: 'fcose',
+        quality: finalNodeCount > 30 ? 'proof' : 'default',
+        randomize: true,
+        animate: false,
+        fit: true,
+        padding: 60,
+        nodeDimensionsIncludeLabels: true,
+        uniformNodeDimensions: false,
+        packComponents: true,
+        nodeRepulsion: (node) => {
+          if (finalNodeCount <= 15) return 320000;
+          if (finalNodeCount <= 40) return 850000;
+          const deg = node.degree();
+          return Math.min(12000000, 2000000 + Math.pow(deg, 1.5) * 85000);
+        },
+        idealEdgeLength: (edge) => {
+          if (finalNodeCount <= 15) return 300;
+          const sDeg = edge.source().degree();
+          const tDeg = edge.target().degree();
+          const maxDeg = Math.max(sDeg, tDeg);
+          const minDeg = Math.min(sDeg, tDeg);
+          if (minDeg >= 3) {
+            return Math.min(1500, 750 + (sDeg + tDeg) * 16);
           }
-        });
-      }
-
-      // Adaptively expand horizontal width for tall diagrams using empty side space
-      const bb = cy.nodes().boundingBox();
-      if (bb.h > bb.w && bb.w > 10) {
-        const centerX = (bb.x1 + bb.x2) / 2;
-        const targetW = Math.min(bb.h * 0.75, bb.w * 2.8);
-        const xMultiplier = Math.max(1.0, targetW / bb.w);
-        if (xMultiplier > 1.05) {
-          cy.batch(() => {
-            cy.nodes().forEach(node => {
-              const p = node.position();
-              node.position({
-                x: centerX + (p.x - centerX) * xMultiplier,
-                y: p.y
-              });
-            });
-          });
-        }
-      }
-
-      cy.fit(undefined, 50);
-
-      // Save initial clean coordinates and cache to sessionStorage
-      initialPositionsRef.current.clear();
-      const posToCache = {};
-      cy.nodes().forEach(n => {
-        const pos = { ...n.position() };
-        initialPositionsRef.current.set(n.id(), pos);
-        posToCache[n.id()] = pos;
-      });
-      try {
-        sessionStorage.setItem(cacheKey, JSON.stringify(posToCache));
-      } catch (err) {}
-      setIsGraphModified(false);
+          if (finalNodeCount <= 40) return Math.min(600, 360 + maxDeg * 14);
+          return Math.min(1100, 500 + maxDeg * 22);
+        },
+        edgeElasticity: (edge) => (finalNodeCount <= 15 ? 0.05 : (finalNodeCount <= 40 ? 0.02 : 0.006)),
+        nestingFactor: 0.1,
+        gravity: finalNodeCount <= 15 ? 0.04 : (finalNodeCount <= 40 ? 0.008 : 0.001),
+        gravityRange: finalNodeCount <= 15 ? 1.5 : 5.0,
+        numIter: finalNodeCount > 40 ? 4500 : 2500,
+        tile: true,
+        tilingPaddingVertical: finalNodeCount > 30 ? 200 : 70,
+        tilingPaddingHorizontal: finalNodeCount > 30 ? 200 : 70,
+        nodeSeparation: finalNodeCount <= 15 ? 180 : (finalNodeCount <= 40 ? 300 : 480)
+      };
     }
 
-    // Scale-adaptive font sizing on zoom: keeps labels crisp and readable without visual crowding
+    const l = cy.layout(layoutOpts);
+    l.run();
+
+    // Post-layout anti-collision relaxation
+    if (layoutMode === 'fcose' && finalNodeCount > 15) {
+      cy.batch(() => {
+        const nArray = cy.nodes().toArray();
+        const minSpacing = finalNodeCount > 80 ? 280 : 240;
+        for (let iter = 0; iter < 12; iter++) {
+          let hadCollision = false;
+          for (let i = 0; i < nArray.length; i++) {
+            const n1 = nArray[i];
+            const p1 = n1.position();
+            for (let j = i + 1; j < nArray.length; j++) {
+              const n2 = nArray[j];
+              const p2 = n2.position();
+              const dx = p2.x - p1.x;
+              const dy = p2.y - p1.y;
+              const dist = Math.hypot(dx, dy) || 1;
+              if (dist < minSpacing) {
+                hadCollision = true;
+                const overlap = (minSpacing - dist) / 2;
+                const nx = dx / dist;
+                const ny = dy / dist;
+                n1.position({ x: p1.x - nx * overlap, y: p1.y - ny * overlap });
+                n2.position({ x: p2.x + nx * overlap, y: p2.y + ny * overlap });
+              }
+            }
+          }
+          if (!hadCollision) break;
+        }
+      });
+    }
+
+    // Adaptively expand horizontal width for tall diagrams using empty side space
+    const bb = cy.nodes().boundingBox();
+    if (bb.h > bb.w && bb.w > 10) {
+      const centerX = (bb.x1 + bb.x2) / 2;
+      const targetW = Math.min(bb.h * 0.75, bb.w * 2.8);
+      const xMultiplier = Math.max(1.0, targetW / bb.w);
+      if (xMultiplier > 1.05) {
+        cy.batch(() => {
+          cy.nodes().forEach(node => {
+            const p = node.position();
+            node.position({
+              x: centerX + (p.x - centerX) * xMultiplier,
+              y: p.y
+            });
+          });
+        });
+      }
+    }
+
+    cy.fit(undefined, 50);
+
+    // Save initial pristine coordinates to enable 1-click full reset
+    initialCleanPositionsRef.current.clear();
+    cy.nodes().forEach(n => {
+      initialCleanPositionsRef.current.set(n.id(), { ...n.position() });
+    });
+    setIsGraphModified(false);
+
+    // Scale-adaptive font sizing
     let zoomRaf = null;
     let lastZ = -1;
     const updateAdaptiveFonts = () => {
@@ -730,23 +712,12 @@ export default function FirewallNodeDiagram({
       zoomRaf = requestAnimationFrame(updateAdaptiveFonts);
     });
 
-    cy.on('dragfree', 'node', () => {
-      setIsGraphModified(true);
-    });
-    cy.on('userzoom', () => {
-      setIsGraphModified(true);
-    });
-    cy.on('userpan', () => {
-      setIsGraphModified(true);
-    });
+    // Track user modifications so Clear Graph button appears
+    cy.on('dragfree', 'node', () => setIsGraphModified(true));
+    cy.on('userzoom', () => setIsGraphModified(true));
+    cy.on('userpan', () => setIsGraphModified(true));
 
-    // Node Hover
-    cy.on('mouseover', 'node', (evt) => {
-      evt.target.addClass('hovered');
-    });
-    cy.on('mouseout', 'node', (evt) => {
-      evt.target.removeClass('hovered');
-    });
+    updateAdaptiveFonts();
 
     // Click Node
     cy.on('tap', 'node', (evt) => {
@@ -755,10 +726,8 @@ export default function FirewallNodeDiagram({
       setSelectedNode(nid);
       setSelectedEdge(null);
 
-      // Check if we are currently in an isolated sub-graph view (some elements are hidden)
       const hasHidden = cy.elements('.hidden').length > 0;
       if (hasHidden) {
-        // Keep hidden elements hidden; only manage selection on visible elements
         const visible = cy.elements().not('.hidden');
         visible.removeClass('selected in-chain faded');
         visible.addClass('faded');
@@ -768,11 +737,9 @@ export default function FirewallNodeDiagram({
         visibleConnectedEdges.removeClass('faded').addClass('in-chain');
         visibleConnectedEdges.connectedNodes().not('.hidden').removeClass('faded').addClass('in-chain');
       } else {
-        // Full graph: blur/fade all other nodes immediately on 1st click
         cy.elements().removeClass('selected in-chain faded');
         cy.elements().addClass('faded');
 
-        // MULTI-HOP ATTACK & TRAFFIC PATH: Trace full upstream & downstream flow chain
         const predecessors = node.predecessors();
         const successors = node.successors();
         const direct = node.closedNeighborhood();
@@ -782,17 +749,35 @@ export default function FirewallNodeDiagram({
       }
 
       const connectedEdges = [];
+
       node.connectedEdges().forEach(edge => {
-        const otherNode = edge.source().id() === nid ? edge.target() : edge.source();
-        const eData = edge.data();
-        if (eData._detail) {
-          const isTarget = edge.target().id() === nid;
-          connectedEdges.push({
-            ...eData._detail,
-            _otherLabel: otherNode.data('fullLabel') || otherNode.data('label'),
-            _isTarget: isTarget,
-            dir: eData.dir
+        const d = edge.data('_detail') || {};
+        const dList = edge.data('_detailList');
+        const isTarget = edge.target().id() === nid;
+        const otherNode = isTarget ? edge.source() : edge.target();
+        const otherLabel = otherNode.data('fullLabel') || otherNode.data('label') || otherNode.id().replace(/^m:/, '');
+        const otherType = otherNode.data('entityType') || 'machine';
+
+        const baseMeta = {
+          _dir: edge.data('dir'),
+          _isTarget: isTarget,
+          _direction: isTarget ? 'in' : 'out',
+          _otherLabel: otherLabel,
+          _otherType: otherType,
+          protocol: d.protocol || edge.data('label') || '',
+          src: isTarget ? otherLabel : (node.data('fullLabel') || node.data('label')),
+          dst: isTarget ? (node.data('fullLabel') || node.data('label')) : otherLabel,
+          count: edge.data('count') || d.count || 1
+        };
+
+        if (dList && dList.length > 0) {
+          dList.forEach(item => {
+            if (item) connectedEdges.push({ ...item, ...baseMeta });
           });
+        } else if (d) {
+          connectedEdges.push({ ...d, ...baseMeta });
+        } else {
+          connectedEdges.push(baseMeta);
         }
       });
       connectedEdges.sort((a, b) => (b.count || 1) - (a.count || 1));
@@ -839,59 +824,56 @@ export default function FirewallNodeDiagram({
       }
     });
 
-    // Click background (Clear Selection)
+    // Click Background Stage
     cy.on('tap', (evt) => {
       if (evt.target === cy) {
         setSelectedNode(null);
         setSelectedEdge(null);
         const hasHidden = cy.elements('.hidden').length > 0;
-        if (hasHidden) {
-          cy.elements().not('.hidden').removeClass('selected in-chain faded hovered');
-        } else {
+        if (!hasHidden) {
           cy.elements().removeClass('selected in-chain faded hovered');
+        } else {
+          cy.elements().not('.hidden').removeClass('selected in-chain faded hovered');
         }
         if (callbacksRef.current.onClearSelection) {
-          callbacksRef.current.onClearSelection(false);
+          callbacksRef.current.onClearSelection();
         }
       }
     });
 
+    // Hover indicators
+    cy.on('mouseover', 'node', (evt) => evt.target.addClass('hovered'));
+    cy.on('mouseout', 'node', (evt) => evt.target.removeClass('hovered'));
+    cy.on('mouseover', 'edge', (evt) => evt.target.addClass('hovered'));
+    cy.on('mouseout', 'edge', (evt) => evt.target.removeClass('hovered'));
+
+    // Resize observer
+    let resizeTimer = null;
+    const ro = new ResizeObserver(() => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (cyRef.current) cyRef.current.resize();
+      }, 60);
+    });
+    ro.observe(containerRef.current);
+
     return () => {
+      ro.disconnect();
+      clearTimeout(resizeTimer);
+      if (zoomRaf) cancelAnimationFrame(zoomRaf);
       if (cyRef.current) {
         cyRef.current.destroy();
         cyRef.current = null;
       }
     };
-  }, [inbound, outbound, lateral, machines, layoutMode]);
+  }, [dataKey]);
 
-  // Jump to specific node by name/ID when clicked from Entity panel
-  useEffect(() => {
-    if (!focusNodeTarget || !cyRef.current) return;
-    const cy = cyRef.current;
-    let targetNode = cy.getElementById(focusNodeTarget);
-    if (!targetNode || targetNode.length === 0) {
-      targetNode = cy.nodes().filter(n =>
-        n.data('fullLabel') === focusNodeTarget ||
-        n.data('label') === focusNodeTarget ||
-        n.id() === `m:${focusNodeTarget}`
-      );
-    }
-    if (targetNode && targetNode.length > 0) {
-      targetNode.emit('tap');
-      cy.animate({
-        center: { eles: targetNode },
-        zoom: Math.max(cy.zoom(), 1.2),
-        duration: 500
-      });
-    }
-  }, [focusNodeTarget]);
-
-  // Dynamic Isolation & Hierarchical Layout when focusedCategory or selectedNode changes
+  // Dynamic Redesign & Layout when focusedCategory or selectedNode changes
   useEffect(() => {
     if (!cyRef.current) return;
     const cy = cyRef.current;
 
-    // Case A: Full graph mode (show all connected nodes)
+    // Case A: Full graph mode
     if (!focusedCategory || focusedCategory === 'all') {
       cy.elements().removeClass('hidden');
 
@@ -903,7 +885,6 @@ export default function FirewallNodeDiagram({
       const node = cy.getElementById(selectedNode);
       if (!node || node.length === 0) return;
 
-      // Highlight full multi-hop path immediately
       cy.elements().removeClass('selected in-chain faded');
       cy.elements().addClass('faded');
 
@@ -938,7 +919,7 @@ export default function FirewallNodeDiagram({
       return;
     }
 
-    // Case C: Full Attack Path Mode (Trace complete multi-hop chain from threat roots to targets)
+    // Case C: Full Attack Path Mode
     if (focusedCategory === 'full_path') {
       if (!selectedNode) return;
       const node = cy.getElementById(selectedNode);
@@ -949,7 +930,6 @@ export default function FirewallNodeDiagram({
       const direct = node.closedNeighborhood();
       const fullPath = node.union(predecessors).union(successors).union(direct);
 
-      // Completely hide all elements not part of the full attack path
       cy.elements().difference(fullPath).addClass('hidden');
       fullPath.removeClass('hidden faded').addClass('in-chain');
       node.addClass('selected');
@@ -958,10 +938,10 @@ export default function FirewallNodeDiagram({
         fullPath.layout({
           name: 'dagre',
           rankDir: 'LR',
-          nodeSep: 90,
-          rankSep: 240,
+          nodeSep: 85,
+          rankSep: 220,
           animate: true,
-          animationDuration: 300,
+          animationDuration: 350,
           fit: true,
           padding: 80
         }).run();
@@ -997,110 +977,314 @@ export default function FirewallNodeDiagram({
     node.addClass('selected');
 
     if (activeNodes.length > 1) {
-      subGraph.layout({
-        name: 'dagre',
-        rankDir: 'LR',
-        nodeSep: 75,
-        rankSep: 180,
-        animate: true,
-        animationDuration: 300,
-        fit: true,
-        padding: 70
-      }).run();
+      if (layoutMode === 'dagre') {
+        subGraph.layout({
+          name: 'dagre',
+          rankDir: 'LR',
+          nodeSep: 85,
+          rankSep: 200,
+          animate: true,
+          animationDuration: 350,
+          fit: true,
+          padding: 85
+        }).run();
+      } else {
+        subGraph.layout({
+          name: 'fcose',
+          quality: 'default',
+          randomize: false,
+          animate: true,
+          animationDuration: 350,
+          fit: true,
+          padding: 85,
+          nodeRepulsion: 350000,
+          idealEdgeLength: 180
+        }).run();
+      }
     }
   }, [focusedCategory, selectedNode]);
 
-  // Toolbar Actions
-  const handleZoom = (direction) => {
-    if (!cyRef.current) return;
-    const factor = direction === 'in' ? 1.65 : 1 / 1.65;
-    cyRef.current.animate({
-      zoom: cyRef.current.zoom() * factor,
-      renderedPosition: { x: cyRef.current.width() / 2, y: cyRef.current.height() / 2 }
-    }, {
-      duration: 120
+  // Jump to specific node by name/ID when clicked from entity panel
+  useEffect(() => {
+    if (!focusNodeTarget || !cyRef.current) return;
+    const cy = cyRef.current;
+    const clean = String(focusNodeTarget).trim().toLowerCase();
+    const targetNode = cy.nodes().filter(n => {
+      const nid = n.id().toLowerCase();
+      const fl = (n.data('fullLabel') || '').toLowerCase();
+      const sl = (n.data('label') || '').toLowerCase();
+      return nid === 'm:' + clean || nid === clean || fl === clean || sl === clean;
     });
-  };
+    if (targetNode.length > 0) {
+      targetNode.first().trigger('tap');
+      cy.animate({
+        center: { eles: targetNode.first() },
+        zoom: Math.max(cy.zoom(), 1.05)
+      }, { duration: 300 });
+    }
+  }, [focusNodeTarget]);
 
-  const handleFit = () => {
-    if (!cyRef.current) return;
-    cyRef.current.animate({
-      fit: { eles: cyRef.current.elements(), padding: 50 },
-      duration: 350
-    });
-  };
+  // Zoom and Reset Handlers (Fast & Snappy)
+  const handleZoomIn = useCallback(() => {
+    if (cyRef.current) {
+      cyRef.current.animate({
+        zoom: cyRef.current.zoom() * 1.75,
+        renderedPosition: { x: cyRef.current.width() / 2, y: cyRef.current.height() / 2 }
+      }, { duration: 120 });
+    }
+  }, []);
 
-  const handleReset = () => {
-    handleFullReset();
-  };
+  const handleZoomOut = useCallback(() => {
+    if (cyRef.current) {
+      cyRef.current.animate({
+        zoom: cyRef.current.zoom() / 1.75,
+        renderedPosition: { x: cyRef.current.width() / 2, y: cyRef.current.height() / 2 }
+      }, { duration: 120 });
+    }
+  }, []);
+
+  const handleResetFit = useCallback(() => {
+    if (cyRef.current) {
+      cyRef.current.animate({
+        fit: { eles: cyRef.current.elements(), padding: 50 }
+      }, { duration: 200 });
+    }
+  }, []);
 
   const handleFullReset = useCallback(() => {
-    if (!cyRef.current) return;
-    const cy = cyRef.current;
     setSelectedNode(null);
     setSelectedEdge(null);
     setIsGraphModified(false);
-    cy.elements().removeClass('hidden selected in-chain faded hovered');
-    if (initialPositionsRef.current.size > 0) {
-      cy.batch(() => {
-        initialPositionsRef.current.forEach((pos, id) => {
-          const ele = cy.getElementById(id);
-          if (ele) ele.position(pos);
+
+    if (cyRef.current) {
+      const cy = cyRef.current;
+      cy.elements().removeClass('hidden selected in-chain faded hovered');
+
+      if (initialCleanPositionsRef.current && initialCleanPositionsRef.current.size > 0) {
+        cy.batch(() => {
+          cy.nodes().forEach(n => {
+            const pos = initialCleanPositionsRef.current.get(n.id());
+            if (pos) {
+              n.position({ x: pos.x, y: pos.y });
+            }
+          });
         });
-      });
-      cy.animate({ fit: { eles: cy.elements(), padding: 60 } }, { duration: 250 });
+      }
+
+      cy.animate({
+        fit: { eles: cy.elements(), padding: 50 }
+      }, { duration: 300 });
     }
+
     if (callbacksRef.current.onClearSelection) {
       callbacksRef.current.onClearSelection(true);
     }
   }, []);
 
-  // Export handlers
-  const handleExport = (format) => {
+  const hasChanges = Boolean(
+    selectedNode ||
+    selectedEdge ||
+    (focusedCategory && focusedCategory !== 'all') ||
+    isGraphModified
+  );
+
+  // Export JSON Graph Data
+  const handleExportJson = useCallback(() => {
     if (!cyRef.current) return;
     const cy = cyRef.current;
-    setIsDownloadMenuOpen(false);
+    const nodesData = cy.nodes().map(n => ({
+      id: n.id(),
+      label: n.data('fullLabel') || n.data('label'),
+      shortLabel: n.data('shortLabel'),
+      entityType: n.data('entityType'),
+      ip: n.data('subLabel') || '',
+      position: n.position()
+    }));
+    const edgesData = cy.edges().map(e => ({
+      id: e.id(),
+      source: e.source().data('fullLabel') || e.source().id(),
+      target: e.target().data('fullLabel') || e.target().id(),
+      label: e.data('label'),
+      dir: e.data('dir'),
+      count: e.data('count') || 1,
+      color: e.data('color'),
+      detail: e.data('_detail')
+    }));
 
-    if (format === 'png') {
-      const png64 = cy.png({ full: true, scale: 2, bg: theme === 'light' ? '#f8fafc' : '#0b1326' });
-      const a = document.createElement('a');
-      a.href = png64;
-      a.download = `firewall-topology-${Date.now()}.png`;
-      a.click();
-    } else if (format === 'jpg') {
-      const jpg64 = cy.jpg({ full: true, scale: 2, bg: theme === 'light' ? '#f8fafc' : '#0b1326', quality: 0.9 });
-      const a = document.createElement('a');
-      a.href = jpg64;
-      a.download = `firewall-topology-${Date.now()}.jpg`;
-      a.click();
-    } else if (format === 'json') {
-      const jsonStr = JSON.stringify({
-        generator: 'IOC Hunt Firewall Topology',
-        timestamp: new Date().toISOString(),
-        counts,
-        elements: cy.json().elements
-      }, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `firewall-topology-${Date.now()}.json`;
-      a.click();
+    const exportPayload = {
+      generator: 'IOC Hunt Firewall Network Topology',
+      exportDate: new Date().toISOString(),
+      summary: {
+        totalNodes: nodesData.length,
+        totalEdges: edgesData.length
+      },
+      nodes: nodesData,
+      edges: edgesData
+    };
+
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `iochunt_firewall_topology_export_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, []);
+
+  // Export High-Res PNG Screenshot
+  const handleExportPng = useCallback(() => {
+    if (!cyRef.current) return;
+    const isLightNow = theme === 'light';
+    const pngUri = cyRef.current.png({
+      full: true,
+      scale: 2.0,
+      bg: isLightNow ? '#f8fafc' : '#0b1326'
+    });
+    const link = document.createElement('a');
+    link.href = pngUri;
+    link.download = `iochunt_firewall_topology_${new Date().toISOString().slice(0, 10)}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [theme]);
+
+  // Jump to Searched Node
+  const handleSelectSearchedNode = useCallback((targetId) => {
+    if (!cyRef.current) return;
+    const cy = cyRef.current;
+    const node = cy.getElementById(targetId);
+    if (node && node.length > 0) {
+      node.trigger('tap');
+      cy.animate({
+        center: { eles: node },
+        zoom: Math.max(cy.zoom(), 1.25)
+      }, { duration: 300 });
+      setIsSearchOpen(false);
+      setSearchQuery('');
     }
-  };
+  }, []);
+
+  // Close menus on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (!e.target.closest('#fw-bottom-toolbar') && !e.target.closest('#fw-search-popover')) {
+        setIsLabelMenuOpen(false);
+        setIsLayoutMenuOpen(false);
+        setIsDownloadMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const isLight = theme === 'light';
-  // 100% Solid opaque toolbar styles (no transparent bleed-through)
-  const controlBg = isLight ? '#ffffff' : '#0f172a';
-  const controlBorder = isLight ? '#cbd5e1' : '#1e293b';
+  const controlBg = isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(15, 23, 42, 0.90)';
+  const controlBorder = isLight ? 'rgba(0, 0, 0, 0.14)' : 'rgba(255, 255, 255, 0.14)';
   const controlColor = isLight ? '#0f172a' : '#f8fafc';
   const controlHoverBg = isLight ? '#f1f5f9' : '#1e293b';
+  const badgeBg = isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(15, 23, 42, 0.85)';
+  const badgeBorder = isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.08)';
+  const badgeText = isLight ? '#0f172a' : 'var(--text)';
+  const legendBg = isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(15, 23, 42, 0.85)';
+  const legendBorder = isLight ? 'rgba(0, 0, 0, 0.12)' : 'rgba(255, 255, 255, 0.08)';
+  const legendText = isLight ? '#334155' : 'var(--muted)';
+  const legendNodeCore = isLight ? '#ffffff' : '#111526';
+
+  const filteredSearchNodes = allGraphNodes.filter(n => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return (
+      (n.label && n.label.toLowerCase().includes(q)) ||
+      (n.shortLabel && n.shortLabel.toLowerCase().includes(q)) ||
+      (n.subLabel && n.subLabel.toLowerCase().includes(q)) ||
+      (n.entityType && n.entityType.toLowerCase().includes(q))
+    );
+  }).slice(0, 15);
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+    <div
+      style={{
+        position: 'relative',
+        width: '100%',
+        height: '100%',
+        minHeight: '480px',
+        background: isLight ? '#f8fafc' : '#0b1326',
+        borderRadius: '8px',
+        overflow: 'hidden',
+        userSelect: 'none',
+        border: isLight ? '1px solid rgba(0, 0, 0, 0.08)' : '1px solid var(--border)'
+      }}
+    >
+      {/* Cytoscape Canvas Container */}
+      <div
+        ref={containerRef}
+        style={{
+          width: '100%',
+          height: '100%',
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0
+        }}
+      />
 
-      {/* Top Right Clear & Reset Graph Button (Appears whenever there is any change/selection/filter) */}
-      {(selectedNode || selectedEdge || (focusedCategory && focusedCategory !== 'all') || isGraphModified) && (
+      {/* Empty State */}
+      {counts.nodes === 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            color: 'var(--muted)',
+            fontSize: '13px',
+            textAlign: 'center',
+            pointerEvents: 'none'
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '36px', display: 'block', marginBottom: '8px', opacity: 0.4 }}>hub</span>
+          No active firewall connections match current filters
+        </div>
+      )}
+
+      {/* Top Left Stats Badge */}
+      <div
+        style={{
+          position: 'absolute',
+          top: '12px',
+          left: '14px',
+          background: badgeBg,
+          backdropFilter: 'blur(8px)',
+          border: `1px solid ${badgeBorder}`,
+          boxShadow: isLight ? '0 2px 8px rgba(0,0,0,0.06)' : 'none',
+          borderRadius: '6px',
+          padding: '4px 10px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          fontSize: '11px',
+          fontFamily: 'var(--mono)',
+          color: badgeText,
+          pointerEvents: 'none',
+          zIndex: 5
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }}></span>
+          <span style={{ color: 'var(--muted)' }}>Nodes:</span> <strong>{counts.nodes}</strong>
+        </div>
+        <div style={{ width: '1px', height: '12px', background: isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)' }}></div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#06b6d4', display: 'inline-block' }}></span>
+          <span style={{ color: 'var(--muted)' }}>Edges:</span> <strong>{counts.edges}</strong>
+        </div>
+      </div>
+
+      {/* Top Right Clear & Reset Graph Button */}
+      {hasChanges && (
         <button
           onClick={handleFullReset}
           title="Clear all selections and reset graph to initial view"
@@ -1139,344 +1323,606 @@ export default function FirewallNodeDiagram({
         </button>
       )}
 
-      {/* Floating Bottom-Left Toolbar */}
+      {/* Floating Zoom Controls (Right-Hand Side) */}
       <div
         style={{
           position: 'absolute',
-          bottom: '16px',
-          left: '16px',
+          top: '50px',
+          right: '14px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '6px',
+          zIndex: 10
+        }}
+      >
+        <button
+          onClick={handleZoomIn}
+          title="Zoom In"
+          style={{
+            width: '32px',
+            height: '32px',
+            background: controlBg,
+            backdropFilter: 'blur(8px)',
+            border: `1px solid ${controlBorder}`,
+            boxShadow: isLight ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+            borderRadius: '6px',
+            color: controlColor,
+            cursor: 'pointer',
+            fontSize: '16px',
+            fontWeight: 800,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.15s'
+          }}
+          onMouseOver={(e) => { e.currentTarget.style.background = controlHoverBg; e.currentTarget.style.borderColor = '#06b6d4'; }}
+          onMouseOut={(e) => { e.currentTarget.style.background = controlBg; e.currentTarget.style.borderColor = controlBorder; }}
+        >
+          +
+        </button>
+
+        <button
+          onClick={handleZoomOut}
+          title="Zoom Out"
+          style={{
+            width: '32px',
+            height: '32px',
+            background: controlBg,
+            backdropFilter: 'blur(8px)',
+            border: `1px solid ${controlBorder}`,
+            boxShadow: isLight ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+            borderRadius: '6px',
+            color: controlColor,
+            cursor: 'pointer',
+            fontSize: '16px',
+            fontWeight: 800,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.15s'
+          }}
+          onMouseOver={(e) => { e.currentTarget.style.background = controlHoverBg; e.currentTarget.style.borderColor = '#06b6d4'; }}
+          onMouseOut={(e) => { e.currentTarget.style.background = controlBg; e.currentTarget.style.borderColor = controlBorder; }}
+        >
+          −
+        </button>
+      </div>
+
+      {/* Search Node Floating Popover */}
+      {isSearchOpen && (
+        <div
+          id="fw-search-popover"
+          style={{
+            position: 'absolute',
+            bottom: '60px',
+            left: '16px',
+            width: '300px',
+            maxHeight: '360px',
+            background: isLight ? '#ffffff' : '#0f172a',
+            border: `1px solid ${controlBorder}`,
+            borderRadius: '8px',
+            boxShadow: isLight ? '0 12px 36px rgba(0,0,0,0.14)' : '0 12px 36px rgba(0,0,0,0.6)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            zIndex: 999
+          }}
+        >
+          <div style={{ padding: '8px 10px', borderBottom: `1px solid ${controlBorder}`, display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)' }}>search</span>
+            <input
+              autoFocus
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search node name or IP…"
+              style={{
+                flex: 1,
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: isLight ? '#0f172a' : '#f8fafc',
+                fontSize: '12px',
+                fontFamily: 'var(--mono)'
+              }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '12px' }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', padding: '4px' }}>
+            {filteredSearchNodes.length > 0 ? (
+              filteredSearchNodes.map(n => (
+                <div
+                  key={n.id}
+                  onClick={() => handleSelectSearchedNode(n.id)}
+                  style={{
+                    padding: '7px 10px',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '8px',
+                    transition: 'background 0.15s'
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: n.color || '#06b6d4', flexShrink: 0 }}></span>
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: isLight ? '#0f172a' : '#f8fafc', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                      {n.label}
+                    </span>
+                  </div>
+                  <span style={{
+                    fontSize: '9px',
+                    fontWeight: 700,
+                    padding: '2px 5px',
+                    borderRadius: '4px',
+                    background: `${n.color || '#06b6d4'}22`,
+                    color: n.color || '#06b6d4',
+                    textTransform: 'uppercase',
+                    flexShrink: 0
+                  }}>
+                    {n.entityType}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div style={{ padding: '16px', textAlign: 'center', color: 'var(--muted)', fontSize: '11px' }}>
+                No matching nodes found
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Firewall Authentic Bottom Toolbar (Bottom Left - Matching Network Topology exactly) */}
+      <div
+        id="fw-bottom-toolbar"
+        style={{
+          position: 'absolute',
+          bottom: '14px',
+          left: isPanelOpen ? '410px' : '16px',
+          transition: 'left 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
           display: 'flex',
           alignItems: 'center',
           gap: '4px',
           background: controlBg,
+          backdropFilter: 'blur(12px)',
           border: `1px solid ${controlBorder}`,
+          boxShadow: isLight ? '0 4px 16px rgba(0,0,0,0.08)' : '0 4px 16px rgba(0,0,0,0.4)',
           borderRadius: '8px',
           padding: '4px',
-          boxShadow: isLight ? '0 4px 16px rgba(0,0,0,0.08)' : '0 6px 24px rgba(0,0,0,0.5)',
-          zIndex: 70
+          zIndex: 40
         }}
       >
-        {/* Zoom In */}
+        {/* 1. Fit to Screen (crop_free) */}
         <button
-          onClick={() => handleZoom('in')}
-          title="Zoom In"
+          onClick={handleResetFit}
+          title="Fit Graph to Screen (Center)"
           style={{
-            width: '30px', height: '30px', background: 'transparent', border: 'none',
-            borderRadius: '5px', color: controlColor, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center'
+            width: '32px',
+            height: '32px',
+            background: 'transparent',
+            border: 'none',
+            borderRadius: '6px',
+            color: controlColor,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.15s'
           }}
-          onMouseOver={e => e.currentTarget.style.background = controlHoverBg}
-          onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+          onMouseOver={(e) => e.currentTarget.style.background = controlHoverBg}
+          onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>add</span>
+          <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>crop_free</span>
         </button>
 
-        {/* Zoom Out */}
-        <button
-          onClick={() => handleZoom('out')}
-          title="Zoom Out"
-          style={{
-            width: '30px', height: '30px', background: 'transparent', border: 'none',
-            borderRadius: '5px', color: controlColor, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center'
-          }}
-          onMouseOver={e => e.currentTarget.style.background = controlHoverBg}
-          onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>remove</span>
-        </button>
-
-        {/* Fit */}
-        <button
-          onClick={handleFit}
-          title="Fit Diagram"
-          style={{
-            width: '30px', height: '30px', background: 'transparent', border: 'none',
-            borderRadius: '5px', color: controlColor, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center'
-          }}
-          onMouseOver={e => e.currentTarget.style.background = controlHoverBg}
-          onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>fit_screen</span>
-        </button>
-
-        <div style={{ width: '1px', height: '18px', background: controlBorder, margin: '0 2px' }} />
-
-        {/* Label Menu */}
+        {/* 2. Label Visibility (visibility icon with menu) */}
         <div style={{ position: 'relative' }}>
           <button
             onClick={() => {
               setIsLabelMenuOpen(!isLabelMenuOpen);
               setIsLayoutMenuOpen(false);
               setIsDownloadMenuOpen(false);
+              setIsSearchOpen(false);
             }}
-            title="Toggle Labels"
+            title="Label Visibility Settings"
             style={{
-              width: '30px', height: '30px', background: isLabelMenuOpen ? controlHoverBg : 'transparent', border: 'none',
-              borderRadius: '5px', color: controlColor, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center'
+              width: '32px',
+              height: '32px',
+              background: (!showNodeLabels || !showEdgeLabels) ? (isLight ? '#ede9fe' : '#3b0764') : (isLabelMenuOpen ? controlHoverBg : 'transparent'),
+              border: 'none',
+              borderRadius: '6px',
+              color: (!showNodeLabels || !showEdgeLabels) ? '#a855f7' : controlColor,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.15s'
             }}
+            onMouseOver={(e) => e.currentTarget.style.background = controlHoverBg}
+            onMouseOut={(e) => e.currentTarget.style.background = (!showNodeLabels || !showEdgeLabels) ? (isLight ? '#ede9fe' : '#3b0764') : (isLabelMenuOpen ? controlHoverBg : 'transparent')}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>label</span>
+            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>
+              {(!showNodeLabels && !showEdgeLabels) ? 'visibility_off' : 'visibility'}
+            </span>
           </button>
+
           {isLabelMenuOpen && (
             <div
               style={{
-                position: 'absolute', bottom: '40px', left: 0, minWidth: '170px',
-                background: isLight ? '#ffffff' : '#0f172a', border: `1px solid ${controlBorder}`,
-                borderRadius: '8px', padding: '6px 0', boxShadow: '0 8px 24px rgba(0,0,0,0.3)', zIndex: 99
+                position: 'absolute',
+                bottom: '42px',
+                left: '0',
+                minWidth: '170px',
+                background: isLight ? '#ffffff' : '#0f172a',
+                border: `1px solid ${controlBorder}`,
+                borderRadius: '8px',
+                boxShadow: isLight ? '0 10px 30px rgba(0,0,0,0.12)' : '0 10px 30px rgba(0,0,0,0.6)',
+                padding: '6px 0',
+                zIndex: 999
               }}
             >
               <button
-                onClick={() => { setShowNodeLabels(!showNodeLabels); setIsLabelMenuOpen(false); }}
-                style={{
-                  width: '100%', textAlign: 'left', padding: '8px 14px', background: 'transparent',
-                  border: 'none', fontSize: '12px', fontWeight: 600, color: controlColor, cursor: 'pointer',
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                onClick={() => {
+                  const next = !(showNodeLabels || showEdgeLabels);
+                  setShowNodeLabels(next);
+                  setShowEdgeLabels(next);
+                  setIsLabelMenuOpen(false);
                 }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 16px',
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: isLight ? '#0f172a' : '#f8fafc',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  transition: 'background 0.15s'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'}
+                onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
               >
-                <span>{showNodeLabels ? 'Hide Node Labels' : 'Show Node Labels'}</span>
-                {!showNodeLabels && <span style={{ fontSize: '9px', color: '#06b6d4', fontWeight: 800 }}>OFF</span>}
+                {showNodeLabels || showEdgeLabels ? 'Hide All Labels' : 'Show All Labels'}
+                {!(showNodeLabels || showEdgeLabels) && (
+                  <span style={{ fontSize: '10px', color: '#a855f7', fontWeight: 800 }}>HIDDEN</span>
+                )}
               </button>
+
               <button
-                onClick={() => { setShowEdgeLabels(!showEdgeLabels); setIsLabelMenuOpen(false); }}
-                style={{
-                  width: '100%', textAlign: 'left', padding: '8px 14px', background: 'transparent',
-                  border: 'none', fontSize: '12px', fontWeight: 600, color: controlColor, cursor: 'pointer',
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                onClick={() => {
+                  setShowNodeLabels(!showNodeLabels);
+                  setIsLabelMenuOpen(false);
                 }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 16px',
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: isLight ? '#0f172a' : '#f8fafc',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  transition: 'background 0.15s'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'}
+                onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
               >
-                <span>{showEdgeLabels ? 'Hide Flow Labels' : 'Show Flow Labels'}</span>
-                {!showEdgeLabels && <span style={{ fontSize: '9px', color: '#06b6d4', fontWeight: 800 }}>OFF</span>}
+                {showNodeLabels ? 'Hide Node Labels' : 'Show Node Labels'}
+                {!showNodeLabels && (
+                  <span style={{ fontSize: '10px', color: '#a855f7', fontWeight: 800 }}>HIDDEN</span>
+                )}
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowEdgeLabels(!showEdgeLabels);
+                  setIsLabelMenuOpen(false);
+                }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 16px',
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: isLight ? '#0f172a' : '#f8fafc',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  transition: 'background 0.15s'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'}
+                onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+              >
+                {showEdgeLabels ? 'Hide Edge Labels' : 'Show Edge Labels'}
+                {!showEdgeLabels && (
+                  <span style={{ fontSize: '10px', color: '#a855f7', fontWeight: 800 }}>HIDDEN</span>
+                )}
               </button>
             </div>
           )}
         </div>
 
-        {/* Layout Switcher */}
+        {/* 3. Layout Selector (schema icon with menu) */}
         <div style={{ position: 'relative' }}>
           <button
             onClick={() => {
               setIsLayoutMenuOpen(!isLayoutMenuOpen);
               setIsLabelMenuOpen(false);
               setIsDownloadMenuOpen(false);
+              setIsSearchOpen(false);
             }}
-            title="Graph Layout"
+            title="Graph Layout Mode"
             style={{
-              width: '30px', height: '30px', background: isLayoutMenuOpen ? controlHoverBg : 'transparent', border: 'none',
-              borderRadius: '5px', color: controlColor, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center'
+              width: '32px',
+              height: '32px',
+              background: isLayoutMenuOpen ? controlHoverBg : 'transparent',
+              border: 'none',
+              borderRadius: '6px',
+              color: controlColor,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.15s'
             }}
+            onMouseOver={(e) => e.currentTarget.style.background = controlHoverBg}
+            onMouseOut={(e) => e.currentTarget.style.background = isLayoutMenuOpen ? controlHoverBg : 'transparent'}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>schema</span>
+            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>schema</span>
           </button>
+
           {isLayoutMenuOpen && (
             <div
               style={{
-                position: 'absolute', bottom: '40px', left: 0, minWidth: '180px',
-                background: isLight ? '#ffffff' : '#0f172a', border: `1px solid ${controlBorder}`,
-                borderRadius: '8px', padding: '6px 0', boxShadow: '0 8px 24px rgba(0,0,0,0.3)', zIndex: 99
+                position: 'absolute',
+                bottom: '42px',
+                left: '0',
+                minWidth: '200px',
+                background: isLight ? '#ffffff' : '#0f172a',
+                border: `1px solid ${controlBorder}`,
+                borderRadius: '8px',
+                boxShadow: isLight ? '0 10px 30px rgba(0,0,0,0.12)' : '0 10px 30px rgba(0,0,0,0.6)',
+                padding: '6px 0',
+                zIndex: 999
               }}
             >
               <button
                 onClick={() => { setLayoutMode('fcose'); setIsLayoutMenuOpen(false); }}
                 style={{
-                  width: '100%', textAlign: 'left', padding: '8px 14px',
-                  background: layoutMode === 'fcose' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
-                  border: 'none', fontSize: '12px', fontWeight: 600,
-                  color: layoutMode === 'fcose' ? '#06b6d4' : controlColor, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '8px'
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 16px',
+                  background: layoutMode === 'fcose' ? (isLight ? '#eff6ff' : '#1e3a8a') : 'transparent',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: layoutMode === 'fcose' ? '#06b6d4' : (isLight ? '#0f172a' : '#f8fafc'),
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
                 }}
+                onMouseOver={(e) => { if (layoutMode !== 'fcose') e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'; }}
+                onMouseOut={(e) => { if (layoutMode !== 'fcose') e.currentTarget.style.background = 'transparent'; }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>scatter_plot</span>
-                Organic Spring (fCoSE)
+                <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>scatter_plot</span>
+                Organic (fCoSE Spring)
               </button>
+
               <button
                 onClick={() => { setLayoutMode('dagre'); setIsLayoutMenuOpen(false); }}
                 style={{
-                  width: '100%', textAlign: 'left', padding: '8px 14px',
-                  background: layoutMode === 'dagre' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
-                  border: 'none', fontSize: '12px', fontWeight: 600,
-                  color: layoutMode === 'dagre' ? '#06b6d4' : controlColor, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '8px'
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 16px',
+                  background: layoutMode === 'dagre' ? (isLight ? '#f3e8ff' : '#581c87') : 'transparent',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: layoutMode === 'dagre' ? '#a855f7' : (isLight ? '#0f172a' : '#f8fafc'),
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
                 }}
+                onMouseOver={(e) => { if (layoutMode !== 'dagre') e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'; }}
+                onMouseOut={(e) => { if (layoutMode !== 'dagre') e.currentTarget.style.background = 'transparent'; }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>account_tree</span>
-                Hierarchical Tree (Dagre)
+                <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>account_tree</span>
+                Tree (Hierarchical DAG)
               </button>
             </div>
           )}
         </div>
 
-        {/* Export Menu */}
+        {/* 4. Download Export (download icon with JSON & PNG options) */}
         <div style={{ position: 'relative' }}>
           <button
             onClick={() => {
               setIsDownloadMenuOpen(!isDownloadMenuOpen);
               setIsLabelMenuOpen(false);
               setIsLayoutMenuOpen(false);
+              setIsSearchOpen(false);
             }}
-            title="Export Diagram"
+            title="Download Graph Data / PNG Image"
             style={{
-              width: '30px', height: '30px', background: isDownloadMenuOpen ? controlHoverBg : 'transparent', border: 'none',
-              borderRadius: '5px', color: controlColor, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center'
+              width: '32px',
+              height: '32px',
+              background: isDownloadMenuOpen ? controlHoverBg : 'transparent',
+              border: 'none',
+              borderRadius: '6px',
+              color: controlColor,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.15s'
             }}
+            onMouseOver={(e) => e.currentTarget.style.background = controlHoverBg}
+            onMouseOut={(e) => e.currentTarget.style.background = isDownloadMenuOpen ? controlHoverBg : 'transparent'}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>download</span>
+            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>download</span>
           </button>
+
           {isDownloadMenuOpen && (
             <div
               style={{
-                position: 'absolute', bottom: '40px', left: 0, minWidth: '160px',
-                background: isLight ? '#ffffff' : '#0f172a', border: `1px solid ${controlBorder}`,
-                borderRadius: '8px', padding: '6px 0', boxShadow: '0 8px 24px rgba(0,0,0,0.3)', zIndex: 99
+                position: 'absolute',
+                bottom: '42px',
+                left: '0',
+                minWidth: '200px',
+                background: isLight ? '#ffffff' : '#0f172a',
+                border: `1px solid ${controlBorder}`,
+                borderRadius: '8px',
+                boxShadow: isLight ? '0 10px 30px rgba(0,0,0,0.12)' : '0 10px 30px rgba(0,0,0,0.6)',
+                padding: '6px 0',
+                zIndex: 999
               }}
             >
               <button
-                onClick={() => handleExport('png')}
+                onClick={() => { handleExportJson(); setIsDownloadMenuOpen(false); }}
                 style={{
-                  width: '100%', textAlign: 'left', padding: '8px 14px', background: 'transparent',
-                  border: 'none', fontSize: '12px', fontWeight: 600, color: controlColor, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '8px'
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 16px',
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: isLight ? '#0f172a' : '#f8fafc',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
                 }}
+                onMouseOver={(e) => { e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'; }}
+                onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: '16px', color: '#06b6d4' }}>image</span>
-                Export PNG (HD)
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#06b6d4' }}>data_object</span>
+                Download JSON Data
               </button>
+
               <button
-                onClick={() => handleExport('jpg')}
+                onClick={() => { handleExportPng(); setIsDownloadMenuOpen(false); }}
                 style={{
-                  width: '100%', textAlign: 'left', padding: '8px 14px', background: 'transparent',
-                  border: 'none', fontSize: '12px', fontWeight: 600, color: controlColor, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '8px'
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '9px 16px',
+                  background: 'transparent',
+                  border: 'none',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: isLight ? '#0f172a' : '#f8fafc',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
                 }}
+                onMouseOver={(e) => { e.currentTarget.style.background = isLight ? '#f1f5f9' : '#1e293b'; }}
+                onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: '16px', color: '#06b6d4' }}>photo</span>
-                Export JPG
-              </button>
-              <button
-                onClick={() => handleExport('json')}
-                style={{
-                  width: '100%', textAlign: 'left', padding: '8px 14px', background: 'transparent',
-                  border: 'none', fontSize: '12px', fontWeight: 600, color: controlColor, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '8px'
-                }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '16px', color: '#06b6d4' }}>data_object</span>
-                Export JSON Topology
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#10b981' }}>image</span>
+                Export PNG Screenshot
               </button>
             </div>
           )}
         </div>
 
-        {/* Search Toggle */}
-        <button
-          onClick={() => setIsSearchOpen(!isSearchOpen)}
-          title="Search Nodes"
-          style={{
-            width: '30px', height: '30px', background: isSearchOpen ? 'rgba(6, 182, 212, 0.2)' : 'transparent', border: 'none',
-            borderRadius: '5px', color: isSearchOpen ? '#06b6d4' : controlColor, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center'
-          }}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>search</span>
-        </button>
-
-        {/* Reset */}
-        <button
-          onClick={handleReset}
-          title="Reset Layout & Selection"
-          style={{
-            width: '30px', height: '30px', background: 'transparent', border: 'none',
-            borderRadius: '5px', color: controlColor, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center'
-          }}
-          onMouseOver={e => e.currentTarget.style.background = controlHoverBg}
-          onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>refresh</span>
-        </button>
+        {/* 5. Search Node (search icon with popover) */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => {
+              setIsSearchOpen(!isSearchOpen);
+              setIsLabelMenuOpen(false);
+              setIsLayoutMenuOpen(false);
+              setIsDownloadMenuOpen(false);
+            }}
+            title="Search and Highlight Node"
+            style={{
+              width: '32px',
+              height: '32px',
+              background: isSearchOpen ? (isLight ? '#eff6ff' : '#1e3a8a') : 'transparent',
+              border: 'none',
+              borderRadius: '6px',
+              color: isSearchOpen ? '#06b6d4' : controlColor,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all 0.15s'
+            }}
+            onMouseOver={(e) => e.currentTarget.style.background = controlHoverBg}
+            onMouseOut={(e) => e.currentTarget.style.background = isSearchOpen ? (isLight ? '#eff6ff' : '#1e3a8a') : 'transparent'}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>search</span>
+          </button>
+        </div>
       </div>
 
-      {/* Search Drawer / Modal */}
-      {isSearchOpen && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '16px',
-            right: '16px',
-            width: '280px',
-            background: controlBg,
-            border: `1px solid ${controlBorder}`,
-            borderRadius: '8px',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-            padding: '10px',
-            zIndex: 85
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: '16px', color: '#06b6d4' }}>search</span>
-            <input
-              placeholder="Search IP or node..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              autoFocus
-              style={{
-                flex: 1,
-                background: isLight ? '#f8fafc' : '#141e33',
-                border: `1px solid ${controlBorder}`,
-                color: controlColor,
-                padding: '4px 8px',
-                borderRadius: '4px',
-                fontSize: '11px',
-                fontFamily: 'var(--mono)',
-                outline: 'none'
-              }}
-            />
-            <button
-              onClick={() => { setIsSearchOpen(false); setSearchQuery(''); }}
-              style={{ background: 'none', border: 'none', color: controlColor, cursor: 'pointer', padding: '2px' }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>close</span>
-            </button>
-          </div>
-
-          <div style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {allGraphNodes
-              .filter(n => !searchQuery || n.label.toLowerCase().includes(searchQuery.toLowerCase()) || (n.sub || '').includes(searchQuery))
-              .slice(0, 15)
-              .map(n => (
-                <div
-                  key={n.id}
-                  onClick={() => {
-                    if (!cyRef.current) return;
-                    const node = cyRef.current.getElementById(n.id);
-                    if (node && node.length > 0) {
-                      node.emit('tap');
-                      cyRef.current.animate({
-                        center: { eles: node },
-                        zoom: Math.max(cyRef.current.zoom(), 1.2),
-                        duration: 400
-                      });
-                    }
-                    setIsSearchOpen(false);
-                  }}
-                  style={{
-                    padding: '4px 8px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-                  }}
-                  onMouseOver={e => e.currentTarget.style.background = controlHoverBg}
-                  onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-                >
-                  <span style={{ fontWeight: 700, color: controlColor, fontFamily: 'var(--mono)' }}>{n.label}</span>
-                  <span style={{ fontSize: '9px', color: '#06b6d4', textTransform: 'uppercase' }}>{n.type}</span>
-                </div>
-              ))}
-          </div>
-        </div>
-      )}
+      {/* Bottom Subtle Legend Indicator (Matching Network Topology layout) */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: '10px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: legendBg,
+          backdropFilter: 'blur(8px)',
+          border: `1px solid ${legendBorder}`,
+          boxShadow: isLight ? '0 2px 8px rgba(0,0,0,0.06)' : 'none',
+          borderRadius: '6px',
+          padding: '5px 14px',
+          display: 'flex',
+          gap: '14px',
+          fontSize: '10px',
+          fontFamily: 'var(--mono)',
+          color: legendText,
+          pointerEvents: 'none',
+          zIndex: 5
+        }}
+      >
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #ef4444', background: legendNodeCore }}></span> Workstation
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #06b6d4', background: legendNodeCore }}></span> Server / Gateway
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #3b82f6', background: legendNodeCore }}></span> Firewall
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #a855f7', background: legendNodeCore }}></span> DC / KDC
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #64748b', background: legendNodeCore }}></span> WAN IP
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <span style={{ width: '8px', height: '8px', borderRadius: '50%', border: '2px solid #10b981', background: legendNodeCore }}></span> Internal LAN
+        </span>
+      </div>
     </div>
   );
 }
