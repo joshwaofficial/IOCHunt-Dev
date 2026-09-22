@@ -84,7 +84,8 @@ class Event {
         OR tag LIKE '%AUDIT-POLICY%' OR tag LIKE '%LOG-CLEARED%'
         OR tag LIKE '%PASSWORD-CHANGE%' OR tag LIKE '%PASSWORD-RESET%'
         OR tag LIKE '%USER-BURST%' OR tag LIKE '%ENUM%'
-        OR (tag LIKE '%CONFIG-CHANGE%' AND (message LIKE '%user%' OR message LIKE '%group%' OR message LIKE '%password%')))`;
+        OR (tag LIKE '%CONFIG-CHANGE%' AND (message LIKE '%user%' OR message LIKE '%group%' OR message LIKE '%password%'))
+        OR (tag LIKE '%CMD-EXEC%' AND (message LIKE '%user%' OR message LIKE '%group%')))`;
 
     const params = [from, to];
     let pIdx = 3;

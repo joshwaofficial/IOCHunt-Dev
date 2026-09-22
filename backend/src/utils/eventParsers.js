@@ -321,26 +321,27 @@ function parseNetworkEvent(machine, tag, msg, sev) {
 function parseUserEvent(r) {
   const t = (r.tag || '').toUpperCase();
   const msg = r.message || '';
+  const mu = msg.toUpperCase();
   let action = 'Modified';
-  if (t.includes('USER-CREATED')) action = 'User Created';
-  else if (t.includes('USER-DELETED')) action = 'User Deleted';
-  else if (t.includes('USER-ENABLED')) action = 'User Enabled';
-  else if (t.includes('USER-DISABLED')) action = 'User Disabled';
-  else if (t.includes('GROUP-MEMBER')) action = 'Group Change';
-  else if (t.includes('GROUP-CHANGED')) action = 'Group Modified';
-  else if (t.includes('LOG-CLEARED')) action = 'Log Cleared!';
-  else if (t.includes('PASSWORD-RESET')) action = 'Password Reset';
-  else if (t.includes('PASSWORD-CHANGE')) action = 'Password Changed';
+  if (t.includes('USER-CREATED') || mu.includes('USER CREATED') || mu.includes('NET USER') && mu.includes('/ADD')) action = 'User Created';
+  else if (t.includes('USER-DELETED') || mu.includes('USER DELETED') || mu.includes('NET USER') && mu.includes('/DELETE')) action = 'User Deleted';
+  else if (t.includes('USER-ENABLED') || mu.includes('USER ENABLED')) action = 'User Enabled';
+  else if (t.includes('USER-DISABLED') || mu.includes('USER DISABLED')) action = 'User Disabled';
+  else if (t.includes('GROUP-MEMBER') || mu.includes('GROUP-MEMBER') || mu.includes('GROUP MEMBER') || (mu.includes('LOCALGROUP') && mu.includes('/ADD'))) action = 'Group Change';
+  else if (t.includes('GROUP-CHANGED') || mu.includes('GROUP-CHANGED')) action = 'Group Modified';
+  else if (t.includes('LOG-CLEARED') || mu.includes('LOG-CLEARED')) action = 'Log Cleared!';
+  else if (t.includes('PASSWORD-RESET') || mu.includes('PASSWORD RESET')) action = 'Password Reset';
+  else if (t.includes('PASSWORD-CHANGE') || mu.includes('PASSWORD CHANGE')) action = 'Password Changed';
 
-  const actorM = msg.match(/by\s+'([^']+)'/i) || msg.match(/\(by\s+([^)]+)\)/i) || msg.match(/Subject:\s*[\s\S]*?Account Name:\s*([^\s]+)/i) || msg.match(/by\s+(\S+)/i);
+  const actorM = msg.match(/by\s+'([^']+)'/i) || msg.match(/\(by\s+([^)]+)\)/i) || msg.match(/User:\s*([^\s|]+)/i) || msg.match(/Subject:\s*[\s\S]*?Account Name:\s*([^\s]+)/i) || msg.match(/by\s+(\S+)/i);
   const actor = actorM ? actorM[1].slice(0, 50) : '-';
   
-  const qm = msg.match(/'([^']+)'/) || msg.match(/User Account.*?:\s*([^\s|]+)/i) || msg.match(/Target Account:\s*[\s\S]*?Account Name:\s*([^\s]+)/i) || msg.match(/Member:\s*[\s\S]*?Account Name:\s*([^\s]+)/i);
-  const username = qm ? qm[1].slice(0, 60) : '-';
-  
-  const grpM = msg.match(/group\s+'([^']+)'/i) || msg.match(/Group:\s*[\s\S]*?Group Name:\s*([^\s]+)/i) || msg.match(/group\s+([^\s]+)/i);
+  const grpM = msg.match(/group\s+'([^']+)'/i) || msg.match(/Group:\s*[\s\S]*?Group Name:\s*([^\s]+)/i) || msg.match(/CMD:.*?\bnet1?\s+localgroup\s+([^\s]+)/i) || msg.match(/group\s+([^\s]+)/i);
   const group = grpM ? grpM[1].slice(0, 60) : '';
   const is_privileged = /domain admins|enterprise admins|schema admins|administrators/i.test(group || '');
+
+  const qm = msg.match(/'([^']+)'/) || msg.match(/User Account.*?:\s*([^\s|]+)/i) || msg.match(/Target Account:\s*[\s\S]*?Account Name:\s*([^\s]+)/i) || msg.match(/Member:\s*[\s\S]*?Account Name:\s*([^\s]+)/i) || msg.match(/CMD:.*?\bnet1?\s+localgroup\s+[^\s]+\s+([^\s/]+)/i) || msg.match(/CMD:.*?\bnet1?\s+user\s+([^\s/]+)/i);
+  const username = qm ? qm[1].slice(0, 60) : '-';
 
   return { 
     ts: r.ts, 
