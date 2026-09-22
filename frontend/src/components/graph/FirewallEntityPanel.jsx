@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 
 /**
- * Kind color palette for firewall nodes
+ * Kind color palette matching Network Topology standards
  */
 const KIND_COLORS = {
   firewall: '#06b6d4',
@@ -10,7 +10,7 @@ const KIND_COLORS = {
   dc: '#a855f7',
   ip_external: '#64748b',
   ip_private: '#10b981',
-  actor: '#ef4444',
+  actor: '#dc2626',
   default: '#3b82f6'
 };
 
@@ -27,7 +27,7 @@ const KIND_ICONS = {
 
 const KIND_LABELS = {
   firewall: 'Security Gateway / Firewall',
-  server: 'Internal Production Server',
+  server: 'Production Server',
   machine: 'Corporate Workstation',
   dc: 'Domain Controller / KDC',
   ip_external: 'External Internet WAN IP',
@@ -37,19 +37,21 @@ const KIND_LABELS = {
 };
 
 /**
- * Modern Left-Side Entity & Edge Inspection Panel for Firewall Topology
+ * Left-Side Entity & Edge Inspection Panel for Firewall Topology
+ *
  * Overlays the Cytoscape graph canvas on the LEFT side.
  * Supports:
  * - Left window frame docking (collapse into left border with mini-pill button to re-appear)
  * - Node inspection mode (Object Information + Inbound, Outbound, Lateral flow accordions)
- * - Edge inspection mode (Source, Destination, Protocol, Port, Count, Action status, Severity, Timestamps)
+ * - Edge inspection mode (Source, Destination, Protocol, Count, Blocked status, Severity, Timestamps)
+ * - Exact matching layout, controls, and interaction model with Network Topology
  */
 export default function FirewallEntityPanel({
   selectedNode,
   selectedEdge,
-  activeCategory = 'all',
-  onFocusCategory,
   onClose,
+  onFocusCategory,
+  activeCategory = 'all',
   onSelectNodeById,
   theme = 'dark'
 }) {
@@ -68,16 +70,18 @@ export default function FirewallEntityPanel({
 
   const isLight = theme === 'light';
 
-  // 100% Solid opaque styles (no transparency / bleed-through)
-  const panelBg = isLight ? '#ffffff' : '#0f172a';
-  const borderColor = isLight ? '#cbd5e1' : '#1e293b';
+  // Styles
+  const panelBg = isLight
+    ? 'rgba(255, 255, 255, 0.94)'
+    : 'rgba(13, 19, 33, 0.92)';
+  const borderColor = isLight ? 'rgba(203, 213, 225, 0.8)' : 'rgba(255, 255, 255, 0.12)';
   const textColor = isLight ? '#0f172a' : '#f8fafc';
   const mutedColor = isLight ? '#64748b' : '#94a3b8';
-  const sectionBg = isLight ? '#f8fafc' : '#141e33';
-  const hoverBg = isLight ? '#f1f5f9' : '#1e293b';
+  const sectionBg = isLight ? 'rgba(241, 245, 249, 0.75)' : 'rgba(255, 255, 255, 0.03)';
+  const hoverBg = isLight ? 'rgba(226, 232, 240, 0.8)' : 'rgba(255, 255, 255, 0.07)';
 
-  // Categorize connected flows for selected node
-  const categorizedFlows = useMemo(() => {
+  // Process relationships from selectedNode.rows
+  const categorizedRelationships = useMemo(() => {
     if (!selectedNode || !selectedNode.rows) {
       return { in: [], out: [], lat: [] };
     }
@@ -86,8 +90,8 @@ export default function FirewallEntityPanel({
     const outList = [];
     const latList = [];
 
-    const selfLabel = (selectedNode.label || selectedNode.fullLabel || '').toLowerCase();
     const selfId = (selectedNode.id || '').replace(/^m:/, '').toLowerCase();
+    const selfLabel = (selectedNode.label || selectedNode.fullLabel || '').toLowerCase();
 
     selectedNode.rows.forEach(r => {
       const isTarget = r._isTarget !== undefined
@@ -107,101 +111,159 @@ export default function FirewallEntityPanel({
       }
     });
 
-    return { in: inList, out: outList, lat: latList };
+    return {
+      in: inList,
+      out: outList,
+      lat: latList
+    };
   }, [selectedNode]);
 
-  if (!selectedNode && !selectedEdge) return null;
+  // Extract pure raw properties for Object Information
+  const objectInfoFields = useMemo(() => {
+    if (!selectedNode) return [];
+    const raw = selectedNode.raw || {};
+    const fields = [];
 
-  // Render Mini-Pill when collapsed
+    const add = (label, val) => {
+      if (val !== undefined && val !== null && val !== '') {
+        let displayVal = String(val);
+        if (typeof val === 'boolean') displayVal = val ? 'TRUE' : 'FALSE';
+        fields.push({ label, value: displayVal });
+      }
+    };
+
+    add('Node Type', KIND_LABELS[selectedNode.entityType] || selectedNode.entityType);
+    add('Node Name', selectedNode.label || selectedNode.fullLabel);
+    if (selectedNode.subLabel && selectedNode.subLabel !== selectedNode.label) {
+      add('IP / Subtitle', selectedNode.subLabel);
+    }
+    add('IP Address', raw.ip || (selectedNode.id && selectedNode.id.startsWith('ip:') ? selectedNode.id.slice(3) : undefined));
+    add('Operating System', raw.os || raw.operatingsystem);
+    add('Total Connections', selectedNode.rows?.length || 0);
+    add('Threat Status', raw.has_threat ? 'Critical Threat Detected' : 'Monitored Host');
+    add('Description', raw.description || (raw.firewall_model ? `Security Appliance: ${raw.firewall_model}` : undefined));
+
+    return fields;
+  }, [selectedNode]);
+
+  // If nothing is selected, do not render
+  if (!selectedNode && !selectedEdge) {
+    return null;
+  }
+
+  // Mini toggle pill when collapsed in the window frame
   if (isCollapsed) {
     return (
-      <div
+      <button
+        onClick={() => setIsCollapsed(false)}
+        title="Show Firewall Details Panel"
         style={{
           position: 'absolute',
-          top: '16px',
-          left: '0',
-          zIndex: 90,
-          background: panelBg,
+          top: '18px',
+          left: '14px',
+          zIndex: 60,
+          background: isLight ? '#ffffff' : '#0f172a',
           border: `1px solid ${borderColor}`,
-          borderLeft: 'none',
-          borderTopRightRadius: '8px',
-          borderBottomRightRadius: '8px',
-          padding: '6px 8px',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+          borderRadius: '8px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+          color: textColor,
+          padding: '8px 12px',
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
-          gap: '6px'
+          gap: '8px',
+          fontFamily: 'var(--sans)',
+          fontSize: '12px',
+          fontWeight: 700,
+          transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+          backdropFilter: 'blur(12px)'
         }}
-        onClick={() => setIsCollapsed(false)}
-        title="Show Details Panel"
+        onMouseOver={e => {
+          e.currentTarget.style.transform = 'scale(1.04)';
+          e.currentTarget.style.borderColor = '#06b6d4';
+        }}
+        onMouseOut={e => {
+          e.currentTarget.style.transform = 'scale(1)';
+          e.currentTarget.style.borderColor = borderColor;
+        }}
       >
-        <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#06b6d4' }}>
-          chevron_right
+        <span
+          className="material-symbols-outlined"
+          style={{
+            fontSize: '16px',
+            color: selectedNode ? (KIND_COLORS[selectedNode.entityType] || '#06b6d4') : '#06b6d4'
+          }}
+        >
+          {selectedNode ? 'account_tree' : 'alt_route'}
         </span>
-        <span style={{ fontSize: '11px', fontWeight: 700, color: textColor }}>
-          {selectedNode ? selectedNode.label : 'Edge Details'}
+        <span>{selectedNode ? (selectedNode.label || 'Node Info') : 'Edge Info'}</span>
+        <span className="material-symbols-outlined" style={{ fontSize: '16px', color: mutedColor }}>
+          dock_to_left
         </span>
-      </div>
+      </button>
     );
   }
 
-  const isEdgeMode = Boolean(selectedEdge);
-  const nodeType = selectedNode?.entityType || 'machine';
-  const nodeColor = KIND_COLORS[nodeType] || KIND_COLORS.default;
-  const nodeIcon = KIND_ICONS[nodeType] || KIND_ICONS.default;
-  const nodeLabel = KIND_LABELS[nodeType] || 'Network Node';
+  // Node Kind Styling
+  const kindColor = selectedNode ? (KIND_COLORS[selectedNode.entityType] || KIND_COLORS.default) : '#06b6d4';
+  const kindIcon = selectedNode ? (KIND_ICONS[selectedNode.entityType] || KIND_ICONS.default) : 'alt_route';
+  const kindSubtitle = selectedNode ? (KIND_LABELS[selectedNode.entityType] || 'Network Node') : 'Traffic Connection';
 
   return (
     <div
       id="firewall-entity-panel"
       style={{
         position: 'absolute',
-        top: '16px',
-        bottom: '16px',
-        left: '16px',
+        top: '14px',
+        left: '14px',
+        bottom: '14px',
         width: '380px',
-        maxWidth: 'calc(100% - 32px)',
-        zIndex: 80,
+        maxWidth: 'calc(100vw - 32px)',
+        zIndex: 50,
         background: panelBg,
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
         border: `1px solid ${borderColor}`,
         borderRadius: '12px',
-        boxShadow: '0 12px 32px rgba(0, 0, 0, 0.5)',
+        boxShadow: isLight
+          ? '0 16px 40px -8px rgba(0, 0, 0, 0.15), 0 0 1px rgba(0,0,0,0.1)'
+          : '0 20px 50px -10px rgba(0, 0, 0, 0.65), 0 0 1px rgba(255,255,255,0.15)',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
-        transition: 'all 0.2s ease-out'
+        transition: 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s',
+        animation: 'slideInLeft 0.2s ease-out'
       }}
     >
-      {/* Panel Header */}
+      {/* Top Header Bar */}
       <div
         style={{
-          padding: '12px 16px',
+          padding: '14px 16px',
           borderBottom: `1px solid ${borderColor}`,
+          background: isLight ? 'rgba(241, 245, 249, 0.5)' : 'rgba(255, 255, 255, 0.02)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          background: isLight ? 'rgba(241, 245, 249, 0.5)' : 'rgba(255, 255, 255, 0.02)',
-          flexShrink: 0
+          gap: '10px'
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
           <div
             style={{
-              width: '28px',
-              height: '28px',
-              borderRadius: '6px',
-              background: isEdgeMode ? 'rgba(6, 182, 212, 0.15)' : `${nodeColor}22`,
-              border: `1px solid ${isEdgeMode ? '#06b6d4' : nodeColor}`,
+              width: '34px',
+              height: '34px',
+              borderRadius: '50%',
+              border: `2px solid ${kindColor}`,
+              background: isLight ? '#f1f5f9' : '#0f172a',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: isEdgeMode ? '#06b6d4' : nodeColor,
+              color: kindColor,
               flexShrink: 0
             }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
-              {isEdgeMode ? 'alt_route' : nodeIcon}
+            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
+              {kindIcon}
             </span>
           </div>
           <div style={{ minWidth: 0 }}>
@@ -212,66 +274,129 @@ export default function FirewallEntityPanel({
                 color: textColor,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
-                textOverflow: 'ellipsis'
+                textOverflow: 'ellipsis',
+                fontFamily: 'var(--sans)',
+                letterSpacing: '0.2px'
               }}
-              title={isEdgeMode ? selectedEdge.label : selectedNode.fullLabel || selectedNode.label}
+              title={selectedNode ? (selectedNode.fullLabel || selectedNode.label) : selectedEdge?.label}
             >
-              {isEdgeMode ? (selectedEdge.label || 'Connection Flow') : (selectedNode.label || 'Network Node')}
+              {selectedNode ? (selectedNode.label || selectedNode.fullLabel) : (selectedEdge?.label || 'Connection')}
             </div>
-            <div style={{ fontSize: '10px', color: mutedColor }}>
-              {isEdgeMode ? 'Traffic Connection Details' : nodeLabel}
+            <div
+              style={{
+                fontSize: '10px',
+                fontWeight: 600,
+                color: mutedColor,
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px'
+              }}
+            >
+              {kindSubtitle}
             </div>
           </div>
         </div>
 
+        {/* Action Controls: Dock To Left Frame & Close */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
           <button
             onClick={() => setIsCollapsed(true)}
+            title="Hide / Dock to left window frame"
             style={{
               background: 'transparent',
               border: 'none',
               color: mutedColor,
+              width: '28px',
+              height: '28px',
+              borderRadius: '6px',
               cursor: 'pointer',
-              padding: '4px',
-              borderRadius: '4px',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              transition: 'background 0.15s, color 0.15s'
             }}
-            title="Collapse Panel to Left"
+            onMouseOver={e => {
+              e.currentTarget.style.background = hoverBg;
+              e.currentTarget.style.color = textColor;
+            }}
+            onMouseOut={e => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = mutedColor;
+            }}
           >
             <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
-              chevron_left
+              dock_to_left
             </span>
           </button>
+
           <button
             onClick={onClose}
+            title="Close Panel (Clear Selection)"
             style={{
               background: 'transparent',
               border: 'none',
               color: mutedColor,
+              width: '28px',
+              height: '28px',
+              borderRadius: '6px',
               cursor: 'pointer',
-              padding: '4px',
-              borderRadius: '4px',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              fontSize: '16px',
+              transition: 'background 0.15s, color 0.15s'
             }}
-            title="Close Panel"
+            onMouseOver={e => {
+              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
+              e.currentTarget.style.color = '#ef4444';
+            }}
+            onMouseOut={e => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = mutedColor;
+            }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
-              close
-            </span>
+            ✕
           </button>
         </div>
       </div>
 
+      {/* Active Focus Filter Indicator (When user isolates Inbound / Outbound / etc.) */}
+      {activeCategory && activeCategory !== 'all' && (
+        <div
+          style={{
+            padding: '7px 14px',
+            background: 'rgba(59, 130, 246, 0.12)',
+            borderBottom: '1px solid rgba(59, 130, 246, 0.25)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '11px',
+            color: '#60a5fa'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>filter_alt</span>
+            <span>Focus: <b>{activeCategory === 'full_path' ? 'FULL ATTACK PATH' : (activeCategory === 'isolated' ? 'ISOLATED VIEW' : activeCategory.toUpperCase())}</b></span>
+          </div>
+        </div>
+      )}
+
       {/* Scrollable Content Body */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        {/* ================= EDGE INSPECTION MODE ================= */}
-        {isEdgeMode && (
-          <>
-            {/* Source & Destination Connection Card */}
+      <div
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '12px 14px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '10px'
+        }}
+      >
+        {/* ========================================================================= */}
+        {/* MODE A: EDGE INSPECTION MODE (When edge arrow is clicked) */}
+        {/* ========================================================================= */}
+        {selectedEdge && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {/* Edge Hero Header */}
             <div
               style={{
                 background: sectionBg,
@@ -280,32 +405,32 @@ export default function FirewallEntityPanel({
                 padding: '12px',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '8px'
+                gap: '10px'
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '10px', fontWeight: 800, color: mutedColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Traffic Endpoints
+                <span
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 800,
+                    color: selectedEdge.color || '#06b6d4',
+                    fontFamily: 'var(--mono)',
+                    letterSpacing: '0.3px'
+                  }}
+                >
+                  {selectedEdge.label || 'CONNECTION'}
                 </span>
-                {selectedEdge.detail?.action && (
+                {selectedEdge.detail?.severity && (
                   <span
-                    style={{
-                      fontSize: '10px',
-                      fontWeight: 800,
-                      padding: '2px 8px',
-                      borderRadius: '4px',
-                      textTransform: 'uppercase',
-                      background: selectedEdge.detail.blocked > 0 ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)',
-                      color: selectedEdge.detail.blocked > 0 ? '#ef4444' : '#22c55e',
-                      border: `1px solid ${selectedEdge.detail.blocked > 0 ? '#ef4444' : '#22c55e'}44`
-                    }}
+                    className={`badge sev-${selectedEdge.detail.severity}`}
+                    style={{ textTransform: 'uppercase', fontSize: '9px', fontWeight: 700 }}
                   >
-                    {selectedEdge.detail.blocked > 0 ? '🛑 BLOCKED' : selectedEdge.detail.action.toUpperCase()}
+                    {selectedEdge.detail.severity}
                   </span>
                 )}
               </div>
 
-              {/* Source -> Destination Visual Flow */}
+              {/* Source -> Target Connected Cards */}
               <div
                 style={{
                   display: 'flex',
@@ -317,6 +442,7 @@ export default function FirewallEntityPanel({
                   padding: '8px 10px'
                 }}
               >
+                {/* Source Node */}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '9px', color: mutedColor, textTransform: 'uppercase', fontWeight: 700 }}>
                     Source
@@ -333,16 +459,18 @@ export default function FirewallEntityPanel({
                     }}
                     title={selectedEdge.detail?.src}
                   >
-                    {selectedEdge.detail?.src || selectedEdge.source || '-'}
+                    {selectedEdge.detail?.src || '-'}
                   </div>
                 </div>
 
+                {/* Arrow */}
                 <div style={{ color: selectedEdge.color || '#06b6d4', display: 'flex', alignItems: 'center' }}>
                   <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
                     arrow_forward
                   </span>
                 </div>
 
+                {/* Target Node */}
                 <div style={{ flex: 1, minWidth: 0, textAlign: 'right' }}>
                   <div style={{ fontSize: '9px', color: mutedColor, textTransform: 'uppercase', fontWeight: 700 }}>
                     Destination
@@ -351,7 +479,7 @@ export default function FirewallEntityPanel({
                     style={{
                       fontSize: '11px',
                       fontWeight: 700,
-                      color: '#06b6d4',
+                      color: '#60a5fa',
                       fontFamily: 'var(--mono)',
                       whiteSpace: 'nowrap',
                       overflow: 'hidden',
@@ -359,7 +487,7 @@ export default function FirewallEntityPanel({
                     }}
                     title={selectedEdge.detail?.dst}
                   >
-                    {selectedEdge.detail?.dst || selectedEdge.target || '-'}
+                    {selectedEdge.detail?.dst || '-'}
                   </div>
                 </div>
               </div>
@@ -371,7 +499,7 @@ export default function FirewallEntityPanel({
                     onClick={() => onSelectNodeById(selectedEdge.detail.src)}
                     style={{
                       flex: 1,
-                      padding: '5px 8px',
+                      padding: '4px 8px',
                       borderRadius: '5px',
                       background: 'rgba(6, 182, 212, 0.1)',
                       border: '1px solid rgba(6, 182, 212, 0.25)',
@@ -385,7 +513,7 @@ export default function FirewallEntityPanel({
                       gap: '4px'
                     }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>hub</span>
+                    <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>hub</span>
                     Inspect Source
                   </button>
                 )}
@@ -394,7 +522,7 @@ export default function FirewallEntityPanel({
                     onClick={() => onSelectNodeById(selectedEdge.detail.dst)}
                     style={{
                       flex: 1,
-                      padding: '5px 8px',
+                      padding: '4px 8px',
                       borderRadius: '5px',
                       background: 'rgba(6, 182, 212, 0.1)',
                       border: '1px solid rgba(6, 182, 212, 0.25)',
@@ -408,7 +536,7 @@ export default function FirewallEntityPanel({
                       gap: '4px'
                     }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>hub</span>
+                    <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>hub</span>
                     Inspect Destination
                   </button>
                 )}
@@ -438,7 +566,7 @@ export default function FirewallEntityPanel({
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 800, color: textColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#06b6d4' }}>tune</span>
-                  <span>Flow Properties</span>
+                  <span>Connection Properties</span>
                 </div>
                 <span className="material-symbols-outlined" style={{ fontSize: '16px', color: mutedColor }}>
                   {openAccordions.edgeDetails ? 'expand_less' : 'expand_more'}
@@ -456,37 +584,27 @@ export default function FirewallEntityPanel({
                   {selectedEdge.detail?.port && (
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: mutedColor }}>Port:</span>
-                      <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: '#06b6d4' }}>
+                      <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: textColor }}>
                         {selectedEdge.detail.port}
                       </span>
                     </div>
                   )}
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: mutedColor }}>Event Count / Hits:</span>
+                    <span style={{ color: mutedColor }}>Event Count:</span>
                     <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: textColor }}>
                       {selectedEdge.detail?.count || 1}
                     </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: mutedColor }}>Firewall Action:</span>
+                    <span style={{ color: mutedColor }}>Status / Action:</span>
                     <span>
-                      {selectedEdge.detail?.blocked > 0 ? (
-                        <span style={{ color: '#ef4444', fontWeight: 800 }}>🛑 BLOCKED / DENIED</span>
+                      {selectedEdge.detail?.blocked > 0 || (selectedEdge.detail?.action || '').toLowerCase() === 'deny' || (selectedEdge.detail?.action || '').toLowerCase() === 'drop' ? (
+                        <span style={{ color: '#ef4444', fontWeight: 800 }}>🛑 BLOCKED</span>
                       ) : (
-                        <span style={{ color: '#22c55e', fontWeight: 700 }}>
-                          {(selectedEdge.detail?.action || 'Allowed').toUpperCase()}
-                        </span>
+                        <span style={{ color: '#22c55e', fontWeight: 700 }}>Allowed</span>
                       )}
                     </span>
                   </div>
-                  {selectedEdge.detail?.severity && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: mutedColor }}>Severity:</span>
-                      <span style={{ fontWeight: 700, textTransform: 'uppercase', color: selectedEdge.detail.severity === 'critical' ? '#ef4444' : selectedEdge.detail.severity === 'high' ? '#f97316' : '#22c55e' }}>
-                        {selectedEdge.detail.severity}
-                      </span>
-                    </div>
-                  )}
                   {selectedEdge.detail?.first_seen && (
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: mutedColor }}>First Seen:</span>
@@ -505,7 +623,7 @@ export default function FirewallEntityPanel({
                   )}
                   {selectedEdge.detail?.extra && (
                     <div style={{ marginTop: '4px', paddingTop: '6px', borderTop: `1px solid ${borderColor}` }}>
-                      <div style={{ fontSize: '10px', color: mutedColor, fontWeight: 700, textTransform: 'uppercase' }}>Description / Policy</div>
+                      <div style={{ fontSize: '10px', color: mutedColor, fontWeight: 700, textTransform: 'uppercase' }}>Description</div>
                       <div style={{ fontSize: '11px', color: textColor, marginTop: '2px', wordBreak: 'break-word' }}>
                         {selectedEdge.detail.extra}
                       </div>
@@ -514,44 +632,84 @@ export default function FirewallEntityPanel({
                 </div>
               )}
             </div>
-          </>
+
+            {/* Aggregated Parallel Rows List (if multiple connections exist on this edge) */}
+            {selectedEdge.rows && selectedEdge.rows.length > 1 && (
+              <div
+                style={{
+                  background: sectionBg,
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: '8px',
+                  overflow: 'hidden'
+                }}
+              >
+                <div style={{ padding: '10px 12px', borderBottom: `1px solid ${borderColor}`, fontSize: '11px', fontWeight: 800, color: textColor, textTransform: 'uppercase' }}>
+                  Aggregated Flow Events ({selectedEdge.rows.length})
+                </div>
+                <div style={{ maxHeight: '180px', overflowY: 'auto', padding: '6px' }}>
+                  {selectedEdge.rows.map((row, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        padding: '6px 8px',
+                        borderRadius: '4px',
+                        background: idx % 2 === 0 ? 'transparent' : (isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.02)'),
+                        fontSize: '10px',
+                        fontFamily: 'var(--mono)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <span style={{ color: textColor }}>{row.protocol || row.extra || 'Event'}</span>
+                      <span style={{ color: mutedColor }}>x{row.count || 1}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
-        {/* ================= NODE INSPECTION MODE ================= */}
-        {!isEdgeMode && selectedNode && (
+        {/* ========================================================================= */}
+        {/* MODE B: NODE INSPECTION MODE */}
+        {/* ========================================================================= */}
+        {selectedNode && (
           <>
-            {/* Quick Action: Trace Full Attack Path (Enable / Disable Toggle) */}
+            {/* Quick Action: Trace Full Attack Path (ONLY ENABLE, NEVER DISABLE) */}
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
-                onClick={() => onFocusCategory && onFocusCategory(activeCategory === 'full_path' ? 'all' : 'full_path')}
-                title={activeCategory === 'full_path' ? 'Disable full attack path and show all nodes' : 'Show full attack path from threat roots to targets for this node'}
+                onClick={() => onFocusCategory && onFocusCategory('full_path')}
+                disabled={activeCategory === 'full_path'}
+                title="Show full attack path from threat roots to targets for this node"
                 style={{
                   flex: 1,
                   padding: '9px 12px',
                   borderRadius: '7px',
                   background: activeCategory === 'full_path'
-                    ? (isLight ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.22)')
+                    ? 'linear-gradient(135deg, #0052FF, #2563eb)'
                     : (isLight ? 'rgba(0, 82, 255, 0.08)' : 'rgba(0, 82, 255, 0.16)'),
-                  border: `1px solid ${activeCategory === 'full_path' ? '#ef4444' : 'rgba(0, 82, 255, 0.35)'}`,
-                  color: activeCategory === 'full_path' ? '#ef4444' : '#3b82f6',
+                  border: `1px solid ${activeCategory === 'full_path' ? '#0052FF' : 'rgba(0, 82, 255, 0.35)'}`,
+                  color: activeCategory === 'full_path' ? '#ffffff' : '#3b82f6',
                   fontSize: '11px',
                   fontWeight: 800,
-                  cursor: 'pointer',
+                  cursor: activeCategory === 'full_path' ? 'default' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '6px',
-                  boxShadow: activeCategory === 'full_path' ? '0 2px 10px rgba(239, 68, 68, 0.25)' : 'none',
+                  boxShadow: activeCategory === 'full_path' ? '0 2px 10px rgba(0, 82, 255, 0.35)' : 'none',
                   transition: 'all 0.15s ease'
                 }}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>
-                  {activeCategory === 'full_path' ? 'close' : 'alt_route'}
+                  {activeCategory === 'full_path' ? 'check_circle' : 'alt_route'}
                 </span>
-                {activeCategory === 'full_path' ? 'Disable Full Path Filter' : 'Show Full Attack Path'}
+                {activeCategory === 'full_path' ? 'Full Attack Path Active' : 'Show Full Attack Path'}
               </button>
             </div>
-            {/* Object Information Card */}
+
+            {/* Accordion 1: Node Information */}
             <div
               style={{
                 background: sectionBg,
@@ -573,7 +731,7 @@ export default function FirewallEntityPanel({
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 800, color: textColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#06b6d4' }}>info</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: '15px', color: kindColor }}>info</span>
                   <span>Node Information</span>
                 </div>
                 <span className="material-symbols-outlined" style={{ fontSize: '16px', color: mutedColor }}>
@@ -582,351 +740,318 @@ export default function FirewallEntityPanel({
               </div>
 
               {openAccordions.objectInfo && (
-                <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '11px' }}>
-                  <div>
-                    <div style={{ fontSize: '10px', color: mutedColor, textTransform: 'uppercase', fontWeight: 700 }}>Node Identifier</div>
-                    <div style={{ fontSize: '13px', fontWeight: 800, color: textColor, fontFamily: 'var(--mono)', wordBreak: 'break-all' }}>
-                      {selectedNode.fullLabel || selectedNode.label}
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ color: mutedColor }}>Node Type:</span>
-                    <span style={{ background: `${nodeColor}1A`, color: nodeColor, padding: '2px 8px', borderRadius: '4px', fontWeight: 700, fontSize: '10px', textTransform: 'uppercase' }}>
-                      {nodeLabel}
-                    </span>
-                  </div>
-
-                  {selectedNode.raw?.ip && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: mutedColor }}>IP Address:</span>
-                      <span style={{ fontFamily: 'var(--mono)', color: textColor, fontWeight: 700 }}>
-                        {selectedNode.raw.ip}
+                <div style={{ padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {objectInfoFields.map((field, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'flex-start',
+                        gap: '10px',
+                        fontSize: '11px',
+                        paddingBottom: '4px',
+                        borderBottom: idx < objectInfoFields.length - 1 ? `1px solid ${borderColor}` : 'none'
+                      }}
+                    >
+                      <span style={{ color: mutedColor, minWidth: '110px', flexShrink: 0 }}>
+                        {field.label}:
+                      </span>
+                      <span
+                        style={{
+                          color: textColor,
+                          fontFamily: 'var(--mono)',
+                          fontWeight: 600,
+                          textAlign: 'right',
+                          wordBreak: 'break-word'
+                        }}
+                      >
+                        {field.value}
                       </span>
                     </div>
-                  )}
-
-                  {selectedNode.raw?.os && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: mutedColor }}>Operating System:</span>
-                      <span style={{ color: textColor, fontWeight: 600 }}>
-                        {selectedNode.raw.os}
-                      </span>
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: mutedColor }}>Total Connections:</span>
-                    <span style={{ fontFamily: 'var(--mono)', fontWeight: 800, color: textColor }}>
-                      {selectedNode.rows?.length || 0}
-                    </span>
-                  </div>
+                  ))}
                 </div>
               )}
             </div>
 
-            {/* Inbound Flows Accordion */}
-            <div
-              style={{
-                background: sectionBg,
-                border: `1px solid ${borderColor}`,
-                borderRadius: '8px',
-                overflow: 'hidden'
-              }}
-            >
-              <div
-                onClick={() => toggleAccordion('inbound')}
-                style={{
-                  padding: '10px 12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                  borderBottom: openAccordions.inbound ? `1px solid ${borderColor}` : 'none'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 800, color: textColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#f97316' }}>arrow_downward</span>
-                  <span>Inbound Traffic ({categorizedFlows.in.length})</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  {categorizedFlows.in.length > 0 && onFocusCategory && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onFocusCategory(activeCategory === 'inbound' ? 'all' : 'inbound');
-                      }}
-                      title="Focus inbound connections for this node"
-                      style={{
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        fontSize: '10px',
-                        fontWeight: 700,
-                        border: 'none',
-                        cursor: 'pointer',
-                        background: activeCategory === 'inbound' ? '#ef4444' : (isLight ? '#e2e8f0' : '#1e293b'),
-                        color: activeCategory === 'inbound' ? '#ffffff' : mutedColor
-                      }}
-                    >
-                      {activeCategory === 'inbound' ? '✕ Cancel' : 'Focus'}
-                    </button>
-                  )}
-                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: mutedColor }}>
-                    {openAccordions.inbound ? 'expand_less' : 'expand_more'}
-                  </span>
-                </div>
-              </div>
+            {/* Accordion 2: Inbound Connections */}
+            <RelationshipAccordion
+              title="Inbound Traffic"
+              icon="arrow_downward"
+              iconColor="#3b82f6"
+              items={categorizedRelationships.in}
+              isOpen={openAccordions.inbound}
+              onToggle={() => toggleAccordion('inbound')}
+              onFocusCategory={() => onFocusCategory && onFocusCategory('inbound')}
+              isActiveCategory={activeCategory === 'inbound'}
+              onSelectNodeById={onSelectNodeById}
+              targetKey="src"
+              isLight={isLight}
+              borderColor={borderColor}
+              sectionBg={sectionBg}
+              textColor={textColor}
+              mutedColor={mutedColor}
+            />
 
-              {openAccordions.inbound && (
-                <div style={{ maxHeight: '180px', overflowY: 'auto', padding: '6px' }}>
-                  {categorizedFlows.in.length === 0 ? (
-                    <div style={{ padding: '8px', textAlign: 'center', color: mutedColor, fontSize: '11px' }}>
-                      No inbound connections recorded
-                    </div>
-                  ) : (
-                    categorizedFlows.in.map((flow, idx) => (
-                      <div
-                        key={idx}
-                        onClick={() => flow._otherLabel && onSelectNodeById && onSelectNodeById(flow._otherLabel)}
-                        style={{
-                          padding: '6px 8px',
-                          borderRadius: '5px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          fontSize: '11px',
-                          cursor: 'pointer',
-                          transition: 'background 0.15s'
-                        }}
-                        onMouseOver={e => e.currentTarget.style.background = hoverBg}
-                        onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-                      >
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={{ fontWeight: 700, color: textColor, fontFamily: 'var(--mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {flow._otherLabel}
-                          </div>
-                          <div style={{ fontSize: '10px', color: mutedColor }}>
-                            {flow.protocol || flow.service || 'IP'}{flow.port ? `:${flow.port}` : ''}
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '8px' }}>
-                          <span style={{ fontSize: '10px', fontWeight: 800, color: flow.blocked > 0 ? '#ef4444' : '#22c55e' }}>
-                            {flow.blocked > 0 ? 'BLOCKED' : 'ALLOW'}
-                          </span>
-                          <div style={{ fontSize: '10px', color: mutedColor, fontFamily: 'var(--mono)' }}>
-                            x{flow.count || 1}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
+            {/* Accordion 3: Outbound Connections */}
+            <RelationshipAccordion
+              title="Outbound Traffic"
+              icon="arrow_upward"
+              iconColor="#10b981"
+              items={categorizedRelationships.out}
+              isOpen={openAccordions.outbound}
+              onToggle={() => toggleAccordion('outbound')}
+              onFocusCategory={() => onFocusCategory && onFocusCategory('outbound')}
+              isActiveCategory={activeCategory === 'outbound'}
+              onSelectNodeById={onSelectNodeById}
+              targetKey="dst"
+              isLight={isLight}
+              borderColor={borderColor}
+              sectionBg={sectionBg}
+              textColor={textColor}
+              mutedColor={mutedColor}
+            />
 
-            {/* Outbound Flows Accordion */}
-            <div
-              style={{
-                background: sectionBg,
-                border: `1px solid ${borderColor}`,
-                borderRadius: '8px',
-                overflow: 'hidden'
-              }}
-            >
-              <div
-                onClick={() => toggleAccordion('outbound')}
-                style={{
-                  padding: '10px 12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                  borderBottom: openAccordions.outbound ? `1px solid ${borderColor}` : 'none'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 800, color: textColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#3b82f6' }}>arrow_upward</span>
-                  <span>Outbound Traffic ({categorizedFlows.out.length})</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  {categorizedFlows.out.length > 0 && onFocusCategory && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onFocusCategory(activeCategory === 'outbound' ? 'all' : 'outbound');
-                      }}
-                      title="Focus outbound connections for this node"
-                      style={{
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        fontSize: '10px',
-                        fontWeight: 700,
-                        border: 'none',
-                        cursor: 'pointer',
-                        background: activeCategory === 'outbound' ? '#ef4444' : (isLight ? '#e2e8f0' : '#1e293b'),
-                        color: activeCategory === 'outbound' ? '#ffffff' : mutedColor
-                      }}
-                    >
-                      {activeCategory === 'outbound' ? '✕ Cancel' : 'Focus'}
-                    </button>
-                  )}
-                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: mutedColor }}>
-                    {openAccordions.outbound ? 'expand_less' : 'expand_more'}
-                  </span>
-                </div>
-              </div>
-
-              {openAccordions.outbound && (
-                <div style={{ maxHeight: '180px', overflowY: 'auto', padding: '6px' }}>
-                  {categorizedFlows.out.length === 0 ? (
-                    <div style={{ padding: '8px', textAlign: 'center', color: mutedColor, fontSize: '11px' }}>
-                      No outbound connections recorded
-                    </div>
-                  ) : (
-                    categorizedFlows.out.map((flow, idx) => (
-                      <div
-                        key={idx}
-                        onClick={() => flow._otherLabel && onSelectNodeById && onSelectNodeById(flow._otherLabel)}
-                        style={{
-                          padding: '6px 8px',
-                          borderRadius: '5px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          fontSize: '11px',
-                          cursor: 'pointer',
-                          transition: 'background 0.15s'
-                        }}
-                        onMouseOver={e => e.currentTarget.style.background = hoverBg}
-                        onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-                      >
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={{ fontWeight: 700, color: textColor, fontFamily: 'var(--mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {flow._otherLabel}
-                          </div>
-                          <div style={{ fontSize: '10px', color: mutedColor }}>
-                            {flow.protocol || flow.service || 'IP'}{flow.port ? `:${flow.port}` : ''}
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '8px' }}>
-                          <span style={{ fontSize: '10px', fontWeight: 800, color: flow.blocked > 0 ? '#ef4444' : '#22c55e' }}>
-                            {flow.blocked > 0 ? 'BLOCKED' : 'ALLOW'}
-                          </span>
-                          <div style={{ fontSize: '10px', color: mutedColor, fontFamily: 'var(--mono)' }}>
-                            x{flow.count || 1}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Internal / Lateral Flows Accordion */}
-            <div
-              style={{
-                background: sectionBg,
-                border: `1px solid ${borderColor}`,
-                borderRadius: '8px',
-                overflow: 'hidden'
-              }}
-            >
-              <div
-                onClick={() => toggleAccordion('lateral')}
-                style={{
-                  padding: '10px 12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                  borderBottom: openAccordions.lateral ? `1px solid ${borderColor}` : 'none'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 800, color: textColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: '14px', color: '#06b6d4' }}>swap_horiz</span>
-                  <span>Internal Lateral Flows ({categorizedFlows.lat.length})</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  {categorizedFlows.lat.length > 0 && onFocusCategory && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onFocusCategory(activeCategory === 'lateral' ? 'all' : 'lateral');
-                      }}
-                      title="Focus lateral flows for this node"
-                      style={{
-                        padding: '2px 8px',
-                        borderRadius: '4px',
-                        fontSize: '10px',
-                        fontWeight: 700,
-                        border: 'none',
-                        cursor: 'pointer',
-                        background: activeCategory === 'lateral' ? '#ef4444' : (isLight ? '#e2e8f0' : '#1e293b'),
-                        color: activeCategory === 'lateral' ? '#ffffff' : mutedColor
-                      }}
-                    >
-                      {activeCategory === 'lateral' ? '✕ Cancel' : 'Focus'}
-                    </button>
-                  )}
-                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: mutedColor }}>
-                    {openAccordions.lateral ? 'expand_less' : 'expand_more'}
-                  </span>
-                </div>
-              </div>
-
-              {openAccordions.lateral && (
-                <div style={{ maxHeight: '180px', overflowY: 'auto', padding: '6px' }}>
-                  {categorizedFlows.lat.length === 0 ? (
-                    <div style={{ padding: '8px', textAlign: 'center', color: mutedColor, fontSize: '11px' }}>
-                      No internal lateral connections recorded
-                    </div>
-                  ) : (
-                    categorizedFlows.lat.map((flow, idx) => (
-                      <div
-                        key={idx}
-                        onClick={() => flow._otherLabel && onSelectNodeById && onSelectNodeById(flow._otherLabel)}
-                        style={{
-                          padding: '6px 8px',
-                          borderRadius: '5px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          fontSize: '11px',
-                          cursor: 'pointer',
-                          transition: 'background 0.15s'
-                        }}
-                        onMouseOver={e => e.currentTarget.style.background = hoverBg}
-                        onMouseOut={e => e.currentTarget.style.background = 'transparent'}
-                      >
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={{ fontWeight: 700, color: textColor, fontFamily: 'var(--mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {flow._otherLabel}
-                          </div>
-                          <div style={{ fontSize: '10px', color: mutedColor }}>
-                            {flow.protocol || flow.service || 'IP'}{flow.port ? `:${flow.port}` : ''}
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '8px' }}>
-                          <span style={{ fontSize: '10px', fontWeight: 800, color: flow.blocked > 0 ? '#ef4444' : '#22c55e' }}>
-                            {flow.blocked > 0 ? 'BLOCKED' : 'ALLOW'}
-                          </span>
-                          <div style={{ fontSize: '10px', color: mutedColor, fontFamily: 'var(--mono)' }}>
-                            x{flow.count || 1}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
+            {/* Accordion 4: Lateral Flows */}
+            <RelationshipAccordion
+              title="Internal Lateral Flows"
+              icon="swap_horiz"
+              iconColor="#f97316"
+              items={categorizedRelationships.lat}
+              isOpen={openAccordions.lateral}
+              onToggle={() => toggleAccordion('lateral')}
+              onFocusCategory={() => onFocusCategory && onFocusCategory('lateral')}
+              isActiveCategory={activeCategory === 'lateral'}
+              onSelectNodeById={onSelectNodeById}
+              targetKey="dst"
+              isLight={isLight}
+              borderColor={borderColor}
+              sectionBg={sectionBg}
+              textColor={textColor}
+              mutedColor={mutedColor}
+            />
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Reusable Accordion Item for Relationships & Flows (Exact match to Network Topology)
+ */
+function RelationshipAccordion({
+  title,
+  icon,
+  iconColor,
+  items,
+  isOpen,
+  onToggle,
+  onFocusCategory,
+  isActiveCategory,
+  onSelectNodeById,
+  targetKey = 'dst',
+  isLight,
+  borderColor,
+  sectionBg,
+  textColor,
+  mutedColor
+}) {
+  const count = items.length;
+
+  return (
+    <div
+      style={{
+        background: sectionBg,
+        border: `1px solid ${isActiveCategory ? iconColor : borderColor}`,
+        borderRadius: '8px',
+        overflow: 'hidden',
+        boxShadow: isActiveCategory ? `0 0 10px ${iconColor}33` : 'none',
+        transition: 'all 0.2s'
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          padding: '9px 12px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          cursor: 'pointer',
+          userSelect: 'none',
+          background: isActiveCategory ? `${iconColor}15` : 'transparent',
+          borderBottom: isOpen && count > 0 ? `1px solid ${borderColor}` : 'none'
+        }}
+      >
+        <div
+          onClick={onToggle}
+          style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1, minWidth: 0 }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '15px', color: iconColor }}>
+            {icon}
+          </span>
+          <span style={{ fontSize: '11px', fontWeight: 800, color: textColor, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+            {title}
+          </span>
+          <span
+            style={{
+              padding: '1px 6px',
+              borderRadius: '10px',
+              background: count > 0 ? (isLight ? '#e2e8f0' : 'rgba(255,255,255,0.08)') : 'transparent',
+              color: count > 0 ? textColor : mutedColor,
+              fontSize: '10px',
+              fontWeight: 800,
+              fontFamily: 'var(--mono)'
+            }}
+          >
+            {count}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          {count > 0 && (
+            isActiveCategory ? (
+              <span
+                title={`Currently focusing graph on ${title}`}
+                style={{
+                  background: `${iconColor}22`,
+                  border: `1px solid ${iconColor}`,
+                  color: iconColor,
+                  padding: '2px 7px',
+                  borderRadius: '4px',
+                  fontSize: '9px',
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  cursor: 'default',
+                  userSelect: 'none'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '11px' }}>
+                  check_circle
+                </span>
+                Focused
+              </span>
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onFocusCategory) onFocusCategory();
+                }}
+                title={`Focus graph on ${title}`}
+                style={{
+                  background: 'transparent',
+                  border: `1px solid ${iconColor}`,
+                  color: iconColor,
+                  padding: '2px 7px',
+                  borderRadius: '4px',
+                  fontSize: '9px',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '2px'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '11px' }}>
+                  filter_center_focus
+                </span>
+                Focus
+              </button>
+            )
+          )}
+
+          <span
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
+            className="material-symbols-outlined"
+            style={{ fontSize: '16px', color: mutedColor, marginLeft: '2px' }}
+          >
+            {isOpen ? 'expand_less' : 'expand_more'}
+          </span>
+        </div>
+      </div>
+
+      {/* Accordion Body List */}
+      {isOpen && count > 0 && (
+        <div style={{ maxHeight: '170px', overflowY: 'auto', padding: '4px' }}>
+          {items.map((it, idx) => {
+            const targetName = it._otherLabel || it[targetKey] || it.src || it.dst || it.from_machine || it.to_machine || 'Node';
+            const isBlocked = it.blocked > 0 || it.action === 'deny' || it.action === 'drop' || it.action === 'block';
+            return (
+              <div
+                key={idx}
+                onClick={() => onSelectNodeById && onSelectNodeById(targetName)}
+                title={`Click to inspect ${targetName}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '6px 8px',
+                  borderRadius: '5px',
+                  background: idx % 2 === 0 ? 'transparent' : (isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.02)'),
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  transition: 'background 0.15s'
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.background = isLight ? '#e2e8f0' : 'rgba(255,255,255,0.07)';
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.background = idx % 2 === 0 ? 'transparent' : (isLight ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.02)');
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, flex: 1 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '13px', color: iconColor }}>
+                    arrow_right_alt
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: 'var(--mono)',
+                      fontWeight: 700,
+                      color: textColor,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis'
+                    }}
+                  >
+                    {targetName}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                  <span
+                    style={{
+                      fontSize: '9px',
+                      fontWeight: 700,
+                      padding: '1px 5px',
+                      borderRadius: '3px',
+                      background: isBlocked ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                      color: isBlocked ? '#ef4444' : '#22c55e',
+                      fontFamily: 'var(--mono)',
+                      textTransform: 'uppercase'
+                    }}
+                  >
+                    {isBlocked ? 'BLOCKED' : 'ALLOW'}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '10px',
+                      fontFamily: 'var(--mono)',
+                      color: mutedColor
+                    }}
+                  >
+                    x{it.count || 1}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -40,7 +40,6 @@ export default function FirewallTopology({
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [focusNodeTarget, setFocusNodeTarget] = useState(null);
   const [infoText, setInfoText] = useState('Click a node or edge to inspect');
-  const [selectedFilterPill, setSelectedFilterPill] = useState(null);
   const [focusedCategory, setFocusedCategory] = useState('all');
 
   // Filter state
@@ -388,7 +387,6 @@ export default function FirewallTopology({
     setFilterPort('');
     setFilterProto('');
     setFilterAction('');
-    setSelectedFilterPill(null);
     if (onFlowSelect) onFlowSelect(null);
   };
 
@@ -826,29 +824,28 @@ export default function FirewallTopology({
                   setSelectedEdge(null);
                   setFocusedCategory(prev => (prev && prev !== 'all' ? 'isolated' : 'all'));
                   setInfoText(`HOST / IP: ${n.label} (${n.subLabel || ''}) — ${n.rows.length} connection(s)`);
-                  const nodeIp = n.raw?.ip || n.label;
-                  setSelectedFilterPill({ type: 'ip', ip: nodeIp });
-                  if (onFlowSelect) onFlowSelect({ ip: nodeIp });
+                  if (onFlowSelect) onFlowSelect({ ip: n.raw?.ip || n.label });
                 }}
                 onSelectEdge={(e) => {
                   setSelectedEdge(e);
                   setSelectedNode(null);
                   setInfoText(`${e.label} | ${e.detail?.src || ''} → ${e.detail?.dst || ''} (x${e.detail?.count || 1})`);
-                  const flow = {
+                  if (onFlowSelect) onFlowSelect({
                     src: e.detail?.src,
                     dst: e.detail?.dst,
                     svc: e.detail?.protocol,
                     action: e.detail?.action
-                  };
-                  setSelectedFilterPill({ type: 'flow', ...flow });
-                  if (onFlowSelect) onFlowSelect(flow);
+                  });
                 }}
                 onClearSelection={(isFullReset) => {
                   setSelectedNode(null);
                   setSelectedEdge(null);
-                  setFocusedCategory('all');
+                  if (isFullReset) {
+                    setFocusedCategory('all');
+                  } else {
+                    setFocusedCategory(prev => (prev && prev !== 'all' ? prev : 'all'));
+                  }
                   setFocusNodeTarget(null);
-                  setSelectedFilterPill(null);
                   setInfoText('Click a node or edge to inspect');
                   if (onFlowSelect) onFlowSelect(null);
                 }}
@@ -893,7 +890,6 @@ export default function FirewallTopology({
                           const dirLabel = f.dir === 'lat' ? 'INTERNAL' : f.dir === 'in' ? 'INBOUND' : 'OUTBOUND';
                           setInfoText(`${dirLabel} | ${f.proto} | ${f.src} → ${f.dst} (x${f.count})`);
                           const flow = { src: f.src, dst: f.dst, svc: f.detailRow.protocol, action: f.action };
-                          setSelectedFilterPill({ type: 'flow', ...flow });
                           if (onFlowSelect) onFlowSelect(flow);
                         }
                       }}
@@ -1048,60 +1044,7 @@ export default function FirewallTopology({
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {selectedFilterPill ? (
-              selectedFilterPill.type === 'flow' ? (
-                <span style={{ color: '#06b6d4', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span>Filter:</span>
-                  <b style={{ color: '#f97316' }}>{selectedFilterPill.src}</b>
-                  <span style={{ color: 'var(--muted)' }}>→</span>
-                  <b style={{ color: '#06b6d4' }}>{selectedFilterPill.dst}</b>
-                  {selectedFilterPill.svc && <span style={{ color: '#22d3ee' }}>| {selectedFilterPill.svc}</span>}
-                  <button
-                    onClick={() => {
-                      setSelectedFilterPill(null);
-                      if (onFlowSelect) onFlowSelect(null);
-                    }}
-                    style={{
-                      background: 'rgba(239,68,68,.15)',
-                      border: '1px solid rgba(239,68,68,.3)',
-                      color: '#f87171',
-                      padding: '1px 6px',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontSize: '10px',
-                      marginLeft: '4px'
-                    }}
-                  >
-                    ✕ Clear
-                  </button>
-                </span>
-              ) : (
-                <span style={{ color: '#06b6d4', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span>Filter IP:</span>
-                  <b style={{ color: '#f97316' }}>{selectedFilterPill.ip}</b>
-                  <button
-                    onClick={() => {
-                      setSelectedFilterPill(null);
-                      if (onFlowSelect) onFlowSelect(null);
-                    }}
-                    style={{
-                      background: 'rgba(239,68,68,.15)',
-                      border: '1px solid rgba(239,68,68,.3)',
-                      color: '#f87171',
-                      padding: '1px 6px',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontSize: '10px',
-                      marginLeft: '4px'
-                    }}
-                  >
-                    ✕ Clear
-                  </button>
-                </span>
-              )
-            ) : (
-              <span>{infoText}</span>
-            )}
+            <span>{infoText}</span>
           </div>
 
           {/* Color Legend */}
