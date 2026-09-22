@@ -149,49 +149,80 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
         'z-index': 1
       }
     },
+    // Base Edge Style: Centered relationship label on the line (Exact copy of Network Topology)
     {
       selector: 'edge',
       style: {
-        'width': 'data(width)',
+        'width': 1.8,
         'line-color': 'data(color)',
         'target-arrow-color': 'data(color)',
         'target-arrow-shape': 'triangle',
-        'arrow-scale': 1.25,
+        'arrow-scale': 0.95,
         'curve-style': 'bezier',
+        'control-point-step-size': 28,
         'label': showEdgeLabels ? 'data(label)' : '',
         'text-opacity': showEdgeLabels ? 1.0 : 0,
-        'font-family': 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',
-        'font-size': '11px',
+        'font-family': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        'font-size': '11.5px',
         'font-weight': 700,
-        'color': isLight ? '#0f172a' : '#f8fafc',
-        'text-background-color': isLight ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.92)',
-        'text-background-opacity': showEdgeLabels ? 0.95 : 0,
-        'text-background-padding': '3px 6px',
+        'color': isLight ? '#334155' : '#e2e8f0',
+        'text-background-color': isLight ? '#ffffff' : '#0f172a',
+        'text-background-opacity': showEdgeLabels ? 1.0 : 0,
+        'text-background-padding': '2.5px 5px',
         'text-background-shape': 'roundrectangle',
-        'text-border-color': 'data(color)',
-        'text-border-width': showEdgeLabels ? 1 : 0,
+        'text-border-width': 0,
         'text-rotation': 'autorotate',
-        'text-margin-y': -8,
+        'text-margin-x': 0,
+        'text-margin-y': 0,
         'min-zoomed-font-size': showEdgeLabels ? 0 : 9999,
+        'overlay-opacity': 0,
+        'overlay-padding': 0,
         'z-index': 5,
-        'opacity': 0.85,
         'transition-property': 'opacity, width, line-color, target-arrow-color',
         'transition-duration': '0.15s'
       }
     },
+    // Hovered Edge: Reveal label with high z-index and centered alignment
     {
-      selector: 'edge.in-chain',
+      selector: 'edge.hovered',
       style: {
-        'width': 4.2,
+        'width': 2.8,
+        'label': 'data(label)',
+        'text-opacity': 1.0,
+        'min-zoomed-font-size': 0,
+        'font-size': '12.5px',
+        'font-weight': 700,
+        'z-index': 999,
+        'text-background-opacity': 1.0,
+        'text-border-color': 'data(color)',
+        'text-border-width': 1.2,
+        'text-background-color': isLight ? '#ffffff' : '#0f172a',
+        'color': isLight ? '#0f172a' : '#ffffff',
+        'text-margin-x': 0,
+        'text-margin-y': 0
+      }
+    },
+    // Selected / Active Attack Chain Edges: Centered label directly on edge line
+    {
+      selector: 'edge.in-chain, edge.selected',
+      style: {
+        'width': 2.8,
         'line-color': 'data(color)',
         'target-arrow-color': 'data(color)',
-        'arrow-scale': 1.4,
-        'opacity': 1.0,
-        'z-index': 80,
+        'arrow-scale': 1.1,
+        'label': 'data(label)',
         'text-opacity': 1.0,
+        'min-zoomed-font-size': 0,
+        'font-size': '12px',
+        'font-weight': 700,
+        'z-index': 85,
+        'opacity': 1.0,
         'text-background-opacity': 1.0,
-        'text-border-width': 1.5,
-        'min-zoomed-font-size': 0
+        'text-background-color': isLight ? '#ffffff' : '#0f172a',
+        'text-border-color': 'data(color)',
+        'text-border-width': 1.0,
+        'text-margin-x': 0,
+        'text-margin-y': 0
       }
     },
     {
@@ -199,7 +230,7 @@ const getCytoscapeStylesheet = (theme, showNodeLabels = true, showEdgeLabels = t
       style: {
         'opacity': 0.08,
         'text-opacity': 0,
-        'z-index': 1
+        'z-index': 0
       }
     },
     {
