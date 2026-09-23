@@ -44,11 +44,33 @@ function isPrivateIp(ip) {
 
 exports.getFirewallStats = async (req, res) => {
   try {
-    const { 
-      from = new Date(Date.now() - 3600000).toISOString().slice(0, 19).replace('T', ' '),
-      to = new Date().toISOString().slice(0, 19).replace('T', ' '),
+    let { 
+      from,
+      to,
+      hours,
       action, service, ip, src_ip, dst_ip, severity, device, aggregator, limit = 200, offset = 0 
     } = req.query;
+
+    if (from === 'undefined' || from === 'null') from = null;
+    if (to === 'undefined' || to === 'null') to = null;
+
+    if (!from) {
+      if (hours === 'today') {
+        const d = new Date();
+        d.setHours(0, 0, 0, 0);
+        from = d.toISOString().slice(0, 19).replace('T', ' ');
+        to = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      } else {
+        const h = Number(hours) || 24;
+        from = new Date(Date.now() - h * 3600000).toISOString().slice(0, 19).replace('T', ' ');
+        to = to || new Date().toISOString().slice(0, 19).replace('T', ' ');
+      }
+    } else if (!to) {
+      to = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    }
+
+    if (from) from = String(from).replace('T', ' ').slice(0, 19);
+    if (to) to = String(to).replace('T', ' ').slice(0, 19);
 
     const conds = ['ts>=$1', 'ts<=$2'];
     const p = [from, to];
@@ -114,6 +136,9 @@ exports.getTopology = async (req, res) => {
       action, service, ip, src_ip, dst_ip, device, severity, aggregator
     } = req.query;
 
+    if (from === 'undefined' || from === 'null') from = null;
+    if (to === 'undefined' || to === 'null') to = null;
+
     if (!from) {
       if (hours === 'today') {
         const d = new Date();
@@ -121,13 +146,16 @@ exports.getTopology = async (req, res) => {
         from = d.toISOString().slice(0, 19).replace('T', ' ');
         to = new Date().toISOString().slice(0, 19).replace('T', ' ');
       } else {
-        const h = Number(hours) || 1;
+        const h = Number(hours) || 24;
         from = new Date(Date.now() - h * 3600000).toISOString().slice(0, 19).replace('T', ' ');
         to = to || new Date().toISOString().slice(0, 19).replace('T', ' ');
       }
     } else if (!to) {
       to = new Date().toISOString().slice(0, 19).replace('T', ' ');
     }
+
+    if (from) from = String(from).replace('T', ' ').slice(0, 19);
+    if (to) to = String(to).replace('T', ' ').slice(0, 19);
 
     const conds = ['ts>=$1', 'ts<=$2'];
     const p = [from, to];

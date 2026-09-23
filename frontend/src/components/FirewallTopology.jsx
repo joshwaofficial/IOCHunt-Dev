@@ -14,6 +14,7 @@ function isPrivate(ip) {
 }
 
 export default function FirewallTopology({
+  range,
   from,
   to,
   action,
@@ -59,10 +60,18 @@ export default function FirewallTopology({
   });
 
   const [localRange, setLocalRange] = useState(() => {
+    if (range) return range === 'today' || range === 'custom' ? range : (Number(range) || 24);
     const saved = localStorage.getItem('fwTopoRange');
-    if (saved === 'today') return 'today';
+    if (saved === 'today' || saved === 'custom') return saved;
     return Number(saved) || 24;
   });
+
+  // Sync with parent range if provided
+  useEffect(() => {
+    if (range !== undefined && range !== null) {
+      setLocalRange(range === 'today' || range === 'custom' ? range : (Number(range) || 24));
+    }
+  }, [range]);
 
   const updateActiveDatasets = useCallback((inbound, outbound, lateral, machines) => {
     setFilteredData({
@@ -244,17 +253,27 @@ export default function FirewallTopology({
     try {
       let params = { action, service, ip, device, severity, aggregator };
 
-      if (from && to) {
-        params.from = from;
-        params.to = to;
-      } else {
-        params.hours = localRange;
-        if (localRange === 'today') {
-          const { from: f, to: t } = getTodayStartAndEnd();
-          params.from = f;
-          params.to = t;
-        }
+      let f = from;
+      let t = to;
+
+      if (localRange === 'today') {
+        const today = getTodayStartAndEnd();
+        f = today.from;
+        t = today.to;
+        params.hours = 'today';
+      } else if (localRange === 'custom') {
+        f = from;
+        t = to;
+        params.hours = 'custom';
+      } else if (localRange) {
+        const hours = Number(localRange) || 24;
+        f = new Date(Date.now() - hours * 3600000).toISOString().slice(0, 19).replace('T', ' ');
+        t = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        params.hours = hours;
       }
+
+      if (f) params.from = f;
+      if (t) params.to = t;
 
       const res = await axios.get('/api/firewall/topology', { params });
       const data = res.data || {};
@@ -521,7 +540,11 @@ export default function FirewallTopology({
         <div style={{ display: 'flex', gap: '8px', fontFamily: 'var(--mono)', fontSize: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
           <select
             value={localRange}
-            onChange={(e) => setLocalRange(e.target.value === 'today' ? 'today' : Number(e.target.value))}
+            onChange={(e) => {
+              const val = e.target.value === 'today' || e.target.value === 'custom' ? e.target.value : Number(e.target.value);
+              setLocalRange(val);
+              localStorage.setItem('fwTopoRange', val);
+            }}
             style={{
               fontSize: '11px',
               padding: '5px 10px',
@@ -541,6 +564,7 @@ export default function FirewallTopology({
             <option value="72">Last 3d</option>
             <option value="168">Last 7d</option>
             <option value="720">Last 30d</option>
+            {localRange === 'custom' && <option value="custom">Custom Range</option>}
           </select>
 
           <span>

@@ -51,7 +51,7 @@ const db = require('./config/db');
 const appMode = require('./config/appMode');
 const { databaseContext } = require('./middlewares/tenantMiddleware');
 const { requireCentralServer, requireAggregator } = require('./middlewares/modeGuard');
-const { requireSession, requireKey } = require('./middlewares/authMiddleware');
+const { requireSession, requireKey, requireSessionOrKey } = require('./middlewares/authMiddleware');
 const sseBroadcaster = require('./services/sseBroadcaster');
 
 const app = express();
@@ -155,12 +155,12 @@ app.use('/api/groups', express.json(), groupRoutes);
 
 
 // Firewall Analytics
-app.get('/api/firewall/devices', requireSession, firewallController.getDevices);
-app.get('/api/firewall/topology', requireSession, firewallController.getTopology);
-app.get('/api/firewall/stats', requireSession, firewallController.getFirewallStats);
-app.get('/api/firewall/alerts', requireSession, firewallController.getSecurityAlerts);
-app.get('/api/firewall/live', requireSession, firewallController.getLiveEvents);
-app.get('/api/firewall/config-info', requireSession, firewallController.getConfigInfo);
+app.get('/api/firewall/devices', requireSessionOrKey, firewallController.getDevices);
+app.get('/api/firewall/topology', requireSessionOrKey, firewallController.getTopology);
+app.get('/api/firewall/stats', requireSessionOrKey, firewallController.getFirewallStats);
+app.get('/api/firewall/alerts', requireSessionOrKey, firewallController.getSecurityAlerts);
+app.get('/api/firewall/live', requireSessionOrKey, firewallController.getLiveEvents);
+app.get('/api/firewall/config-info', requireSessionOrKey, firewallController.getConfigInfo);
 app.post('/api/firewall/ingest', express.json({ limit: '10mb' }), express.text({ limit: '10mb' }), firewallController.ingestSyslog);
 
 // SSE Real-Time Stream

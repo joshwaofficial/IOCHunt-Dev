@@ -10,15 +10,21 @@ const chipDefs = [
   { key: 'adminLogin',   label: 'Admin Logins',   col: '#6b7280' },
 ];
 
-export default function FirewallAlerts({ from, to, device, severity, aggregator }) {
+export default function FirewallAlerts({ range: parentRange, from, to, device, severity, aggregator }) {
   const [data, setData] = useState({ events: [], counts: {}, loginCount: 0 });
   const [loading, setLoading] = useState(false);
   const [showLogins, setShowLogins] = useState(false);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
   const [range, setRange] = useState(() => {
-    return localStorage.getItem('iochunt_firewall_alerts_range') || 'today';
+    return parentRange || localStorage.getItem('iochunt_firewall_alerts_range') || 'today';
   });
+
+  useEffect(() => {
+    if (parentRange) {
+      setRange(parentRange);
+    }
+  }, [parentRange]);
 
   useEffect(() => {
     localStorage.setItem('iochunt_firewall_alerts_range', range);

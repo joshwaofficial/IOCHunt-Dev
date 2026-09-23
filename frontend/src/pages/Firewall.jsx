@@ -410,8 +410,9 @@ export default function Firewall() {
 
       {!liveMode && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px', marginBottom: '24px' }}>
-          <FirewallAlerts from={from} to={to} device={machine || device} severity={severity} aggregator={aggregator} />
+          <FirewallAlerts range={range} from={from} to={to} device={machine || device} severity={severity} aggregator={aggregator} />
           <FirewallTopology 
+            range={range}
             from={from} to={to} action={action} service={service} ip={ip} device={machine || device} severity={severity} aggregator={aggregator} 
             onFlowSelect={setFlowFilter} 
           />
