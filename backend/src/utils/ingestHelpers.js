@@ -421,41 +421,56 @@ function normalizeToUTC(raw, sourceTZ = 'local') {
 
   const trimmed = raw.trim();
 
+  function finalizeUTC(dt) {
+    if (!dt || !dt.isValid) return null;
+    let utc = dt.toUTC();
+    const now = DateTime.utc();
+    if (utc > now.plus({ minutes: 2 })) {
+      const diffMins = utc.diff(now, 'minutes').minutes;
+      if (diffMins >= 270 && diffMins <= 360) {
+        utc = utc.minus({ minutes: 330 });
+      } else {
+        utc = now;
+      }
+    }
+    return utc.toFormat('yyyy-MM-dd HH:mm:ss');
+  }
+
   const withOffset = trimmed.replace(
     /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+([+-]\d{2}:\d{2})\s*$/,
     '$1T$2$3'
   );
-  const dtAgent = DateTime.fromISO(withOffset, { setZone: true });
-  if (dtAgent.isValid) return dtAgent.toUTC().toFormat('yyyy-MM-dd HH:mm:ss');
+  let dt = DateTime.fromISO(withOffset, { setZone: true });
+  if (dt.isValid) return finalizeUTC(dt);
 
   if (trimmed.includes('T') && (trimmed.includes('+') || trimmed.endsWith('Z') || trimmed.endsWith('z'))) {
-    const dt = DateTime.fromISO(trimmed, { setZone: true });
-    if (dt.isValid) return dt.toUTC().toFormat('yyyy-MM-dd HH:mm:ss');
+    dt = DateTime.fromISO(trimmed, { setZone: true });
+    if (dt.isValid) return finalizeUTC(dt);
   }
 
   const fwMatch = trimmed.match(/date=(\d{4}-\d{2}-\d{2})\s+time=(\d{2}:\d{2}:\d{2})\s+tz="?([+-]\d{4}|UTC)"?/);
   if (fwMatch) {
     const [, date, time, tz] = fwMatch;
     const offset = tz === 'UTC' ? '+00:00' : `${tz.slice(0, 3)}:${tz.slice(3)}`;
-    const dt = DateTime.fromISO(`${date}T${time}${offset}`);
-    if (dt.isValid) return dt.toUTC().toFormat('yyyy-MM-dd HH:mm:ss');
+    dt = DateTime.fromISO(`${date}T${time}${offset}`);
+    if (dt.isValid) return finalizeUTC(dt);
   }
 
   const paCSV = trimmed.match(/^[\w-]+,(\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2}),/);
   if (paCSV) {
-    const dt = DateTime.fromFormat(paCSV[1], 'yyyy/MM/dd HH:mm:ss', { zone: sourceTZ });
-    if (dt.isValid) return dt.toUTC().toFormat('yyyy-MM-dd HH:mm:ss');
+    dt = DateTime.fromFormat(paCSV[1], 'yyyy/MM/dd HH:mm:ss', { zone: sourceTZ });
+    if (dt.isValid) return finalizeUTC(dt);
   }
 
   const paTs = trimmed.match(/^(\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2})$/);
   if (paTs) {
-    const dt = DateTime.fromFormat(paTs[1], 'yyyy/MM/dd HH:mm:ss', { zone: sourceTZ });
-    if (dt.isValid) return dt.toUTC().toFormat('yyyy-MM-dd HH:mm:ss');
+    dt = DateTime.fromFormat(paTs[1], 'yyyy/MM/dd HH:mm:ss', { zone: sourceTZ });
+    if (dt.isValid) return finalizeUTC(dt);
   }
 
   const tzOption = sourceTZ === 'local' ? { zone: 'system' } : { zone: sourceTZ };
-  const plain = DateTime.fromSQL(trimmed, tzOption);
-  if (plain.isValid) return plain.toUTC().toFormat('yyyy-MM-dd HH:mm:ss');
+  dt = DateTime.fromSQL(trimmed, tzOption);
+  if (dt.isValid) return finalizeUTC(dt);
 
   return raw;
 }

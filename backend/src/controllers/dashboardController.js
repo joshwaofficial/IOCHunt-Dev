@@ -128,7 +128,25 @@ const getEvents = async (req, res) => {
     const query = `SELECT * FROM events ${whereString} ORDER BY ts DESC LIMIT $${limitIdx} OFFSET $${offsetIdx}`;
     
     const result = await req.queryTenant(query, params);
-    res.json({ events: result.rows, total });
+    const sanitizedRows = (result.rows || []).map(row => {
+      if (row.ts) {
+        const d = new Date(row.ts);
+        const now = new Date();
+        const diffMs = d.getTime() - now.getTime();
+        if (diffMs > 2 * 60 * 1000) {
+          const diffMins = diffMs / (60 * 1000);
+          if (diffMins >= 270 && diffMins <= 360) {
+            // Adjust erroneous +5h30m (330 mins) double offset
+            row.ts = new Date(d.getTime() - 330 * 60 * 1000).toISOString();
+          } else {
+            row.ts = now.toISOString();
+          }
+        }
+      }
+      return row;
+    });
+
+    res.json({ events: sanitizedRows, total });
   } catch (error) {
     console.error('[Dashboard] getEvents error:', error);
     res.status(500).json({ error: 'Server error' });
