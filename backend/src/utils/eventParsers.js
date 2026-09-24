@@ -178,13 +178,39 @@ function parseAdEvent(machine, tag, msg, sev) {
 
 function parseMaliciousEvent(r) {
   const t = (r.tag || '').toUpperCase();
+  const cat = (r.category || '').toUpperCase();
   const msg = r.message || '';
-  let type = 'Detected';
-  let source = 'Windows Defender';
-  if (t.includes('SYSMON')) source = 'Sysmon';
-  else if (t.includes('YARA')) source = 'Custom YARA';
-  else if (t.includes('MEMORY')) source = 'Memory Scan';
+  const mu = msg.toUpperCase();
 
+  let type = 'Detected';
+  let source = r.source || 'Endpoint Agent';
+
+  if (t.includes('DEFENDER') || cat === 'DEFENDER' || mu.includes('DEFENDER')) {
+    source = 'Windows Defender';
+  } else if (t.includes('SYSMON') || cat === 'SYSMON' || mu.includes('SYSMON')) {
+    source = 'Sysmon';
+  } else if (t.includes('YARA') || cat === 'YARA' || mu.includes('YARA')) {
+    source = 'Custom YARA';
+  } else if (t.includes('MEMORY') || cat === 'MEMORY' || mu.includes('MEMORY SCAN')) {
+    source = 'Memory Scan';
+  } else if (
+    t.includes('CMD') ||
+    t.includes('PROCESS') ||
+    cat === 'PROCESSES' ||
+    msg.includes('CMD:') ||
+    msg.includes('Parent:') ||
+    msg.toLowerCase().includes('whoami')
+  ) {
+    source = 'Process Monitor';
+  } else if (t.includes('FIREWALL') || cat === 'FIREWALL' || mu.includes('FIREWALL')) {
+    source = 'Firewall';
+  } else if (t.includes('USB') || cat === 'USB' || mu.includes('USB')) {
+    source = 'USB Monitor';
+  } else if (t.includes('EVTX') || t.includes('AUDIT') || mu.includes('EVENTLOG') || mu.includes('EVENT ID')) {
+    source = 'Windows Event Log';
+  } else if (!r.source) {
+    source = 'Endpoint Agent';
+  }
 
   if (t.includes('DEFENDER') && t.includes('RTP-DISABLED')) type = 'AV Disabled!';
   else if (t.includes('DEFENDER') && t.includes('TAMPER')) type = 'AV Tamper';
@@ -200,17 +226,23 @@ function parseMaliciousEvent(r) {
   else if (t.includes('AFTER-HOURS')) type = 'After-Hours Login';
   else if (t.includes('FAILED-LOGON')) type = 'Brute Force';
   else if (t.includes('PERSISTENCE')) type = 'Persistence';
+  else if (t.includes('ENUM') || mu.includes('ENUM') || msg.toLowerCase().includes('whoami')) type = 'Enumeration';
+  else if (t.includes('CMD') || msg.includes('CMD:')) type = 'Command Exec';
 
   const exeM = msg.match(/\b([\w.-]+\.exe)\b/i);
   const pidM = msg.match(/PID[:\s]+(\d+)/i);
   const parM = msg.match(/[Pp]arent[:\s]+([^\s|]+)/);
+
+  const resolvedCategory = (r.category && r.category !== 'OTHER') 
+    ? r.category 
+    : (source === 'Process Monitor' ? 'PROCESSES' : (r.category || 'OTHER'));
 
   return {
     ts: r.ts, machine: r.machine, type,
     process: exeM ? exeM[1] : '-',
     pid: pidM ? pidM[1] : '',
     parent: parM ? parM[1] : '',
-    severity: r.severity, source, category: r.category, message: msg.slice(0, 200),
+    severity: r.severity, source, category: resolvedCategory, message: msg.slice(0, 200),
   };
 }
 
