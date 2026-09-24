@@ -663,7 +663,10 @@ export default function BloodHoundEntityPanel({
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ color: mutedColor }}>Event Count:</span>
                     <span style={{ fontFamily: 'var(--mono)', fontWeight: 700, color: textColor }}>
-                      {selectedEdge.detail?.count || 1}
+                      {selectedEdge.count
+                        || (selectedEdge.rows && selectedEdge.rows.length > 0
+                            ? selectedEdge.rows.reduce((sum, r) => sum + (Number(r.count) || 1), 0)
+                            : (Number(selectedEdge.detail?.count) || 1))}
                     </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>

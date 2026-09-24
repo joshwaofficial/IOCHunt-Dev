@@ -662,7 +662,11 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
                   onSelectEdge={(e) => {
                     setSelectedEdge(e);
                     setSelectedNode(null);
-                    setInfoText(`${e.label} | ${e.detail?.src || ''} → ${e.detail?.dst || ''} (x${e.detail?.count || 1})`);
+                    const edgeCount = e.count
+                      || (e.rows && e.rows.length > 0
+                          ? e.rows.reduce((sum, r) => sum + (Number(r.count) || 1), 0)
+                          : (e.detail?.count || 1));
+                    setInfoText(`${e.label} | ${e.detail?.src || ''} → ${e.detail?.dst || ''} (x${edgeCount})`);
                   }}
                   onClearSelection={(isFullReset) => {
                     setSelectedNode(null);

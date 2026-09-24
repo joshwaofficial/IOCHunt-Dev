@@ -526,7 +526,18 @@ export default function BloodHoundNodeDiagram({
           existing.color = '#ef4444';
         }
         existing.width = Math.min(5.5, existing.width + 0.4);
-        if (edgeData._detail) existing._detailList.push(edgeData._detail);
+        if (edgeData._detail) {
+          existing._detailList.push(edgeData._detail);
+          if (existing._detail) {
+            existing._detail.count = existing.count;
+            if (edgeData._detail.last_seen && (!existing._detail.last_seen || new Date(edgeData._detail.last_seen) > new Date(existing._detail.last_seen))) {
+              existing._detail.last_seen = edgeData._detail.last_seen;
+            }
+            if (edgeData._detail.blocked) {
+              existing._detail.blocked = (existing._detail.blocked || 0) + (edgeData._detail.blocked || 0);
+            }
+          }
+        }
       } else {
         edgeMap.set(key, {
           id: `e_${fromId}_${toId}`,
@@ -539,7 +550,7 @@ export default function BloodHoundNodeDiagram({
           width: edgeData.width || 2.5,
           count: edgeData.count || 1,
           severity: edgeData.severity || 'info',
-          _detail: edgeData._detail,
+          _detail: edgeData._detail ? { ...edgeData._detail, count: edgeData.count || 1 } : null,
           _detailList: edgeData._detail ? [edgeData._detail] : []
         });
       }
@@ -682,8 +693,9 @@ export default function BloodHoundNodeDiagram({
           dir: e.dir,
           color: e.color,
           width: e.width,
+          count: e.count || (e._detail?.count || 1),
           textMarginX: 0,
-          _detail: e._detail,
+          _detail: e._detail ? { ...e._detail, count: e.count || e._detail.count || 1 } : null,
           _detailList: e._detailList
         }
       });
@@ -982,15 +994,22 @@ export default function BloodHoundNodeDiagram({
 
       const edgeData = edge.data();
       if (callbacksRef.current.onSelectEdge && edgeData._detail) {
+        const edgeRows = edgeData._detailList || [edgeData._detail];
+        const edgeCount = edgeData.count
+          || (edgeRows.length > 0 ? edgeRows.reduce((sum, r) => sum + (Number(r.count) || 1), 0) : (edgeData._detail.count || 1));
         callbacksRef.current.onSelectEdge({
           id: eid,
           label: edgeData.label,
           dir: edgeData.dir,
           color: edgeData.color,
+          count: edgeCount,
           source: edge.source().data('fullLabel') || edge.source().id(),
           target: edge.target().data('fullLabel') || edge.target().id(),
-          detail: edgeData._detail,
-          rows: edgeData._detailList || [edgeData._detail]
+          detail: {
+            ...edgeData._detail,
+            count: edgeCount
+          },
+          rows: edgeRows
         });
       }
     });
