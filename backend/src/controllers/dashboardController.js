@@ -649,44 +649,41 @@ const getTopLevelStats = async (req, res) => {
 const getNetworkTopology = async (req, res) => {
   try {
     const aggregator = getEffectiveAggregator(req);
+    const { machine, hours } = req.query;
 
-    const { machine, hours = 24 } = req.query;
-    
-    let whereClauses = ["last_seen >= NOW() - INTERVAL '1 hour' * $1"];
-    const params = [hours];
-    
+    let machineWhere = [];
+    const mParams = [];
     if (aggregator) {
-      params.push(aggregator);
-      whereClauses.push(`aggregator_name = $${params.length}`);
+      mParams.push(aggregator);
+      machineWhere.push(`aggregator_name = $${mParams.length}`);
     }
-    
     if (machine) {
-      params.push(machine);
-      whereClauses.push(`name = $${params.length}`);
+      mParams.push(machine);
+      machineWhere.push(`name = $${mParams.length}`);
     }
-    
-    const mRes = await req.queryTenant(`SELECT * FROM machines WHERE ${whereClauses.join(' AND ')}`, params);
-    const machines = mRes.rows;
-    
-    if (machines.length === 0) {
-      return res.json({ inbound: [], outbound: [], lateral: [], ad_attacks: [], machines: [] });
-    }
+    const mSql = machineWhere.length > 0 ? `SELECT * FROM machines WHERE ${machineWhere.join(' AND ')}` : `SELECT * FROM machines`;
+    const mRes = await req.queryTenant(mSql, mParams);
+    const machines = mRes.rows || [];
+
+    const defaultHours = Number(hours) || 24;
+    const { from, to } = resolveTimeRange(req, defaultHours);
+    const fromClean = from ? String(from).replace('T', ' ').slice(0, 19) : null;
+    const toClean = to ? String(to).replace('T', ' ').slice(0, 19) : null;
+
+    const rows = await Event.getNetworkEvents(req, aggregator, machine, 5000, fromClean, toClean);
 
     const inbound = [];
     const outbound = [];
     const lateral = [];
     const ad_attacks = [];
-    
-    const { from, to } = resolveTimeRange(req, 168);
-    const rows = await Event.getNetworkEvents(req, aggregator, machine, 5000, from, to);
-    
+
     rows.forEach(r => {
       const net = parseNetworkEvent(r.machine, r.tag, r.message, r.severity);
       if (!net) return;
       net.ts = r.ts;
       net.machine = r.machine;
       net.aggregator_name = r.aggregator_name;
-      
+
       const t = (r.tag || '').toUpperCase();
       if (net.direction === 'inbound') {
         net.from_ip = net.remote_ip;
@@ -695,7 +692,7 @@ const getNetworkTopology = async (req, res) => {
       } else if (net.direction === 'outbound') {
         net.from_machine = net.machine;
         net.to_ip = net.remote_ip;
-        
+
         if (t.includes('LATERAL') || (net.remote_ip && (net.remote_ip.startsWith('10.') || net.remote_ip.startsWith('192.168.') || net.remote_ip.startsWith('172.')))) {
           net.source = net.machine;
           net.target = net.remote_ip;
@@ -707,7 +704,7 @@ const getNetworkTopology = async (req, res) => {
         ad_attacks.push(net);
       }
     });
-    
+
     res.json({
       inbound,
       outbound,

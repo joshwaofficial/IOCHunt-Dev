@@ -216,12 +216,25 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
 
   const fetchTopology = useCallback(async () => {
     try {
-      let url = `/api/events/network/topology?hours=${localRange}&machine=${machine}`;
+      const params = { machine: machine || undefined };
+      let f, t;
+
       if (localRange === 'today') {
-        const { from, to } = getTodayStartAndEnd();
-        url += `&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+        const today = getTodayStartAndEnd();
+        f = today.from;
+        t = today.to;
+        params.hours = 'today';
+      } else if (localRange) {
+        const hours = Number(localRange) || 24;
+        f = new Date(Date.now() - hours * 3600000).toISOString().slice(0, 19).replace('T', ' ');
+        t = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        params.hours = hours;
       }
-      const res = await axios.get(url);
+
+      if (f) params.from = f;
+      if (t) params.to = t;
+
+      const res = await axios.get('/api/events/network/topology', { params });
       rawDataRef.current = res.data || { inbound: [], outbound: [], lateral: [], ad_attacks: [], machines: [] };
 
       const { inbound = [], outbound = [], lateral = [], ad_attacks = [] } = rawDataRef.current;
@@ -424,7 +437,11 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
           <div style={{ display: 'flex', gap: '8px', fontFamily: 'var(--mono)', fontSize: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
             <select
               value={localRange}
-              onChange={(e) => setLocalRange(e.target.value === 'today' ? 'today' : Number(e.target.value))}
+              onChange={(e) => {
+                const val = e.target.value === 'today' ? 'today' : Number(e.target.value);
+                setLocalRange(val);
+                localStorage.setItem('topoRange', val);
+              }}
               style={{
                 fontSize: '11px',
                 padding: '5px 10px',

@@ -507,25 +507,24 @@ export default function BloodHoundNodeDiagram({
       ensureNode(m.name || m.ip, m.entityType || 'machine', m.raw || m);
     });
 
-    // Bundle / Aggregate parallel edges between the same nodes to prevent overlapping text collision!
+    // Aggregate parallel edges per protocol between nodes to display distinct curved arrows for each protocol!
     function addEdge(fromId, toId, edgeData) {
       if (!fromId || !toId || fromId === toId) return;
       connectedNodeIds.add(fromId);
       connectedNodeIds.add(toId);
-      const key = `${fromId}->${toId}`;
+      const protoKey = (edgeData.label || 'FLOW').toUpperCase().trim();
+      const safeProto = protoKey.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const key = `${fromId}->${toId}_${safeProto}`;
       if (edgeMap.has(key)) {
         const existing = edgeMap.get(key);
         existing.count = (existing.count || 1) + (edgeData.count || 1);
         if (edgeData.label && !existing.labelList.includes(edgeData.label)) {
           existing.labelList.push(edgeData.label);
         }
-        if (existing.labelList.length > 1) {
-          existing.label = `${existing.labelList[0]} (+${existing.labelList.length - 1})`;
-        }
         if (edgeData.color === '#ef4444' || edgeData.severity === 'critical') {
           existing.color = '#ef4444';
         }
-        existing.width = Math.min(5.5, existing.width + 0.4);
+        existing.width = Math.min(5.5, existing.width + 0.3);
         if (edgeData._detail) {
           existing._detailList.push(edgeData._detail);
           if (existing._detail) {
@@ -540,7 +539,7 @@ export default function BloodHoundNodeDiagram({
         }
       } else {
         edgeMap.set(key, {
-          id: `e_${fromId}_${toId}`,
+          id: `e_${fromId}_${toId}_${safeProto}`,
           source: fromId,
           target: toId,
           label: edgeData.label,
