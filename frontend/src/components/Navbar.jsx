@@ -148,11 +148,6 @@ export default function Navbar() {
             </span>
           </button>
           
-          <button className="tb-icon-btn tb-notif-btn" title="Notifications">
-            <span className="material-symbols-outlined">notifications</span>
-            <span className="tb-notif-dot" id="statusDot"></span>
-          </button>
-          
         </div>
 
         {/* Refresh */}
