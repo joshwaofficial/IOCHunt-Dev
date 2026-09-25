@@ -243,6 +243,7 @@ async function getTenantPool(tenantId) {
       pool.query(`
         UPDATE events SET ts = ts - INTERVAL '5 hours 30 minutes'
         WHERE ts > NOW() + INTERVAL '2 minutes' AND ts <= NOW() + INTERVAL '8 hours';
+        UPDATE events SET is_noise = true WHERE tag ILIKE '%PERSISTENCE%' AND tag ILIKE '%SERVICE%' AND is_noise = false;
         CREATE INDEX IF NOT EXISTS idx_events_ts_noise ON events (ts DESC, is_noise);
         CREATE INDEX IF NOT EXISTS idx_events_machine_ts ON events (machine, ts DESC);
         CREATE INDEX IF NOT EXISTS idx_events_severity ON events (severity);

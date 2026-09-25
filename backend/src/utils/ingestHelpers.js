@@ -74,18 +74,17 @@ function detectNoise(tag, message, severity) {
 
   // 2. Windows SAM default placeholder group "None" (RID 513) on local user creation is internal noise
   if ((tu.includes('GROUP') || mu.includes('GROUP') || tu.includes('MEMBER') || mu.includes('MEMBER')) &&
-      (/\bgroup\s+['"]?none['"]?\b/i.test(mu) || /group\s*name:\s*none\b/i.test(mu) || /\\none\b/i.test(mu) || /group\s*name:\s*-\b/i.test(mu))) {
+    (/\bgroup\s+['"]?none['"]?\b/i.test(mu) || /group\s*name:\s*none\b/i.test(mu) || /\\none\b/i.test(mu) || /group\s*name:\s*-\b/i.test(mu))) {
     return 1;
   }
 
   // 3. User account / modification events with missing or "-" target account
   if ((tu.includes('USER') || tu.includes('PASSWORD') || tu.includes('ACCOUNT') || tu.includes('GROUP')) &&
-      (/target\s+account\s*:\s*-(\s|$)/i.test(mu) || /target\s+account\s+name\s*:\s*-(\s|$)/i.test(mu) || /user\s+account\s*:\s*-(\s|$)/i.test(mu))) {
+    (/target\s+account\s*:\s*-(\s|$)/i.test(mu) || /target\s+account\s+name\s*:\s*-(\s|$)/i.test(mu) || /user\s+account\s*:\s*-(\s|$)/i.test(mu))) {
     return 1;
   }
 
-  // 4. Service creation notification logs under [CONFIG-CHANGE] (the threat alert is tracked separately by [PERSISTENCE][SERVICE])
-  if (tu.includes('CONFIG-CHANGE') && (tu.includes('SERVICE-CREATED') || mu.includes('NEW SERVICE:'))) {
+  if (tu.includes('PERSISTENCE') && tu.includes('SERVICE')) {
     return 1;
   }
 
@@ -263,28 +262,15 @@ function classifySeverity(tag, message) {
   if (t.includes('CONN-KILLED') || t.includes('NET-BLOCKED'))
     return 'critical';
 
-  if (t.includes('UNSIGNED-UNSAFE-PATH'))
+  if (t.includes('UNSIGNED') || t.includes('UNSIGNED-UNSAFE-PATH'))
     return 'high';
 
-  if (t.includes('PERSISTENCE') || t.includes('SERVICE-DETECTED') || t.includes('TASK-DETECTED') ||
-    t.includes('STARTUP-DETECTED') || t.includes('REGISTRY-DETECTED') || t.includes('UNSIGNED')) {
-    // Check if the binary is in Windows System32 / Windows system directories and not in an unsafe user path
-    const isSystemPath = (m.includes('C:\\WINDOWS\\SYSTEM32') ||
-                          m.includes('C:\\WINDOWS\\SYSWOW64') ||
-                          m.includes('SYSTEM32\\') ||
-                          m.includes('C:\\WINDOWS\\')) &&
-                         !m.includes('OUTSIDE SAFE PATHS') &&
-                         !m.includes('C:\\USERS') &&
-                         !m.includes('DESKTOP') &&
-                         !m.includes('DOWNLOADS') &&
-                         !m.includes('APPDATA') &&
-                         !m.includes('TEMP');
+  if (t.includes('PERSISTENCE'))
+    return 'high';
 
-    if (isSystemPath) {
-      return 'medium'; // Built-in Windows System32 utilities
-    }
-    return 'high'; // Untrusted binaries (Desktop, Downloads, Users, outside safe paths)
-  }
+  if (t.includes('SERVICE-DETECTED') || t.includes('TASK-DETECTED') ||
+    t.includes('STARTUP-DETECTED') || t.includes('REGISTRY-DETECTED'))
+    return 'high';
 
   if (t.includes('USER-CREATED') || t.includes('USER-DELETED') ||
     t.includes('USER-ENABLED') || t.includes('USER-DISABLED') ||
