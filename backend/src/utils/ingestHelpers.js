@@ -84,6 +84,11 @@ function detectNoise(tag, message, severity) {
     return 1;
   }
 
+  // 4. Service creation notification logs under [CONFIG-CHANGE] (the threat alert is tracked separately by [PERSISTENCE][SERVICE])
+  if (tu.includes('CONFIG-CHANGE') && (tu.includes('SERVICE-CREATED') || mu.includes('NEW SERVICE:'))) {
+    return 1;
+  }
+
   if (severity === 'critical' || severity === 'high') return 0;
 
   if (tu.includes('DEFENDER')) {
@@ -258,15 +263,28 @@ function classifySeverity(tag, message) {
   if (t.includes('CONN-KILLED') || t.includes('NET-BLOCKED'))
     return 'critical';
 
-  if (t.includes('UNSIGNED') || t.includes('UNSIGNED-UNSAFE-PATH'))
+  if (t.includes('UNSIGNED-UNSAFE-PATH'))
     return 'high';
 
-  if (t.includes('PERSISTENCE'))
-    return 'high';
+  if (t.includes('PERSISTENCE') || t.includes('SERVICE-DETECTED') || t.includes('TASK-DETECTED') ||
+    t.includes('STARTUP-DETECTED') || t.includes('REGISTRY-DETECTED') || t.includes('UNSIGNED')) {
+    // Check if the binary is in Windows System32 / Windows system directories and not in an unsafe user path
+    const isSystemPath = (m.includes('C:\\WINDOWS\\SYSTEM32') ||
+                          m.includes('C:\\WINDOWS\\SYSWOW64') ||
+                          m.includes('SYSTEM32\\') ||
+                          m.includes('C:\\WINDOWS\\')) &&
+                         !m.includes('OUTSIDE SAFE PATHS') &&
+                         !m.includes('C:\\USERS') &&
+                         !m.includes('DESKTOP') &&
+                         !m.includes('DOWNLOADS') &&
+                         !m.includes('APPDATA') &&
+                         !m.includes('TEMP');
 
-  if (t.includes('SERVICE-DETECTED') || t.includes('TASK-DETECTED') ||
-    t.includes('STARTUP-DETECTED') || t.includes('REGISTRY-DETECTED'))
-    return 'high';
+    if (isSystemPath) {
+      return 'medium'; // Built-in Windows System32 utilities
+    }
+    return 'high'; // Untrusted binaries (Desktop, Downloads, Users, outside safe paths)
+  }
 
   if (t.includes('USER-CREATED') || t.includes('USER-DELETED') ||
     t.includes('USER-ENABLED') || t.includes('USER-DISABLED') ||

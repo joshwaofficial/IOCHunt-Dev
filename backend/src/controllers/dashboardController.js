@@ -34,7 +34,7 @@ const getEvents = async (req, res) => {
 
     const aggregator = getEffectiveAggregator(req);
     
-    let whereClauses = ["message NOT ILIKE '%iochuntwatchdog%' AND tag NOT ILIKE '%iochuntwatchdog%' AND message NOT ILIKE '%net1.exe%' AND message NOT ILIKE '%system32\\\\net1%'"];
+    let whereClauses = ["message NOT ILIKE '%iochuntwatchdog%' AND tag NOT ILIKE '%iochuntwatchdog%' AND message NOT ILIKE '%net1%'"];
     const params = [];
 
     // Noise filtering
