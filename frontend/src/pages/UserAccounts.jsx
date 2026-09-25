@@ -115,6 +115,7 @@ export default function UserAccounts() {
       setError(null);
       try {
         const params = { machine, aggregator: branchFilter || aggregator || undefined };
+        if (actionFilter) params.action = actionFilter;
         if (range === 'custom') {
           params.from = customFrom;
           params.to = customTo;
@@ -127,7 +128,11 @@ export default function UserAccounts() {
           params.hours = range;
         }
         const res = await axios.get('/api/events/user-events', { params });
-        const dataArr = res.data.events || res.data || [];
+        const dataArr = (res.data.events || res.data || []).filter(e => {
+          if (!e.username || e.username === '-' || e.username.toLowerCase() === 'system') return false;
+          if ((e.action === 'Group Change' || e.action === 'Group Modified') && (!e.group || e.group.toLowerCase() === 'none' || e.group === '-')) return false;
+          return true;
+        });
         setData(dataArr);
       } catch (e) {
         console.error(e);
@@ -138,9 +143,12 @@ export default function UserAccounts() {
     };
     
     fetchData();
-  }, [range, machine, customFrom, customTo, branchFilter, aggregator]);
+  }, [range, machine, customFrom, customTo, branchFilter, aggregator, actionFilter]);
 
   const filteredData = data.filter(a => {
+    if (actionFilter && (a.action || '').toLowerCase() !== actionFilter.toLowerCase()) {
+      return false;
+    }
     if (severityFilter !== 'all' && (a.severity || 'info').toLowerCase() !== severityFilter) {
       return false;
     }
@@ -291,6 +299,22 @@ export default function UserAccounts() {
         
         
         
+        <div style={{ width: '1px', height: '24px', background: 'var(--border)', flexShrink: 0 }}></div>
+
+        <select 
+          value={actionFilter} 
+          onChange={(e) => { setActionFilter(e.target.value); setPage(1); }}
+          style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', color: 'var(--text)', outline: 'none', cursor: 'pointer' }}
+        >
+          <option value="">All Actions</option>
+          <option value="User Created">User Created</option>
+          <option value="Group Change">Group Change</option>
+          <option value="Password Reset">Password Reset</option>
+          <option value="User Enabled">User Enabled</option>
+          <option value="User Disabled">User Disabled</option>
+          <option value="User Deleted">User Deleted</option>
+        </select>
+
         <div style={{ width: '1px', height: '24px', background: 'var(--border)', flexShrink: 0 }}></div>
         
         <select 

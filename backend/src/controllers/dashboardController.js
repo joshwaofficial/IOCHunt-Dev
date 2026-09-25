@@ -34,7 +34,7 @@ const getEvents = async (req, res) => {
 
     const aggregator = getEffectiveAggregator(req);
     
-    let whereClauses = ["message NOT ILIKE '%iochuntwatchdog%' AND tag NOT ILIKE '%iochuntwatchdog%'"];
+    let whereClauses = ["message NOT ILIKE '%iochuntwatchdog%' AND tag NOT ILIKE '%iochuntwatchdog%' AND message NOT ILIKE '%net1.exe%' AND message NOT ILIKE '%system32\\\\net1%'"];
     const params = [];
 
     // Noise filtering
@@ -567,8 +567,126 @@ const getUserEvents = async (req, res) => {
     const machine = req.query.machine || '';
     const { from, to } = resolveTimeRange(req, 168);
     const rows = await Event.getUserEvents(req, aggregator, machine, 500, from, to);
-    let out = rows.map(r => ({ ...parseUserEvent(r), aggregator_name: r.aggregator_name }))
-                  .filter(e => e.action !== 'Modified');
+    let rawEvents = rows.map(r => ({ ...parseUserEvent(r), aggregator_name: r.aggregator_name }))
+                        .filter(e => e.action !== 'Modified');
+
+    // 1. Initial cleanup: must have a valid username, non-noise group, and not net1
+    rawEvents = rawEvents.filter(e => {
+      if (!e.username || e.username === '-' || e.username.toLowerCase() === 'system') return false;
+      if ((e.action === 'Group Change' || e.action === 'Group Modified') && (!e.group || e.group.toLowerCase() === 'none' || e.group === '-')) return false;
+      if (e.message && /\bnet1(\.exe)?\b/i.test(e.message)) return false;
+      return true;
+    });
+
+    // 2. Lifecycle Correlation & Deduplication:
+    // Sort chronologically ascending to correlate sub-events
+    rawEvents.sort((a, b) => new Date(a.ts) - new Date(b.ts));
+
+    // Find all user creation occurrences: { machine, username, ts, event }
+    const creations = [];
+    for (const c of rawEvents.filter(e => e.action === 'User Created')) {
+      const cTime = new Date(c.ts).getTime();
+      const uLower = (c.username || '').toLowerCase();
+      const existing = creations.find(item => 
+        item.machine === c.machine &&
+        item.username.toLowerCase() === uLower &&
+        Math.abs(new Date(item.ts).getTime() - cTime) <= 60000
+      );
+      if (existing) {
+        // If an audit event exists alongside a CMD execution, prefer the formal audit event
+        const isExistingCmd = existing.event.message && existing.event.message.includes('CMD:');
+        const isNewCmd = c.message && c.message.includes('CMD:');
+        if (isExistingCmd && !isNewCmd) {
+          existing.event = c;
+          existing.ts = c.ts;
+        }
+      } else {
+        creations.push({ machine: c.machine, username: c.username, ts: c.ts, event: c });
+      }
+    }
+
+    const correlated = [];
+    for (const e of rawEvents) {
+      const eTime = new Date(e.ts).getTime();
+      const uLower = (e.username || '').toLowerCase();
+
+      if (e.action === 'User Created') {
+        // Keep only the single canonical creation event per user/machine within 60s
+        const canonical = creations.find(c => 
+          c.machine === e.machine && 
+          c.username.toLowerCase() === uLower && 
+          c.event === e
+        );
+        if (canonical) {
+          correlated.push(e);
+        }
+        continue;
+      }
+
+      if (e.action === 'User Enabled') {
+        // Windows automatically fires 4722 (User Enabled) during account creation.
+        // If coincident with a User Created event within 60s, suppress it.
+        // If it occurs independently (e.g. manual net user /active:yes), keep it!
+        const isCoincidentWithCreation = creations.some(c => 
+          c.machine === e.machine && 
+          c.username.toLowerCase() === uLower && 
+          Math.abs(new Date(c.ts).getTime() - eTime) <= 60000
+        );
+        if (isCoincidentWithCreation) {
+          continue;
+        }
+      }
+
+      if (e.action === 'Password Reset' || e.action === 'Password Changed') {
+        // Deduplicate multiple password reset logs for the same user/machine within 60s
+        const isDup = correlated.some(d => 
+          (d.action === 'Password Reset' || d.action === 'Password Changed') &&
+          d.machine === e.machine &&
+          (d.username || '').toLowerCase() === uLower &&
+          Math.abs(new Date(d.ts).getTime() - eTime) <= 60000
+        );
+        if (isDup) continue;
+      }
+
+      if (e.action === 'Group Change' || e.action === 'Group Modified') {
+        // Deduplicate multiple group change logs for the same user, machine, and group within 60s
+        const gLower = (e.group || '').toLowerCase();
+        const isDup = correlated.some(d => 
+          (d.action === 'Group Change' || d.action === 'Group Modified') &&
+          d.machine === e.machine &&
+          (d.username || '').toLowerCase() === uLower &&
+          (d.group || '').toLowerCase() === gLower &&
+          Math.abs(new Date(d.ts).getTime() - eTime) <= 60000
+        );
+        if (isDup) continue;
+      }
+
+      if (e.action === 'User Deleted') {
+        // Deduplicate multiple user deletion logs for the same user/machine within 60s
+        const isDup = correlated.some(d => 
+          d.action === 'User Deleted' &&
+          d.machine === e.machine &&
+          (d.username || '').toLowerCase() === uLower &&
+          Math.abs(new Date(d.ts).getTime() - eTime) <= 60000
+        );
+        if (isDup) continue;
+      }
+
+      if (e.action === 'User Disabled') {
+        // Deduplicate multiple user disabled logs for the same user/machine within 60s
+        const isDup = correlated.some(d => 
+          d.action === 'User Disabled' &&
+          d.machine === e.machine &&
+          (d.username || '').toLowerCase() === uLower &&
+          Math.abs(new Date(d.ts).getTime() - eTime) <= 60000
+        );
+        if (isDup) continue;
+      }
+
+      correlated.push(e);
+    }
+
+    let out = correlated;
     
     const search = (req.query.search || '').toLowerCase();
     const actor = (req.query.actor || '').toLowerCase();

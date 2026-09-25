@@ -85,7 +85,11 @@ class Event {
         OR tag LIKE '%PASSWORD-CHANGE%' OR tag LIKE '%PASSWORD-RESET%'
         OR tag LIKE '%USER-BURST%' OR tag LIKE '%ENUM%'
         OR (tag LIKE '%CONFIG-CHANGE%' AND (message LIKE '%user%' OR message LIKE '%group%' OR message LIKE '%password%'))
-        OR (tag LIKE '%CMD-EXEC%' AND (message LIKE '%user%' OR message LIKE '%group%')))`;
+        OR (tag LIKE '%CMD-EXEC%' AND (message LIKE '%user%' OR message LIKE '%group%')))
+      AND message NOT ILIKE '%net1.exe%'
+      AND message NOT ILIKE '%system32\\\\net1%'
+      AND message NOT ILIKE '%group name: none%'
+      AND message NOT ILIKE '%group \'none\'%'`;
 
     const params = [from, to];
     let pIdx = 3;

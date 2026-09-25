@@ -67,6 +67,23 @@ function detectNoise(tag, message, severity) {
     }
   }
 
+  // 1. net1.exe is an internal Windows child execution spawned by net.exe - always duplicate noise
+  if (mu.includes('NET1.EXE') || mu.includes('\\NET1 ') || mu.includes('SYSTEM32\\NET1') || /\bnet1(\.exe)?\b/i.test(mu)) {
+    return 1;
+  }
+
+  // 2. Windows SAM default placeholder group "None" (RID 513) on local user creation is internal noise
+  if ((tu.includes('GROUP') || mu.includes('GROUP') || tu.includes('MEMBER') || mu.includes('MEMBER')) &&
+      (/\bgroup\s+['"]?none['"]?\b/i.test(mu) || /group\s*name:\s*none\b/i.test(mu) || /\\none\b/i.test(mu) || /group\s*name:\s*-\b/i.test(mu))) {
+    return 1;
+  }
+
+  // 3. User account / modification events with missing or "-" target account
+  if ((tu.includes('USER') || tu.includes('PASSWORD') || tu.includes('ACCOUNT') || tu.includes('GROUP')) &&
+      (/target\s+account\s*:\s*-(\s|$)/i.test(mu) || /target\s+account\s+name\s*:\s*-(\s|$)/i.test(mu) || /user\s+account\s*:\s*-(\s|$)/i.test(mu))) {
+    return 1;
+  }
+
   if (severity === 'critical' || severity === 'high') return 0;
 
   if (tu.includes('DEFENDER')) {
@@ -255,7 +272,10 @@ function classifySeverity(tag, message) {
     t.includes('USER-ENABLED') || t.includes('USER-DISABLED') ||
     t.includes('GROUP-MEMBER') || t.includes('GROUP-CHANGED') ||
     t.includes('COMPUTER-ACCT') || t.includes('NEW-COMPUTER') ||
-    t.includes('PASSWORD-RESET') || t.includes('PASSWORD-CHANGE'))
+    t.includes('PASSWORD-RESET') || t.includes('PASSWORD-CHANGE') ||
+    m.includes('USER ACCOUNT WAS CREATED') || m.includes('USER ACCOUNT WAS DELETED') ||
+    m.includes('PASSWORD WAS RESET') || m.includes('RESET AN ACCOUNT\'S PASSWORD') ||
+    m.includes('MEMBER WAS ADDED TO A SECURITY-ENABLED') || m.includes('MEMBER WAS REMOVED FROM A SECURITY-ENABLED'))
     return 'high';
 
   if (t.includes('CONFIG-CHANGE') && (

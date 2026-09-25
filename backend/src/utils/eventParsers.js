@@ -365,15 +365,34 @@ function parseUserEvent(r) {
   else if (t.includes('PASSWORD-RESET') || mu.includes('PASSWORD RESET')) action = 'Password Reset';
   else if (t.includes('PASSWORD-CHANGE') || mu.includes('PASSWORD CHANGE')) action = 'Password Changed';
 
-  const actorM = msg.match(/by\s+'([^']+)'/i) || msg.match(/\(by\s+([^)]+)\)/i) || msg.match(/User:\s*([^\s|]+)/i) || msg.match(/Subject:\s*[\s\S]*?Account Name:\s*([^\s]+)/i) || msg.match(/by\s+(\S+)/i);
-  const actor = actorM ? actorM[1].slice(0, 50) : '-';
-  
-  const grpM = msg.match(/group\s+'([^']+)'/i) || msg.match(/Group:\s*[\s\S]*?Group Name:\s*([^\s]+)/i) || msg.match(/CMD:.*?\bnet1?\s+localgroup\s+([^\s]+)/i) || msg.match(/group\s+([^\s]+)/i);
-  const group = grpM ? grpM[1].slice(0, 60) : '';
+  const actorM = msg.match(/by\s+'([^']+)'/i) || msg.match(/\(by\s+([^)]+)\)/i) || msg.match(/User:\s*([^\s|]+)/i) || msg.match(/Subject:\s*[\s\S]*?Account Name:\s*([^\s\r\n]+)/i) || msg.match(/by\s+(\S+)/i);
+  let actor = actorM ? actorM[1].slice(0, 50).trim() : '-';
+  if (actor.includes('\\')) actor = actor.split('\\').pop();
+
+  const grpM = msg.match(/group\s+'([^']+)'/i) || msg.match(/Group:\s*[\s\S]*?Group Name:\s*([^\s\r\n]+)/i) || msg.match(/CMD:.*?\bnet1?\s+localgroup\s+([^\s]+)/i) || msg.match(/group\s+([^\s]+)/i);
+  let group = grpM ? grpM[1].slice(0, 60).trim() : '';
+  if (group.includes('\\')) group = group.split('\\').pop();
+  if (group.toLowerCase() === 'none' || group === '-') group = '';
   const is_privileged = /domain admins|enterprise admins|schema admins|administrators/i.test(group || '');
 
-  const qm = msg.match(/'([^']+)'/) || msg.match(/User Account.*?:\s*([^\s|]+)/i) || msg.match(/Target Account:\s*[\s\S]*?Account Name:\s*([^\s]+)/i) || msg.match(/Member:\s*[\s\S]*?Account Name:\s*([^\s]+)/i) || msg.match(/CMD:.*?\bnet1?\s+localgroup\s+[^\s]+\s+([^\s/]+)/i) || msg.match(/CMD:.*?\bnet1?\s+user\s+([^\s/]+)/i);
-  const username = qm ? qm[1].slice(0, 60) : '-';
+  // Prioritize structured patterns (Target Account, Member, CMD line) over generic quoted strings
+  const qm = msg.match(/Target Account:\s*[\s\S]*?Account Name:\s*([^\s\r\n]+)/i)
+    || msg.match(/Target Account.*?:\s*([^\s\r\n|]+)/i)
+    || msg.match(/Member:\s*[\s\S]*?Account Name:\s*([^\s\r\n]+)/i)
+    || msg.match(/Member:\s*([^\s\r\n,]+)/i)
+    || msg.match(/User Account.*?:\s*([^\s|]+)/i)
+    || msg.match(/CMD:.*?\bnet1?\s+user\s+([^\s/]+)/i)
+    || msg.match(/CMD:.*?\bnet1?\s+localgroup\s+[^\s]+\s+([^\s/]+)/i)
+    || msg.match(/user\s+'([^']+)'/i)
+    || msg.match(/account\s+'([^']+)'/i)
+    || (msg.match(/'([^']+)'/) && (msg.match(/'([^']+)'/)[1] || '').toLowerCase() !== group.toLowerCase() ? msg.match(/'([^']+)'/) : null);
+
+  let username = qm ? qm[1].slice(0, 60).trim() : '-';
+  if (username.includes('\\')) username = username.split('\\').pop();
+  if (group && username.toLowerCase() === group.toLowerCase()) {
+    username = '-';
+  }
+  if (!username || username === '-' || username.toLowerCase() === 'system') username = '-';
 
   return { 
     ts: r.ts, 
