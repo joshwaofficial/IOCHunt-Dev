@@ -35,6 +35,7 @@ Write-Host "Test Firewall Log Sent to Port ${syslogPort} Successfully!" -Foregro
 
   const curlTest = `curl -k -X POST https://${serverHost}:${window.location.port || 8082}/api/firewall/ingest \\
   -H "Content-Type: application/json" \\
+  -H "X-Tenant-ID: ${tenantId}" \\
   -d '{"logs":["<189>date=${new Date().toISOString().slice(0, 10)} time=${new Date().toISOString().slice(11, 19)} devname=\\"FGT-OFFICE\\" type=\\"traffic\\" srcip=\\"185.220.101.5\\" srcport=49152 dstip=\\"10.90.122.247\\" dstport=3389 action=\\"deny\\" proto=6 service=\\"RDP\\""]}'`;
 
   return (

@@ -577,6 +577,19 @@ exports.ingestSyslog = async (req, res) => {
     const rawApiKey = req.headers['x-api-key'] || req.headers['x-aggregator-key'] || req.query.apiKey;
     let tenantId = req.tenantId || req.session?.tenant_id || req.session?.user?.tenant_id;
 
+    if (!tenantId && (req.headers['x-tenant-id'] || req.query?.tenant_id || req.body?.tenant_id)) {
+      const candidateTenant = String(req.headers['x-tenant-id'] || req.query?.tenant_id || req.body?.tenant_id).trim();
+      if (candidateTenant && typeof req.queryControlPlane === 'function') {
+        const checkRes = await req.queryControlPlane(
+          'SELECT tenant_id FROM tenants WHERE tenant_id = $1 AND status = $2',
+          [candidateTenant, 'active']
+        );
+        if (checkRes && checkRes.rows && checkRes.rows.length > 0) {
+          tenantId = checkRes.rows[0].tenant_id;
+        }
+      }
+    }
+
     if (!tenantId && rawApiKey && typeof req.queryControlPlane === 'function') {
       const crypto = require('crypto');
       const hash = (text) => crypto.createHash('sha256').update(text).digest('hex');
