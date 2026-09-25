@@ -241,6 +241,8 @@ async function getTenantPool(tenantId) {
         console.warn(`[TenantDB:${tenantId}] Superuser schema migration note:`, migErr.message);
       }
       pool.query(`
+        ALTER TABLE fw_events ALTER COLUMN src_country TYPE VARCHAR(100);
+        ALTER TABLE fw_events ALTER COLUMN dst_country TYPE VARCHAR(100);
         UPDATE events SET ts = ts - INTERVAL '5 hours 30 minutes'
         WHERE ts > NOW() + INTERVAL '2 minutes' AND ts <= NOW() + INTERVAL '8 hours';
         UPDATE events SET is_noise = true WHERE tag ILIKE '%PERSISTENCE%' AND tag ILIKE '%SERVICE%' AND is_noise = false;

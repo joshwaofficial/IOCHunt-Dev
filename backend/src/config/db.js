@@ -174,8 +174,8 @@ function getTableSchemaSQL() {
       service VARCHAR(255) DEFAULT '',
       policy VARCHAR(255) DEFAULT '',
       proto VARCHAR(50) DEFAULT '',
-      src_country VARCHAR(10) DEFAULT '',
-      dst_country VARCHAR(10) DEFAULT '',
+      src_country VARCHAR(100) DEFAULT '',
+      dst_country VARCHAR(100) DEFAULT '',
       sent_bytes BIGINT DEFAULT 0,
       rcv_bytes BIGINT DEFAULT 0,
       duration INTEGER DEFAULT 0,
@@ -433,6 +433,8 @@ const initDB = async (retries = 10, delay = 3000) => {
                 ALTER TABLE settings ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'soc_shift_8h';
                 ALTER TABLE settings ADD COLUMN IF NOT EXISTS session_lifetime_hours INTEGER DEFAULT 8;
                 ALTER TABLE settings ADD COLUMN IF NOT EXISTS idle_timeout_mins INTEGER DEFAULT 0;
+                ALTER TABLE fw_events ALTER COLUMN src_country TYPE VARCHAR(100);
+                ALTER TABLE fw_events ALTER COLUMN dst_country TYPE VARCHAR(100);
                 GRANT ALL ON ALL TABLES IN SCHEMA public TO "${t.db_user}";
                 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "${t.db_user}";
               `);
