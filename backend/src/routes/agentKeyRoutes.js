@@ -13,6 +13,9 @@ router.use(requireSession, requireAdmin);
 // Bulk generate keys
 router.post('/generate', agentKeyController.generateKeys);
 
+// Email generated keys CSV securely via SMTP
+router.post('/email-keys', agentKeyController.emailKeys);
+
 // List keys and fleet metrics
 router.get('/', agentKeyController.listKeys);
 

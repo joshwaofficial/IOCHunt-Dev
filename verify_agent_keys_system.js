@@ -24,6 +24,7 @@ console.log('  ✅ PASS: All agent-key routes protected by requireSession and re
 console.log('\nTest 2: Verify endpoints on agentKeyRoutes');
 const expectedEndpoints = [
   { path: '/generate', method: 'post', name: 'POST /api/agent-keys/generate (bulk generation)' },
+  { path: '/email-keys', method: 'post', name: 'POST /api/agent-keys/email-keys (SMTP key dispatch)' },
   { path: '/', method: 'get', name: 'GET /api/agent-keys (list keys & fleet stats)' },
   { path: '/bulk-action', method: 'post', name: 'POST /api/agent-keys/bulk-action (bulk operations)' },
   { path: '/:id/revoke', method: 'post', name: 'POST /api/agent-keys/:id/revoke (revoke key)' },

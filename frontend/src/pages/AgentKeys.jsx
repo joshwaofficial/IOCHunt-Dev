@@ -41,6 +41,11 @@ export default function AgentKeys() {
   // One-time reveal modal
   const [newlyCreatedKeys, setNewlyCreatedKeys] = useState([]);
   const [showRevealModal, setShowRevealModal] = useState(false);
+  const [hasDownloaded, setHasDownloaded] = useState(false);
+  const [hasEmailed, setHasEmailed] = useState(false);
+  const [confirmSaved, setConfirmSaved] = useState(false);
+  const [emailRecipients, setEmailRecipients] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
 
   // Confirm modal for Revoke / Reset / Delete
   const [actionTarget, setActionTarget] = useState(null); // { type: 'revoke'|'reset'|'delete', key: item }
@@ -96,6 +101,10 @@ export default function AgentKeys() {
 
       setShowGenerateModal(false);
       setNewlyCreatedKeys(res.data.keys || []);
+      setHasDownloaded(false);
+      setHasEmailed(false);
+      setConfirmSaved(false);
+      setEmailRecipients('');
       setShowRevealModal(true);
       setGenerateLabel('');
       toast.success(`Generated ${res.data.count} keys in milliseconds!`);
@@ -115,40 +124,110 @@ export default function AgentKeys() {
     toast.success(`Copied ${newlyCreatedKeys.length} keys to clipboard!`);
   };
 
-  // Download CSV of Plaintext Keys - ONE single key column for zero confusion
-  const handleDownloadCsv = () => {
+  // Download CSV of Plaintext Keys with Directory/Folder Path Selector
+  const handleDownloadCsv = async () => {
     const headers = 'Agent_API_Key,Status,Label,CreatedAt\n';
     const rows = newlyCreatedKeys.map(k =>
-      `"${k.key}","${k.status}","${k.label || ''}","${formatLocalTime(k.createdAt)}"`
+      `"${k.key}","${k.status}","${k.label || generateLabel || ''}","${formatLocalTime(k.createdAt)}"`
     ).join('\n');
+    const csvContent = headers + rows;
+    const filename = `iochunt_agent_keys_${new Date().toISOString().slice(0, 10)}.csv`;
 
-    const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
+    try {
+      // Modern Browser File System Access API - Opens native OS Save File dialog for directory & file path selection
+      if ('showSaveFilePicker' in window) {
+        const opts = {
+          suggestedName: filename,
+          types: [{
+            description: 'Agent Keys CSV Keyfile (*.csv)',
+            accept: { 'text/csv': ['.csv'] },
+          }],
+        };
+        const handle = await window.showSaveFilePicker(opts);
+        const writable = await handle.createWritable();
+        await writable.write(csvContent);
+        await writable.close();
+        setHasDownloaded(true);
+        toast.success('Agent keys CSV saved to chosen directory!');
+        return;
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        toast('Save cancelled');
+        return;
+      }
+      console.warn('showSaveFilePicker error, falling back to direct download:', err);
+    }
+
+    // Standard fallback download for browsers without File System Access API
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `iochunt_agent_keys_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', filename);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast.success('Downloaded Agent Keys CSV (Single Key Column)');
+    URL.revokeObjectURL(url);
+    setHasDownloaded(true);
+    toast.success('Agent keys CSV downloaded successfully!');
   };
 
-  // Export Current Filtered Table (Key Identifiers)
+  // Dispatch CSV Keyfile via SMTP Email
+  const handleSendEmail = async () => {
+    if (!emailRecipients || !emailRecipients.trim()) {
+      toast.error('Please enter at least one recipient email address');
+      return;
+    }
+
+    try {
+      setSendingEmail(true);
+      const res = await axios.post('/api/agent-keys/email-keys', {
+        recipients: emailRecipients,
+        keys: newlyCreatedKeys,
+        label: generateLabel
+      });
+
+      setHasEmailed(true);
+      toast.success(res.data.message || 'Keyfile successfully dispatched via email!');
+    } catch (err) {
+      console.error('Email sending failed:', err);
+      toast.error(err.response?.data?.error || 'Failed to dispatch email. Verify SMTP settings.');
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
+  // Close Guard for Reveal Modal
+  const handleCloseRevealModal = () => {
+    if (!hasDownloaded && !hasEmailed && !confirmSaved) {
+      toast.error('Please save your keys (Download or Email) before closing this window!');
+      return;
+    }
+    setShowRevealModal(false);
+    setNewlyCreatedKeys([]);
+    setHasDownloaded(false);
+    setHasEmailed(false);
+    setConfirmSaved(false);
+    setEmailRecipients('');
+  };
+
+  // Export Current Filtered Fleet Table (Machines & Status)
   const handleExportTableCsv = () => {
-    const headers = 'Key_Identifier,Status,Bound_Machine,Label,CreatedAt,ActivatedAt\n';
+    const headers = 'Bound_Machine,Status,Label,CreatedAt,ActivatedAt\n';
     const rows = keys.map(k =>
-      `"${k.key_prefix}","${k.status}","${k.bound_machine || 'Unassigned'}","${k.label || ''}","${formatLocalTime(k.created_at)}","${formatLocalTime(k.activated_at)}"`
+      `"${k.bound_machine || 'Unassigned'}","${k.status}","${k.label || ''}","${formatLocalTime(k.created_at)}","${formatLocalTime(k.activated_at)}"`
     ).join('\n');
 
     const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `iochunt_keys_fleet_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `iochunt_fleet_machines_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast.success('Exported fleet key identifiers to CSV');
+    toast.success('Exported fleet directory to CSV');
   };
 
   // Multi-select helpers
@@ -212,15 +291,16 @@ export default function AgentKeys() {
         toast.success(res.data.message || `Bulk ${type} completed for ${count} keys`);
         setSelectedIds(new Set());
       } else {
+        const machineName = key.bound_machine || key.label || `Key #${key.id}`;
         if (type === 'revoke') {
           await axios.post(`/api/agent-keys/${key.id}/revoke`);
-          toast.success(`Key ${key.key_prefix} revoked immediately`);
+          toast.success(`Key for ${machineName} revoked immediately`);
         } else if (type === 'reset') {
           await axios.post(`/api/agent-keys/${key.id}/reset`);
-          toast.success(`Key ${key.key_prefix} reset to pending (machine unbound)`);
+          toast.success(`Key for ${machineName} reset to pending`);
         } else if (type === 'delete') {
           await axios.delete(`/api/agent-keys/${key.id}`);
-          toast.success(`Key ${key.key_prefix} permanently deleted`);
+          toast.success(`Key for ${machineName} permanently deleted`);
         }
       }
       setActionTarget(null);
@@ -230,11 +310,6 @@ export default function AgentKeys() {
     } finally {
       setActionLoading(false);
     }
-  };
-
-  const copyPrefix = (prefix) => {
-    navigator.clipboard.writeText(prefix);
-    toast.success(`Copied ${prefix} to clipboard`);
   };
 
   // Premium Metric Card Component (matching Clients.jsx)
@@ -373,7 +448,7 @@ export default function AgentKeys() {
             className="tb-search"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-            placeholder="Search key prefix, machine, label..." 
+            placeholder="Search machine name, label, status..." 
             style={{ width: '100%' }}
           />
         </div>
@@ -493,7 +568,7 @@ export default function AgentKeys() {
           verified_user
         </span>
         <div style={{ fontSize: '12px', color: 'var(--text)', lineHeight: 1.5 }}>
-          <strong>Zero-Trust Credential Security:</strong> Plaintext secret keys (e.g. <code>BmHyVFDWUO1tUkiOC5gvbw</code>) are displayed <em>only once</em> when generated and stored in your downloaded CSV. The central server never stores plaintext keys—only SHA-256 hashes. The table below displays public <strong>Key IDs (masked prefixes)</strong> for fleet administration and status tracking only.
+          <strong>Zero-Trust Credential Security:</strong> Plaintext secret keys are revealed <em>only once</em> during generation and never stored on the server—only cryptographic SHA-256 hashes. To eliminate screen-capture and shoulder-surfing hazards, secret keys are never exposed in the dashboard table. Endpoint agents automatically bind their machine identity upon enrollment.
         </div>
       </div>
 
@@ -503,9 +578,10 @@ export default function AgentKeys() {
           if (!search) return true;
           const term = search.toLowerCase();
           return (
-            (k.key_prefix && k.key_prefix.toLowerCase().includes(term)) ||
             (k.bound_machine && k.bound_machine.toLowerCase().includes(term)) ||
-            (k.label && k.label.toLowerCase().includes(term))
+            (k.label && k.label.toLowerCase().includes(term)) ||
+            (k.status && k.status.toLowerCase().includes(term)) ||
+            (k.key_prefix && k.key_prefix.toLowerCase().includes(term))
           );
         });
 
@@ -704,9 +780,8 @@ export default function AgentKeys() {
                               />
                             </th>
                           )}
-                          <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>KEY IDENTIFIER</th>
-                          <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>STATUS</th>
                           <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>BOUND MACHINE</th>
+                          <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>STATUS</th>
                           <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>LABEL / NOTES</th>
                           <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>PROVISIONED</th>
                           <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>ACTIVATED</th>
@@ -741,72 +816,51 @@ export default function AgentKeys() {
                                   />
                                 </td>
                               )}
-                              {/* Key Identifier */}
-                              <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                  <code style={{ 
-                                    background: 'var(--surface2)', 
-                                    border: '1px solid var(--border)', 
-                                    color: '#2563eb', 
-                                    padding: '3px 8px', 
-                                    borderRadius: '4px', 
-                                    fontFamily: 'var(--mono)', 
-                                    fontSize: '11px',
-                                    fontWeight: 700
-                                  }}>
-                                    {k.key_prefix}••••••••
-                                  </code>
-                                  <span style={{
-                                    fontSize: '9px',
-                                    fontWeight: 700,
-                                    color: 'var(--muted)',
-                                    background: 'var(--surface2)',
-                                    border: '1px solid var(--border)',
-                                    padding: '2px 5px',
-                                    borderRadius: '3px',
-                                    textTransform: 'uppercase',
-                                    fontFamily: 'var(--mono)'
-                                  }}>
-                                    ID ONLY
-                                  </span>
-                                </div>
+                              {/* Bound Machine */}
+                              <td style={{ padding: '12px 16px' }}>
+                                {k.bound_machine ? (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span className="material-symbols-outlined" style={{ fontSize: '16px', color: '#2563eb' }}>
+                                      computer
+                                    </span>
+                                    <span style={{ fontFamily: 'var(--sans)', fontWeight: 700, fontSize: '12px', color: 'var(--text)' }}>
+                                      {k.bound_machine}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span className="material-symbols-outlined" style={{ fontSize: '14px', color: 'var(--muted)' }}>
+                                      hourglass_top
+                                    </span>
+                                    <span style={{ fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic', fontFamily: 'var(--mono)' }}>
+                                      Pending Machine Binding
+                                    </span>
+                                  </div>
+                                )}
                               </td>
 
-                            {/* Status */}
-                            <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                              <span style={{ 
-                                width: '8px', 
-                                height: '8px', 
-                                borderRadius: '50%', 
-                                background: statusCol, 
-                                display: 'inline-block', 
-                                marginRight: '8px', 
-                                verticalAlign: 'middle', 
-                                boxShadow: `0 0 6px ${statusCol}88` 
-                              }}></span>
-                              <span style={{ 
-                                fontSize: '10px', 
-                                fontWeight: 700, 
-                                color: statusCol, 
-                                fontFamily: 'var(--mono)', 
-                                textTransform: 'uppercase' 
-                              }}>
-                                {k.status}
-                              </span>
-                            </td>
-
-                            {/* Bound Machine */}
-                            <td style={{ padding: '12px 16px' }}>
-                              {k.bound_machine ? (
-                                <div style={{ fontFamily: 'var(--sans)', fontWeight: 600, fontSize: '12px', color: 'var(--accent)' }}>
-                                  {k.bound_machine}
-                                </div>
-                              ) : (
-                                <div style={{ fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic', fontFamily: 'var(--mono)' }}>
-                                  Unassigned
-                                </div>
-                              )}
-                            </td>
+                              {/* Status */}
+                              <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                                <span style={{ 
+                                  width: '8px', 
+                                  height: '8px', 
+                                  borderRadius: '50%', 
+                                  background: statusCol, 
+                                  display: 'inline-block', 
+                                  marginRight: '8px', 
+                                  verticalAlign: 'middle', 
+                                  boxShadow: `0 0 6px ${statusCol}88` 
+                                }}></span>
+                                <span style={{ 
+                                  fontSize: '10px', 
+                                  fontWeight: 700, 
+                                  color: statusCol, 
+                                  fontFamily: 'var(--mono)', 
+                                  textTransform: 'uppercase' 
+                                }}>
+                                  {k.status}
+                                </span>
+                              </td>
 
                             {/* Label / Notes */}
                             <td style={{ padding: '12px 16px', color: 'var(--text)', fontSize: '12px' }}>
@@ -1090,108 +1144,265 @@ export default function AgentKeys() {
         </div>
       )}
 
-      {/* ── Modal 2: One-Time Key Reveal Modal ── */}
+      {/* ── Modal 2: One-Time Key Reveal & Secure Export Modal ── */}
       {showRevealModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050 }}>
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', width: '90%', maxWidth: '600px', padding: '24px', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-              <span className="material-symbols-outlined" style={{ color: '#22c55e', fontSize: '26px' }}>
-                check_circle
-              </span>
-              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text)' }}>
-                {newlyCreatedKeys.length} Agent API Keys Generated
-              </h3>
-            </div>
-
-            <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '8px', padding: '12px 16px', margin: '14px 0', display: 'flex', gap: '10px' }}>
-              <span className="material-symbols-outlined" style={{ color: '#ef4444', fontSize: '20px', flexShrink: 0 }}>
-                warning
-              </span>
-              <div style={{ fontSize: '12px', color: 'var(--text)', lineHeight: 1.5 }}>
-                <strong>One-Time Display:</strong> These are your secret API keys (e.g. <code>{newlyCreatedKeys[0]?.key || 'BmHyVFDWUO1tUkiOC5gvbw'}</code>). Enter this exact key in your agent's <code>central_server_key</code> config. The server only stores SHA-256 hashes—once this window is closed, these plaintext keys cannot be retrieved. Download the CSV now.
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, padding: '20px' }}>
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', width: '100%', maxWidth: '640px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
+            
+            {/* Modal Header */}
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(37,99,235,0.03)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span className="material-symbols-outlined" style={{ color: '#22c55e', fontSize: '28px' }}>
+                  check_circle
+                </span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text)' }}>
+                    {newlyCreatedKeys.length} Agent API Keys Generated
+                  </h3>
+                  <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                    Zero-Trust One-Time Credential Reveal
+                  </span>
+                </div>
               </div>
+
+              {(hasDownloaded || hasEmailed || confirmSaved) && (
+                <button 
+                  onClick={handleCloseRevealModal} 
+                  style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', display: 'flex', padding: '4px' }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>close</span>
+                </button>
+              )}
             </div>
 
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
-              <button
-                onClick={handleCopyAll}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '8px 14px',
-                  borderRadius: '6px',
-                  background: 'var(--surface2)',
-                  color: 'var(--text)',
-                  border: '1px solid var(--border)',
-                  cursor: 'pointer',
-                  fontSize: '12px',
-                  fontWeight: 600
-                }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>content_copy</span>
-                Copy All
-              </button>
+            {/* Scrollable Body */}
+            <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              
+              {/* Critical Security Warning */}
+              <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '10px', padding: '14px 16px', display: 'flex', gap: '12px' }}>
+                <span className="material-symbols-outlined" style={{ color: '#ef4444', fontSize: '22px', flexShrink: 0 }}>
+                  warning
+                </span>
+                <div style={{ fontSize: '12px', color: 'var(--text)', lineHeight: 1.5 }}>
+                  <strong>One-Time Display Protocol:</strong> The Central Server stores only one-way cryptographic SHA-256 hashes. These raw keys will <em>never</em> be displayed in the dashboard table or retrieved again. You must download the CSV or email it before closing this window.
+                </div>
+              </div>
 
-              <button
-                onClick={handleDownloadCsv}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '8px 14px',
-                  borderRadius: '6px',
-                  background: '#2563eb',
-                  color: '#fff',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: '12px',
-                  fontWeight: 700
-                }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>download</span>
-                Download CSV Keyfile
-              </button>
-            </div>
+              {/* Export Actions (Folder Selector & Copy All) */}
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={handleDownloadCsv}
+                  style={{
+                    flex: '1 1 200px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    padding: '10px 16px',
+                    borderRadius: '8px',
+                    background: hasDownloaded ? '#15803d' : '#2563eb',
+                    color: '#fff',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    boxShadow: hasDownloaded ? '0 2px 8px rgba(21,128,61,0.3)' : '0 2px 8px rgba(37,99,235,0.3)',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
+                    {hasDownloaded ? 'task_alt' : 'folder_open'}
+                  </span>
+                  {hasDownloaded ? 'Saved to Directory ✓' : 'Save Keyfile to Folder (CSV)'}
+                </button>
 
-            {/* Scrollable list */}
-            <div style={{ maxHeight: '220px', overflowY: 'auto', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', marginBottom: '20px' }}>
-              {newlyCreatedKeys.map((k, idx) => (
-                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: idx < newlyCreatedKeys.length - 1 ? '1px solid var(--border)' : 'none', fontFamily: 'var(--mono)', fontSize: '11px', color: 'var(--text)' }}>
-                  <span>{k.key}</span>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(k.key);
-                      toast.success('Copied API Key!');
+                <button
+                  type="button"
+                  onClick={handleCopyAll}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '10px 16px',
+                    borderRadius: '8px',
+                    background: 'var(--surface2)',
+                    color: 'var(--text)',
+                    border: '1px solid var(--border)',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>content_copy</span>
+                  Copy All
+                </button>
+              </div>
+
+              {/* Enterprise SMTP Delivery Card */}
+              <div style={{
+                background: 'var(--surface2)',
+                border: '1px solid var(--border)',
+                borderRadius: '10px',
+                padding: '16px 18px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="material-symbols-outlined" style={{ color: '#2563eb', fontSize: '18px' }}>
+                      mail
+                    </span>
+                    <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text)', letterSpacing: '0.5px' }}>
+                      Dispatch Keyfile via SMTP
+                    </span>
+                  </div>
+                  {hasEmailed && (
+                    <span style={{
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      color: '#22c55e',
+                      background: 'rgba(34,197,94,0.1)',
+                      border: '1px solid rgba(34,197,94,0.25)',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontFamily: 'var(--mono)'
+                    }}>
+                      EMAILED ✓
+                    </span>
+                  )}
+                </div>
+
+                <p style={{ margin: 0, fontSize: '11px', color: 'var(--muted)', lineHeight: 1.4 }}>
+                  Send the generated keys as an encrypted CSV attachment to authorized security administrators or endpoint technicians.
+                </p>
+
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <input
+                    type="text"
+                    value={emailRecipients}
+                    onChange={(e) => setEmailRecipients(e.target.value)}
+                    placeholder="Enter email(s), e.g. secops@company.com, admin@corp.io"
+                    style={{
+                      flex: 1,
+                      minWidth: '220px',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text)',
+                      fontSize: '12px'
                     }}
-                    style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', padding: 0 }}
+                  />
+                  <button
+                    type="button"
+                    disabled={sendingEmail}
+                    onClick={handleSendEmail}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      background: hasEmailed ? '#16a34a' : '#2563eb',
+                      color: '#fff',
+                      border: 'none',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: sendingEmail ? 'not-allowed' : 'pointer',
+                      whiteSpace: 'nowrap'
+                    }}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>content_copy</span>
+                    <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
+                      {sendingEmail ? 'hourglass_top' : 'send'}
+                    </span>
+                    {sendingEmail ? 'Sending...' : hasEmailed ? 'Sent Again' : 'Send to Email(s)'}
                   </button>
                 </div>
-              ))}
+              </div>
+
+              {/* Scrollable Keys Preview */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label style={{ fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)' }}>
+                    Generated Agent API Keys ({newlyCreatedKeys.length}):
+                  </label>
+                  <span style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                    Single Key Column
+                  </span>
+                </div>
+
+                <div style={{ maxHeight: '180px', overflowY: 'auto', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 12px' }}>
+                  {newlyCreatedKeys.map((k, idx) => (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: idx < newlyCreatedKeys.length - 1 ? '1px solid var(--border)' : 'none', fontFamily: 'var(--mono)', fontSize: '12px', color: 'var(--text)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ color: 'var(--muted)', fontSize: '10px', width: '20px' }}>#{idx + 1}</span>
+                        <span style={{ fontWeight: 600 }}>{k.key}</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(k.key);
+                          toast.success(`Copied key #${idx + 1}!`);
+                        }}
+                        title="Copy key"
+                        style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', padding: '2px 4px' }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>content_copy</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Enforced Confirmation Guard */}
+              <div style={{
+                background: 'rgba(37,99,235,0.04)',
+                border: '1px dashed var(--border)',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '10px'
+              }}>
+                <input
+                  type="checkbox"
+                  id="confirmSavedKeysCheck"
+                  checked={confirmSaved || hasDownloaded || hasEmailed}
+                  onChange={(e) => setConfirmSaved(e.target.checked)}
+                  style={{ width: '16px', height: '16px', marginTop: '2px', cursor: 'pointer', accentColor: '#2563eb' }}
+                />
+                <label htmlFor="confirmSavedKeysCheck" style={{ fontSize: '11px', color: 'var(--text)', lineHeight: 1.4, cursor: 'pointer' }}>
+                  <strong>Safeguard Acknowledgment:</strong> I confirm I have safely downloaded the CSV or dispatched the keys via email. I acknowledge that these keys cannot be retrieved once this window is closed.
+                </label>
+              </div>
+
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            {/* Modal Footer */}
+            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', background: 'rgba(255,255,255,0.01)' }}>
               <button
-                onClick={() => {
-                  setShowRevealModal(false);
-                  setNewlyCreatedKeys([]);
-                }}
+                type="button"
+                onClick={handleCloseRevealModal}
+                disabled={!hasDownloaded && !hasEmailed && !confirmSaved}
                 style={{
-                  padding: '8px 20px',
-                  borderRadius: '6px',
-                  background: '#2563eb',
-                  color: '#fff',
-                  border: 'none',
+                  padding: '9px 24px',
+                  borderRadius: '8px',
+                  background: (hasDownloaded || hasEmailed || confirmSaved) ? '#2563eb' : 'var(--surface2)',
+                  color: (hasDownloaded || hasEmailed || confirmSaved) ? '#fff' : 'var(--muted)',
+                  border: (hasDownloaded || hasEmailed || confirmSaved) ? 'none' : '1px solid var(--border)',
                   fontWeight: 700,
                   fontSize: '12px',
-                  cursor: 'pointer'
+                  cursor: (hasDownloaded || hasEmailed || confirmSaved) ? 'pointer' : 'not-allowed',
+                  boxShadow: (hasDownloaded || hasEmailed || confirmSaved) ? '0 4px 12px rgba(37,99,235,0.3)' : 'none',
+                  transition: 'all 0.2s ease'
                 }}
               >
                 I Have Saved These Keys
               </button>
             </div>
+
           </div>
         </div>
       )}
@@ -1239,17 +1450,17 @@ export default function AgentKeys() {
                 <>
                   {actionTarget.type === 'revoke' && (
                     <>
-                      Are you sure you want to revoke key <code>{actionTarget.key.key_prefix}••••</code>? The machine <strong>{actionTarget.key.bound_machine || 'associated with this key'}</strong> will be blocked immediately from sending logs.
+                      Are you sure you want to revoke credentials for endpoint machine <strong>{actionTarget.key.bound_machine || actionTarget.key.label || `Key #${actionTarget.key.id}`}</strong>? The machine will be blocked immediately from sending logs.
                     </>
                   )}
                   {actionTarget.type === 'reset' && (
                     <>
-                      Resetting key <code>{actionTarget.key.key_prefix}••••</code> will unbind machine <strong>{actionTarget.key.bound_machine}</strong> and return the key to <code>pending</code>.
+                      Resetting credentials for machine <strong>{actionTarget.key.bound_machine || actionTarget.key.label || `Key #${actionTarget.key.id}`}</strong> will unbind the machine and return the key to <code>pending</code> enrollment status.
                     </>
                   )}
                   {actionTarget.type === 'delete' && (
                     <>
-                      Are you sure you want to permanently delete key <code>{actionTarget.key.key_prefix}••••</code>? This action cannot be undone.
+                      Are you sure you want to permanently delete credentials for machine <strong>{actionTarget.key.bound_machine || actionTarget.key.label || `Key #${actionTarget.key.id}`}</strong>? This action cannot be undone.
                     </>
                   )}
                 </>
