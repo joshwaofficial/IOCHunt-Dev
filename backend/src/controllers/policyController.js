@@ -20,6 +20,16 @@ async function getMachinePolicy(req, res) {
       return res.status(400).json({ error: 'Invalid machine identifier' });
     }
     const machine = rawMachine.trim();
+
+    // Zero-Trust Machine Policy Isolation (INT-PT-L-002)
+    if (req.isAgentKey && req.boundMachine) {
+      if (req.boundMachine.toLowerCase() !== machine.toLowerCase()) {
+        return res.status(403).json({
+          error: `Forbidden: Unauthorized access to policy. This agent key is bound to '${req.boundMachine}', but requested policy for '${machine}'`
+        });
+      }
+    }
+
     const rowRes = await req.queryTenant('SELECT * FROM policies WHERE LOWER(machine) = LOWER($1) ORDER BY updated_at DESC LIMIT 1', [machine]);
     const row = rowRes.rows[0];
     
@@ -87,6 +97,16 @@ async function updateMachineCurrentPolicy(req, res) {
       return res.status(400).json({ error: 'Invalid machine identifier' });
     }
     const machine = rawMachine.trim();
+
+    // Zero-Trust Machine Policy Isolation (INT-PT-L-002)
+    if (req.isAgentKey && req.boundMachine) {
+      if (req.boundMachine.toLowerCase() !== machine.toLowerCase()) {
+        return res.status(403).json({
+          error: `Forbidden: Unauthorized access to policy. This agent key is bound to '${req.boundMachine}', but requested update for '${machine}'`
+        });
+      }
+    }
+
     const policy = req.body?.policy;
     if (!policy || typeof policy !== 'object' || Array.isArray(policy)) {
       return res.status(400).json({ error: 'policy object required' });
@@ -115,6 +135,9 @@ async function setMachinePolicy(req, res) {
   try {
     if (appMode.isAggregator()) {
       return res.status(403).json({ error: 'Policies are managed centrally. This instance is read-only.' });
+    }
+    if (req.isAgentKey) {
+      return res.status(403).json({ error: 'Forbidden: Agents cannot modify policies' });
     }
     if (req.session && !isRoleAboveOrEqual(req.session.role, 'ADMIN')) {
       return res.status(403).json({ error: 'Forbidden: Admin privileges required to modify policies' });
@@ -155,6 +178,16 @@ async function ackMachinePolicy(req, res) {
       return res.status(400).json({ error: 'Invalid machine identifier' });
     }
     const machine = rawMachine.trim();
+
+    // Zero-Trust Machine Policy Isolation (INT-PT-L-002)
+    if (req.isAgentKey && req.boundMachine) {
+      if (req.boundMachine.toLowerCase() !== machine.toLowerCase()) {
+        return res.status(403).json({
+          error: `Forbidden: Unauthorized access to policy. This agent key is bound to '${req.boundMachine}', but requested ACK for '${machine}'`
+        });
+      }
+    }
+
     const policy = req.body?.policy;
     
     // Get effective policy to synchronize current_json immediately on ACK
@@ -197,6 +230,9 @@ async function ackMachinePolicy(req, res) {
 
 async function getAllPolicies(req, res) {
   try {
+    if (req.isAgentKey) {
+      return res.status(403).json({ error: 'Forbidden: Agents cannot list all fleet policies' });
+    }
     const rowsRes = await req.queryTenant('SELECT * FROM policies ORDER BY updated_at DESC');
     res.json(rowsRes.rows.map(r => ({ ...r, policy: JSON.parse(r.policy_json || '{}') })));
   } catch (error) {

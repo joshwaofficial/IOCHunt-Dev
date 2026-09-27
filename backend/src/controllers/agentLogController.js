@@ -17,6 +17,16 @@ async function ingestAgentLogs(req, res) {
     if (!isIdentifier(machine, 1, 128)) {
       return res.status(400).json({ error: 'Invalid machine identifier' });
     }
+
+    // Zero-Trust Machine Identity Enforcement (INT-PT-H-003 & INT-PT-H-004)
+    if (req.isAgentKey && req.boundMachine) {
+      if (req.boundMachine.toLowerCase() !== machine.trim().toLowerCase()) {
+        return res.status(403).json({
+          error: `Forbidden: Machine identity mismatch. This agent key is permanently bound to '${req.boundMachine}', but submitted logs for '${machine}'`
+        });
+      }
+    }
+
     if (!Array.isArray(events)) {
       return res.status(400).json({ error: 'events must be an array' });
     }

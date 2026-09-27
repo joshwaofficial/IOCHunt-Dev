@@ -216,8 +216,37 @@ async function requireKey(req, res, next) {
   }
 
   const cleanKey = key.trim();
+  const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown';
+  const reportedMachine = req.body?.machine || req.params?.machine || req.query?.machine || null;
 
   try {
+    // 1. Check Unique Agent Keys (Zero-Trust Machine Binding & TOFU)
+    const agentKeyService = require('../services/agentKeyService');
+    const agentKeyRes = await agentKeyService.validateAndBindAgentKey(cleanKey, reportedMachine, clientIp);
+
+    if (agentKeyRes.valid) {
+      req.authType = 'agent_unique_key';
+      req.isAgentKey = true;
+      req.tenantId = agentKeyRes.tenantId || (appMode.isAggregator() ? 'aggregator' : 'default');
+      req.boundMachine = agentKeyRes.boundMachine;
+      req.agentKeyId = agentKeyRes.id;
+      return next();
+    } else if (agentKeyRes.reason && agentKeyRes.reason.includes('Machine identity mismatch')) {
+      logSecurityEvent({
+        event: 'AGENT_MACHINE_SPOOF_ATTEMPT',
+        severity: SEVERITY.CRITICAL,
+        ip: clientIp,
+        tenantId: agentKeyRes.tenantId || 'unknown',
+        detail: {
+          reason: agentKeyRes.reason,
+          path: req.originalUrl || req.url,
+          reportedMachine,
+          boundMachine: agentKeyRes.boundMachine
+        }
+      });
+      return res.status(403).json({ error: agentKeyRes.reason });
+    }
+
     if (appMode.isAggregator()) {
       // Aggregator local validation: strictly allow only verified local key hash or central key
       const settingsRes = await db.query('SELECT agent_api_key_hash, central_api_key FROM settings WHERE id = 1');
@@ -250,7 +279,6 @@ async function requireKey(req, res, next) {
     console.error('[AUTH] Error checking API key in requireKey:', e.message);
   }
 
-  const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown';
   logSecurityEvent({
     event: EVENTS.TRAFFIC_INVALID_KEY,
     severity: SEVERITY.WARN,
@@ -275,7 +303,23 @@ async function requireSessionOrKey(req, res, next) {
 
   if (key) {
     const cleanKey = key.trim();
+    const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown';
+    const reportedMachine = req.body?.machine || req.params?.machine || req.params?.id || req.query?.machine || null;
+
     try {
+      // 1. Check Unique Agent Keys (Zero-Trust Machine Binding)
+      const agentKeyService = require('../services/agentKeyService');
+      const agentKeyRes = await agentKeyService.validateAndBindAgentKey(cleanKey, reportedMachine, clientIp);
+
+      if (agentKeyRes.valid) {
+        req.authType = 'agent_unique_key';
+        req.isAgentKey = true;
+        req.tenantId = agentKeyRes.tenantId || (appMode.isAggregator() ? 'aggregator' : 'default');
+        req.boundMachine = agentKeyRes.boundMachine;
+        req.agentKeyId = agentKeyRes.id;
+        return next();
+      }
+
       if (appMode.isAggregator()) {
         const settingsRes = await db.query('SELECT agent_api_key_hash, central_api_key FROM settings WHERE id = 1');
         const localHash = settingsRes.rows[0]?.agent_api_key_hash;

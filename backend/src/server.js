@@ -102,6 +102,7 @@ app.use('/api/instance', express.json(), instanceRoutes);
 // Auth & Users
 app.use('/api/auth', express.json(), authRoutes);
 app.use('/api/users', express.json(), userRoutes);
+app.use('/api/agent-keys', express.json(), require('./routes/agentKeyRoutes'));
 
 // Agent Connection Verification Challenge
 app.get('/api/challenge', requireKey, (req, res) => {

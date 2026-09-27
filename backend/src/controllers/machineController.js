@@ -5,6 +5,15 @@ const Machine = require('../models/Machine');
  */
 async function getAllMachines(req, res) {
   try {
+    // If request comes from an agent key (e.g. Test Connection), only return connection confirmation (INT-PT-L-001)
+    if (req.isAgentKey) {
+      return res.status(200).json({
+        status: 'connected',
+        machine: req.boundMachine || 'ok',
+        timestamp: Math.floor(Date.now() / 1000)
+      });
+    }
+
     const machines = await Machine.getAllMachines(req.queryTenant);
     return res.status(200).json({ data: machines });
   } catch (error) {
@@ -20,6 +29,10 @@ async function getMachinePolicy(req, res) {
   try {
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'Machine ID is required' });
+
+    if (req.isAgentKey && req.boundMachine && req.boundMachine.toLowerCase() !== id.toLowerCase()) {
+      return res.status(403).json({ error: 'Forbidden: Access to other machine policy denied' });
+    }
 
     const policy = await Machine.getPolicy(req.queryTenant, id);
     return res.status(200).json({ data: policy || {} });
@@ -54,6 +67,9 @@ async function updateMachinePolicy(req, res) {
  */
 async function getClients(req, res) {
   try {
+    if (req.isAgentKey) {
+      return res.status(403).json({ error: 'Forbidden: Agents cannot view client directory' });
+    }
     let from, to;
     if (req.query.from && req.query.to && req.query.from !== 'undefined' && req.query.to !== 'undefined') {
       from = req.query.from;

@@ -327,7 +327,23 @@ function getTableSchemaSQL() {
     CREATE INDEX IF NOT EXISTS idx_audit_log_tenant_created ON audit_log (tenant_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_log_username ON audit_log (username);
     CREATE INDEX IF NOT EXISTS idx_sessions_tenant_expires ON sessions (tenant_id, expires_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id);
+    CREATE TABLE IF NOT EXISTS agent_keys (
+      id SERIAL PRIMARY KEY,
+      tenant_id VARCHAR(64) DEFAULT 'default',
+      key_prefix VARCHAR(16) NOT NULL,
+      key_hash VARCHAR(64) NOT NULL,
+      bound_machine VARCHAR(128) DEFAULT NULL,
+      label VARCHAR(128) DEFAULT '',
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      created_by VARCHAR(100) DEFAULT 'admin',
+      created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
+      activated_at BIGINT DEFAULT NULL,
+      last_used_at BIGINT DEFAULT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_keys_hash ON agent_keys (key_hash);
+    CREATE INDEX IF NOT EXISTS idx_agent_keys_tenant_status ON agent_keys (tenant_id, status);
+    CREATE INDEX IF NOT EXISTS idx_agent_keys_bound_machine ON agent_keys (tenant_id, bound_machine);
 
     INSERT INTO smtp_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
     INSERT INTO settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
@@ -399,6 +415,22 @@ const initDB = async (retries = 10, delay = 3000) => {
           CREATE INDEX IF NOT EXISTS idx_audit_log_username ON audit_log (username);
           CREATE INDEX IF NOT EXISTS idx_sessions_tenant_expires ON sessions (tenant_id, expires_at DESC);
           CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id);
+          CREATE TABLE IF NOT EXISTS agent_keys (
+            id SERIAL PRIMARY KEY,
+            tenant_id VARCHAR(64) DEFAULT 'default',
+            key_prefix VARCHAR(16) NOT NULL,
+            key_hash VARCHAR(64) NOT NULL,
+            bound_machine VARCHAR(128) DEFAULT NULL,
+            label VARCHAR(128) DEFAULT '',
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            created_by VARCHAR(100) DEFAULT 'admin',
+            created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
+            activated_at BIGINT DEFAULT NULL,
+            last_used_at BIGINT DEFAULT NULL
+          );
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_keys_hash ON agent_keys (key_hash);
+          CREATE INDEX IF NOT EXISTS idx_agent_keys_tenant_status ON agent_keys (tenant_id, status);
+          CREATE INDEX IF NOT EXISTS idx_agent_keys_bound_machine ON agent_keys (tenant_id, bound_machine);
         `);
 
         try {

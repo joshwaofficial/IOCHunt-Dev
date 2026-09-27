@@ -22,6 +22,7 @@ import UsbEvents from './pages/UsbEvents';
 import Clients from './pages/Clients';
 import AllLogs from './pages/AllLogs';
 import Policy from './pages/Policy';
+import AgentKeys from './pages/AgentKeys';
 import Incidents from './pages/Incidents';
 import IncidentDetail from './pages/IncidentDetail';
 import Reports from './pages/Reports';
@@ -156,6 +157,11 @@ function App() {
                     <Route path="policy" element={
                       <ProtectedRoute>
                         <Policy />
+                      </ProtectedRoute>
+                    } />
+                    <Route path="agent-keys" element={
+                      <ProtectedRoute requiredRole="admin">
+                        <AgentKeys />
                       </ProtectedRoute>
                     } />
                     <Route path="users" element={

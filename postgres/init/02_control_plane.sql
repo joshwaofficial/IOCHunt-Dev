@@ -95,6 +95,25 @@ CREATE TABLE IF NOT EXISTS mfa_pending (
     expires_at BIGINT NOT NULL
 );
 
+-- ── Agent Keys Registry ─────────────────────────────────────────
+-- Pre-provisioned unique keys bound to endpoints (TOFU)
+CREATE TABLE IF NOT EXISTS agent_keys (
+    id SERIAL PRIMARY KEY,
+    tenant_id VARCHAR(64) DEFAULT 'default',
+    key_prefix VARCHAR(16) NOT NULL,
+    key_hash VARCHAR(64) NOT NULL,
+    bound_machine VARCHAR(128) DEFAULT NULL,
+    label VARCHAR(128) DEFAULT '',
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    created_by VARCHAR(100) DEFAULT 'admin',
+    created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW()),
+    activated_at BIGINT DEFAULT NULL,
+    last_used_at BIGINT DEFAULT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_keys_hash ON agent_keys (key_hash);
+CREATE INDEX IF NOT EXISTS idx_agent_keys_tenant_status ON agent_keys (tenant_id, status);
+CREATE INDEX IF NOT EXISTS idx_agent_keys_bound_machine ON agent_keys (tenant_id, bound_machine);
+
 -- ── Immutable Audit Log ─────────────────────────────────────────
 -- Records security-sensitive actions across all tenants.
 -- This table should be append-only in production (no UPDATE/DELETE by app role).

@@ -103,6 +103,9 @@ export default function Sidebar({ collapsed, toggle }) {
           {isCentral() && !isAggregator() && !user?.aggregator_name && user?.role !== 'AGGREGATOR_ADMIN' && (
             <NavLink to="/email-reports" className={navClass}><span className="icon material-symbols-outlined">mail</span> Email Reports</NavLink>
           )}
+          {isAdmin && (
+            <NavLink to="/agent-keys" className={navClass}><span className="icon material-symbols-outlined">vpn_key</span> Agent Keys</NavLink>
+          )}
           <NavLink to="/policy" className={navClass}><span className="icon material-symbols-outlined">policy</span> Policy</NavLink>
           <NavLink to="/users" className={navClass}>
             <span className="icon material-symbols-outlined">{isAdmin ? 'group' : 'account_circle'}</span>
