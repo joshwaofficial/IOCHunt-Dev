@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
@@ -243,61 +244,68 @@ export default function AggregatorSettings() {
           )}
         </div>
 
-        {/* Agent API Key Card */}
+        {/* Zero-Trust Agent Authentication Card */}
         <div style={{
           background: 'var(--surface)',
           borderRadius: '8px',
           border: '1px solid var(--border)',
-          padding: '24px'
+          padding: '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between'
         }}>
-          <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
-            Local Agent API Key
-          </h3>
-          <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '20px' }}>
-            Use this key to authenticate endpoint agents connecting to this Aggregator.
-          </p>
-
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginBottom: '6px' }}>
-              Agent Access Key
-            </label>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input 
-                type="password" 
-                readOnly
-                value={settings?.agent_api_key || ''}
-                style={{
-                  flex: 1, padding: '10px 14px', background: 'var(--background)',
-                  border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--primary)', fontSize: '13px',
-                  fontFamily: 'monospace', letterSpacing: '2px'
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (settings?.agent_api_key) {
-                    navigator.clipboard.writeText(settings.agent_api_key);
-                    toast.success('Agent API Key copied!');
-                  }
-                }}
-                style={{
-                  background: 'var(--background)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  padding: '0 16px',
-                  color: 'var(--text)',
-                  fontWeight: 600,
-                  fontSize: '13px',
-                  cursor: 'pointer'
-                }}
-              >
-                Copy
-              </button>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#2563eb' }}>
+                verified_user
+              </span>
+              <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', margin: 0 }}>
+                Agent Authentication
+              </h3>
             </div>
-            <span style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', marginTop: '8px' }}>
-              Agents should configure their <code>API_KEY</code> property to match this value exactly.
-            </span>
+            <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '16px', lineHeight: 1.5 }}>
+              Endpoint agents connecting to this Aggregator authenticate using individual, machine-bound cryptographic keys.
+            </p>
+
+            <div style={{
+              background: 'rgba(37, 99, 235, 0.06)',
+              border: '1px solid rgba(37, 99, 235, 0.2)',
+              borderRadius: '6px',
+              padding: '12px 14px',
+              marginBottom: '18px'
+            }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', fontFamily: 'var(--mono)' }}>
+                Zero-Trust Machine Binding
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text)', lineHeight: 1.4 }}>
+                Shared static keys are deprecated. Provision unique keys that permanently lock to each endpoint's machine name upon first connection.
+              </div>
+            </div>
           </div>
+
+          <Link
+            to="/agent-keys"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              background: '#2563eb',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '6px',
+              padding: '10px 16px',
+              fontWeight: 700,
+              fontSize: '12px',
+              textDecoration: 'none',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              boxShadow: '0 2px 6px rgba(37,99,235,0.3)'
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '17px' }}>vpn_key</span>
+            Manage Unique Agent Keys →
+          </Link>
         </div>
 
         {/* Local Retention Policy Card */}
