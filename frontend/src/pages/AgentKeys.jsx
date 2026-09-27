@@ -29,6 +29,9 @@ export default function AgentKeys() {
   const [currentPage, setCurrentPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
 
+  // Multi-Selection State
+  const [selectedIds, setSelectedIds] = useState(new Set());
+
   // Modals
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [generateCount, setGenerateCount] = useState(10);
@@ -148,27 +151,82 @@ export default function AgentKeys() {
     toast.success('Exported fleet key identifiers to CSV');
   };
 
-  // Confirm Action
+  // Multi-select helpers
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectPage = (pageKeys) => {
+    const pageIds = pageKeys.map(k => k.id);
+    const allSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allSelected) {
+        pageIds.forEach(id => next.delete(id));
+      } else {
+        pageIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const selectAllFiltered = (allFilteredKeys) => {
+    setSelectedIds(new Set(allFilteredKeys.map(k => k.id)));
+    toast.success(`Selected all ${allFilteredKeys.length} matching keys`);
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  const openBulkConfirm = (action) => {
+    if (selectedIds.size === 0) {
+      toast.error('Please select at least one key');
+      return;
+    }
+    setActionTarget({
+      type: action,
+      isBulk: true,
+      ids: Array.from(selectedIds),
+      count: selectedIds.size
+    });
+  };
+
+  // Confirm Action (Single or Bulk)
   const executeAction = async () => {
     if (!actionTarget) return;
-    const { type, key } = actionTarget;
+    const { type, key, isBulk, ids, count } = actionTarget;
 
     try {
       setActionLoading(true);
-      if (type === 'revoke') {
-        await axios.post(`/api/agent-keys/${key.id}/revoke`);
-        toast.success(`Key ${key.key_prefix} revoked immediately`);
-      } else if (type === 'reset') {
-        await axios.post(`/api/agent-keys/${key.id}/reset`);
-        toast.success(`Key ${key.key_prefix} reset to pending (machine unbound)`);
-      } else if (type === 'delete') {
-        await axios.delete(`/api/agent-keys/${key.id}`);
-        toast.success(`Key ${key.key_prefix} permanently deleted`);
+      if (isBulk) {
+        const res = await axios.post('/api/agent-keys/bulk-action', {
+          action: type,
+          keyIds: ids
+        });
+        toast.success(res.data.message || `Bulk ${type} completed for ${count} keys`);
+        setSelectedIds(new Set());
+      } else {
+        if (type === 'revoke') {
+          await axios.post(`/api/agent-keys/${key.id}/revoke`);
+          toast.success(`Key ${key.key_prefix} revoked immediately`);
+        } else if (type === 'reset') {
+          await axios.post(`/api/agent-keys/${key.id}/reset`);
+          toast.success(`Key ${key.key_prefix} reset to pending (machine unbound)`);
+        } else if (type === 'delete') {
+          await axios.delete(`/api/agent-keys/${key.id}`);
+          toast.success(`Key ${key.key_prefix} permanently deleted`);
+        }
       }
       setActionTarget(null);
       fetchKeys();
     } catch (err) {
-      toast.error(err.response?.data?.error || `Failed to ${type} key`);
+      toast.error(err.response?.data?.error || `Failed to ${type} key(s)`);
     } finally {
       setActionLoading(false);
     }
@@ -456,93 +514,263 @@ export default function AgentKeys() {
         const startIdx = (currentPage - 1) * perPage;
         const paginatedKeys = filteredKeys.slice(startIdx, startIdx + perPage);
 
+        const pageIds = paginatedKeys.map(k => k.id);
+        const isPageAllSelected = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
+        const isSomePageSelected = pageIds.some(id => selectedIds.has(id)) && !isPageAllSelected;
+
         return (
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)' }}>vpn_key</span>
-                <h2 style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text)', fontFamily: 'var(--mono)', margin: 0 }}>
-                  Agent Keys Directory
-                </h2>
-              </div>
-              <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-                Showing {total} keys
-              </span>
-            </div>
+          <>
+            {/* ── Bulk Actions Toolbar ── */}
+            {isAdmin && selectedIds.size > 0 && (
+              <div style={{
+                background: 'rgba(37,99,235,0.08)',
+                border: '1px solid rgba(37,99,235,0.3)',
+                borderRadius: '8px',
+                padding: '12px 18px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '12px',
+                boxShadow: '0 4px 14px rgba(0,0,0,0.06)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  <span style={{ 
+                    background: '#2563eb', 
+                    color: '#fff', 
+                    fontSize: '11px', 
+                    fontWeight: 800, 
+                    padding: '4px 9px', 
+                    borderRadius: '4px', 
+                    fontFamily: 'var(--mono)',
+                    letterSpacing: '0.5px'
+                  }}>
+                    {selectedIds.size} SELECTED
+                  </span>
+                  <span style={{ fontSize: '12px', color: 'var(--text)', fontWeight: 600 }}>
+                    {selectedIds.size === total 
+                      ? `All ${total} matching keys selected` 
+                      : `${selectedIds.size} of ${total} keys selected`}
+                  </span>
+                  {selectedIds.size < total && (
+                    <button
+                      type="button"
+                      onClick={() => selectAllFiltered(filteredKeys)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#2563eb',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                        padding: 0
+                      }}
+                    >
+                      Select all {total} keys
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={clearSelection}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--muted)',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      padding: 0
+                    }}
+                  >
+                    Clear selection
+                  </button>
+                </div>
 
-            {loading ? (
-              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)', fontFamily: 'var(--mono)', fontSize: '12px' }}>
-                Loading agent keys...
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => openBulkConfirm('revoke')}
+                    style={{
+                      background: 'rgba(239, 68, 68, 0.1)',
+                      border: '1px solid rgba(239, 68, 68, 0.3)',
+                      color: '#ef4444',
+                      padding: '6px 14px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      fontFamily: 'var(--mono)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>block</span>
+                    REVOKE ALL ({selectedIds.size})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => openBulkConfirm('reset')}
+                    style={{
+                      background: 'rgba(245, 158, 11, 0.1)',
+                      border: '1px solid rgba(245, 158, 11, 0.3)',
+                      color: '#f59e0b',
+                      padding: '6px 14px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      fontFamily: 'var(--mono)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>restart_alt</span>
+                    RESET ALL ({selectedIds.size})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => openBulkConfirm('delete')}
+                    style={{
+                      background: '#ef4444',
+                      border: '1px solid #dc2626',
+                      color: '#ffffff',
+                      padding: '6px 14px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      fontFamily: 'var(--mono)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      boxShadow: '0 2px 4px rgba(239,68,68,0.2)'
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>delete_forever</span>
+                    DELETE ALL ({selectedIds.size})
+                  </button>
+                </div>
               </div>
-            ) : total === 0 ? (
-              <div style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--muted)' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: '36px', color: 'var(--muted)', marginBottom: '8px' }}>
-                  vpn_key_off
+            )}
+
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)' }}>vpn_key</span>
+                  <h2 style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text)', fontFamily: 'var(--mono)', margin: 0 }}>
+                    Agent Keys Directory
+                  </h2>
+                </div>
+                <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                  Showing {total} keys
                 </span>
-                <p style={{ margin: 0, fontWeight: 600, color: 'var(--text)', fontSize: '13px' }}>No agent keys registered</p>
-                <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-                  {search ? 'Try adjusting your search query or status filter.' : 'Click "Generate Keys" above to provision a batch for your endpoints.'}
-                </p>
               </div>
-            ) : (
-              <>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                    <thead style={{ background: 'rgba(37,99,235,0.03)' }}>
-                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                        <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>KEY IDENTIFIER</th>
-                        <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>STATUS</th>
-                        <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>BOUND MACHINE</th>
-                        <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>LABEL / NOTES</th>
-                        <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>PROVISIONED</th>
-                        <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>ACTIVATED</th>
-                        {isAdmin && <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap', textAlign: 'right' }}>ACTIONS</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paginatedKeys.map((k) => {
-                        const isActive = k.status === 'active';
-                        const isPending = k.status === 'pending';
-                        const isRevoked = k.status === 'revoked';
 
-                        const statusCol = isActive ? '#22c55e' : isPending ? '#f59e0b' : '#ef4444';
+              {loading ? (
+                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)', fontFamily: 'var(--mono)', fontSize: '12px' }}>
+                  Loading agent keys...
+                </div>
+              ) : total === 0 ? (
+                <div style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--muted)' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '36px', color: 'var(--muted)', marginBottom: '8px' }}>
+                    vpn_key_off
+                  </span>
+                  <p style={{ margin: 0, fontWeight: 600, color: 'var(--text)', fontSize: '13px' }}>No agent keys registered</p>
+                  <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                    {search ? 'Try adjusting your search query or status filter.' : 'Click "Generate Keys" above to provision a batch for your endpoints.'}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                      <thead style={{ background: 'rgba(37,99,235,0.03)' }}>
+                        <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                          {isAdmin && (
+                            <th style={{ width: '44px', padding: '12px 14px', textAlign: 'center' }}>
+                              <input 
+                                type="checkbox"
+                                checked={isPageAllSelected}
+                                ref={el => { if (el) el.indeterminate = isSomePageSelected; }}
+                                onChange={() => toggleSelectPage(paginatedKeys)}
+                                title={isPageAllSelected ? "Deselect all on this page" : "Select all on this page"}
+                                style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#2563eb', verticalAlign: 'middle' }}
+                              />
+                            </th>
+                          )}
+                          <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>KEY IDENTIFIER</th>
+                          <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>STATUS</th>
+                          <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>BOUND MACHINE</th>
+                          <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>LABEL / NOTES</th>
+                          <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>PROVISIONED</th>
+                          <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>ACTIVATED</th>
+                          {isAdmin && <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap', textAlign: 'right' }}>ACTIONS</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedKeys.map((k) => {
+                          const isSelected = selectedIds.has(k.id);
+                          const isActive = k.status === 'active';
+                          const isPending = k.status === 'pending';
+                          const isRevoked = k.status === 'revoked';
 
-                        return (
-                          <tr 
-                            key={k.id} 
-                            className="hover-row" 
-                            style={{ borderBottom: '1px solid var(--border)' }}
-                          >
-                            {/* Key Identifier */}
-                            <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <code style={{ 
-                                  background: 'var(--surface2)', 
-                                  border: '1px solid var(--border)', 
-                                  color: '#2563eb', 
-                                  padding: '3px 8px', 
-                                  borderRadius: '4px', 
-                                  fontFamily: 'var(--mono)', 
-                                  fontSize: '11px',
-                                  fontWeight: 700
-                                }}>
-                                  {k.key_prefix}••••••••
-                                </code>
-                                <span style={{
-                                  fontSize: '9px',
-                                  fontWeight: 700,
-                                  color: 'var(--muted)',
-                                  background: 'var(--surface2)',
-                                  border: '1px solid var(--border)',
-                                  padding: '2px 5px',
-                                  borderRadius: '3px',
-                                  textTransform: 'uppercase',
-                                  fontFamily: 'var(--mono)'
-                                }}>
-                                  ID ONLY
-                                </span>
-                              </div>
-                            </td>
+                          const statusCol = isActive ? '#22c55e' : isPending ? '#f59e0b' : '#ef4444';
+
+                          return (
+                            <tr 
+                              key={k.id} 
+                              className="hover-row" 
+                              style={{ 
+                                borderBottom: '1px solid var(--border)',
+                                background: isSelected ? 'rgba(37, 99, 235, 0.05)' : 'transparent'
+                              }}
+                            >
+                              {isAdmin && (
+                                <td style={{ width: '44px', padding: '12px 14px', textAlign: 'center' }}>
+                                  <input 
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => toggleSelect(k.id)}
+                                    style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#2563eb', verticalAlign: 'middle' }}
+                                  />
+                                </td>
+                              )}
+                              {/* Key Identifier */}
+                              <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <code style={{ 
+                                    background: 'var(--surface2)', 
+                                    border: '1px solid var(--border)', 
+                                    color: '#2563eb', 
+                                    padding: '3px 8px', 
+                                    borderRadius: '4px', 
+                                    fontFamily: 'var(--mono)', 
+                                    fontSize: '11px',
+                                    fontWeight: 700
+                                  }}>
+                                    {k.key_prefix}••••••••
+                                  </code>
+                                  <span style={{
+                                    fontSize: '9px',
+                                    fontWeight: 700,
+                                    color: 'var(--muted)',
+                                    background: 'var(--surface2)',
+                                    border: '1px solid var(--border)',
+                                    padding: '2px 5px',
+                                    borderRadius: '3px',
+                                    textTransform: 'uppercase',
+                                    fontFamily: 'var(--mono)'
+                                  }}>
+                                    ID ONLY
+                                  </span>
+                                </div>
+                              </td>
 
                             {/* Status */}
                             <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
@@ -726,8 +954,9 @@ export default function AgentKeys() {
               </>
             )}
           </div>
-        );
-      })()}
+        </>
+      );
+    })()}
 
       {/* ── Modal 1: Generate Keys ── */}
       {showGenerateModal && (
@@ -967,30 +1196,62 @@ export default function AgentKeys() {
         </div>
       )}
 
-      {/* ── Modal 3: Action Confirm Modal (Revoke / Reset / Delete) ── */}
+      {/* ── Modal 3: Action Confirm Modal (Revoke / Reset / Delete - Single or Bulk) ── */}
       {actionTarget && (
         <div onClick={() => setActionTarget(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', width: '90%', maxWidth: '420px', padding: '24px' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', width: '90%', maxWidth: '440px', padding: '24px' }}>
             <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text)', margin: '0 0 12px' }}>
-              {actionTarget.type === 'revoke' && 'Revoke Agent Key?'}
-              {actionTarget.type === 'reset' && 'Reset Machine Binding?'}
-              {actionTarget.type === 'delete' && 'Delete Agent Key?'}
+              {actionTarget.isBulk ? (
+                <>
+                  {actionTarget.type === 'revoke' && `Revoke ${actionTarget.count} Selected Keys?`}
+                  {actionTarget.type === 'reset' && `Reset ${actionTarget.count} Machine Bindings?`}
+                  {actionTarget.type === 'delete' && `Delete ${actionTarget.count} Agent Keys?`}
+                </>
+              ) : (
+                <>
+                  {actionTarget.type === 'revoke' && 'Revoke Agent Key?'}
+                  {actionTarget.type === 'reset' && 'Reset Machine Binding?'}
+                  {actionTarget.type === 'delete' && 'Delete Agent Key?'}
+                </>
+              )}
             </h3>
 
             <p style={{ fontSize: '12px', color: 'var(--muted)', lineHeight: 1.5, marginBottom: '20px' }}>
-              {actionTarget.type === 'revoke' && (
+              {actionTarget.isBulk ? (
                 <>
-                  Are you sure you want to revoke key <code>{actionTarget.key.key_prefix}••••</code>? The machine <strong>{actionTarget.key.bound_machine || 'associated with this key'}</strong> will be blocked immediately from sending logs.
+                  {actionTarget.type === 'revoke' && (
+                    <>
+                      You are about to revoke <strong>{actionTarget.count} agent keys</strong> at once. Any connected machines using these keys will immediately lose access and be blocked from sending logs.
+                    </>
+                  )}
+                  {actionTarget.type === 'reset' && (
+                    <>
+                      You are about to reset <strong>{actionTarget.count} agent keys</strong>. Their machine bindings will be cleared and they will return to <code>pending</code> status so new endpoints can bind to them.
+                    </>
+                  )}
+                  {actionTarget.type === 'delete' && (
+                    <>
+                      You are about to permanently delete <strong>{actionTarget.count} agent keys</strong> from the database. This action cannot be undone.
+                    </>
+                  )}
                 </>
-              )}
-              {actionTarget.type === 'reset' && (
+              ) : (
                 <>
-                  Resetting key <code>{actionTarget.key.key_prefix}••••</code> will unbind machine <strong>{actionTarget.key.bound_machine}</strong> and return the key to <code>pending</code>.
-                </>
-              )}
-              {actionTarget.type === 'delete' && (
-                <>
-                  Are you sure you want to permanently delete key <code>{actionTarget.key.key_prefix}••••</code>? This action cannot be undone.
+                  {actionTarget.type === 'revoke' && (
+                    <>
+                      Are you sure you want to revoke key <code>{actionTarget.key.key_prefix}••••</code>? The machine <strong>{actionTarget.key.bound_machine || 'associated with this key'}</strong> will be blocked immediately from sending logs.
+                    </>
+                  )}
+                  {actionTarget.type === 'reset' && (
+                    <>
+                      Resetting key <code>{actionTarget.key.key_prefix}••••</code> will unbind machine <strong>{actionTarget.key.bound_machine}</strong> and return the key to <code>pending</code>.
+                    </>
+                  )}
+                  {actionTarget.type === 'delete' && (
+                    <>
+                      Are you sure you want to permanently delete key <code>{actionTarget.key.key_prefix}••••</code>? This action cannot be undone.
+                    </>
+                  )}
                 </>
               )}
             </p>
@@ -1018,7 +1279,7 @@ export default function AgentKeys() {
                   cursor: actionLoading ? 'not-allowed' : 'pointer'
                 }}
               >
-                {actionLoading ? 'Processing...' : 'Confirm'}
+                {actionLoading ? 'Processing...' : actionTarget.isBulk ? `Confirm (${actionTarget.count})` : 'Confirm'}
               </button>
             </div>
           </div>

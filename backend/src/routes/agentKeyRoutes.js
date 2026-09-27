@@ -16,6 +16,9 @@ router.post('/generate', agentKeyController.generateKeys);
 // List keys and fleet metrics
 router.get('/', agentKeyController.listKeys);
 
+// Bulk action on multiple keys (revoke, reset, delete)
+router.post('/bulk-action', agentKeyController.bulkAction);
+
 // Revoke a specific key
 router.post('/:id/revoke', agentKeyController.revokeKey);
 

@@ -367,6 +367,105 @@ async function listKeys({ tenantId = 'default', status = 'all', search = '', lim
   };
 }
 
+/**
+ * Bulk revoke multiple keys immediately
+ */
+async function bulkRevokeKeys(ids, tenantId) {
+  if (!Array.isArray(ids) || ids.length === 0) return 0;
+  const cleanIds = ids.map(Number).filter(n => !isNaN(n) && n > 0);
+  if (cleanIds.length === 0) return 0;
+
+  const queryParam = tenantId === 'all'
+    ? 'SELECT id, key_hash FROM agent_keys WHERE id = ANY($1)'
+    : 'SELECT id, key_hash FROM agent_keys WHERE id = ANY($1) AND tenant_id = $2';
+  const queryArgs = tenantId === 'all' ? [cleanIds] : [cleanIds, tenantId];
+
+  const checkRes = await db.query(queryParam, queryArgs);
+  if (checkRes.rows.length === 0) return 0;
+
+  const targetIds = checkRes.rows.map(r => r.id);
+  await db.query("UPDATE agent_keys SET status = 'revoked' WHERE id = ANY($1)", [targetIds]);
+
+  // Evict from Redis immediately
+  if (isRedisConnected()) {
+    try {
+      const redis = getRedisClient();
+      const pipeline = redis.pipeline();
+      for (const row of checkRes.rows) {
+        pipeline.del(`agent_key:${row.key_hash}`);
+      }
+      await pipeline.exec();
+    } catch (_) {}
+  }
+
+  return targetIds.length;
+}
+
+/**
+ * Bulk reset multiple keys (unbind machines, return to pending)
+ */
+async function bulkResetKeys(ids, tenantId) {
+  if (!Array.isArray(ids) || ids.length === 0) return 0;
+  const cleanIds = ids.map(Number).filter(n => !isNaN(n) && n > 0);
+  if (cleanIds.length === 0) return 0;
+
+  const queryParam = tenantId === 'all'
+    ? 'SELECT id, key_hash FROM agent_keys WHERE id = ANY($1)'
+    : 'SELECT id, key_hash FROM agent_keys WHERE id = ANY($1) AND tenant_id = $2';
+  const queryArgs = tenantId === 'all' ? [cleanIds] : [cleanIds, tenantId];
+
+  const checkRes = await db.query(queryParam, queryArgs);
+  if (checkRes.rows.length === 0) return 0;
+
+  const targetIds = checkRes.rows.map(r => r.id);
+  await db.query(
+    "UPDATE agent_keys SET bound_machine = NULL, status = 'pending', activated_at = NULL WHERE id = ANY($1)",
+    [targetIds]
+  );
+
+  // Evict from Redis immediately
+  if (isRedisConnected()) {
+    try {
+      const redis = getRedisClient();
+      const pipeline = redis.pipeline();
+      for (const row of checkRes.rows) {
+        pipeline.del(`agent_key:${row.key_hash}`);
+      }
+      await pipeline.exec();
+    } catch (_) {}
+  }
+
+  return targetIds.length;
+}
+
+/**
+ * Bulk delete multiple keys permanently
+ */
+async function bulkDeleteKeys(ids, tenantId) {
+  if (!Array.isArray(ids) || ids.length === 0) return 0;
+  const cleanIds = ids.map(Number).filter(n => !isNaN(n) && n > 0);
+  if (cleanIds.length === 0) return 0;
+
+  const queryParam = tenantId === 'all'
+    ? 'DELETE FROM agent_keys WHERE id = ANY($1) RETURNING id, key_hash'
+    : 'DELETE FROM agent_keys WHERE id = ANY($1) AND tenant_id = $2 RETURNING id, key_hash';
+  const queryArgs = tenantId === 'all' ? [cleanIds] : [cleanIds, tenantId];
+
+  const res = await db.query(queryParam, queryArgs);
+  if (res.rows.length > 0 && isRedisConnected()) {
+    try {
+      const redis = getRedisClient();
+      const pipeline = redis.pipeline();
+      for (const row of res.rows) {
+        pipeline.del(`agent_key:${row.key_hash}`);
+      }
+      await pipeline.exec();
+    } catch (_) {}
+  }
+
+  return res.rows.length;
+}
+
 module.exports = {
   hashKey,
   generateBulkKeys,
@@ -374,5 +473,8 @@ module.exports = {
   revokeKey,
   resetKey,
   deleteKey,
+  bulkRevokeKeys,
+  bulkResetKeys,
+  bulkDeleteKeys,
   listKeys
 };

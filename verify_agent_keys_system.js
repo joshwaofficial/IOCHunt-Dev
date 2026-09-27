@@ -25,6 +25,7 @@ console.log('\nTest 2: Verify endpoints on agentKeyRoutes');
 const expectedEndpoints = [
   { path: '/generate', method: 'post', name: 'POST /api/agent-keys/generate (bulk generation)' },
   { path: '/', method: 'get', name: 'GET /api/agent-keys (list keys & fleet stats)' },
+  { path: '/bulk-action', method: 'post', name: 'POST /api/agent-keys/bulk-action (bulk operations)' },
   { path: '/:id/revoke', method: 'post', name: 'POST /api/agent-keys/:id/revoke (revoke key)' },
   { path: '/:id/reset', method: 'post', name: 'POST /api/agent-keys/:id/reset (reset binding)' },
   { path: '/:id', method: 'delete', name: 'DELETE /api/agent-keys/:id (delete key)' }
@@ -77,6 +78,9 @@ assert.strictEqual(typeof agentKeyService.generateBulkKeys, 'function', 'generat
 assert.strictEqual(typeof agentKeyService.validateAndBindAgentKey, 'function', 'validateAndBindAgentKey must exist');
 assert.strictEqual(typeof agentKeyService.revokeKey, 'function', 'revokeKey must exist');
 assert.strictEqual(typeof agentKeyService.resetKey, 'function', 'resetKey must exist');
+assert.strictEqual(typeof agentKeyService.bulkRevokeKeys, 'function', 'bulkRevokeKeys must exist');
+assert.strictEqual(typeof agentKeyService.bulkResetKeys, 'function', 'bulkResetKeys must exist');
+assert.strictEqual(typeof agentKeyService.bulkDeleteKeys, 'function', 'bulkDeleteKeys must exist');
 
 // Benchmark in-memory generation of 200 base64url keys (e.g. BmHyVFDWUO1tUkiOC5gvbw)
 const t0 = process.hrtime.bigint();

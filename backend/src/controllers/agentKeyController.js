@@ -166,10 +166,54 @@ async function deleteKey(req, res) {
   }
 }
 
+/**
+ * Perform bulk operations (revoke, reset, delete) on multiple keys
+ */
+async function bulkAction(req, res) {
+  try {
+    const { action, keyIds } = req.body;
+    if (!action || !Array.isArray(keyIds) || keyIds.length === 0) {
+      return res.status(400).json({ error: 'Action and a non-empty array of keyIds are required' });
+    }
+
+    const tenantId = req.tenantId || 'default';
+    let affected = 0;
+
+    if (action === 'revoke') {
+      affected = await agentKeyService.bulkRevokeKeys(keyIds, tenantId);
+    } else if (action === 'reset') {
+      affected = await agentKeyService.bulkResetKeys(keyIds, tenantId);
+    } else if (action === 'delete') {
+      affected = await agentKeyService.bulkDeleteKeys(keyIds, tenantId);
+    } else {
+      return res.status(400).json({ error: `Unsupported bulk action: ${action}` });
+    }
+
+    logSecurityEvent({
+      event: `AGENT_KEYS_BULK_${action.toUpperCase()}`,
+      severity: action === 'delete' || action === 'revoke' ? SEVERITY.WARN : SEVERITY.INFO,
+      tenantId,
+      user: req.session?.username || 'admin',
+      ip: req.ip,
+      detail: { action, count: affected, keyIds }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully executed ${action} on ${affected} key(s)`,
+      count: affected
+    });
+  } catch (error) {
+    console.error('[AgentKeyController] bulkAction error:', error);
+    return res.status(500).json({ error: 'Bulk action failed: ' + error.message });
+  }
+}
+
 module.exports = {
   generateKeys,
   listKeys,
   revokeKey,
   resetKey,
-  deleteKey
+  deleteKey,
+  bulkAction
 };
