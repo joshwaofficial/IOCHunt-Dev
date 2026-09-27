@@ -25,6 +25,10 @@ export default function AgentKeys() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
+  // Pagination (matching Clients.jsx)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [perPage, setPerPage] = useState(10);
+
   // Modals
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [generateCount, setGenerateCount] = useState(10);
@@ -46,7 +50,7 @@ export default function AgentKeys() {
         params: {
           status: statusFilter,
           search: search,
-          limit: 100
+          limit: 500
         }
       });
       setKeys(res.data.keys || []);
@@ -63,11 +67,13 @@ export default function AgentKeys() {
 
   useEffect(() => {
     fetchKeys();
+    setCurrentPage(1);
   }, [statusFilter]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     fetchKeys();
+    setCurrentPage(1);
   };
 
   // Bulk Generation
@@ -106,11 +112,11 @@ export default function AgentKeys() {
     toast.success(`Copied ${newlyCreatedKeys.length} keys to clipboard!`);
   };
 
-  // Download CSV of Plaintext Keys
+  // Download CSV of Plaintext Keys - ONE single key column for zero confusion
   const handleDownloadCsv = () => {
-    const headers = 'Key,Prefix,Status,Label,CreatedAt\n';
+    const headers = 'Agent_API_Key,Status,Label,CreatedAt\n';
     const rows = newlyCreatedKeys.map(k =>
-      `"${k.key}","${k.keyPrefix}","${k.status}","${k.label || ''}","${formatLocalTime(k.createdAt)}"`
+      `"${k.key}","${k.status}","${k.label || ''}","${formatLocalTime(k.createdAt)}"`
     ).join('\n');
 
     const blob = new Blob([headers + rows], { type: 'text/csv;charset=utf-8;' });
@@ -121,12 +127,12 @@ export default function AgentKeys() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast.success('Downloaded CSV export!');
+    toast.success('Downloaded Agent Keys CSV (Single Key Column)');
   };
 
-  // Export Current Filtered Table
+  // Export Current Filtered Table (Key Identifiers)
   const handleExportTableCsv = () => {
-    const headers = 'Prefix,Status,BoundMachine,Label,CreatedAt,ActivatedAt\n';
+    const headers = 'Key_Identifier,Status,Bound_Machine,Label,CreatedAt,ActivatedAt\n';
     const rows = keys.map(k =>
       `"${k.key_prefix}","${k.status}","${k.bound_machine || 'Unassigned'}","${k.label || ''}","${formatLocalTime(k.created_at)}","${formatLocalTime(k.activated_at)}"`
     ).join('\n');
@@ -139,7 +145,7 @@ export default function AgentKeys() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast.success('Exported fleet keys to CSV');
+    toast.success('Exported fleet key identifiers to CSV');
   };
 
   // Confirm Action
@@ -308,7 +314,7 @@ export default function AgentKeys() {
             type="text" 
             className="tb-search"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
             placeholder="Search key prefix, machine, label..." 
             style={{ width: '100%' }}
           />
@@ -414,214 +420,319 @@ export default function AgentKeys() {
         </button>
       </div>
 
-      {/* ── Table Container (Exact match to Clients.jsx) ── */}
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)' }}>vpn_key</span>
-            <h2 style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text)', fontFamily: 'var(--mono)', margin: 0 }}>
-              Agent Keys Directory
-            </h2>
-          </div>
-          <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-            Showing {keys.length} keys
-          </span>
+      {/* ── Security Architecture Banner ── */}
+      <div style={{ 
+        background: 'rgba(37, 99, 235, 0.05)', 
+        border: '1px solid rgba(37, 99, 235, 0.15)', 
+        borderRadius: '8px', 
+        padding: '12px 18px', 
+        marginBottom: '16px', 
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: '12px' 
+      }}>
+        <span className="material-symbols-outlined" style={{ color: '#2563eb', fontSize: '22px', flexShrink: 0 }}>
+          verified_user
+        </span>
+        <div style={{ fontSize: '12px', color: 'var(--text)', lineHeight: 1.5 }}>
+          <strong>Zero-Trust Credential Security:</strong> Plaintext secret keys (e.g. <code>BmHyVFDWUO1tUkiOC5gvbw</code>) are displayed <em>only once</em> when generated and stored in your downloaded CSV. The central server never stores plaintext keys—only SHA-256 hashes. The table below displays public <strong>Key IDs (masked prefixes)</strong> for fleet administration and status tracking only.
         </div>
+      </div>
 
-        {loading ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)', fontFamily: 'var(--mono)', fontSize: '12px' }}>
-            Loading agent keys...
-          </div>
-        ) : keys.length === 0 ? (
-          <div style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--muted)' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: '36px', color: 'var(--muted)', marginBottom: '8px' }}>
-              vpn_key_off
-            </span>
-            <p style={{ margin: 0, fontWeight: 600, color: 'var(--text)', fontSize: '13px' }}>No agent keys registered</p>
-            <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-              Click "Generate Keys" above to provision a batch for your endpoints.
-            </p>
-          </div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)', background: 'linear-gradient(90deg, rgba(37,99,235,0.06) 0%, rgba(37,99,235,0) 100%)' }}>
-                  <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>KEY PREFIX</th>
-                  <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>STATUS</th>
-                  <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>BOUND MACHINE</th>
-                  <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>LABEL / NOTES</th>
-                  <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>PROVISIONED</th>
-                  <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>ACTIVATED</th>
-                  {isAdmin && <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap', textAlign: 'right' }}>ACTIONS</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {keys.map((k) => {
-                  const isActive = k.status === 'active';
-                  const isPending = k.status === 'pending';
-                  const isRevoked = k.status === 'revoked';
+      {/* ── Table Container (Exact match to Clients.jsx) ── */}
+      {(() => {
+        const filteredKeys = keys.filter(k => {
+          if (!search) return true;
+          const term = search.toLowerCase();
+          return (
+            (k.key_prefix && k.key_prefix.toLowerCase().includes(term)) ||
+            (k.bound_machine && k.bound_machine.toLowerCase().includes(term)) ||
+            (k.label && k.label.toLowerCase().includes(term))
+          );
+        });
 
-                  const statusCol = isActive ? '#22c55e' : isPending ? '#f59e0b' : '#ef4444';
+        const total = filteredKeys.length;
+        const totalPages = Math.max(1, Math.ceil(total / perPage));
+        const startIdx = (currentPage - 1) * perPage;
+        const paginatedKeys = filteredKeys.slice(startIdx, startIdx + perPage);
 
-                  return (
-                    <tr 
-                      key={k.id} 
-                      className="hover-row" 
-                      style={{ borderBottom: '1px solid var(--border)' }}
-                    >
-                      {/* Key Prefix */}
-                      <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <code style={{ 
-                            background: 'var(--surface2)', 
-                            border: '1px solid var(--border)', 
-                            color: '#3b82f6', 
-                            padding: '3px 8px', 
-                            borderRadius: '4px', 
-                            fontFamily: 'var(--mono)', 
-                            fontSize: '11px',
-                            fontWeight: 700
-                          }}>
-                            {k.key_prefix}••••••••
-                          </code>
-                          <button
-                            onClick={() => copyPrefix(k.key_prefix)}
-                            title="Copy Prefix"
-                            style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: 0 }}
+        return (
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)' }}>vpn_key</span>
+                <h2 style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text)', fontFamily: 'var(--mono)', margin: 0 }}>
+                  Agent Keys Directory
+                </h2>
+              </div>
+              <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                Showing {total} keys
+              </span>
+            </div>
+
+            {loading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--muted)', fontFamily: 'var(--mono)', fontSize: '12px' }}>
+                Loading agent keys...
+              </div>
+            ) : total === 0 ? (
+              <div style={{ padding: '48px 20px', textAlign: 'center', color: 'var(--muted)' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '36px', color: 'var(--muted)', marginBottom: '8px' }}>
+                  vpn_key_off
+                </span>
+                <p style={{ margin: 0, fontWeight: 600, color: 'var(--text)', fontSize: '13px' }}>No agent keys registered</p>
+                <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                  {search ? 'Try adjusting your search query or status filter.' : 'Click "Generate Keys" above to provision a batch for your endpoints.'}
+                </p>
+              </div>
+            ) : (
+              <>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                    <thead style={{ background: 'rgba(37,99,235,0.03)' }}>
+                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                        <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>KEY IDENTIFIER</th>
+                        <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>STATUS</th>
+                        <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>BOUND MACHINE</th>
+                        <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>LABEL / NOTES</th>
+                        <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>PROVISIONED</th>
+                        <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>ACTIVATED</th>
+                        {isAdmin && <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', whiteSpace: 'nowrap', textAlign: 'right' }}>ACTIONS</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedKeys.map((k) => {
+                        const isActive = k.status === 'active';
+                        const isPending = k.status === 'pending';
+                        const isRevoked = k.status === 'revoked';
+
+                        const statusCol = isActive ? '#22c55e' : isPending ? '#f59e0b' : '#ef4444';
+
+                        return (
+                          <tr 
+                            key={k.id} 
+                            className="hover-row" 
+                            style={{ borderBottom: '1px solid var(--border)' }}
                           >
-                            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>content_copy</span>
-                          </button>
-                        </div>
-                      </td>
-
-                      {/* Status */}
-                      <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                        <span style={{ 
-                          width: '8px', 
-                          height: '8px', 
-                          borderRadius: '50%', 
-                          background: statusCol, 
-                          display: 'inline-block', 
-                          marginRight: '8px', 
-                          verticalAlign: 'middle', 
-                          boxShadow: `0 0 6px ${statusCol}88` 
-                        }}></span>
-                        <span style={{ 
-                          fontSize: '10px', 
-                          fontWeight: 700, 
-                          color: statusCol, 
-                          fontFamily: 'var(--mono)', 
-                          textTransform: 'uppercase' 
-                        }}>
-                          {k.status}
-                        </span>
-                      </td>
-
-                      {/* Bound Machine */}
-                      <td style={{ padding: '12px 16px' }}>
-                        {k.bound_machine ? (
-                          <div style={{ fontFamily: 'var(--sans)', fontWeight: 600, fontSize: '12px', color: 'var(--accent)' }}>
-                            {k.bound_machine}
-                          </div>
-                        ) : (
-                          <div style={{ fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic', fontFamily: 'var(--mono)' }}>
-                            Unassigned
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Label / Notes */}
-                      <td style={{ padding: '12px 16px', color: 'var(--text)', fontSize: '12px' }}>
-                        {k.label || <span style={{ color: 'var(--muted)' }}>—</span>}
-                      </td>
-
-                      {/* Created At */}
-                      <td style={{ padding: '12px 16px', color: 'var(--muted)', fontSize: '11px', fontFamily: 'var(--mono)' }}>
-                        {formatLocalTime(k.created_at)}
-                      </td>
-
-                      {/* Activated At */}
-                      <td style={{ padding: '12px 16px', color: 'var(--muted)', fontSize: '11px', fontFamily: 'var(--mono)' }}>
-                        {formatLocalTime(k.activated_at)}
-                      </td>
-
-                      {/* Actions */}
-                      {isAdmin && (
-                        <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                            {isActive && (
-                              <button
-                                onClick={() => setActionTarget({ type: 'revoke', key: k })}
-                                style={{
-                                  background: 'rgba(239, 68, 68, 0.1)',
-                                  border: '1px solid rgba(239, 68, 68, 0.25)',
-                                  color: '#ef4444',
-                                  padding: '3px 8px',
-                                  borderRadius: '4px',
-                                  fontSize: '10px',
+                            {/* Key Identifier */}
+                            <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <code style={{ 
+                                  background: 'var(--surface2)', 
+                                  border: '1px solid var(--border)', 
+                                  color: '#2563eb', 
+                                  padding: '3px 8px', 
+                                  borderRadius: '4px', 
+                                  fontFamily: 'var(--mono)', 
+                                  fontSize: '11px',
+                                  fontWeight: 700
+                                }}>
+                                  {k.key_prefix}••••••••
+                                </code>
+                                <span style={{
+                                  fontSize: '9px',
                                   fontWeight: 700,
-                                  fontFamily: 'var(--mono)',
-                                  cursor: 'pointer'
-                                }}
-                              >
-                                REVOKE
-                              </button>
-                            )}
-
-                            {isActive && (
-                              <button
-                                onClick={() => setActionTarget({ type: 'reset', key: k })}
-                                style={{
-                                  background: 'rgba(245, 158, 11, 0.1)',
-                                  border: '1px solid rgba(245, 158, 11, 0.25)',
-                                  color: '#f59e0b',
-                                  padding: '3px 8px',
-                                  borderRadius: '4px',
-                                  fontSize: '10px',
-                                  fontWeight: 700,
-                                  fontFamily: 'var(--mono)',
-                                  cursor: 'pointer'
-                                }}
-                              >
-                                RESET
-                              </button>
-                            )}
-
-                            {(isRevoked || isPending) && (
-                              <button
-                                onClick={() => setActionTarget({ type: 'delete', key: k })}
-                                style={{
+                                  color: 'var(--muted)',
                                   background: 'var(--surface2)',
                                   border: '1px solid var(--border)',
-                                  color: 'var(--muted)',
-                                  padding: '3px 8px',
-                                  borderRadius: '4px',
-                                  fontSize: '10px',
-                                  fontWeight: 700,
-                                  fontFamily: 'var(--mono)',
-                                  cursor: 'pointer'
-                                }}
-                              >
-                                DELETE
-                              </button>
+                                  padding: '2px 5px',
+                                  borderRadius: '3px',
+                                  textTransform: 'uppercase',
+                                  fontFamily: 'var(--mono)'
+                                }}>
+                                  ID ONLY
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Status */}
+                            <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                              <span style={{ 
+                                width: '8px', 
+                                height: '8px', 
+                                borderRadius: '50%', 
+                                background: statusCol, 
+                                display: 'inline-block', 
+                                marginRight: '8px', 
+                                verticalAlign: 'middle', 
+                                boxShadow: `0 0 6px ${statusCol}88` 
+                              }}></span>
+                              <span style={{ 
+                                fontSize: '10px', 
+                                fontWeight: 700, 
+                                color: statusCol, 
+                                fontFamily: 'var(--mono)', 
+                                textTransform: 'uppercase' 
+                              }}>
+                                {k.status}
+                              </span>
+                            </td>
+
+                            {/* Bound Machine */}
+                            <td style={{ padding: '12px 16px' }}>
+                              {k.bound_machine ? (
+                                <div style={{ fontFamily: 'var(--sans)', fontWeight: 600, fontSize: '12px', color: 'var(--accent)' }}>
+                                  {k.bound_machine}
+                                </div>
+                              ) : (
+                                <div style={{ fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic', fontFamily: 'var(--mono)' }}>
+                                  Unassigned
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Label / Notes */}
+                            <td style={{ padding: '12px 16px', color: 'var(--text)', fontSize: '12px' }}>
+                              {k.label || <span style={{ color: 'var(--muted)' }}>—</span>}
+                            </td>
+
+                            {/* Created At */}
+                            <td style={{ padding: '12px 16px', color: 'var(--muted)', fontSize: '11px', fontFamily: 'var(--mono)' }}>
+                              {formatLocalTime(k.created_at)}
+                            </td>
+
+                            {/* Activated At */}
+                            <td style={{ padding: '12px 16px', color: 'var(--muted)', fontSize: '11px', fontFamily: 'var(--mono)' }}>
+                              {formatLocalTime(k.activated_at)}
+                            </td>
+
+                            {/* Actions */}
+                            {isAdmin && (
+                              <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                                <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                                  {isActive && (
+                                    <button
+                                      onClick={() => setActionTarget({ type: 'revoke', key: k })}
+                                      style={{
+                                        background: 'rgba(239, 68, 68, 0.1)',
+                                        border: '1px solid rgba(239, 68, 68, 0.25)',
+                                        color: '#ef4444',
+                                        padding: '3px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '10px',
+                                        fontWeight: 700,
+                                        fontFamily: 'var(--mono)',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      REVOKE
+                                    </button>
+                                  )}
+
+                                  {isActive && (
+                                    <button
+                                      onClick={() => setActionTarget({ type: 'reset', key: k })}
+                                      style={{
+                                        background: 'rgba(245, 158, 11, 0.1)',
+                                        border: '1px solid rgba(245, 158, 11, 0.25)',
+                                        color: '#f59e0b',
+                                        padding: '3px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '10px',
+                                        fontWeight: 700,
+                                        fontFamily: 'var(--mono)',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      RESET
+                                    </button>
+                                  )}
+
+                                  {(isRevoked || isPending) && (
+                                    <button
+                                      onClick={() => setActionTarget({ type: 'delete', key: k })}
+                                      style={{
+                                        background: 'var(--surface2)',
+                                        border: '1px solid var(--border)',
+                                        color: 'var(--muted)',
+                                        padding: '3px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '10px',
+                                        fontWeight: 700,
+                                        fontFamily: 'var(--mono)',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      DELETE
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
                             )}
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination Controls matching Clients.jsx */}
+                <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border)', background: 'rgba(255,255,255,0.02)', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    Showing {startIdx + 1} to {Math.min(startIdx + perPage, total)} of {total} entries
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {[5, 10, 25, 50, 100].map(size => {
+                        const isCurrent = perPage === size;
+                        return (
+                          <button 
+                            key={size}
+                            onClick={() => { setPerPage(size); setCurrentPage(1); }}
+                            style={{ 
+                              background: isCurrent ? '#2563eb' : 'transparent', 
+                              border: isCurrent ? '1px solid #2563eb' : '1px solid var(--border)', 
+                              color: isCurrent ? '#fff' : 'var(--muted)', 
+                              padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontFamily: 'var(--mono)', cursor: 'pointer', fontWeight: 600
+                            }}
+                          >
+                            {size}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button 
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        style={{ 
+                          background: 'transparent', 
+                          border: '1px solid var(--border)', 
+                          color: currentPage === 1 ? 'var(--border)' : 'var(--muted)', 
+                          padding: '4px 12px', borderRadius: '4px', fontSize: '11px', fontFamily: 'var(--mono)', 
+                          cursor: currentPage === 1 ? 'default' : 'pointer', fontWeight: 600 
+                        }}
+                      >
+                        Prev
+                      </button>
+                      <span style={{ fontSize: '11px', fontFamily: 'var(--mono)', color: 'var(--text)', fontWeight: 700 }}>
+                        {currentPage} / {totalPages}
+                      </span>
+                      <button 
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        style={{ 
+                          background: 'transparent', 
+                          border: '1px solid var(--border)', 
+                          color: currentPage === totalPages ? 'var(--border)' : 'var(--muted)', 
+                          padding: '4px 12px', borderRadius: '4px', fontSize: '11px', fontFamily: 'var(--mono)', 
+                          cursor: currentPage === totalPages ? 'default' : 'pointer', fontWeight: 600 
+                        }}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
-        )}
-      </div>
+        );
+      })()}
 
       {/* ── Modal 1: Generate Keys ── */}
       {showGenerateModal && (
         <div onClick={() => setShowGenerateModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface-solid, #111827)', border: '1px solid var(--border)', borderRadius: '12px', width: '90%', maxWidth: '480px', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', overflow: 'hidden' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', width: '90%', maxWidth: '480px', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 40px rgba(0,0,0,0.2)', overflow: 'hidden' }}>
             <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(37,99,235,0.03)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span className="material-symbols-outlined" style={{ color: '#3b82f6', fontSize: '20px' }}>vpn_key</span>
@@ -753,13 +864,13 @@ export default function AgentKeys() {
       {/* ── Modal 2: One-Time Key Reveal Modal ── */}
       {showRevealModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050 }}>
-          <div style={{ background: 'var(--surface-solid, #111827)', border: '1px solid var(--border)', borderRadius: '14px', width: '90%', maxWidth: '600px', padding: '24px', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', width: '90%', maxWidth: '600px', padding: '24px', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
               <span className="material-symbols-outlined" style={{ color: '#22c55e', fontSize: '26px' }}>
                 check_circle
               </span>
               <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text)' }}>
-                {newlyCreatedKeys.length} Agent Keys Generated
+                {newlyCreatedKeys.length} Agent API Keys Generated
               </h3>
             </div>
 
@@ -768,7 +879,7 @@ export default function AgentKeys() {
                 warning
               </span>
               <div style={{ fontSize: '12px', color: 'var(--text)', lineHeight: 1.5 }}>
-                <strong>One-Time Display:</strong> These full secret keys are only visible right now. For security, only the SHA-256 hash is saved. Download the CSV or copy them before closing.
+                <strong>One-Time Display:</strong> These are your secret API keys (e.g. <code>{newlyCreatedKeys[0]?.key || 'BmHyVFDWUO1tUkiOC5gvbw'}</code>). Enter this exact key in your agent's <code>central_server_key</code> config. The server only stores SHA-256 hashes—once this window is closed, these plaintext keys cannot be retrieved. Download the CSV now.
               </div>
             </div>
 
@@ -822,9 +933,9 @@ export default function AgentKeys() {
                   <button
                     onClick={() => {
                       navigator.clipboard.writeText(k.key);
-                      toast.success('Copied!');
+                      toast.success('Copied API Key!');
                     }}
-                    style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', padding: 0 }}
+                    style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', padding: 0 }}
                   >
                     <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>content_copy</span>
                   </button>
@@ -859,7 +970,7 @@ export default function AgentKeys() {
       {/* ── Modal 3: Action Confirm Modal (Revoke / Reset / Delete) ── */}
       {actionTarget && (
         <div onClick={() => setActionTarget(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface-solid, #111827)', border: '1px solid var(--border)', borderRadius: '12px', width: '90%', maxWidth: '420px', padding: '24px' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', width: '90%', maxWidth: '420px', padding: '24px' }}>
             <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text)', margin: '0 0 12px' }}>
               {actionTarget.type === 'revoke' && 'Revoke Agent Key?'}
               {actionTarget.type === 'reset' && 'Reset Machine Binding?'}

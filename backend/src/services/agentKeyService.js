@@ -39,10 +39,9 @@ async function generateBulkKeys({ tenantId = 'default', count = 10, label = '', 
   const now = Math.floor(Date.now() / 1000);
 
   for (let i = 0; i < safeCount; i++) {
-    // Generate high-entropy secret (48 hex characters)
-    const secret = crypto.randomBytes(24).toString('hex');
-    const rawKey = `ih_live_${secret}`;
-    const prefix = rawKey.slice(0, 16); // e.g. "ih_live_8f3a129d"
+    // Generate clean high-entropy Base64URL key (16 random bytes = 22 characters, e.g. "BmHyVFDWUO1tUkiOC5gvbw")
+    const rawKey = crypto.randomBytes(16).toString('base64url');
+    const prefix = rawKey.slice(0, 8); // 8-char identifier prefix (e.g. "BmHyVFDW")
     const keyHash = hashKey(rawKey);
 
     keys.push({

@@ -78,13 +78,12 @@ assert.strictEqual(typeof agentKeyService.validateAndBindAgentKey, 'function', '
 assert.strictEqual(typeof agentKeyService.revokeKey, 'function', 'revokeKey must exist');
 assert.strictEqual(typeof agentKeyService.resetKey, 'function', 'resetKey must exist');
 
-// Benchmark in-memory generation of 200 keys
+// Benchmark in-memory generation of 200 base64url keys (e.g. BmHyVFDWUO1tUkiOC5gvbw)
 const t0 = process.hrtime.bigint();
 const testKeys = [];
 for (let i = 0; i < 200; i++) {
-  const secret = crypto.randomBytes(24).toString('hex');
-  const rawKey = `ih_live_${secret}`;
-  const prefix = rawKey.slice(0, 16);
+  const rawKey = crypto.randomBytes(16).toString('base64url');
+  const prefix = rawKey.slice(0, 8);
   const hash = crypto.createHash('sha256').update(rawKey).digest('hex');
   testKeys.push({ rawKey, prefix, hash });
 }
@@ -94,8 +93,8 @@ const elapsedMs = Number(t1 - t0) / 1e6;
 assert.strictEqual(testKeys.length, 200, 'Must generate 200 keys');
 const uniqueHashes = new Set(testKeys.map(k => k.hash));
 assert.strictEqual(uniqueHashes.size, 200, 'All 200 keys must be unique');
-assert.ok(testKeys.every(k => k.rawKey.startsWith('ih_live_')), 'All keys must have ih_live_ prefix');
-console.log(`  ✅ PASS: Generated 200 cryptographically unique keys in RAM in ${elapsedMs.toFixed(2)} ms!`);
+assert.ok(testKeys.every(k => k.rawKey.length === 22), 'All keys must be 22-char base64url strings');
+console.log(`  ✅ PASS: Generated 200 cryptographically unique base64url keys in RAM in ${elapsedMs.toFixed(2)} ms!`);
 
 // 8. Verify Frontend files
 console.log('\nTest 8: Verify Frontend AgentKeys Page & Navigation');
