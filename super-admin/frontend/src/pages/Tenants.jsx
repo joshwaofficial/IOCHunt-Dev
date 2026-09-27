@@ -5,8 +5,6 @@ import {
   Search,
   Plus,
   Trash2,
-  Copy,
-  Check,
   Power,
   KeyRound,
   AlertTriangle,
@@ -22,7 +20,6 @@ export default function Tenants() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [isLoading, setIsLoading] = useState(true);
-  const [copiedId, setCopiedId] = useState(null);
 
   // Modals
   const [isProvisionOpen, setIsProvisionOpen] = useState(false);
@@ -51,13 +48,6 @@ export default function Tenants() {
   useEffect(() => {
     fetchCompanies();
   }, []);
-
-  const handleCopyKey = (key, id) => {
-    if (!key) return;
-    navigator.clipboard.writeText(key);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
 
   const handleToggleStatus = async (company) => {
     const nextStatus = company.status === 'active' ? 'suspended' : 'active';
@@ -179,7 +169,6 @@ export default function Tenants() {
                 <th>Status</th>
                 <th>Syslog Listener</th>
                 <th>Enrolled Agents</th>
-                <th>Ingestion API Key</th>
                 <th className="text-right">Operational Actions</th>
               </tr>
             </thead>
@@ -218,26 +207,6 @@ export default function Tenants() {
                       <Server size={11} color={c.agent_count > 0 ? '#10b981' : '#64748b'} />
                       <span>{c.agent_count || 0} {c.agent_count === 1 ? 'Agent' : 'Agents'}</span>
                     </span>
-                  </td>
-
-                  <td>
-                    {c.api_key ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span className="font-mono" style={{ fontSize: '12px', color: '#64748b', letterSpacing: '1px' }}>
-                          ••••••••••••••••
-                        </span>
-                        <button
-                          onClick={() => handleCopyKey(c.api_key, c.id)}
-                          className="btn-ghost"
-                          style={{ padding: '3px 6px', borderRadius: '4px', color: copiedId === c.id ? '#10b981' : '#64748b' }}
-                          title="Copy API Key"
-                        >
-                          {copiedId === c.id ? <Check size={13} color="#10b981" /> : <Copy size={13} />}
-                        </button>
-                      </div>
-                    ) : (
-                      <span style={{ color: '#475569', fontSize: '12px' }}>Encrypted</span>
-                    )}
                   </td>
 
 

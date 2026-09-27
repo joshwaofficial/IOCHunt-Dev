@@ -46,8 +46,6 @@ export default function Users() {
 
   // Users State
   const [data, setData] = useState([]);
-  const [apiKey, setApiKey] = useState(null);
-  const [apiKeyCopied, setApiKeyCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -106,13 +104,11 @@ export default function Users() {
     setLoading(true);
     setError(null);
     try {
-      const [usersRes, keyRes, sessionSettingsRes] = await Promise.all([
+      const [usersRes, sessionSettingsRes] = await Promise.all([
         axios.get('/api/users'),
-        axios.get('/api/auth/api-key').catch(() => ({ data: { api_key: null } })),
         axios.get('/api/users/session-settings').catch(() => ({ data: { settings: null } }))
       ]);
       setData(usersRes.data.users || []);
-      setApiKey(keyRes.data.api_key);
       if (sessionSettingsRes.data?.settings) {
         setTenantSessionSettings(sessionSettingsRes.data.settings);
       }
@@ -639,25 +635,6 @@ export default function Users() {
                 {sessionsSummary.idle_count} Idle
               </div>
             )}
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--surface)', border: '1px solid var(--border)', padding: '5px 12px', borderRadius: '8px', fontSize: '12px', color: 'var(--text)' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: '15px', color: '#2563eb' }}>vpn_key</span>
-              <span style={{ fontFamily: 'var(--mono)', fontSize: '11px', color: 'var(--muted)' }}>API Key:</span>
-              <span style={{ fontFamily: 'monospace', letterSpacing: '1px' }}>••••••••</span>
-              {apiKey && (
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(apiKey);
-                    setApiKeyCopied(true);
-                    setTimeout(() => setApiKeyCopied(false), 2000);
-                  }}
-                  style={{ background: 'transparent', border: 'none', color: apiKeyCopied ? '#10b981' : 'var(--muted)', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
-                  title="Copy full API Key"
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>{apiKeyCopied ? 'check' : 'content_copy'}</span>
-                </button>
-              )}
-            </div>
           </div>
         )}
       </div>

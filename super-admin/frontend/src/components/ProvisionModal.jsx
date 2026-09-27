@@ -11,7 +11,6 @@ export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [provisionedData, setProvisionedData] = useState(null);
-  const [copiedKey, setCopiedKey] = useState(false);
 
   const generatePassword = () => {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
@@ -52,13 +51,6 @@ export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleCopyKey = () => {
-    if (!provisionedData?.api_key) return;
-    navigator.clipboard.writeText(provisionedData.api_key);
-    setCopiedKey(true);
-    setTimeout(() => setCopiedKey(false), 2000);
   };
 
   const handleClose = () => {
@@ -140,46 +132,22 @@ export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
                 </div>
               </div>
 
-              {/* API Key Box */}
+              {/* Zero-Trust Endpoint Information */}
               <div style={{
-                background: '#0c0f17',
-                border: '1px solid #2b354d',
-                borderRadius: '8px',
-                padding: '14px',
-                marginBottom: '16px'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                  <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#64748b', fontWeight: '600' }}>
-                    Endpoint Agent Ingestion API Key
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleCopyKey}
-                    className="btn btn-secondary"
-                    style={{ padding: '3px 8px', fontSize: '11px', height: '26px' }}
-                  >
-                    {copiedKey ? <><Check size={12} color="#10b981" /> Copied</> : <><Copy size={12} /> Copy Key</>}
-                  </button>
-                </div>
-                <div className="font-mono" style={{ fontSize: '14px', color: '#38bdf8', wordBreak: 'break-all', userSelect: 'all', padding: '6px 8px', background: '#07080c', borderRadius: '4px' }}>
-                  {provisionedData.api_key}
-                </div>
-              </div>
-
-              <div style={{
-                background: 'rgba(245, 158, 11, 0.08)',
-                border: '1px solid rgba(245, 158, 11, 0.25)',
-                color: '#fbbf24',
-                padding: '10px 12px',
+                background: 'rgba(37, 99, 235, 0.08)',
+                border: '1px solid rgba(37, 99, 235, 0.25)',
+                color: '#93c5fd',
+                padding: '12px 14px',
                 borderRadius: '6px',
                 fontSize: '12px',
                 display: 'flex',
                 alignItems: 'flex-start',
-                gap: '8px'
+                gap: '10px',
+                marginBottom: '16px'
               }}>
-                <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
-                <span>
-                  <strong>Important:</strong> Store this API Key in a secure credential manager. The raw key is hashed in the database and cannot be retrieved again.
+                <Server size={16} color="#3b82f6" style={{ flexShrink: 0, marginTop: '2px' }} />
+                <span style={{ lineHeight: 1.5 }}>
+                  <strong>Zero-Trust Endpoint Security:</strong> Endpoint agents connect using individual, unique credentials provisioned via the <strong>Agent Keys</strong> management interface in the Central Dashboard.
                 </span>
               </div>
             </div>
