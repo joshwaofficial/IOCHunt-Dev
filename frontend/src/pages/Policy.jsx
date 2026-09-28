@@ -55,16 +55,17 @@ export default function Policy() {
 
 
 
-  // Polling for policy sync status
+  // Polling for policy sync status and group fleet status
   useEffect(() => {
-    let interval;
-    if (selectedMachine && !selectedMachine.startsWith('grp:')) {
-      interval = setInterval(() => {
+    const interval = setInterval(() => {
+      fetchGroups();
+      if (selectedMachine && !selectedMachine.startsWith('grp:')) {
         fetchMachinePolicy(selectedMachine, true);
-      }, 5000);
-    }
+      }
+    }, 5000);
+
     return () => {
-      if (interval) clearInterval(interval);
+      clearInterval(interval);
     };
   }, [selectedMachine]);
 
@@ -1579,28 +1580,40 @@ export default function Policy() {
                   ) : (
                     <span style={{ fontSize: '10px', color: 'var(--muted)', fontWeight: 600 }}>no policy</span>
                   )}
-                  {memberCount > 0 && (
-                    <>
-                      <span style={{ fontSize: '10px', background: 'rgba(34,197,94,0.1)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.25)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
-                        {inSyncCount} in sync
-                      </span>
-                      {overriddenList.length > 0 && (
-                        <span style={{ fontSize: '10px', background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
-                          {overriddenList.length} overridden
+                  {memberCount > 0 && (() => {
+                    let currentAppliedCount = 0;
+                    let currentPendingCount = 0;
+                    g.machines.forEach(mach => {
+                      const isSel = (selectedMachine === mach || selectedMachine?.toLowerCase() === mach.toLowerCase()) && machinePolicyData;
+                      const applied = isSel
+                        ? Boolean(machinePolicyData.applied_at && (!machinePolicyData.updated_at || machinePolicyData.applied_at >= machinePolicyData.updated_at))
+                        : (g.machine_sync_details?.[mach]?.isApplied ?? false);
+                      if (applied) currentAppliedCount++;
+                      else currentPendingCount++;
+                    });
+                    return (
+                      <>
+                        <span style={{ fontSize: '10px', background: 'rgba(34,197,94,0.1)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.25)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                          {inSyncCount} in sync
                         </span>
-                      )}
-                      {(g.applied_machines || []).length > 0 && (
-                        <span style={{ fontSize: '10px', background: 'rgba(34,197,94,0.1)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.25)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>check_circle</span> {(g.applied_machines || []).length} applied
-                        </span>
-                      )}
-                      {(g.pending_machines || []).length > 0 && (
-                        <span style={{ fontSize: '10px', background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>hourglass_top</span> {(g.pending_machines || []).length} syncing
-                        </span>
-                      )}
-                    </>
-                  )}
+                        {overriddenList.length > 0 && (
+                          <span style={{ fontSize: '10px', background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                            {overriddenList.length} overridden
+                          </span>
+                        )}
+                        {currentAppliedCount > 0 && (
+                          <span style={{ fontSize: '10px', background: 'rgba(34,197,94,0.1)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.25)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>check_circle</span> {currentAppliedCount} applied
+                          </span>
+                        )}
+                        {currentPendingCount > 0 && (
+                          <span style={{ fontSize: '10px', background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>hourglass_top</span> {currentPendingCount} syncing
+                          </span>
+                        )}
+                      </>
+                    );
+                  })()}
                   <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
                     {!readOnly && overriddenList.length > 0 && (
                       <button
@@ -1633,8 +1646,11 @@ export default function Policy() {
                     const machineObj = machines.find(x => x.name === m || String(x.id) === String(m) || x === m);
                     const mName = machineObj ? (machineObj.name || machineObj.hostname || machineObj.label || m) : m;
                     const isOverridden = overriddenList.includes(m);
+                    const isSel = (selectedMachine === m || selectedMachine?.toLowerCase() === m.toLowerCase()) && machinePolicyData;
                     const syncDetail = g.machine_sync_details ? g.machine_sync_details[m] : null;
-                    const isClientApplied = syncDetail ? syncDetail.isApplied : false;
+                    const isClientApplied = isSel
+                      ? Boolean(machinePolicyData.applied_at && (!machinePolicyData.updated_at || machinePolicyData.applied_at >= machinePolicyData.updated_at))
+                      : (syncDetail ? syncDetail.isApplied : false);
                     return (
                       <span
                         key={m}

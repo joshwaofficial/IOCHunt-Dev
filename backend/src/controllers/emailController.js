@@ -168,7 +168,7 @@ exports.createSchedule = async (req, res) => {
       'SELECT * FROM email_schedules WHERE id=$1', [infoRes.rows[0].id]
     );
     const s = sRes.rows[0];
-    if (s.enabled) startSchedule(s);  // Register cron immediately
+    if (s.enabled) startSchedule(s, req.tenantId);  // Register cron immediately
     res.json({ ok: true, id: s.id });
   } catch (err) {
     console.error('[Schedules] Create error:', err);
@@ -235,8 +235,8 @@ exports.updateSchedule = async (req, res) => {
     const s = sRes.rows[0];
 
     // Restart cron: stop old → start new (if enabled)
-    stopSchedule(s.id);
-    if (s.enabled) startSchedule(s);
+    stopSchedule(s.id, req.tenantId);
+    if (s.enabled) startSchedule(s, req.tenantId);
 
     res.json({ ok: true });
   } catch (err) {
@@ -263,7 +263,7 @@ exports.deleteSchedule = async (req, res) => {
       return res.status(404).json({ error: 'Schedule not found' });
     }
 
-    stopSchedule(scheduleId);
+    stopSchedule(scheduleId, req.tenantId);
     await req.queryTenant('DELETE FROM email_schedules WHERE id=$1', [scheduleId]);
     res.json({ ok: true });
   } catch (err) {
@@ -291,7 +291,7 @@ exports.runSchedule = async (req, res) => {
     if (!s) return res.status(404).json({ error: 'Schedule not found' });
 
     try {
-      await generateAndSendReport(s);
+      await generateAndSendReport(s, req.queryTenant, true);
       await req.queryTenant(
         'UPDATE email_schedules SET last_run=$1,last_status=$2 WHERE id=$3',
         [Math.floor(Date.now() / 1000), 'OK', s.id]
@@ -303,7 +303,7 @@ exports.runSchedule = async (req, res) => {
         'UPDATE email_schedules SET last_run=$1,last_status=$2 WHERE id=$3',
         [Math.floor(Date.now() / 1000), 'ERROR: ' + e.message.slice(0, 120), s.id]
       );
-      res.status(500).json({ error: 'Failed to generate or send report' });
+      res.status(500).json({ error: e.message || 'Failed to generate or send report' });
     }
   } catch (err) {
     console.error('[Schedules] Run error:', err);

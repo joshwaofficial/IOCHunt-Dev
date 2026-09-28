@@ -1,25 +1,28 @@
 const db = require('../config/db');
 const { getSmtpConfig, createTransporter } = require('./emailHelper');
 
-async function generateAndSendReport(schedule) {
+async function generateAndSendReport(schedule, queryFn = null, isManual = false) {
+  const q = queryFn || db.query.bind(db);
+
   // ── Validate SMTP ──────────────────────────────────────────────────────────
-  const cfg = await getSmtpConfig();
+  const cfg = await getSmtpConfig(q);
   if (!cfg || !cfg.host) {
     throw new Error('SMTP Host is not configured. Please save your SMTP Configuration first.');
   }
-  if (!cfg.enabled) {
+  if (!isManual && !cfg.enabled) {
     throw new Error('Scheduled Emails Engine is disabled. Turn it on in the top section and click Save Configuration.');
   }
 
   // ── Time window ────────────────────────────────────────────────────────────
   const to = new Date().toISOString().slice(0, 19).replace('T', ' ');
   let from;
-  if (schedule.duration === 'today') {
+  const isToday = schedule.duration === 'today';
+  const hours = isToday ? 24 : (Number(schedule.duration) || 24);
+  if (isToday) {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     from = d.toISOString().slice(0, 19).replace('T', ' ');
   } else {
-    const hours = Number(schedule.duration) || 24;
     from = new Date(Date.now() - hours * 3600000).toISOString().slice(0, 19).replace('T', ' ');
   }
 
@@ -41,12 +44,12 @@ async function generateAndSendReport(schedule) {
   const evWhere = 'WHERE ' + evConds.join(' AND ');
 
   // ── Query event statistics ─────────────────────────────────────────────────
-  const totalEventsRes = await db.query(
+  const totalEventsRes = await q(
     `SELECT COUNT(*) AS n FROM events ${evWhere}`, evParams
   );
-  const totalEvents = parseInt(totalEventsRes.rows[0].n, 10);
+  const totalEvents = parseInt(totalEventsRes.rows[0]?.n || 0, 10);
 
-  const bySeverityRes = await db.query(
+  const bySeverityRes = await q(
     `SELECT severity,COUNT(*) AS n FROM events ${evWhere}
      GROUP BY severity
      ORDER BY CASE severity
@@ -56,20 +59,20 @@ async function generateAndSendReport(schedule) {
        ELSE 3
      END`, evParams
   );
-  const bySeverity = bySeverityRes.rows;
+  const bySeverity = bySeverityRes.rows || [];
 
-  const byCategoryRes = await db.query(
+  const byCategoryRes = await q(
     `SELECT category,COUNT(*) AS n FROM events ${evWhere}
      GROUP BY category ORDER BY n DESC LIMIT 10`, evParams
   );
-  const byCategory = byCategoryRes.rows;
+  const byCategory = byCategoryRes.rows || [];
 
-  const critEventsRes = await db.query(
+  const critEventsRes = await q(
     `SELECT machine,ts,tag,category,severity,message FROM events
      ${evWhere.replace('is_noise=false', "is_noise=false AND severity IN ('critical','high')")}
      ORDER BY ts DESC LIMIT 50`, evParams
   );
-  const critEvents = critEventsRes.rows;
+  const critEvents = critEventsRes.rows || [];
 
   let machQuery = 'SELECT * FROM machines';
   const machParams = [];
@@ -81,11 +84,11 @@ async function generateAndSendReport(schedule) {
   }
   machQuery += ' ORDER BY last_seen DESC';
   
-  const machinesRes = await db.query(machQuery, machParams);
-  const machines = machinesRes.rows;
+  const machinesRes = await q(machQuery, machParams);
+  const machines = machinesRes.rows || [];
 
   // ── AD attack indicators ──────────────────────────────────────────────────
-  const adEventsRes = await db.query(
+  const adEventsRes = await q(
     `SELECT machine,ts,tag,severity,message FROM events ${evWhere}
      AND (category='DOMAIN' OR category='ADCS'
        OR tag LIKE '%DCSYNC%' OR tag LIKE '%KERBEROAST%'
@@ -93,7 +96,7 @@ async function generateAndSendReport(schedule) {
        OR tag LIKE '%PASS-THE-HASH%')
      ORDER BY ts DESC LIMIT 20`, evParams
   );
-  const adEvents = adEventsRes.rows;
+  const adEvents = adEventsRes.rows || [];
 
   // ── Calculate threat level ─────────────────────────────────────────────────
   const sevMap = {};
@@ -115,7 +118,8 @@ async function generateAndSendReport(schedule) {
   }[threatLevel];
 
   // ── Build HTML Email ───────────────────────────────────────────────────────
-  const durLabel = hours === 1 ? 'Last 1 hour'
+  const durLabel = isToday ? 'Today (Since 00:00)'
+    : hours === 1 ? 'Last 1 hour'
     : hours === 24 ? 'Last 24 hours'
     : hours === 168 ? 'Last 7 days'
     : `Last ${hours} hours`;
