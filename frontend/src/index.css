@@ -507,6 +507,15 @@ textarea:not(.modal-field):not(.input-field) {
   color:var(--text)!important;
   border-radius:8px;padding:8px 12px;
 }
+:root.light input[type=text]:not(.input-field):not(.modal-field):not(.tb-search),
+:root.light input[type=password]:not(.input-field),
+:root.light input[type=email]:not(.input-field),
+:root.light input[type=number]:not(.input-field),
+:root.light textarea:not(.modal-field):not(.input-field) {
+  background: var(--surface-solid) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+}
 
 /* Fix Chrome Autofill white background in dark mode */
 input:-webkit-autofill,

@@ -602,15 +602,26 @@ export default function Policy() {
                     {/* Add Folder Input */}
                     {!readOnly && (
                       <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', maxWidth: '650px' }}>
-                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0 12px', height: '42px' }}>
+                        <div style={{
+                          flex: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          background: 'var(--surface)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '8px',
+                          padding: '0 14px',
+                          height: '42px',
+                          boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
+                        }}>
                           <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)', marginRight: '8px' }}>create_new_folder</span>
                           <input
                             type="text"
+                            className="input-field no-focus-outline"
                             placeholder="Enter folder path (e.g. D:\IOCHunt-Monitor or /data/secure)..."
                             value={newDlpFolder}
                             onChange={(e) => setNewDlpFolder(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter') handleAddDlpFolder(); }}
-                            style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text)', fontSize: '13px', outline: 'none', fontFamily: 'var(--sans)' }}
+                            style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text)', fontSize: '13px', outline: 'none', fontFamily: 'var(--sans)', padding: 0 }}
                           />
                         </div>
                         <button
@@ -621,6 +632,7 @@ export default function Policy() {
                             color: '#fff',
                             border: 'none',
                             padding: '0 20px',
+                            height: '42px',
                             borderRadius: '8px',
                             fontSize: '12px',
                             fontWeight: 700,
@@ -639,10 +651,16 @@ export default function Policy() {
                     )}
 
                     {/* Folder List */}
-                    <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', maxWidth: '750px' }}>
+                    <div style={{
+                      background: 'var(--surface)',
+                      border: (!dlpFoldersList || dlpFoldersList.length === 0) ? '1px dashed var(--border)' : '1px solid var(--border)',
+                      borderRadius: '8px',
+                      overflow: 'hidden',
+                      maxWidth: '750px'
+                    }}>
                       {(!dlpFoldersList || dlpFoldersList.length === 0) ? (
-                        <div style={{ padding: '24px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: '28px', color: 'var(--muted)', display: 'block', marginBottom: '8px', opacity: 0.6 }}>folder_off</span>
+                        <div style={{ padding: '28px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: '28px', color: 'var(--muted)', display: 'block', marginBottom: '8px', opacity: 0.5 }}>folder_off</span>
                           No DLP protected folders configured. Add a folder path above to begin monitoring.
                         </div>
                       ) : (
@@ -651,7 +669,7 @@ export default function Policy() {
                             {dlpFoldersList.map((folderPath, idx) => {
                               const isEnforcedByClient = clientDlpFolders && clientDlpFolders.includes(folderPath);
                               return (
-                                <tr key={idx} style={{ borderBottom: idx === dlpFoldersList.length - 1 ? 'none' : '1px solid var(--border2)' }}>
+                                <tr key={idx} style={{ borderBottom: idx === dlpFoldersList.length - 1 ? 'none' : '1px solid var(--border)' }}>
                                   <td style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
                                     <span className="material-symbols-outlined" style={{ fontSize: '20px', color: editingGroupId ? '#a78bfa' : '#3b82f6' }}>folder</span>
                                     <span style={{ fontFamily: 'var(--mono)', fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>{folderPath}</span>
