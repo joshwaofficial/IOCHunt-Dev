@@ -6,12 +6,12 @@ import { useAuth } from '../context/AuthContext';
 const CAT_NAMES = [
   "Process Monitoring", "Registry Run Keys", "Startup Folder", "Service Creation", "Scheduled Tasks",
   "Network / Admin Shares", "Config Changes", "Sensitive File Access", "Enumeration Commands", "Failed Login Attempts",
-  "Non-Office Hours Access", "USB / Removable Media", "Webcam / Microphone"
+  "Non-Office Hours Access", "USB / Removable Media", "Webcam / Microphone", "DLP / Protected Folders"
 ];
 
 const MODE_LABELS = ['Off', 'Log Only', 'Log + Alert', 'Log + Alert + Block'];
 const MODE_COLORS = ['#64748b', '#3b82f6', '#f59e0b', '#ef4444'];
-const DEFAULT_MODES = [3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2];
+const DEFAULT_MODES = [3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 1];
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function Policy() {
@@ -28,6 +28,7 @@ export default function Policy() {
 
   const [editingGroupId, setEditingGroupId] = useState(null);
   const [groupPolicyData, setGroupPolicyData] = useState(null);
+  const [newDlpFolder, setNewDlpFolder] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -183,8 +184,33 @@ export default function Policy() {
     officeHoursDays: policyObj.officeHoursDays !== undefined ? policyObj.officeHoursDays : 62,
     failedLogonThreshold: policyObj.failedLogonThreshold !== undefined ? policyObj.failedLogonThreshold : 5,
     failedLogonWindowMins: policyObj.failedLogonWindowMins !== undefined ? policyObj.failedLogonWindowMins : 10,
-    learningMode: policyObj.learningMode !== undefined ? policyObj.learningMode : true
+    learningMode: policyObj.learningMode !== undefined ? policyObj.learningMode : true,
+    dlpFolders: Array.isArray(policyObj.dlpFolders) ? policyObj.dlpFolders : [],
+    usbLock: policyObj.usbLock === 'locked' ? 'locked' : 'unlocked'
   });
+
+  const handleAddDlpFolder = () => {
+    if (readOnly) return;
+    const path = newDlpFolder.trim();
+    if (!path) return;
+    const pol = editingGroupId ? (groupPolicyData?.policy || {}) : (machinePolicyData?.effective_policy || {});
+    const currentList = Array.isArray(pol.dlpFolders) ? pol.dlpFolders : [];
+    if (currentList.includes(path)) {
+      setAlertDialog({ isOpen: true, title: 'Duplicate Folder', message: 'This folder path is already in the DLP protected list.', type: 'danger' });
+      return;
+    }
+    const updated = [...currentList, path];
+    updatePolicyField('dlpFolders', updated);
+    setNewDlpFolder('');
+  };
+
+  const handleRemoveDlpFolder = (folderToRemove) => {
+    if (readOnly) return;
+    const pol = editingGroupId ? (groupPolicyData?.policy || {}) : (machinePolicyData?.effective_policy || {});
+    const currentList = Array.isArray(pol.dlpFolders) ? pol.dlpFolders : [];
+    const updated = currentList.filter(f => f !== folderToRemove);
+    updatePolicyField('dlpFolders', updated);
+  };
 
   const handleSavePolicy = async () => {
     if (readOnly) return;
@@ -276,6 +302,21 @@ export default function Policy() {
     const flWindow = policyObj.failedLogonWindowMins !== undefined ? policyObj.failedLogonWindowMins : 10;
     const learning = policyObj.learningMode !== undefined ? policyObj.learningMode : true;
     const currentModes = (!editingGroupId && selectedMachine && machinePolicyData && machinePolicyData.current && machinePolicyData.current.catModes) ? machinePolicyData.current.catModes : null;
+
+    const dlpFoldersList = Array.isArray(policyObj.dlpFolders) ? policyObj.dlpFolders : [];
+    const clientDlpFolders = (!editingGroupId && selectedMachine && machinePolicyData?.current && Array.isArray(machinePolicyData.current.dlpFolders))
+      ? machinePolicyData.current.dlpFolders
+      : null;
+    const isDlpInSync = clientDlpFolders !== null &&
+      dlpFoldersList.length === clientDlpFolders.length &&
+      dlpFoldersList.every(f => clientDlpFolders.includes(f));
+
+    const currentUsbLock = policyObj.usbLock === 'locked' ? 'locked' : 'unlocked';
+    const isUsbLocked = currentUsbLock === 'locked';
+    const clientUsbLock = (!editingGroupId && selectedMachine && machinePolicyData?.current && machinePolicyData.current.usbLock)
+      ? machinePolicyData.current.usbLock
+      : null;
+    const isUsbInSync = clientUsbLock !== null && (clientUsbLock === currentUsbLock);
 
     return (
       <div>
@@ -519,6 +560,236 @@ export default function Policy() {
                       </div>
 
                     </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* DLP Protected Folders */}
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden', marginBottom: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="mt" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)', background: `linear-gradient(90deg, ${editingGroupId ? 'rgba(167,139,250,0.1)' : 'rgba(59,130,246,0.1)'} 0%, rgba(0,0,0,0) 100%)` }}>
+                  <th style={{ padding: '16px 20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: '20px', color: editingGroupId ? '#a78bfa' : '#3b82f6' }}>folder_special</span>
+                      <div style={{ fontSize: '13px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text)' }}>DLP Protected Folders</div>
+                      {clientDlpFolders !== null && (
+                        isDlpInSync ? (
+                          <span style={{ fontSize: '11px', color: '#22c55e', marginLeft: 'auto', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check_circle</span> in sync
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '11px', color: '#f97316', marginLeft: 'auto', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>pending</span> Client has {clientDlpFolders.length} folder(s)
+                          </span>
+                        )
+                      )}
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={{ padding: '24px' }}>
+                    <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '0 0 16px', lineHeight: '1.5' }}>
+                      Monitors protected folders for file writes, modifications, and deletions, flagging unauthorized or suspicious process access.
+                    </p>
+
+                    {/* Add Folder Input */}
+                    {!readOnly && (
+                      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', maxWidth: '650px' }}>
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0 12px', height: '42px' }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)', marginRight: '8px' }}>create_new_folder</span>
+                          <input
+                            type="text"
+                            placeholder="Enter folder path (e.g. D:\IOCHunt-Monitor or /data/secure)..."
+                            value={newDlpFolder}
+                            onChange={(e) => setNewDlpFolder(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleAddDlpFolder(); }}
+                            style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text)', fontSize: '13px', outline: 'none', fontFamily: 'var(--sans)' }}
+                          />
+                        </div>
+                        <button
+                          onClick={handleAddDlpFolder}
+                          disabled={!newDlpFolder.trim()}
+                          style={{
+                            background: editingGroupId ? '#a78bfa' : 'var(--accent)',
+                            color: '#fff',
+                            border: 'none',
+                            padding: '0 20px',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            cursor: newDlpFolder.trim() ? 'pointer' : 'not-allowed',
+                            opacity: newDlpFolder.trim() ? 1 : 0.6,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            transition: 'all 0.2s',
+                            boxShadow: newDlpFolder.trim() ? `0 2px 8px ${editingGroupId ? 'rgba(167,139,250,0.25)' : 'rgba(37,99,235,0.25)'}` : 'none'
+                          }}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>add</span> Add Folder
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Folder List */}
+                    <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', maxWidth: '750px' }}>
+                      {(!dlpFoldersList || dlpFoldersList.length === 0) ? (
+                        <div style={{ padding: '24px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: '28px', color: 'var(--muted)', display: 'block', marginBottom: '8px', opacity: 0.6 }}>folder_off</span>
+                          No DLP protected folders configured. Add a folder path above to begin monitoring.
+                        </div>
+                      ) : (
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <tbody>
+                            {dlpFoldersList.map((folderPath, idx) => {
+                              const isEnforcedByClient = clientDlpFolders && clientDlpFolders.includes(folderPath);
+                              return (
+                                <tr key={idx} style={{ borderBottom: idx === dlpFoldersList.length - 1 ? 'none' : '1px solid var(--border2)' }}>
+                                  <td style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <span className="material-symbols-outlined" style={{ fontSize: '20px', color: editingGroupId ? '#a78bfa' : '#3b82f6' }}>folder</span>
+                                    <span style={{ fontFamily: 'var(--mono)', fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>{folderPath}</span>
+                                    {clientDlpFolders !== null && (
+                                      isEnforcedByClient ? (
+                                        <span style={{ fontSize: '10px', color: '#22c55e', background: 'rgba(34,197,94,0.1)', padding: '2px 8px', borderRadius: '4px', marginLeft: 'auto', fontWeight: 600 }}>Active on client</span>
+                                      ) : (
+                                        <span style={{ fontSize: '10px', color: '#f97316', background: 'rgba(249,115,22,0.1)', padding: '2px 8px', borderRadius: '4px', marginLeft: 'auto', fontWeight: 600 }}>Pending sync</span>
+                                      )
+                                    )}
+                                  </td>
+                                  {!readOnly && (
+                                    <td style={{ padding: '12px 16px', textAlign: 'right', width: '90px' }}>
+                                      <button
+                                        onClick={() => handleRemoveDlpFolder(folderPath)}
+                                        title="Remove Folder"
+                                        style={{
+                                          background: 'rgba(239,68,68,0.1)',
+                                          border: '1px solid rgba(239,68,68,0.3)',
+                                          color: '#ef4444',
+                                          padding: '5px 12px',
+                                          borderRadius: '6px',
+                                          fontSize: '11px',
+                                          fontWeight: 700,
+                                          cursor: 'pointer',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '4px',
+                                          transition: 'all 0.15s'
+                                        }}
+                                      >
+                                        <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>delete</span> Remove
+                                      </button>
+                                    </td>
+                                  )}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* USB Storage Control */}
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden', marginBottom: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="mt" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)', background: `linear-gradient(90deg, ${editingGroupId ? 'rgba(167,139,250,0.1)' : 'rgba(59,130,246,0.1)'} 0%, rgba(0,0,0,0) 100%)` }}>
+                  <th style={{ padding: '16px 20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: '20px', color: editingGroupId ? '#a78bfa' : '#3b82f6' }}>usb</span>
+                      <div style={{ fontSize: '13px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text)' }}>USB Storage Control</div>
+                      {clientUsbLock !== null && (
+                        isUsbInSync ? (
+                          <span style={{ fontSize: '11px', color: '#22c55e', marginLeft: 'auto', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check_circle</span> in sync
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '11px', color: '#f97316', marginLeft: 'auto', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>pending</span> Client: {clientUsbLock === 'locked' ? 'Disabled' : 'Enabled'}
+                          </span>
+                        )
+                      )}
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={{ padding: '24px' }}>
+                    <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '0 0 18px', lineHeight: '1.5' }}>
+                      Enforce operating system-level USB mass storage lockdown. When disabled, the agent blocks USB storage access on the endpoint.
+                    </p>
+
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '20px',
+                      padding: '18px 24px',
+                      borderRadius: '10px',
+                      background: isUsbLocked ? 'rgba(239,68,68,0.06)' : 'rgba(34,197,94,0.06)',
+                      border: `1px solid ${isUsbLocked ? 'rgba(239,68,68,0.25)' : 'rgba(34,197,94,0.25)'}`,
+                      maxWidth: '750px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: '32px', color: isUsbLocked ? '#ef4444' : '#22c55e' }}>
+                          {isUsbLocked ? 'block' : 'usb'}
+                        </span>
+                        <div>
+                          <div style={{ fontSize: '14px', fontWeight: 700, color: isUsbLocked ? '#ef4444' : '#22c55e', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: isUsbLocked ? '#ef4444' : '#22c55e', display: 'inline-block' }}></span>
+                            {isUsbLocked ? 'USB Storage is currently DISABLED on this machine' : 'USB Storage is currently ENABLED on this machine'}
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
+                            {isUsbLocked ? 'Endpoints will reject USB thumb drives and external disks.' : 'Endpoints are allowed to read and write to USB flash drives.'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {!readOnly && (
+                        <button
+                          onClick={() => {
+                            updatePolicyField('usbLock', isUsbLocked ? 'unlocked' : 'locked');
+                          }}
+                          style={{
+                            background: isUsbLocked ? '#22c55e' : '#dc2626',
+                            color: '#fff',
+                            border: 'none',
+                            padding: '10px 20px',
+                            borderRadius: '8px',
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            boxShadow: isUsbLocked ? '0 4px 12px rgba(34,197,94,0.25)' : '0 4px 12px rgba(220,38,38,0.25)',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>
+                            {isUsbLocked ? 'lock_open' : 'lock'}
+                          </span>
+                          {isUsbLocked ? 'Enable USB Storage' : 'Disable USB Storage'}
+                        </button>
+                      )}
+                    </div>
+
                   </td>
                 </tr>
               </tbody>

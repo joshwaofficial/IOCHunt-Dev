@@ -3,6 +3,7 @@ const router = express.Router();
 const policyController = require('../controllers/policyController');
 const { requireSessionOrKey } = require('../middlewares/authMiddleware');
 
+router.use(express.json());
 router.get('/', requireSessionOrKey, policyController.getAllPolicies);
 router.get('/:machine', requireSessionOrKey, policyController.getMachinePolicy);
 router.all('/:machine/current', requireSessionOrKey, policyController.updateMachineCurrentPolicy);

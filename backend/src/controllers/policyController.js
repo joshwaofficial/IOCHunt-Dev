@@ -4,14 +4,45 @@ const { isRoleAboveOrEqual } = require('../config/roles');
 const { isIdentifier, sanitizeText } = require('../utils/inputValidator');
 
 const DEFAULT_POLICY = {
-  catModes: [3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2],
+  catModes: [3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 1],
   officeHoursStart: 9,
   officeHoursEnd: 18,
   officeHoursDays: 62,
   failedLogonThreshold: 5,
   failedLogonWindowMins: 10,
-  learningMode: true
+  learningMode: true,
+  dlpFolders: [],
+  usbLock: 'unlocked'
 };
+
+function normalizePolicy(rawPolicy) {
+  if (!rawPolicy || typeof rawPolicy !== 'object' || Array.isArray(rawPolicy)) {
+    return { ...DEFAULT_POLICY };
+  }
+  let mergedCatModes = [...DEFAULT_POLICY.catModes];
+  if (Array.isArray(rawPolicy.catModes)) {
+    for (let i = 0; i < 14; i++) {
+      if (rawPolicy.catModes[i] !== undefined) {
+        mergedCatModes[i] = Math.min(3, Math.max(0, parseInt(rawPolicy.catModes[i], 10) || 0));
+      }
+    }
+  }
+  return {
+    ...DEFAULT_POLICY,
+    ...rawPolicy,
+    catModes: mergedCatModes,
+    officeHoursStart: rawPolicy.officeHoursStart !== undefined ? parseInt(rawPolicy.officeHoursStart, 10) : DEFAULT_POLICY.officeHoursStart,
+    officeHoursEnd: rawPolicy.officeHoursEnd !== undefined ? parseInt(rawPolicy.officeHoursEnd, 10) : DEFAULT_POLICY.officeHoursEnd,
+    officeHoursDays: rawPolicy.officeHoursDays !== undefined ? parseInt(rawPolicy.officeHoursDays, 10) : DEFAULT_POLICY.officeHoursDays,
+    failedLogonThreshold: rawPolicy.failedLogonThreshold !== undefined ? parseInt(rawPolicy.failedLogonThreshold, 10) : DEFAULT_POLICY.failedLogonThreshold,
+    failedLogonWindowMins: rawPolicy.failedLogonWindowMins !== undefined ? parseInt(rawPolicy.failedLogonWindowMins, 10) : DEFAULT_POLICY.failedLogonWindowMins,
+    learningMode: rawPolicy.learningMode !== undefined ? Boolean(rawPolicy.learningMode) : DEFAULT_POLICY.learningMode,
+    dlpFolders: Array.isArray(rawPolicy.dlpFolders)
+      ? rawPolicy.dlpFolders.filter(f => typeof f === 'string' && f.trim().length > 0).map(f => f.trim())
+      : [],
+    usbLock: rawPolicy.usbLock === 'locked' ? 'locked' : 'unlocked'
+  };
+}
 
 async function getMachinePolicy(req, res) {
   try {
@@ -47,39 +78,40 @@ async function getMachinePolicy(req, res) {
     const groupPolicy = groupRow ? JSON.parse(groupRow.policy_json || '{}') : {};
     
     // Determine effective policy: Machine Override > Group Policy > System Default Policy
-    let effectivePolicy;
+    let rawEffective;
     let policySource;
     let effectiveUpdatedAt = row?.updated_at || 0;
 
     if (Object.keys(machinePolicy).length > 0) {
-      effectivePolicy = machinePolicy;
+      rawEffective = machinePolicy;
       policySource = 'machine';
       effectiveUpdatedAt = row?.updated_at || 0;
     } else if (groupRow && Object.keys(groupPolicy).length > 0) {
-      effectivePolicy = groupPolicy;
+      rawEffective = groupPolicy;
       policySource = 'group';
       effectiveUpdatedAt = Math.max(groupRow.updated_at || 0, row?.updated_at || 0);
     } else {
-      effectivePolicy = DEFAULT_POLICY;
+      rawEffective = DEFAULT_POLICY;
       policySource = 'default';
       effectiveUpdatedAt = row?.updated_at || 0;
     }
 
-    console.log(`[Policy] GET request for '${machine}' (Auth: ${req.authType || 'session'}) -> Source: ${policySource}, catModes: ${JSON.stringify(effectivePolicy.catModes || 'default')}`);
+    const effectivePolicy = normalizePolicy(rawEffective);
+
+    console.log(`[Policy] GET request for '${machine}' (Auth: ${req.authType || 'session'}) -> Source: ${policySource}, catModes: [${effectivePolicy.catModes.join(',')}], dlp: ${effectivePolicy.dlpFolders.length}, usbLock: ${effectivePolicy.usbLock}`);
 
     const currentJsonObj = JSON.parse((row && row.current_json) || '{}');
 
     res.json({
       ...(row || { machine: machine, policy_json: '{}', current_json: '{}', applied_at: null }),
-      ...effectivePolicy, // Top-level catModes, etc. for direct C# deserialization
+      ...effectivePolicy, // Top-level catModes, dlpFolders, usbLock, etc. for direct C# deserialization
       machine: row?.machine || machine,
       policy: effectivePolicy,
       effective_policy: effectivePolicy,
       policy_json: JSON.stringify(effectivePolicy), // Ensure never empty {}
       current: currentJsonObj,
       current_json: (row && row.current_json) || '{}',
-      group: groupRow ? { id: groupRow.id, name: groupRow.name, policy: groupPolicy } : null,
-      effective_policy: effectivePolicy,
+      group: groupRow ? { id: groupRow.id, name: groupRow.name, policy: normalizePolicy(groupPolicy) } : null,
       policy_source: policySource,
       updated_at: effectiveUpdatedAt,
       applied_at: row?.applied_at || null
@@ -108,7 +140,6 @@ async function updateMachineCurrentPolicy(req, res) {
     }
 
     const policy = req.body?.policy;
-    console.log('🔥 [AGENT-PAYLOAD-RECEIVED] /current:', JSON.stringify(req.body, null, 2));
     if (!policy || typeof policy !== 'object' || Array.isArray(policy)) {
       return res.status(400).json({ error: 'policy object required' });
     }
@@ -116,7 +147,7 @@ async function updateMachineCurrentPolicy(req, res) {
     const rowRes = await req.queryTenant('SELECT machine FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1', [machine]);
     const targetMachine = rowRes.rows[0]?.machine || machine;
 
-    console.log(`[Policy] Current state reported for '${machine}' -> catModes: ${JSON.stringify(policy.catModes || [])}`);
+    console.log(`[Policy] Current state reported for '${machine}' -> catModes: [${(policy.catModes || []).join(',')}], dlp: ${(policy.dlpFolders || []).length}, usbLock: ${policy.usbLock || 'unlocked'}`);
 
     await req.queryTenant(`
       INSERT INTO policies (machine, policy_json, current_json, updated_at)
@@ -156,15 +187,19 @@ async function setMachinePolicy(req, res) {
     const rowRes = await req.queryTenant('SELECT machine FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1', [machine]);
     const targetMachine = rowRes.rows[0]?.machine || machine;
 
+    const payloadPolicy = Object.keys(policy).length > 0 ? normalizePolicy(policy) : {};
+
     await req.queryTenant(`
-      INSERT INTO policies (machine, policy_json, updated_at)
-      VALUES ($1, $2, (EXTRACT(EPOCH FROM NOW())::INTEGER))
+      INSERT INTO policies (machine, policy_json, updated_at, applied_at)
+      VALUES ($1, $2, (EXTRACT(EPOCH FROM NOW())::INTEGER), NULL)
       ON CONFLICT(machine) DO UPDATE SET
         policy_json = excluded.policy_json,
         updated_at  = excluded.updated_at,
         applied_at  = NULL
-    `, [targetMachine, JSON.stringify(policy)]);
+    `, [targetMachine, JSON.stringify(payloadPolicy)]);
     
+    console.log(`[Policy] Saved machine policy for '${targetMachine}' -> catModes: [${(payloadPolicy.catModes || []).join(',')}], dlp: ${(payloadPolicy.dlpFolders || []).length}, usbLock: ${payloadPolicy.usbLock || 'none'}`);
+
     res.json({ ok: true });
   } catch (error) {
     console.error('[Policy] Failed to set machine policy:', error);
@@ -190,7 +225,6 @@ async function ackMachinePolicy(req, res) {
     }
 
     const policy = req.body?.policy;
-    console.log('🔥 [AGENT-PAYLOAD-RECEIVED] /ack:', JSON.stringify(req.body, null, 2));
     
     // Get effective policy to synchronize current_json immediately on ACK
     const rowRes = await req.queryTenant('SELECT machine, policy_json FROM policies WHERE LOWER(machine) = LOWER($1) ORDER BY updated_at DESC LIMIT 1', [machine]);
