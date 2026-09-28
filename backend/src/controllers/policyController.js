@@ -61,18 +61,23 @@ function computeEffectivePolicy(machinePolicyRaw, groupPolicyRaw) {
   const machineDlp = Array.isArray(machinePolicy.dlpFolders)
     ? machinePolicy.dlpFolders.filter(f => typeof f === 'string' && f.trim().length > 0).map(f => f.trim())
     : [];
-  const effectiveDlp = Array.from(new Set([...groupDlp, ...machineDlp]));
+  // Machine Local Folders are endpoint-specific and must exclude any group folders
+  const onlyLocalDlp = machineDlp.filter(f => !groupDlp.includes(f));
+  const effectiveDlp = Array.from(new Set([...groupDlp, ...onlyLocalDlp]));
 
   // Track which specific fields are customized/overridden at the machine level
+  // NOTE: Machine Local Folders are endpoint-specific paths and NOT a policy override!
   const overriddenFields = [];
-  if (Array.isArray(machinePolicy.catModes) && machinePolicy.catModes.length > 0) overriddenFields.push('catModes');
-  if (machinePolicy.officeHoursStart !== undefined) overriddenFields.push('officeHoursStart');
-  if (machinePolicy.officeHoursEnd !== undefined) overriddenFields.push('officeHoursEnd');
-  if (machinePolicy.officeHoursDays !== undefined) overriddenFields.push('officeHoursDays');
-  if (machinePolicy.failedLogonThreshold !== undefined) overriddenFields.push('failedLogonThreshold');
-  if (machinePolicy.failedLogonWindowMins !== undefined) overriddenFields.push('failedLogonWindowMins');
-  if (machinePolicy.usbLock !== undefined) overriddenFields.push('usbLock');
-  if (machineDlp.length > 0) overriddenFields.push('dlpFolders');
+  if (Array.isArray(machinePolicy.catModes) && machinePolicy.catModes.length > 0) {
+    const differs = machinePolicy.catModes.some((m, idx) => m !== undefined && m !== groupNormalized.catModes[idx]);
+    if (differs) overriddenFields.push('catModes');
+  }
+  if (machinePolicy.officeHoursStart !== undefined && machinePolicy.officeHoursStart !== groupNormalized.officeHoursStart) overriddenFields.push('officeHoursStart');
+  if (machinePolicy.officeHoursEnd !== undefined && machinePolicy.officeHoursEnd !== groupNormalized.officeHoursEnd) overriddenFields.push('officeHoursEnd');
+  if (machinePolicy.officeHoursDays !== undefined && machinePolicy.officeHoursDays !== groupNormalized.officeHoursDays) overriddenFields.push('officeHoursDays');
+  if (machinePolicy.failedLogonThreshold !== undefined && machinePolicy.failedLogonThreshold !== groupNormalized.failedLogonThreshold) overriddenFields.push('failedLogonThreshold');
+  if (machinePolicy.failedLogonWindowMins !== undefined && machinePolicy.failedLogonWindowMins !== groupNormalized.failedLogonWindowMins) overriddenFields.push('failedLogonWindowMins');
+  if (machinePolicy.usbLock !== undefined && machinePolicy.usbLock !== groupNormalized.usbLock) overriddenFields.push('usbLock');
 
   const hasMachineOverrides = overriddenFields.length > 0;
 
@@ -100,7 +105,7 @@ function computeEffectivePolicy(machinePolicyRaw, groupPolicyRaw) {
   return {
     effectivePolicy: effective,
     groupDlpFolders: groupDlp,
-    machineDlpFolders: machineDlp,
+    machineDlpFolders: onlyLocalDlp,
     hasMachineOverrides,
     overriddenFields
   };
@@ -260,14 +265,30 @@ async function setMachinePolicy(req, res) {
       LIMIT 1
     `, [targetMachine]);
 
-    if (groupRowRes.rows[0] && Array.isArray(payloadPolicy.dlpFolders)) {
+    if (groupRowRes.rows[0]) {
       const groupPolicy = JSON.parse(groupRowRes.rows[0].policy_json || '{}');
+      const groupNormalized = normalizePolicy(groupPolicy);
+
+      // Deduplicate group DLP folders so machine policy only stores genuine local folders
       const groupDlp = Array.isArray(groupPolicy.dlpFolders) ? groupPolicy.dlpFolders.map(f => f.trim()) : [];
       if (Array.isArray(req.body.machine_dlp_folders)) {
-        payloadPolicy.dlpFolders = req.body.machine_dlp_folders.filter(f => typeof f === 'string' && f.trim().length > 0);
-      } else {
+        payloadPolicy.dlpFolders = req.body.machine_dlp_folders.filter(f => typeof f === 'string' && f.trim().length > 0 && !groupDlp.includes(f));
+      } else if (Array.isArray(payloadPolicy.dlpFolders)) {
         payloadPolicy.dlpFolders = payloadPolicy.dlpFolders.filter(f => !groupDlp.includes(f));
       }
+
+      // If category modes match the group exactly, do not store them as an override
+      if (Array.isArray(payloadPolicy.catModes) && payloadPolicy.catModes.every((m, idx) => m === groupNormalized.catModes[idx])) {
+        delete payloadPolicy.catModes;
+      }
+      if (payloadPolicy.usbLock === groupNormalized.usbLock) {
+        delete payloadPolicy.usbLock;
+      }
+      if (payloadPolicy.officeHoursStart === groupNormalized.officeHoursStart) delete payloadPolicy.officeHoursStart;
+      if (payloadPolicy.officeHoursEnd === groupNormalized.officeHoursEnd) delete payloadPolicy.officeHoursEnd;
+      if (payloadPolicy.officeHoursDays === groupNormalized.officeHoursDays) delete payloadPolicy.officeHoursDays;
+      if (payloadPolicy.failedLogonThreshold === groupNormalized.failedLogonThreshold) delete payloadPolicy.failedLogonThreshold;
+      if (payloadPolicy.failedLogonWindowMins === groupNormalized.failedLogonWindowMins) delete payloadPolicy.failedLogonWindowMins;
     }
 
     await req.queryTenant(`

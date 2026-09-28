@@ -23,7 +23,23 @@ async function getGroups(req, res) {
         let hasOverride = false;
         try {
           const pj = JSON.parse(r.policy_json || '{}');
-          if (Object.keys(pj).length > 0) hasOverride = true;
+          const gj = JSON.parse(g.policy_json || '{}');
+          const groupModes = Array.isArray(gj.catModes) ? gj.catModes : [3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 1];
+          const groupUsb = gj.usbLock === 'locked' ? 'locked' : 'unlocked';
+
+          if (Array.isArray(pj.catModes) && pj.catModes.length > 0) {
+            if (pj.catModes.some((m, idx) => m !== undefined && m !== groupModes[idx])) {
+              hasOverride = true;
+            }
+          }
+          if (pj.usbLock !== undefined && pj.usbLock !== groupUsb) {
+            hasOverride = true;
+          }
+          if (pj.officeHoursStart !== undefined && pj.officeHoursStart !== (gj.officeHoursStart !== undefined ? gj.officeHoursStart : 9)) hasOverride = true;
+          if (pj.officeHoursEnd !== undefined && pj.officeHoursEnd !== (gj.officeHoursEnd !== undefined ? gj.officeHoursEnd : 18)) hasOverride = true;
+          if (pj.officeHoursDays !== undefined && pj.officeHoursDays !== (gj.officeHoursDays !== undefined ? gj.officeHoursDays : 62)) hasOverride = true;
+          if (pj.failedLogonThreshold !== undefined && pj.failedLogonThreshold !== (gj.failedLogonThreshold !== undefined ? gj.failedLogonThreshold : 5)) hasOverride = true;
+          if (pj.failedLogonWindowMins !== undefined && pj.failedLogonWindowMins !== (gj.failedLogonWindowMins !== undefined ? gj.failedLogonWindowMins : 10)) hasOverride = true;
         } catch (_) {}
         if (hasOverride) {
           overriddenMachines.push(r.machine);
@@ -104,10 +120,36 @@ async function updateGroupPolicy(req, res) {
       return res.status(400).json({ error: 'policy must be an object' });
     }
 
+    const oldGroupRes = await req.queryTenant('SELECT policy_json FROM pol_groups WHERE id=$1', [groupId]);
+    const oldGroupPolicy = oldGroupRes.rows[0] ? JSON.parse(oldGroupRes.rows[0].policy_json || '{}') : {};
+    const oldGroupDlp = Array.isArray(oldGroupPolicy.dlpFolders) ? oldGroupPolicy.dlpFolders.map(f => f.trim()) : [];
+    const newGroupDlp = Array.isArray(policy?.dlpFolders) ? policy.dlpFolders.map(f => f.trim()) : [];
+
     const now = Math.floor(Date.now() / 1000);
     await req.queryTenant(`
       UPDATE pol_groups SET policy_json=$1, updated_at=$2 WHERE id=$3
     `, [JSON.stringify(policy || {}), now, groupId]);
+
+    // If any group folder was deleted, clean it from all member machines' policy_json
+    const deletedGroupFolders = oldGroupDlp.filter(f => !newGroupDlp.includes(f));
+    if (deletedGroupFolders.length > 0) {
+      const memberRows = await req.queryTenant(`
+        SELECT machine, policy_json FROM policies 
+        WHERE LOWER(machine) IN (SELECT LOWER(machine) FROM machine_groups WHERE group_id = $1)
+      `, [groupId]);
+
+      for (const mRow of memberRows.rows) {
+        try {
+          const mPol = JSON.parse(mRow.policy_json || '{}');
+          if (Array.isArray(mPol.dlpFolders) && mPol.dlpFolders.length > 0) {
+            mPol.dlpFolders = mPol.dlpFolders.filter(f => !deletedGroupFolders.includes(f) && !newGroupDlp.includes(f));
+            await req.queryTenant(`
+              UPDATE policies SET policy_json = $1, applied_at = NULL, updated_at = $2 WHERE LOWER(machine) = LOWER($3)
+            `, [JSON.stringify(mPol), now, mRow.machine]);
+          }
+        } catch (_) {}
+      }
+    }
 
     // Handle machines in this group
     if (forceSync) {
@@ -124,7 +166,8 @@ async function updateGroupPolicy(req, res) {
           try {
             const mPol = JSON.parse(row.policy_json || '{}');
             const localDlp = Array.isArray(mPol.dlpFolders) ? mPol.dlpFolders : [];
-            const preservedPolicy = localDlp.length > 0 ? { dlpFolders: localDlp } : {};
+            const cleanLocalDlp = localDlp.filter(f => typeof f === 'string' && f.trim().length > 0 && !newGroupDlp.includes(f));
+            const preservedPolicy = cleanLocalDlp.length > 0 ? { dlpFolders: cleanLocalDlp } : {};
             await req.queryTenant(`
               UPDATE policies 
               SET policy_json = $1, applied_at = NULL, updated_at = $2 
@@ -166,6 +209,9 @@ async function resetMachineOverride(req, res) {
     const preserveLocalDlp = req.body?.preserveLocalDlp !== false;
     const now = Math.floor(Date.now() / 1000);
 
+    const grpRes = await req.queryTenant(`SELECT policy_json FROM pol_groups WHERE id = $1 LIMIT 1`, [groupId]);
+    const groupDlp = grpRes.rows[0] ? (JSON.parse(grpRes.rows[0].policy_json || '{}').dlpFolders || []).map(f => f.trim()) : [];
+
     if (rawMachine === 'all') {
       const rowsRes = await req.queryTenant(`
         SELECT machine, policy_json FROM policies 
@@ -178,7 +224,8 @@ async function resetMachineOverride(req, res) {
           try {
             const mPol = JSON.parse(row.policy_json || '{}');
             const localDlp = Array.isArray(mPol.dlpFolders) ? mPol.dlpFolders : [];
-            if (localDlp.length > 0) newPol = { dlpFolders: localDlp };
+            const cleanLocalDlp = localDlp.filter(f => typeof f === 'string' && f.trim().length > 0 && !groupDlp.includes(f));
+            if (cleanLocalDlp.length > 0) newPol = { dlpFolders: cleanLocalDlp };
           } catch (_) {}
         }
         await req.queryTenant(`
@@ -197,12 +244,19 @@ async function resetMachineOverride(req, res) {
 
     let newPol = {};
     if (preserveLocalDlp) {
-      const rowRes = await req.queryTenant(`SELECT policy_json FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1`, [machine]);
-      try {
-        const mPol = JSON.parse(rowRes.rows[0]?.policy_json || '{}');
-        const localDlp = Array.isArray(mPol.dlpFolders) ? mPol.dlpFolders : [];
-        if (localDlp.length > 0) newPol = { dlpFolders: localDlp };
-      } catch (_) {}
+      let localDlp = [];
+      if (Array.isArray(req.body?.machine_dlp_folders)) {
+        localDlp = req.body.machine_dlp_folders;
+      } else {
+        const rowRes = await req.queryTenant(`SELECT policy_json FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1`, [machine]);
+        try {
+          const mPol = JSON.parse(rowRes.rows[0]?.policy_json || '{}');
+          localDlp = Array.isArray(mPol.dlpFolders) ? mPol.dlpFolders : [];
+        } catch (_) {}
+      }
+
+      const cleanLocalDlp = localDlp.filter(f => typeof f === 'string' && f.trim().length > 0 && !groupDlp.includes(f));
+      if (cleanLocalDlp.length > 0) newPol = { dlpFolders: cleanLocalDlp };
     }
 
     await req.queryTenant(`
@@ -211,7 +265,7 @@ async function resetMachineOverride(req, res) {
       WHERE LOWER(machine) = LOWER($3)
     `, [JSON.stringify(newPol), now, machine]);
 
-    res.json({ ok: true, machine });
+    res.json({ ok: true, machine, preservedLocalDlp: newPol.dlpFolders || [] });
   } catch (error) {
     console.error('[Groups] Failed to reset machine override:', error);
     res.status(500).json({ error: 'Failed to reset machine override' });

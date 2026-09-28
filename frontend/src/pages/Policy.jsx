@@ -344,12 +344,16 @@ export default function Policy() {
     setConfirmDialog({
       isOpen: true,
       title: 'Reset Machine to Group Policy',
-      message: `Reset policy for '${machineName}' back to group settings? Machine-specific DLP folders will be preserved so local paths are not lost.`,
+      message: `Reset Monitor Categories and USB Storage Control for '${machineName}' back to group settings? Machine Local Folders will NOT be removed.`,
       type: 'danger',
       onConfirm: async () => {
         try {
-          await axios.post(`/api/groups/${groupId}/reset-override/${encodeURIComponent(machineName)}`);
-          setAlertDialog({ isOpen: true, title: 'Success', message: `Machine '${machineName}' is now in sync with the group policy.`, type: 'success' });
+          const localDlp = (selectedMachine === machineName && machinePolicyData) ? (machinePolicyData.machine_dlp_folders || []) : undefined;
+          await axios.post(`/api/groups/${groupId}/reset-override/${encodeURIComponent(machineName)}`, {
+            preserveLocalDlp: true,
+            ...(localDlp !== undefined ? { machine_dlp_folders: localDlp } : {})
+          });
+          setAlertDialog({ isOpen: true, title: 'Success', message: `Machine '${machineName}' Monitor Categories and USB Control are now in sync with group policy. Machine Local Folders were preserved.`, type: 'success' });
           fetchGroups();
           if (selectedMachine === machineName) {
             fetchMachinePolicy(machineName);
@@ -371,7 +375,7 @@ export default function Policy() {
       onConfirm: async () => {
         try {
           await axios.post(`/api/groups/${groupId}/reset-overrides`);
-          setAlertDialog({ isOpen: true, title: 'Success', message: `All machines in '${groupName}' are now aligned with group policy.`, type: 'success' });
+          setAlertDialog({ isOpen: true, title: 'Success', message: `All machines in '${groupName}' are now aligned with group policy. Local DLP folders were preserved.`, type: 'success' });
           fetchGroups();
           if (selectedMachine && !selectedMachine.startsWith('grp:')) {
             fetchMachinePolicy(selectedMachine);
@@ -387,18 +391,29 @@ export default function Policy() {
     if (readOnly) return;
     setConfirmDialog({
       isOpen: true,
-      title: 'Clear Machine Override',
-      message: 'Are you sure you want to remove the machine-specific policy override? The machine will fall back to its group or default policy.',
+      title: 'Reset Machine to Group Policy',
+      message: 'Reset Monitor Categories and USB Storage Control back to group settings? Machine Local Folders will NOT be removed.',
       type: 'danger',
       onConfirm: async () => {
         try {
-          await axios.post(`/api/policy/${encodeURIComponent(selectedMachine)}`, { policy: {} });
-          setAlertDialog({ isOpen: true, title: 'Success', message: "Machine override cleared.", type: 'success' });
+          const localDlp = machinePolicyData?.machine_dlp_folders || [];
+          if (machinePolicyData?.group?.id) {
+            await axios.post(`/api/groups/${machinePolicyData.group.id}/reset-override/${encodeURIComponent(selectedMachine)}`, {
+              preserveLocalDlp: true,
+              machine_dlp_folders: localDlp
+            });
+          } else {
+            await axios.post(`/api/policy/${encodeURIComponent(selectedMachine)}`, {
+              policy: localDlp.length > 0 ? { dlpFolders: localDlp } : {},
+              machine_dlp_folders: localDlp
+            });
+          }
+          setAlertDialog({ isOpen: true, title: 'Success', message: "Machine policy reset to group settings. Machine Local Folders were preserved.", type: 'success' });
           setHasChanges(false);
           fetchMachinePolicy(selectedMachine);
           fetchGroups();
         } catch (e) {
-          setAlertDialog({ isOpen: true, title: 'Error', message: "Failed to clear policy.", type: 'danger' });
+          setAlertDialog({ isOpen: true, title: 'Error', message: "Failed to reset policy: " + (e.response?.data?.error || e.message), type: 'danger' });
         }
       }
     });
@@ -1390,22 +1405,26 @@ export default function Policy() {
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '4px' }}>
-          {!readOnly && !editingGroupId && selectedMachine && machinePolicyData?.policy_source === 'machine' && (
+          {!readOnly && !editingGroupId && selectedMachine && (machinePolicyData?.has_override || machinePolicyData?.policy_source === 'machine') && (
             <button
               onClick={handleClearOverride}
               style={{
                 background: 'transparent',
-                color: '#ef4444',
-                border: '1px solid #ef4444',
+                color: '#f59e0b',
+                border: '1px solid #f59e0b',
                 padding: '10px 24px',
                 borderRadius: '8px',
                 fontSize: '13px',
                 fontWeight: 800,
                 cursor: 'pointer',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px'
               }}
             >
-              Clear Override
+              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>restart_alt</span>
+              {machinePolicyData?.group ? 'Reset to Group Policy' : 'Reset to Default Policy'}
             </button>
           )}
           {!readOnly && (
