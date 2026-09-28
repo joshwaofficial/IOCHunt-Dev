@@ -214,8 +214,9 @@ const ingestEvents = async (req, res) => {
     if (!Array.isArray(events)) {
       return res.status(400).json({ error: 'Payload must contain events[] array' });
     }
-    if (events.length > 2000) {
-      return res.status(400).json({ error: 'Exceeded maximum events per batch (2000)' });
+    const MAX_EVENTS_BATCH = 25000;
+    if (events.length > MAX_EVENTS_BATCH) {
+      return res.status(400).json({ error: `Exceeded maximum events per batch (${MAX_EVENTS_BATCH})` });
     }
 
     const safeLabel = typeof label === 'string' ? label.slice(0, 128) : machine;

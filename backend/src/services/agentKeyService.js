@@ -100,7 +100,25 @@ async function validateAndBindAgentKey(rawKey, reportedMachine, clientIp) {
         if (data.status !== 'active') {
           return { valid: false, reason: 'Agent key is deactivated or revoked' };
         }
-        if (normReported && data.boundMachine && data.boundMachine.toLowerCase() !== normReported) {
+
+        // Auto-heal: If bound to placeholder 'UNNAMED-ENDPOINT' and real machine identity arrives, bind to real machine!
+        if (normReported && normReported !== 'unnamed-endpoint' && (!data.boundMachine || data.boundMachine.toUpperCase() === 'UNNAMED-ENDPOINT')) {
+          const realMachine = reportedMachine.trim();
+          const now = Math.floor(Date.now() / 1000);
+          await db.query('UPDATE agent_keys SET bound_machine = $1, last_used_at = $2 WHERE id = $3', [realMachine, now, data.id]);
+          data.boundMachine = realMachine;
+          await redis.set(cacheKey, JSON.stringify(data), 'EX', REDIS_KEY_TTL);
+          return {
+            valid: true,
+            id: data.id,
+            tenantId: data.tenantId,
+            boundMachine: realMachine,
+            label: data.label,
+            newlyBound: true
+          };
+        }
+
+        if (normReported && data.boundMachine && data.boundMachine.toUpperCase() !== 'UNNAMED-ENDPOINT' && data.boundMachine.toLowerCase() !== normReported) {
           return {
             valid: false,
             reason: `Machine identity mismatch: Key is bound to '${data.boundMachine}', but request specified '${reportedMachine}'`,
@@ -140,7 +158,20 @@ async function validateAndBindAgentKey(rawKey, reportedMachine, clientIp) {
 
   // 3. First-Contact (TOFU) Machine Binding
   if (row.status === 'pending') {
-    const machineToBind = reportedMachine ? reportedMachine.trim() : 'UNNAMED-ENDPOINT';
+    // If request contains NO machine name (e.g. initial connection test/challenge),
+    // allow request to succeed as valid key but remain pending so it can bind to the real machine on first log!
+    if (!normReported || normReported === 'unnamed-endpoint') {
+      return {
+        valid: true,
+        id: row.id,
+        tenantId: row.tenant_id,
+        boundMachine: null,
+        label: row.label,
+        pending: true
+      };
+    }
+
+    const machineToBind = reportedMachine.trim();
     const updateRes = await db.query(`
       UPDATE agent_keys
       SET bound_machine = $1, status = 'active', activated_at = $2, last_used_at = $2
@@ -183,7 +214,41 @@ async function validateAndBindAgentKey(rawKey, reportedMachine, clientIp) {
 
   // 4. Active Key Validation & Identity Enforcement
   if (row.status === 'active') {
-    if (normReported && row.bound_machine && row.bound_machine.toLowerCase() !== normReported) {
+    // Auto-heal: If DB key was previously bound to 'UNNAMED-ENDPOINT' and real machine identity arrives, bind to real machine!
+    if (normReported && normReported !== 'unnamed-endpoint' && (!row.bound_machine || row.bound_machine.toUpperCase() === 'UNNAMED-ENDPOINT')) {
+      const realMachine = reportedMachine.trim();
+      await db.query('UPDATE agent_keys SET bound_machine = $1, last_used_at = $2 WHERE id = $3', [realMachine, now, row.id]);
+      row.bound_machine = realMachine;
+
+      if (isRedisConnected()) {
+        try {
+          const redis = getRedisClient();
+          await redis.set(
+            cacheKey,
+            JSON.stringify({
+              id: row.id,
+              tenantId: row.tenant_id,
+              boundMachine: realMachine,
+              label: row.label,
+              status: 'active'
+            }),
+            'EX',
+            REDIS_KEY_TTL
+          );
+        } catch (_) {}
+      }
+
+      return {
+        valid: true,
+        id: row.id,
+        tenantId: row.tenant_id,
+        boundMachine: realMachine,
+        label: row.label,
+        newlyBound: true
+      };
+    }
+
+    if (normReported && row.bound_machine && row.bound_machine.toUpperCase() !== 'UNNAMED-ENDPOINT' && row.bound_machine.toLowerCase() !== normReported) {
       return {
         valid: false,
         reason: `Machine identity mismatch: Key is bound to '${row.bound_machine}', but request specified '${reportedMachine}'`,

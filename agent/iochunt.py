@@ -346,21 +346,31 @@ def _flush_ship_queue():
         _ship_queue.clear()
     machine = socket.gethostname()
     label   = config.get("central_server_label") or machine
-    payload = {"machine": machine, "label": label, "events": batch}
-    try:
-        resp = requests.post(
-            f"{url}/api/logs",
-            json=payload,
-            headers={"x-api-key": key},
-            timeout=15,
-            verify=False,
-        )
-        if not resp.ok:
-            log(f"[CENTRAL-ERR] HTTP {resp.status_code}: {resp.text[:200]}")
-    except Exception as ex:
-        log(f"[CENTRAL-SHIP-ERR] {ex}")
-        with _ship_queue_lock:
-            _ship_queue[:0] = batch
+
+    # Ship in manageable chunks (max 1000 events per request) to prevent batch limits
+    CHUNK_SIZE = 1000
+    for i in range(0, len(batch), CHUNK_SIZE):
+        chunk = batch[i:i + CHUNK_SIZE]
+        payload = {"machine": machine, "label": label, "events": chunk}
+        try:
+            resp = requests.post(
+                f"{url}/api/logs",
+                json=payload,
+                headers={
+                    "x-api-key": key,
+                    "x-machine-name": machine,
+                    "x-hostname": machine
+                },
+                timeout=15,
+                verify=False,
+            )
+            if not resp.ok:
+                log(f"[CENTRAL-ERR] HTTP {resp.status_code}: {resp.text[:200]}")
+        except Exception as ex:
+            log(f"[CENTRAL-SHIP-ERR] {ex}")
+            with _ship_queue_lock:
+                _ship_queue[:0] = batch[i:]
+            break
 
 def start_central_shipper():
     def _loop():
@@ -389,7 +399,11 @@ def start_policy_poller():
                 # 1. Fetch latest policy from Central / Aggregator
                 resp = requests.get(
                     f"{url}/api/policy/{machine}",
-                    headers={"x-api-key": key},
+                    headers={
+                        "x-api-key": key,
+                        "x-machine-name": machine,
+                        "x-hostname": machine
+                    },
                     timeout=10, verify=False,
                 )
                 if resp.ok:
@@ -434,7 +448,11 @@ def start_policy_poller():
                         # 2. Acknowledge policy application
                         requests.patch(
                             f"{url}/api/policy/{machine}/ack",
-                            headers={"x-api-key": key},
+                            headers={
+                                "x-api-key": key,
+                                "x-machine-name": machine,
+                                "x-hostname": machine
+                            },
                             json={"policy": current_policy_payload},
                             timeout=5, verify=False,
                         )
@@ -455,7 +473,11 @@ def start_policy_poller():
                 try:
                     requests.post(
                         f"{url}/api/policy/{machine}/current",
-                        headers={"x-api-key": key},
+                        headers={
+                            "x-api-key": key,
+                            "x-machine-name": machine,
+                            "x-hostname": machine
+                        },
                         json={"policy": current_policy_payload},
                         timeout=5, verify=False,
                     )

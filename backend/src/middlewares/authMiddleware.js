@@ -215,9 +215,16 @@ async function requireKey(req, res, next) {
     return res.status(401).json({ error: 'Unauthorized: Missing API key' });
   }
 
-  const cleanKey = key.trim();
   const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown';
-  const reportedMachine = req.body?.machine || req.params?.machine || req.query?.machine || null;
+  const cleanKey = key.trim();
+  const reportedMachine =
+    req.headers['x-machine-name'] ||
+    req.headers['x-hostname'] ||
+    req.headers['x-machine-id'] ||
+    req.body?.machine ||
+    req.params?.machine ||
+    req.query?.machine ||
+    null;
 
   try {
     // 1. Check Unique Agent Keys (Zero-Trust Machine Binding & TOFU)
@@ -302,9 +309,17 @@ async function requireSessionOrKey(req, res, next) {
   }
 
   if (key) {
-    const cleanKey = key.trim();
     const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '').split(',')[0].trim() || 'unknown';
-    const reportedMachine = req.body?.machine || req.params?.machine || req.params?.id || req.query?.machine || null;
+    const cleanKey = key.trim();
+    const reportedMachine =
+      req.headers['x-machine-name'] ||
+      req.headers['x-hostname'] ||
+      req.headers['x-machine-id'] ||
+      req.body?.machine ||
+      req.params?.machine ||
+      req.params?.id ||
+      req.query?.machine ||
+      null;
 
     try {
       // 1. Check Unique Agent Keys (Zero-Trust Machine Binding)

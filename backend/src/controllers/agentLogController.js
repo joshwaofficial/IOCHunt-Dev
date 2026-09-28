@@ -19,7 +19,7 @@ async function ingestAgentLogs(req, res) {
     }
 
     // Zero-Trust Machine Identity Enforcement (INT-PT-H-003 & INT-PT-H-004)
-    if (req.isAgentKey && req.boundMachine) {
+    if (req.isAgentKey && req.boundMachine && req.boundMachine.toUpperCase() !== 'UNNAMED-ENDPOINT') {
       if (req.boundMachine.toLowerCase() !== machine.trim().toLowerCase()) {
         return res.status(403).json({
           error: `Forbidden: Machine identity mismatch. This agent key is permanently bound to '${req.boundMachine}', but submitted logs for '${machine}'`
@@ -30,8 +30,9 @@ async function ingestAgentLogs(req, res) {
     if (!Array.isArray(events)) {
       return res.status(400).json({ error: 'events must be an array' });
     }
-    if (events.length > 2000) {
-      return res.status(400).json({ error: 'Exceeded maximum events per batch (2000)' });
+    const MAX_BATCH_EVENTS = 25000;
+    if (events.length > MAX_BATCH_EVENTS) {
+      return res.status(400).json({ error: `Exceeded maximum events per batch (${MAX_BATCH_EVENTS})` });
     }
 
     const safeLabel = typeof label === 'string' ? sanitizeText(label).slice(0, 128) : machine;
@@ -65,46 +66,77 @@ async function ingestAgentLogs(req, res) {
     
     let uniqueRows = [];
     try {
-      // 1. Perform duplicate checking using a single connection to avoid pool exhaustion
-      for (const r of rows) {
-        const dupRes = await client.query(
-          'SELECT 1 FROM events WHERE machine=$1 AND ts=$2 AND tag=$3 AND message=$4 LIMIT 1',
-          [r.machine, r.ts, r.tag, r.message]
-        );
-        if (dupRes.rowCount === 0) {
-          uniqueRows.push(r);
+      // 1. Perform high-performance duplicate checking
+      if (rows.length <= 100) {
+        for (const r of rows) {
+          const dupRes = await client.query(
+            'SELECT 1 FROM events WHERE machine=$1 AND ts=$2 AND tag=$3 AND message=$4 LIMIT 1',
+            [r.machine, r.ts, r.tag, r.message]
+          );
+          if (dupRes.rowCount === 0) {
+            uniqueRows.push(r);
+          }
+        }
+      } else {
+        // Optimized bulk deduplication using timestamp window and hash lookup
+        const timestamps = rows.map(r => r.ts).filter(Boolean);
+        const minTs = timestamps.reduce((a, b) => a < b ? a : b);
+        const maxTs = timestamps.reduce((a, b) => a > b ? a : b);
+        const existingSet = new Set();
+        
+        try {
+          const existingRes = await client.query(
+            'SELECT ts, tag, md5(message) as msg_hash FROM events WHERE machine=$1 AND ts >= $2 AND ts <= $3',
+            [machine, minTs, maxTs]
+          );
+          for (const er of existingRes.rows) {
+            existingSet.add(`${new Date(er.ts).toISOString()}|${er.tag}|${er.msg_hash}`);
+          }
+        } catch (_) {}
+
+        const crypto = require('crypto');
+        for (const r of rows) {
+          const msgHash = crypto.createHash('md5').update(r.message).digest('hex');
+          const key = `${new Date(r.ts).toISOString()}|${r.tag}|${msgHash}`;
+          if (!existingSet.has(key)) {
+            existingSet.add(key);
+            uniqueRows.push(r);
+          }
         }
       }
 
       if (uniqueRows.length > 0) {
         await client.query('BEGIN');
         
-        // 2. Bulk insert events
-        const insertValues = [];
-        const insertParams = [];
-        let pIdx = 1;
-        
-        for (const e of uniqueRows) {
-          insertValues.push(`($${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, (EXTRACT(EPOCH FROM NOW())::INTEGER), $${pIdx++})`);
-          insertParams.push(
-            aggregatorName,
-            e.machine,
-            label || e.machine,
-            e.ts,
-            e.tag,
-            e.severity,
-            e.category,
-            e.message,
-            e.is_noise,
-            !isAggNode
-          );
-        }
+        // 2. Bulk insert events in safe chunks of 1000 to respect Postgres 65535 parameter limit
+        const CHUNK_SIZE = 1000;
+        for (let i = 0; i < uniqueRows.length; i += CHUNK_SIZE) {
+          const slice = uniqueRows.slice(i, i + CHUNK_SIZE);
+          const insertValues = [];
+          const insertParams = [];
+          let pIdx = 1;
+          
+          for (const e of slice) {
+            insertValues.push(`($${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, (EXTRACT(EPOCH FROM NOW())::INTEGER), $${pIdx++})`);
+            insertParams.push(
+              aggregatorName,
+              e.machine,
+              label || e.machine,
+              e.ts,
+              e.tag,
+              e.severity,
+              e.category,
+              e.message,
+              e.is_noise,
+              !isAggNode
+            );
+          }
 
-        // Postgres parameter limit is 65535, so chunk if necessary (unlikely to hit 65535 with 800 events * 10 params = 8000)
-        await client.query(`
-          INSERT INTO events (aggregator_name, machine, label, ts, tag, severity, category, message, is_noise, received, is_forwarded)
-          VALUES ${insertValues.join(', ')}
-        `, insertParams);
+          await client.query(`
+            INSERT INTO events (aggregator_name, machine, label, ts, tag, severity, category, message, is_noise, received, is_forwarded)
+            VALUES ${insertValues.join(', ')}
+          `, insertParams);
+        }
 
         await client.query(`
           INSERT INTO machines (id, aggregator_name, name, label, last_seen, event_count, ip)
