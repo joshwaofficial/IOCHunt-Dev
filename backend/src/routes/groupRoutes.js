@@ -9,5 +9,7 @@ router.delete('/:id', requireSession, requireAdmin, groupController.deleteGroup)
 router.put('/:id/policy', requireSession, requireAdmin, groupController.updateGroupPolicy);
 router.post('/:id/machines', requireSession, requireAdmin, groupController.updateGroupMachines);
 router.delete('/:id/machines/:machine', requireSession, requireAdmin, groupController.removeMachineFromGroup);
+router.post('/:id/reset-override/:machine', requireSession, requireAdmin, groupController.resetMachineOverride);
+router.post('/:id/reset-overrides', requireSession, requireAdmin, (req, res) => { req.params.machine = 'all'; return groupController.resetMachineOverride(req, res); });
 
 module.exports = router;

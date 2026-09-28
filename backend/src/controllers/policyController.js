@@ -44,6 +44,69 @@ function normalizePolicy(rawPolicy) {
   };
 }
 
+function computeEffectivePolicy(machinePolicyRaw, groupPolicyRaw) {
+  const machinePolicy = (machinePolicyRaw && typeof machinePolicyRaw === 'object' && !Array.isArray(machinePolicyRaw))
+    ? machinePolicyRaw : {};
+  const groupPolicy = (groupPolicyRaw && typeof groupPolicyRaw === 'object' && !Array.isArray(groupPolicyRaw))
+    ? groupPolicyRaw : {};
+
+  // Base is DEFAULT_POLICY
+  // Layer Group Policy over DEFAULT_POLICY
+  const groupNormalized = normalizePolicy(groupPolicy);
+
+  // DLP folders are ADDITIVELY MERGED (Union of Group Folders + Machine Folders)
+  const groupDlp = Array.isArray(groupPolicy.dlpFolders)
+    ? groupPolicy.dlpFolders.filter(f => typeof f === 'string' && f.trim().length > 0).map(f => f.trim())
+    : [];
+  const machineDlp = Array.isArray(machinePolicy.dlpFolders)
+    ? machinePolicy.dlpFolders.filter(f => typeof f === 'string' && f.trim().length > 0).map(f => f.trim())
+    : [];
+  const effectiveDlp = Array.from(new Set([...groupDlp, ...machineDlp]));
+
+  // Track which specific fields are customized/overridden at the machine level
+  const overriddenFields = [];
+  if (Array.isArray(machinePolicy.catModes) && machinePolicy.catModes.length > 0) overriddenFields.push('catModes');
+  if (machinePolicy.officeHoursStart !== undefined) overriddenFields.push('officeHoursStart');
+  if (machinePolicy.officeHoursEnd !== undefined) overriddenFields.push('officeHoursEnd');
+  if (machinePolicy.officeHoursDays !== undefined) overriddenFields.push('officeHoursDays');
+  if (machinePolicy.failedLogonThreshold !== undefined) overriddenFields.push('failedLogonThreshold');
+  if (machinePolicy.failedLogonWindowMins !== undefined) overriddenFields.push('failedLogonWindowMins');
+  if (machinePolicy.learningMode !== undefined) overriddenFields.push('learningMode');
+  if (machinePolicy.usbLock !== undefined) overriddenFields.push('usbLock');
+  if (machineDlp.length > 0) overriddenFields.push('dlpFolders');
+
+  const hasMachineOverrides = overriddenFields.length > 0;
+
+  let mergedCatModes = [...groupNormalized.catModes];
+  if (Array.isArray(machinePolicy.catModes)) {
+    for (let i = 0; i < 14; i++) {
+      if (machinePolicy.catModes[i] !== undefined) {
+        mergedCatModes[i] = Math.min(3, Math.max(0, parseInt(machinePolicy.catModes[i], 10) || 0));
+      }
+    }
+  }
+
+  const effective = {
+    catModes: mergedCatModes,
+    officeHoursStart: machinePolicy.officeHoursStart !== undefined ? parseInt(machinePolicy.officeHoursStart, 10) : groupNormalized.officeHoursStart,
+    officeHoursEnd: machinePolicy.officeHoursEnd !== undefined ? parseInt(machinePolicy.officeHoursEnd, 10) : groupNormalized.officeHoursEnd,
+    officeHoursDays: machinePolicy.officeHoursDays !== undefined ? parseInt(machinePolicy.officeHoursDays, 10) : groupNormalized.officeHoursDays,
+    failedLogonThreshold: machinePolicy.failedLogonThreshold !== undefined ? parseInt(machinePolicy.failedLogonThreshold, 10) : groupNormalized.failedLogonThreshold,
+    failedLogonWindowMins: machinePolicy.failedLogonWindowMins !== undefined ? parseInt(machinePolicy.failedLogonWindowMins, 10) : groupNormalized.failedLogonWindowMins,
+    learningMode: machinePolicy.learningMode !== undefined ? Boolean(machinePolicy.learningMode) : groupNormalized.learningMode,
+    dlpFolders: effectiveDlp,
+    usbLock: machinePolicy.usbLock !== undefined ? (machinePolicy.usbLock === 'locked' ? 'locked' : 'unlocked') : groupNormalized.usbLock
+  };
+
+  return {
+    effectivePolicy: effective,
+    groupDlpFolders: groupDlp,
+    machineDlpFolders: machineDlp,
+    hasMachineOverrides,
+    overriddenFields
+  };
+}
+
 async function getMachinePolicy(req, res) {
   try {
     const rawMachine = req.params.machine;
@@ -63,7 +126,7 @@ async function getMachinePolicy(req, res) {
 
     const rowRes = await req.queryTenant('SELECT * FROM policies WHERE LOWER(machine) = LOWER($1) ORDER BY updated_at DESC LIMIT 1', [machine]);
     const row = rowRes.rows[0];
-    
+
     // Find group policy for this machine (first group wins)
     const groupRowRes = await req.queryTenant(`
       SELECT pg.id, pg.name, pg.policy_json, pg.updated_at
@@ -76,29 +139,25 @@ async function getMachinePolicy(req, res) {
 
     const machinePolicy = row ? JSON.parse(row.policy_json || '{}') : {};
     const groupPolicy = groupRow ? JSON.parse(groupRow.policy_json || '{}') : {};
-    
-    // Determine effective policy: Machine Override > Group Policy > System Default Policy
-    let rawEffective;
-    let policySource;
-    let effectiveUpdatedAt = row?.updated_at || 0;
 
-    if (Object.keys(machinePolicy).length > 0) {
-      rawEffective = machinePolicy;
+    const {
+      effectivePolicy,
+      groupDlpFolders,
+      machineDlpFolders,
+      hasMachineOverrides,
+      overriddenFields
+    } = computeEffectivePolicy(machinePolicy, groupPolicy);
+
+    let policySource = 'default';
+    if (groupRow && Object.keys(groupPolicy).length > 0) {
+      policySource = hasMachineOverrides ? 'machine' : 'group';
+    } else if (hasMachineOverrides) {
       policySource = 'machine';
-      effectiveUpdatedAt = row?.updated_at || 0;
-    } else if (groupRow && Object.keys(groupPolicy).length > 0) {
-      rawEffective = groupPolicy;
-      policySource = 'group';
-      effectiveUpdatedAt = Math.max(groupRow.updated_at || 0, row?.updated_at || 0);
-    } else {
-      rawEffective = DEFAULT_POLICY;
-      policySource = 'default';
-      effectiveUpdatedAt = row?.updated_at || 0;
     }
 
-    const effectivePolicy = normalizePolicy(rawEffective);
+    const effectiveUpdatedAt = Math.max(groupRow?.updated_at || 0, row?.updated_at || 0);
 
-    console.log(`[Policy] GET request for '${machine}' (Auth: ${req.authType || 'session'}) -> Source: ${policySource}, catModes: [${effectivePolicy.catModes.join(',')}], dlp: ${effectivePolicy.dlpFolders.length}, usbLock: ${effectivePolicy.usbLock}`);
+    console.log(`[Policy] GET request for '${machine}' (Auth: ${req.authType || 'session'}) -> Source: ${policySource}, catModes: [${effectivePolicy.catModes.join(',')}], dlp: ${effectivePolicy.dlpFolders.length} (Group: ${groupDlpFolders.length}, Local: ${machineDlpFolders.length}), usbLock: ${effectivePolicy.usbLock}`);
 
     const currentJsonObj = JSON.parse((row && row.current_json) || '{}');
 
@@ -113,6 +172,10 @@ async function getMachinePolicy(req, res) {
       current_json: (row && row.current_json) || '{}',
       group: groupRow ? { id: groupRow.id, name: groupRow.name, policy: normalizePolicy(groupPolicy) } : null,
       policy_source: policySource,
+      has_override: hasMachineOverrides,
+      overridden_fields: overriddenFields,
+      group_dlp_folders: groupDlpFolders,
+      machine_dlp_folders: machineDlpFolders,
       updated_at: effectiveUpdatedAt,
       applied_at: row?.applied_at || null
     });
@@ -143,7 +206,7 @@ async function updateMachineCurrentPolicy(req, res) {
     if (!policy || typeof policy !== 'object' || Array.isArray(policy)) {
       return res.status(400).json({ error: 'policy object required' });
     }
-    
+
     const rowRes = await req.queryTenant('SELECT machine FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1', [machine]);
     const targetMachine = rowRes.rows[0]?.machine || machine;
 
@@ -155,7 +218,7 @@ async function updateMachineCurrentPolicy(req, res) {
       ON CONFLICT(machine) DO UPDATE SET 
         current_json = excluded.current_json
     `, [targetMachine, JSON.stringify(policy)]);
-    
+
     res.json({ ok: true });
   } catch (error) {
     console.error('[Policy] Failed to update current policy:', error);
@@ -183,11 +246,30 @@ async function setMachinePolicy(req, res) {
     if (!policy || typeof policy !== 'object' || Array.isArray(policy)) {
       return res.status(400).json({ error: 'policy object required' });
     }
-    
+
     const rowRes = await req.queryTenant('SELECT machine FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1', [machine]);
     const targetMachine = rowRes.rows[0]?.machine || machine;
 
-    const payloadPolicy = Object.keys(policy).length > 0 ? normalizePolicy(policy) : {};
+    let payloadPolicy = Object.keys(policy).length > 0 ? normalizePolicy(policy) : {};
+
+    // If machine belongs to a group, ensure machine policy only stores local machine folders so group DLP updates remain additive
+    const groupRowRes = await req.queryTenant(`
+      SELECT pg.id, pg.policy_json
+      FROM machine_groups mg
+      JOIN pol_groups pg ON pg.id = mg.group_id
+      WHERE LOWER(mg.machine) = LOWER($1)
+      LIMIT 1
+    `, [targetMachine]);
+
+    if (groupRowRes.rows[0] && Array.isArray(payloadPolicy.dlpFolders)) {
+      const groupPolicy = JSON.parse(groupRowRes.rows[0].policy_json || '{}');
+      const groupDlp = Array.isArray(groupPolicy.dlpFolders) ? groupPolicy.dlpFolders.map(f => f.trim()) : [];
+      if (Array.isArray(req.body.machine_dlp_folders)) {
+        payloadPolicy.dlpFolders = req.body.machine_dlp_folders.filter(f => typeof f === 'string' && f.trim().length > 0);
+      } else {
+        payloadPolicy.dlpFolders = payloadPolicy.dlpFolders.filter(f => !groupDlp.includes(f));
+      }
+    }
 
     await req.queryTenant(`
       INSERT INTO policies (machine, policy_json, updated_at, applied_at)
@@ -197,8 +279,8 @@ async function setMachinePolicy(req, res) {
         updated_at  = excluded.updated_at,
         applied_at  = NULL
     `, [targetMachine, JSON.stringify(payloadPolicy)]);
-    
-    console.log(`[Policy] Saved machine policy for '${targetMachine}' -> catModes: [${(payloadPolicy.catModes || []).join(',')}], dlp: ${(payloadPolicy.dlpFolders || []).length}, usbLock: ${payloadPolicy.usbLock || 'none'}`);
+
+    console.log(`[Policy] Saved machine policy for '${targetMachine}' -> catModes: [${(payloadPolicy.catModes || []).join(',')}], local dlp: ${(payloadPolicy.dlpFolders || []).length}, usbLock: ${payloadPolicy.usbLock || 'none'}`);
 
     res.json({ ok: true });
   } catch (error) {
@@ -225,27 +307,24 @@ async function ackMachinePolicy(req, res) {
     }
 
     const policy = req.body?.policy;
-    
-    // Get effective policy to synchronize current_json immediately on ACK
+
+    // Get effective policy using layered inheritance
     const rowRes = await req.queryTenant('SELECT machine, policy_json FROM policies WHERE LOWER(machine) = LOWER($1) ORDER BY updated_at DESC LIMIT 1', [machine]);
     const actualMachine = rowRes.rows[0]?.machine || machine;
-    let effectivePolicy = rowRes.rows[0]?.policy_json;
-    if (!effectivePolicy || effectivePolicy === '{}') {
-      const grpRes = await req.queryTenant(`
-        SELECT pg.policy_json FROM machine_groups mg
-        JOIN pol_groups pg ON pg.id = mg.group_id
-        WHERE LOWER(mg.machine) = LOWER($1) ORDER BY pg.updated_at DESC LIMIT 1
-      `, [machine]);
-      if (grpRes.rows[0]?.policy_json && grpRes.rows[0]?.policy_json !== '{}') {
-        effectivePolicy = grpRes.rows[0].policy_json;
-      } else {
-        effectivePolicy = JSON.stringify(DEFAULT_POLICY);
-      }
-    }
+    const mPolicy = rowRes.rows[0]?.policy_json ? JSON.parse(rowRes.rows[0].policy_json) : {};
+
+    const grpRes = await req.queryTenant(`
+      SELECT pg.policy_json FROM machine_groups mg
+      JOIN pol_groups pg ON pg.id = mg.group_id
+      WHERE LOWER(mg.machine) = LOWER($1) ORDER BY pg.updated_at DESC LIMIT 1
+    `, [machine]);
+    const gPolicy = grpRes.rows[0]?.policy_json ? JSON.parse(grpRes.rows[0].policy_json) : {};
+
+    const { effectivePolicy } = computeEffectivePolicy(mPolicy, gPolicy);
 
     const payloadPolicy = (policy && typeof policy === 'object' && !Array.isArray(policy) && Object.keys(policy).length > 0)
       ? JSON.stringify(policy)
-      : (effectivePolicy || '{}');
+      : JSON.stringify(effectivePolicy);
 
     await req.queryTenant(`
       INSERT INTO policies (machine, policy_json, current_json, updated_at, applied_at)

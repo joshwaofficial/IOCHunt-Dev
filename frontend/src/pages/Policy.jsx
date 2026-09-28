@@ -44,6 +44,7 @@ export default function Policy() {
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: '', message: '', onConfirm: null, type: 'danger' });
   const [promptDialog, setPromptDialog] = useState({ isOpen: false, title: '', message: '', value: '', onConfirm: null });
   const [alertDialog, setAlertDialog] = useState({ isOpen: false, title: '', message: '', type: 'info' });
+  const [groupSyncModal, setGroupSyncModal] = useState({ isOpen: false, groupId: null, groupName: '', overriddenMachines: [], totalMachines: 0, policy: null });
 
   useEffect(() => {
     fetchMachines();
@@ -193,23 +194,103 @@ export default function Policy() {
     if (readOnly) return;
     const path = newDlpFolder.trim();
     if (!path) return;
-    const pol = editingGroupId ? (groupPolicyData?.policy || {}) : (machinePolicyData?.effective_policy || {});
-    const currentList = Array.isArray(pol.dlpFolders) ? pol.dlpFolders : [];
-    if (currentList.includes(path)) {
-      setAlertDialog({ isOpen: true, title: 'Duplicate Folder', message: 'This folder path is already in the DLP protected list.', type: 'danger' });
-      return;
+
+    if (editingGroupId) {
+      const pol = groupPolicyData?.policy || {};
+      const currentList = Array.isArray(pol.dlpFolders) ? pol.dlpFolders : [];
+      if (currentList.includes(path)) {
+        setAlertDialog({ isOpen: true, title: 'Duplicate Folder', message: 'This folder path is already in the Group DLP protected list.', type: 'danger' });
+        return;
+      }
+      const updated = [...currentList, path];
+      updatePolicyField('dlpFolders', updated);
+      setNewDlpFolder('');
+    } else if (selectedMachine && machinePolicyData) {
+      const groupFolders = machinePolicyData.group_dlp_folders || [];
+      const localFolders = machinePolicyData.machine_dlp_folders || [];
+      if (groupFolders.includes(path)) {
+        setAlertDialog({ isOpen: true, title: 'Folder Already Protected', message: 'This folder is already enforced via Group Policy inheritance.', type: 'info' });
+        return;
+      }
+      if (localFolders.includes(path)) {
+        setAlertDialog({ isOpen: true, title: 'Duplicate Folder', message: 'This folder path is already in the machine-specific DLP list.', type: 'danger' });
+        return;
+      }
+      const updatedLocal = [...localFolders, path];
+      const updatedEffective = Array.from(new Set([...groupFolders, ...updatedLocal]));
+      setMachinePolicyData(prev => ({
+        ...prev,
+        machine_dlp_folders: updatedLocal,
+        effective_policy: {
+          ...prev.effective_policy,
+          dlpFolders: updatedEffective
+        }
+      }));
+      setHasChanges(true);
+      setNewDlpFolder('');
     }
-    const updated = [...currentList, path];
-    updatePolicyField('dlpFolders', updated);
-    setNewDlpFolder('');
   };
 
-  const handleRemoveDlpFolder = (folderToRemove) => {
+  const handleRemoveDlpFolder = (folderToRemove, isGroupFolder = false) => {
     if (readOnly) return;
-    const pol = editingGroupId ? (groupPolicyData?.policy || {}) : (machinePolicyData?.effective_policy || {});
-    const currentList = Array.isArray(pol.dlpFolders) ? pol.dlpFolders : [];
-    const updated = currentList.filter(f => f !== folderToRemove);
-    updatePolicyField('dlpFolders', updated);
+    if (isGroupFolder) {
+      setAlertDialog({
+        isOpen: true,
+        title: 'Group Enforced Folder',
+        message: 'This folder is enforced by group policy and cannot be removed individually from this endpoint. To remove it, edit the group policy or remove this machine from the group.',
+        type: 'info'
+      });
+      return;
+    }
+    if (editingGroupId) {
+      const pol = groupPolicyData?.policy || {};
+      const currentList = Array.isArray(pol.dlpFolders) ? pol.dlpFolders : [];
+      const updated = currentList.filter(f => f !== folderToRemove);
+      updatePolicyField('dlpFolders', updated);
+    } else if (selectedMachine && machinePolicyData) {
+      const groupFolders = machinePolicyData.group_dlp_folders || [];
+      const localFolders = machinePolicyData.machine_dlp_folders || [];
+      const updatedLocal = localFolders.filter(f => f !== folderToRemove);
+      const updatedEffective = Array.from(new Set([...groupFolders, ...updatedLocal]));
+      setMachinePolicyData(prev => ({
+        ...prev,
+        machine_dlp_folders: updatedLocal,
+        effective_policy: {
+          ...prev.effective_policy,
+          dlpFolders: updatedEffective
+        }
+      }));
+      setHasChanges(true);
+    }
+  };
+
+  const saveGroupPolicyWithStrategy = async (groupId, policy, forceSync) => {
+    try {
+      setLoading(true);
+      await axios.put(`/api/groups/${groupId}/policy`, {
+        policy,
+        forceSync,
+        preserveLocalDlp: true
+      });
+      setGroupSyncModal({ isOpen: false, groupId: null, groupName: '', overriddenMachines: [], totalMachines: 0, policy: null });
+      setAlertDialog({
+        isOpen: true,
+        title: 'Group Policy Saved',
+        message: forceSync
+          ? 'Group policy updated and forced to all machines. Machine-specific DLP folders were safely preserved.'
+          : 'Group policy updated. In-sync machines will receive updates, and overridden machines kept their custom settings while inheriting new DLP folders.',
+        type: 'success'
+      });
+      setHasChanges(false);
+      fetchGroups();
+      if (selectedMachine && !selectedMachine.startsWith('grp:')) {
+        fetchMachinePolicy(selectedMachine);
+      }
+    } catch (e) {
+      setAlertDialog({ isOpen: true, title: 'Error', message: 'Failed to save group policy: ' + (e.response?.data?.error || e.message), type: 'danger' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSavePolicy = async () => {
@@ -217,20 +298,86 @@ export default function Policy() {
     try {
       if (editingGroupId) {
         const pol = buildPolicyObj(groupPolicyData.policy || {});
-        await axios.put(`/api/groups/${editingGroupId}/policy`, { policy: pol });
-        setAlertDialog({ isOpen: true, title: 'Success', message: "Group policy saved!", type: 'success' });
-        setHasChanges(false);
-        fetchGroups();
+        const currentGroup = groups.find(g => g.id === editingGroupId);
+        const overriddenList = currentGroup?.overridden_machines || [];
+        if (overriddenList.length > 0) {
+          setGroupSyncModal({
+            isOpen: true,
+            groupId: editingGroupId,
+            groupName: currentGroup.name,
+            overriddenMachines: overriddenList,
+            totalMachines: currentGroup.machines?.length || 0,
+            policy: pol
+          });
+          return;
+        }
+        await saveGroupPolicyWithStrategy(editingGroupId, pol, false);
       } else if (selectedMachine) {
         const pol = buildPolicyObj(machinePolicyData.effective_policy || {});
-        await axios.post(`/api/policy/${encodeURIComponent(selectedMachine)}`, { policy: pol });
-        setAlertDialog({ isOpen: true, title: 'Success', message: "Machine policy saved! It overrides group policy.", type: 'success' });
+        const localDlp = machinePolicyData.machine_dlp_folders || pol.dlpFolders;
+        await axios.post(`/api/policy/${encodeURIComponent(selectedMachine)}`, {
+          policy: pol,
+          machine_dlp_folders: localDlp
+        });
+        setAlertDialog({
+          isOpen: true,
+          title: 'Success',
+          message: machinePolicyData?.group
+            ? `Machine policy saved! Custom overrides applied for '${selectedMachine}', while inherited group DLP folders remain active.`
+            : 'Machine policy saved successfully.',
+          type: 'success'
+        });
         setHasChanges(false);
         fetchMachinePolicy(selectedMachine);
+        fetchGroups();
       }
     } catch (e) {
       setAlertDialog({ isOpen: true, title: 'Error', message: "Failed to save policy: " + (e.response?.data?.error || e.message), type: 'danger' });
     }
+  };
+
+  const handleResetMachineOverride = async (groupId, machineName) => {
+    if (readOnly) return;
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Reset Machine to Group Policy',
+      message: `Reset policy for '${machineName}' back to group settings? Machine-specific DLP folders will be preserved so local paths are not lost.`,
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          await axios.post(`/api/groups/${groupId}/reset-override/${encodeURIComponent(machineName)}`);
+          setAlertDialog({ isOpen: true, title: 'Success', message: `Machine '${machineName}' is now in sync with the group policy.`, type: 'success' });
+          fetchGroups();
+          if (selectedMachine === machineName) {
+            fetchMachinePolicy(machineName);
+          }
+        } catch (e) {
+          setAlertDialog({ isOpen: true, title: 'Error', message: 'Failed to reset machine override: ' + (e.response?.data?.error || e.message), type: 'danger' });
+        }
+      }
+    });
+  };
+
+  const handleResetGroupOverrides = async (groupId, groupName, count) => {
+    if (readOnly) return;
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Reset All Group Overrides',
+      message: `Reset all ${count} overridden machine(s) in group '${groupName}' back to the group policy? Machine-specific DLP folders will be preserved.`,
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          await axios.post(`/api/groups/${groupId}/reset-overrides`);
+          setAlertDialog({ isOpen: true, title: 'Success', message: `All machines in '${groupName}' are now aligned with group policy.`, type: 'success' });
+          fetchGroups();
+          if (selectedMachine && !selectedMachine.startsWith('grp:')) {
+            fetchMachinePolicy(selectedMachine);
+          }
+        } catch (e) {
+          setAlertDialog({ isOpen: true, title: 'Error', message: 'Failed to reset overrides: ' + (e.response?.data?.error || e.message), type: 'danger' });
+        }
+      }
+    });
   };
 
   const handleClearOverride = async () => {
@@ -246,6 +393,7 @@ export default function Policy() {
           setAlertDialog({ isOpen: true, title: 'Success', message: "Machine override cleared.", type: 'success' });
           setHasChanges(false);
           fetchMachinePolicy(selectedMachine);
+          fetchGroups();
         } catch (e) {
           setAlertDialog({ isOpen: true, title: 'Error', message: "Failed to clear policy.", type: 'danger' });
         }
@@ -327,6 +475,129 @@ export default function Policy() {
             <button onClick={() => { setEditingGroupId(null); setSelectedMachine(''); }} style={{ marginLeft: 'auto', background: 'none', border: '1px solid var(--border)', color: 'var(--muted)', padding: '3px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }}>↩ Back</button>
           )}
         </div>
+
+        {/* Machine Group Membership & Override Status Banner */}
+        {selectedMachine && !editingGroupId && machinePolicyData?.group && (
+          <div style={{
+            background: machinePolicyData.has_override ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)',
+            border: `1px solid ${machinePolicyData.has_override ? 'rgba(245,158,11,0.3)' : 'rgba(34,197,94,0.3)'}`,
+            borderRadius: '10px',
+            padding: '12px 18px',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '22px', color: machinePolicyData.has_override ? '#f59e0b' : '#22c55e' }}>
+                {machinePolicyData.has_override ? 'warning' : 'verified'}
+              </span>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)' }}>
+                    Group Member: <span style={{ color: '#a78bfa' }}>{machinePolicyData.group.name}</span>
+                  </span>
+                  <span style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    background: machinePolicyData.has_override ? 'rgba(245,158,11,0.2)' : 'rgba(34,197,94,0.2)',
+                    color: machinePolicyData.has_override ? '#f59e0b' : '#22c55e',
+                    letterSpacing: '0.5px',
+                    textTransform: 'uppercase'
+                  }}>
+                    {machinePolicyData.has_override ? 'Custom Override Active' : 'In Sync with Group'}
+                  </span>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
+                  {machinePolicyData.has_override
+                    ? `Endpoint overrides: ${machinePolicyData.overridden_fields?.join(', ') || 'custom settings'}. Inherits group DLP folders additively.`
+                    : `Endpoint adheres to all group policies and inherits group DLP folders.`}
+                </div>
+              </div>
+            </div>
+            {!readOnly && machinePolicyData.has_override && (
+              <button
+                onClick={() => handleResetMachineOverride(machinePolicyData.group.id, selectedMachine)}
+                style={{
+                  background: 'rgba(245,158,11,0.15)',
+                  border: '1px solid rgba(245,158,11,0.4)',
+                  color: '#d97706',
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>restart_alt</span>
+                Reset to Group Policy
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Group Overrides Notice (When Editing Group) */}
+        {editingGroupId && (() => {
+          const grp = groups.find(x => x.id === editingGroupId);
+          const overrides = grp?.overridden_machines || [];
+          if (overrides.length === 0) return null;
+          return (
+            <div style={{
+              background: 'rgba(167,139,250,0.08)',
+              border: '1px solid rgba(167,139,250,0.25)',
+              borderRadius: '10px',
+              padding: '12px 18px',
+              marginBottom: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#a78bfa' }}>info</span>
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>
+                    {overrides.length} machine(s) in this group have custom policy overrides:
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#a78bfa', fontFamily: 'var(--mono)', marginTop: '2px' }}>
+                    {overrides.join(', ')}
+                  </div>
+                </div>
+              </div>
+              {!readOnly && (
+                <button
+                  onClick={() => handleResetGroupOverrides(editingGroupId, grp.name, overrides.length)}
+                  style={{
+                    background: 'rgba(167,139,250,0.15)',
+                    border: '1px solid rgba(167,139,250,0.4)',
+                    color: '#a78bfa',
+                    padding: '6px 14px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>restart_alt</span>
+                  Reset All Overrides
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', marginBottom: '24px' }}>
           <div style={{ overflowX: 'auto' }}>
@@ -576,11 +847,13 @@ export default function Policy() {
                   <th style={{ padding: '16px 20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <span className="material-symbols-outlined" style={{ fontSize: '20px', color: editingGroupId ? '#a78bfa' : '#3b82f6' }}>folder_special</span>
-                      <div style={{ fontSize: '13px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text)' }}>DLP Protected Folders</div>
+                      <div style={{ fontSize: '13px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text)' }}>
+                        {editingGroupId ? 'Group DLP Protected Folders' : 'DLP Protected Folders'}
+                      </div>
                       {clientDlpFolders !== null && (
                         isDlpInSync ? (
                           <span style={{ fontSize: '11px', color: '#22c55e', marginLeft: 'auto', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check_circle</span> in sync
+                            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check_circle</span> in sync ({clientDlpFolders.length} active)
                           </span>
                         ) : (
                           <span style={{ fontSize: '11px', color: '#f97316', marginLeft: 'auto', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -595,124 +868,431 @@ export default function Policy() {
               <tbody>
                 <tr>
                   <td style={{ padding: '24px' }}>
-                    <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '0 0 16px', lineHeight: '1.5' }}>
-                      Monitors protected folders for file writes, modifications, and deletions, flagging unauthorized or suspicious process access.
-                    </p>
+                    {editingGroupId ? (
+                      <div>
+                        <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '0 0 16px', lineHeight: '1.5' }}>
+                          Folders configured here are automatically pushed to all machines in this group. They are additively merged with each machine's local folders so individual endpoint folders are never lost.
+                        </p>
 
-                    {/* Add Folder Input */}
-                    {!readOnly && (
-                      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', maxWidth: '650px' }}>
+                        {/* Add Group Folder Input */}
+                        {!readOnly && (
+                          <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', maxWidth: '650px' }}>
+                            <div style={{
+                              flex: 1,
+                              display: 'flex',
+                              alignItems: 'center',
+                              background: 'var(--surface)',
+                              border: '1px solid var(--border)',
+                              borderRadius: '8px',
+                              padding: '0 14px',
+                              height: '42px',
+                              boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
+                            }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)', marginRight: '8px' }}>create_new_folder</span>
+                              <input
+                                type="text"
+                                className="input-field no-focus-outline"
+                                placeholder="Enter group folder path (e.g. C:\ProtectedData or /var/secrets)..."
+                                value={newDlpFolder}
+                                onChange={(e) => setNewDlpFolder(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleAddDlpFolder(); }}
+                                style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text)', fontSize: '13px', outline: 'none', fontFamily: 'var(--sans)', padding: 0 }}
+                              />
+                            </div>
+                            <button
+                              onClick={handleAddDlpFolder}
+                              disabled={!newDlpFolder.trim()}
+                              style={{
+                                background: '#a78bfa',
+                                color: '#fff',
+                                border: 'none',
+                                padding: '0 20px',
+                                height: '42px',
+                                borderRadius: '8px',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                cursor: newDlpFolder.trim() ? 'pointer' : 'not-allowed',
+                                opacity: newDlpFolder.trim() ? 1 : 0.6,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                transition: 'all 0.2s',
+                                boxShadow: newDlpFolder.trim() ? '0 2px 8px rgba(167,139,250,0.25)' : 'none'
+                              }}
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>add</span> Add Group Folder
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Group Folder List */}
                         <div style={{
-                          flex: 1,
+                          background: 'var(--surface)',
+                          border: (!dlpFoldersList || dlpFoldersList.length === 0) ? '1px dashed var(--border)' : '1px solid var(--border)',
+                          borderRadius: '8px',
+                          overflow: 'hidden',
+                          maxWidth: '750px'
+                        }}>
+                          {(!dlpFoldersList || dlpFoldersList.length === 0) ? (
+                            <div style={{ padding: '28px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: '28px', color: 'var(--muted)', display: 'block', marginBottom: '8px', opacity: 0.5 }}>folder_off</span>
+                              No group DLP folders configured. Add a path above to protect it across all group machines.
+                            </div>
+                          ) : (
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                              <tbody>
+                                {dlpFoldersList.map((folderPath, idx) => (
+                                  <tr key={idx} style={{ borderBottom: idx === dlpFoldersList.length - 1 ? 'none' : '1px solid var(--border)' }}>
+                                    <td style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                      <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#a78bfa' }}>folder</span>
+                                      <span style={{ fontFamily: 'var(--mono)', fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>{folderPath}</span>
+                                      <span style={{ fontSize: '10px', color: '#a78bfa', background: 'rgba(167,139,250,0.12)', padding: '2px 8px', borderRadius: '4px', marginLeft: 'auto', fontWeight: 700 }}>Group Enforced</span>
+                                    </td>
+                                    {!readOnly && (
+                                      <td style={{ padding: '12px 16px', textAlign: 'right', width: '90px' }}>
+                                        <button
+                                          onClick={() => handleRemoveDlpFolder(folderPath)}
+                                          title="Remove Folder"
+                                          style={{
+                                            background: 'rgba(239,68,68,0.1)',
+                                            border: '1px solid rgba(239,68,68,0.3)',
+                                            color: '#ef4444',
+                                            padding: '5px 12px',
+                                            borderRadius: '6px',
+                                            fontSize: '11px',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '4px',
+                                            transition: 'all 0.15s'
+                                          }}
+                                        >
+                                          <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>delete</span> Remove
+                                        </button>
+                                      </td>
+                                    )}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+                      </div>
+                    ) : selectedMachine && machinePolicyData?.group ? (
+                      /* Machine inside a Group: Layered DLP UI */
+                      <div>
+                        <div style={{
+                          background: 'rgba(59,130,246,0.06)',
+                          border: '1px solid rgba(59,130,246,0.2)',
+                          borderRadius: '8px',
+                          padding: '12px 16px',
+                          marginBottom: '20px',
+                          fontSize: '12px',
+                          color: 'var(--text)',
+                          lineHeight: 1.5,
+                          maxWidth: '750px'
+                        }}>
+                          <strong style={{ color: '#60a5fa' }}>Layered DLP Protection:</strong> This machine additively combines mandatory group folders from <strong style={{ color: '#a78bfa' }}>{machinePolicyData.group.name}</strong> with endpoint-specific local folders. Group policy updates will never wipe this endpoint's local folders.
+                        </div>
+
+                        {/* 1. Group Inherited Folders */}
+                        <div style={{ marginBottom: '24px', maxWidth: '750px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#a78bfa' }}>folder_shared</span>
+                            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              Inherited Group Folders ({(machinePolicyData.group_dlp_folders || []).length})
+                            </span>
+                            <span style={{ fontSize: '10px', background: 'rgba(167,139,250,0.15)', color: '#a78bfa', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                              Group: {machinePolicyData.group.name}
+                            </span>
+                          </div>
+
+                          <div style={{
+                            background: 'var(--surface)',
+                            border: '1px solid rgba(167,139,250,0.25)',
+                            borderRadius: '8px',
+                            overflow: 'hidden'
+                          }}>
+                            {(!machinePolicyData.group_dlp_folders || machinePolicyData.group_dlp_folders.length === 0) ? (
+                              <div style={{ padding: '16px 20px', color: 'var(--muted)', fontSize: '12px' }}>
+                                No group folders defined in group "{machinePolicyData.group.name}".
+                              </div>
+                            ) : (
+                              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <tbody>
+                                  {machinePolicyData.group_dlp_folders.map((folderPath, idx) => (
+                                    <tr key={idx} style={{ borderBottom: idx === machinePolicyData.group_dlp_folders.length - 1 ? 'none' : '1px solid var(--border)' }}>
+                                      <td style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#a78bfa' }}>folder</span>
+                                        <span style={{ fontFamily: 'var(--mono)', fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>{folderPath}</span>
+                                        <span style={{ fontSize: '10px', color: '#a78bfa', background: 'rgba(167,139,250,0.12)', padding: '2px 8px', borderRadius: '4px', marginLeft: 'auto', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                          <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>lock</span> Enforced by Group
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 2. Machine Local Folders */}
+                        <div style={{ maxWidth: '750px', marginBottom: '20px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#3b82f6' }}>laptop_chromebook</span>
+                            <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                              Machine Local Folders ({(machinePolicyData.machine_dlp_folders || []).length})
+                            </span>
+                            <span style={{ fontSize: '10px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                              Local Endpoint Only
+                            </span>
+                          </div>
+
+                          {/* Add Local Folder Input */}
+                          {!readOnly && (
+                            <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
+                              <div style={{
+                                flex: 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                background: 'var(--surface)',
+                                border: '1px solid var(--border)',
+                                borderRadius: '8px',
+                                padding: '0 14px',
+                                height: '42px',
+                                boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
+                              }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)', marginRight: '8px' }}>create_new_folder</span>
+                                <input
+                                  type="text"
+                                  className="input-field no-focus-outline"
+                                  placeholder="Enter endpoint-specific folder path (e.g. D:\LocalDocs)..."
+                                  value={newDlpFolder}
+                                  onChange={(e) => setNewDlpFolder(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') handleAddDlpFolder(); }}
+                                  style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text)', fontSize: '13px', outline: 'none', fontFamily: 'var(--sans)', padding: 0 }}
+                                />
+                              </div>
+                              <button
+                                onClick={handleAddDlpFolder}
+                                disabled={!newDlpFolder.trim()}
+                                style={{
+                                  background: 'var(--accent)',
+                                  color: '#fff',
+                                  border: 'none',
+                                  padding: '0 20px',
+                                  height: '42px',
+                                  borderRadius: '8px',
+                                  fontSize: '12px',
+                                  fontWeight: 700,
+                                  cursor: newDlpFolder.trim() ? 'pointer' : 'not-allowed',
+                                  opacity: newDlpFolder.trim() ? 1 : 0.6,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  transition: 'all 0.2s',
+                                  boxShadow: newDlpFolder.trim() ? '0 2px 8px rgba(37,99,235,0.25)' : 'none'
+                                }}
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>add</span> Add Local Folder
+                              </button>
+                            </div>
+                          )}
+
+                          <div style={{
+                            background: 'var(--surface)',
+                            border: (!machinePolicyData.machine_dlp_folders || machinePolicyData.machine_dlp_folders.length === 0) ? '1px dashed var(--border)' : '1px solid var(--border)',
+                            borderRadius: '8px',
+                            overflow: 'hidden'
+                          }}>
+                            {(!machinePolicyData.machine_dlp_folders || machinePolicyData.machine_dlp_folders.length === 0) ? (
+                              <div style={{ padding: '20px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
+                                No machine-specific local folders configured for this endpoint. Add one above to protect local directories.
+                              </div>
+                            ) : (
+                              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <tbody>
+                                  {machinePolicyData.machine_dlp_folders.map((folderPath, idx) => (
+                                    <tr key={idx} style={{ borderBottom: idx === machinePolicyData.machine_dlp_folders.length - 1 ? 'none' : '1px solid var(--border)' }}>
+                                      <td style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#3b82f6' }}>folder</span>
+                                        <span style={{ fontFamily: 'var(--mono)', fontSize: '12px', fontWeight: 600, color: 'var(--text)' }}>{folderPath}</span>
+                                        <span style={{ fontSize: '10px', color: '#60a5fa', background: 'rgba(59,130,246,0.12)', padding: '2px 8px', borderRadius: '4px', marginLeft: 'auto', fontWeight: 700 }}>Local Folder</span>
+                                      </td>
+                                      {!readOnly && (
+                                        <td style={{ padding: '10px 16px', textAlign: 'right', width: '90px' }}>
+                                          <button
+                                            onClick={() => handleRemoveDlpFolder(folderPath, false)}
+                                            title="Remove Local Folder"
+                                            style={{
+                                              background: 'rgba(239,68,68,0.1)',
+                                              border: '1px solid rgba(239,68,68,0.3)',
+                                              color: '#ef4444',
+                                              padding: '4px 10px',
+                                              borderRadius: '6px',
+                                              fontSize: '11px',
+                                              fontWeight: 700,
+                                              cursor: 'pointer',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '4px',
+                                              transition: 'all 0.15s'
+                                            }}
+                                          >
+                                            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>delete</span> Remove
+                                          </button>
+                                        </td>
+                                      )}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Combined Total Summary */}
+                        <div style={{
                           display: 'flex',
                           alignItems: 'center',
-                          background: 'var(--surface)',
+                          gap: '12px',
+                          background: 'var(--surface2)',
                           border: '1px solid var(--border)',
                           borderRadius: '8px',
-                          padding: '0 14px',
-                          height: '42px',
-                          boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
+                          padding: '10px 16px',
+                          maxWidth: '750px',
+                          fontSize: '12px'
                         }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)', marginRight: '8px' }}>create_new_folder</span>
-                          <input
-                            type="text"
-                            className="input-field no-focus-outline"
-                            placeholder="Enter folder path (e.g. D:\IOCHunt-Monitor or /data/secure)..."
-                            value={newDlpFolder}
-                            onChange={(e) => setNewDlpFolder(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') handleAddDlpFolder(); }}
-                            style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text)', fontSize: '13px', outline: 'none', fontFamily: 'var(--sans)', padding: 0 }}
-                          />
+                          <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#22c55e' }}>verified_user</span>
+                          <span style={{ color: 'var(--text)', fontWeight: 600 }}>
+                            Total Active Folders Monitored by Agent: <strong style={{ color: 'var(--accent)' }}>{dlpFoldersList.length}</strong> ({(machinePolicyData.group_dlp_folders || []).length} Group + {(machinePolicyData.machine_dlp_folders || []).length} Local)
+                          </span>
                         </div>
-                        <button
-                          onClick={handleAddDlpFolder}
-                          disabled={!newDlpFolder.trim()}
-                          style={{
-                            background: editingGroupId ? '#a78bfa' : 'var(--accent)',
-                            color: '#fff',
-                            border: 'none',
-                            padding: '0 20px',
-                            height: '42px',
-                            borderRadius: '8px',
-                            fontSize: '12px',
-                            fontWeight: 700,
-                            cursor: newDlpFolder.trim() ? 'pointer' : 'not-allowed',
-                            opacity: newDlpFolder.trim() ? 1 : 0.6,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            transition: 'all 0.2s',
-                            boxShadow: newDlpFolder.trim() ? `0 2px 8px ${editingGroupId ? 'rgba(167,139,250,0.25)' : 'rgba(37,99,235,0.25)'}` : 'none'
-                          }}
-                        >
-                          <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>add</span> Add Folder
-                        </button>
+                      </div>
+                    ) : (
+                      /* Standalone Machine (No Group) */
+                      <div>
+                        <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '0 0 16px', lineHeight: '1.5' }}>
+                          Monitors protected folders for file writes, modifications, and deletions, flagging unauthorized or suspicious process access.
+                        </p>
+
+                        {/* Add Folder Input */}
+                        {!readOnly && (
+                          <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', maxWidth: '650px' }}>
+                            <div style={{
+                              flex: 1,
+                              display: 'flex',
+                              alignItems: 'center',
+                              background: 'var(--surface)',
+                              border: '1px solid var(--border)',
+                              borderRadius: '8px',
+                              padding: '0 14px',
+                              height: '42px',
+                              boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
+                            }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)', marginRight: '8px' }}>create_new_folder</span>
+                              <input
+                                type="text"
+                                className="input-field no-focus-outline"
+                                placeholder="Enter folder path (e.g. D:\IOCHunt-Monitor or /data/secure)..."
+                                value={newDlpFolder}
+                                onChange={(e) => setNewDlpFolder(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleAddDlpFolder(); }}
+                                style={{ flex: 1, background: 'transparent', border: 'none', color: 'var(--text)', fontSize: '13px', outline: 'none', fontFamily: 'var(--sans)', padding: 0 }}
+                              />
+                            </div>
+                            <button
+                              onClick={handleAddDlpFolder}
+                              disabled={!newDlpFolder.trim()}
+                              style={{
+                                background: 'var(--accent)',
+                                color: '#fff',
+                                border: 'none',
+                                padding: '0 20px',
+                                height: '42px',
+                                borderRadius: '8px',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                cursor: newDlpFolder.trim() ? 'pointer' : 'not-allowed',
+                                opacity: newDlpFolder.trim() ? 1 : 0.6,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                transition: 'all 0.2s',
+                                boxShadow: newDlpFolder.trim() ? '0 2px 8px rgba(37,99,235,0.25)' : 'none'
+                              }}
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>add</span> Add Folder
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Folder List */}
+                        <div style={{
+                          background: 'var(--surface)',
+                          border: (!dlpFoldersList || dlpFoldersList.length === 0) ? '1px dashed var(--border)' : '1px solid var(--border)',
+                          borderRadius: '8px',
+                          overflow: 'hidden',
+                          maxWidth: '750px'
+                        }}>
+                          {(!dlpFoldersList || dlpFoldersList.length === 0) ? (
+                            <div style={{ padding: '28px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: '28px', color: 'var(--muted)', display: 'block', marginBottom: '8px', opacity: 0.5 }}>folder_off</span>
+                              No DLP protected folders configured. Add a folder path above to begin monitoring.
+                            </div>
+                          ) : (
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                              <tbody>
+                                {dlpFoldersList.map((folderPath, idx) => {
+                                  const isEnforcedByClient = clientDlpFolders && clientDlpFolders.includes(folderPath);
+                                  return (
+                                    <tr key={idx} style={{ borderBottom: idx === dlpFoldersList.length - 1 ? 'none' : '1px solid var(--border)' }}>
+                                      <td style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#3b82f6' }}>folder</span>
+                                        <span style={{ fontFamily: 'var(--mono)', fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>{folderPath}</span>
+                                        {clientDlpFolders !== null && (
+                                          isEnforcedByClient ? (
+                                            <span style={{ fontSize: '10px', color: '#22c55e', background: 'rgba(34,197,94,0.1)', padding: '2px 8px', borderRadius: '4px', marginLeft: 'auto', fontWeight: 600 }}>Active on client</span>
+                                          ) : (
+                                            <span style={{ fontSize: '10px', color: '#f97316', background: 'rgba(249,115,22,0.1)', padding: '2px 8px', borderRadius: '4px', marginLeft: 'auto', fontWeight: 600 }}>Pending sync</span>
+                                          )
+                                        )}
+                                      </td>
+                                      {!readOnly && (
+                                        <td style={{ padding: '12px 16px', textAlign: 'right', width: '90px' }}>
+                                          <button
+                                            onClick={() => handleRemoveDlpFolder(folderPath, false)}
+                                            title="Remove Folder"
+                                            style={{
+                                              background: 'rgba(239,68,68,0.1)',
+                                              border: '1px solid rgba(239,68,68,0.3)',
+                                              color: '#ef4444',
+                                              padding: '5px 12px',
+                                              borderRadius: '6px',
+                                              fontSize: '11px',
+                                              fontWeight: 700,
+                                              cursor: 'pointer',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '4px',
+                                              transition: 'all 0.15s'
+                                            }}
+                                          >
+                                            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>delete</span> Remove
+                                          </button>
+                                        </td>
+                                      )}
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
                       </div>
                     )}
-
-                    {/* Folder List */}
-                    <div style={{
-                      background: 'var(--surface)',
-                      border: (!dlpFoldersList || dlpFoldersList.length === 0) ? '1px dashed var(--border)' : '1px solid var(--border)',
-                      borderRadius: '8px',
-                      overflow: 'hidden',
-                      maxWidth: '750px'
-                    }}>
-                      {(!dlpFoldersList || dlpFoldersList.length === 0) ? (
-                        <div style={{ padding: '28px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: '28px', color: 'var(--muted)', display: 'block', marginBottom: '8px', opacity: 0.5 }}>folder_off</span>
-                          No DLP protected folders configured. Add a folder path above to begin monitoring.
-                        </div>
-                      ) : (
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                          <tbody>
-                            {dlpFoldersList.map((folderPath, idx) => {
-                              const isEnforcedByClient = clientDlpFolders && clientDlpFolders.includes(folderPath);
-                              return (
-                                <tr key={idx} style={{ borderBottom: idx === dlpFoldersList.length - 1 ? 'none' : '1px solid var(--border)' }}>
-                                  <td style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <span className="material-symbols-outlined" style={{ fontSize: '20px', color: editingGroupId ? '#a78bfa' : '#3b82f6' }}>folder</span>
-                                    <span style={{ fontFamily: 'var(--mono)', fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>{folderPath}</span>
-                                    {clientDlpFolders !== null && (
-                                      isEnforcedByClient ? (
-                                        <span style={{ fontSize: '10px', color: '#22c55e', background: 'rgba(34,197,94,0.1)', padding: '2px 8px', borderRadius: '4px', marginLeft: 'auto', fontWeight: 600 }}>Active on client</span>
-                                      ) : (
-                                        <span style={{ fontSize: '10px', color: '#f97316', background: 'rgba(249,115,22,0.1)', padding: '2px 8px', borderRadius: '4px', marginLeft: 'auto', fontWeight: 600 }}>Pending sync</span>
-                                      )
-                                    )}
-                                  </td>
-                                  {!readOnly && (
-                                    <td style={{ padding: '12px 16px', textAlign: 'right', width: '90px' }}>
-                                      <button
-                                        onClick={() => handleRemoveDlpFolder(folderPath)}
-                                        title="Remove Folder"
-                                        style={{
-                                          background: 'rgba(239,68,68,0.1)',
-                                          border: '1px solid rgba(239,68,68,0.3)',
-                                          color: '#ef4444',
-                                          padding: '5px 12px',
-                                          borderRadius: '6px',
-                                          fontSize: '11px',
-                                          fontWeight: 700,
-                                          cursor: 'pointer',
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          gap: '4px',
-                                          transition: 'all 0.15s'
-                                        }}
-                                      >
-                                        <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>delete</span> Remove
-                                      </button>
-                                    </td>
-                                  )}
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      )}
-                    </div>
-
                   </td>
                 </tr>
               </tbody>
@@ -971,17 +1551,53 @@ export default function Policy() {
           }).map(g => {
             const memberCount = g.machines.length;
             const hasPol = Object.keys(g.policy || {}).length > 0;
+            const overriddenList = g.overridden_machines || [];
+            const inSyncCount = g.in_sync_machines ? g.in_sync_machines.length : (memberCount - overriddenList.length);
             return (
               <div key={g.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px 20px', marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '12px', transition: 'all 0.2s' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                   <span style={{ fontFamily: 'var(--sans)', fontSize: '14px', fontWeight: 800, color: 'var(--accent)' }}>{g.name}</span>
                   <span style={{ fontSize: '11px', color: 'var(--muted)' }}>{memberCount} machine(s)</span>
                   {hasPol ? (
-                    <span style={{ fontSize: '10px', background: 'rgba(34,197,94,.15)', color: '#22c55e', border: '1px solid rgba(34,197,94,.3)', padding: '3px 10px', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.5px' }}>policy set</span>
+                    <span style={{ fontSize: '10px', background: 'rgba(34,197,94,.15)', color: '#22c55e', border: '1px solid rgba(34,197,94,.3)', padding: '3px 8px', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.5px' }}>policy set</span>
                   ) : (
                     <span style={{ fontSize: '10px', color: 'var(--muted)', fontWeight: 600 }}>no policy</span>
                   )}
-                  <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                  {memberCount > 0 && (
+                    <>
+                      <span style={{ fontSize: '10px', background: 'rgba(34,197,94,0.1)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.25)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                        {inSyncCount} in sync
+                      </span>
+                      {overriddenList.length > 0 && (
+                        <span style={{ fontSize: '10px', background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>
+                          {overriddenList.length} overridden
+                        </span>
+                      )}
+                    </>
+                  )}
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    {!readOnly && overriddenList.length > 0 && (
+                      <button
+                        onClick={() => handleResetGroupOverrides(g.id, g.name, overriddenList.length)}
+                        title="Reset all overridden machines back to group policy while preserving local DLP folders"
+                        style={{
+                          background: 'rgba(245,158,11,0.1)',
+                          border: '1px solid rgba(245,158,11,0.3)',
+                          color: '#f59e0b',
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>restart_alt</span>
+                        Reset Overrides
+                      </button>
+                    )}
                     <button onClick={() => startEditGroup(g)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>{readOnly ? 'View Policy' : 'Edit Policy'}</button>
                     {!readOnly && <button onClick={() => deleteGroup(g.id)} style={{ background: 'rgba(239,68,68,.05)', border: '1px solid rgba(239,68,68,.3)', color: '#f87171', padding: '4px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>✕ Delete</button>}
                   </div>
@@ -990,10 +1606,47 @@ export default function Policy() {
                   {g.machines.map(m => {
                     const machineObj = machines.find(x => x.name === m || String(x.id) === String(m) || x === m);
                     const mName = machineObj ? (machineObj.name || machineObj.hostname || machineObj.label || m) : m;
+                    const isOverridden = overriddenList.includes(m);
                     return (
-                      <span key={m} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(59,130,246,.08)', border: '1px solid rgba(59,130,246,.25)', color: '#60a5fa', fontFamily: 'var(--mono)', fontSize: '11px', padding: '3px 10px', borderRadius: '6px', fontWeight: 600 }}>
+                      <span
+                        key={m}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          background: isOverridden ? 'rgba(245,158,11,.08)' : 'rgba(59,130,246,.08)',
+                          border: isOverridden ? '1px solid rgba(245,158,11,.3)' : '1px solid rgba(59,130,246,.25)',
+                          color: isOverridden ? '#f59e0b' : '#60a5fa',
+                          fontFamily: 'var(--mono)',
+                          fontSize: '11px',
+                          padding: '3px 10px',
+                          borderRadius: '6px',
+                          fontWeight: 600
+                        }}
+                      >
+                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: isOverridden ? '#f59e0b' : '#22c55e', display: 'inline-block' }}></span>
                         {mName}
-                        {!readOnly && <button onClick={() => assignMachineToGroup(m, '')} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', padding: 0, fontSize: '12px', lineHeight: 1 }}>✕</button>}
+                        <span style={{ fontSize: '9px', opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.3px', background: isOverridden ? 'rgba(245,158,11,0.2)' : 'rgba(34,197,94,0.15)', color: isOverridden ? '#f59e0b' : '#22c55e', padding: '1px 5px', borderRadius: '3px' }}>
+                          {isOverridden ? 'Override' : 'In Sync'}
+                        </span>
+                        {!readOnly && isOverridden && (
+                          <button
+                            onClick={() => handleResetMachineOverride(g.id, m)}
+                            title="Reset to group policy (preserves local DLP)"
+                            style={{ background: 'none', border: 'none', color: '#f59e0b', cursor: 'pointer', padding: 0, fontSize: '12px', lineHeight: 1, display: 'flex', alignItems: 'center' }}
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>restart_alt</span>
+                          </button>
+                        )}
+                        {!readOnly && (
+                          <button
+                            onClick={() => assignMachineToGroup(m, '')}
+                            title="Remove from group"
+                            style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', padding: 0, fontSize: '12px', lineHeight: 1 }}
+                          >
+                            ✕
+                          </button>
+                        )}
                       </span>
                     );
                   })}
@@ -1102,6 +1755,144 @@ export default function Policy() {
                 style={{ background: alertDialog.type === 'danger' ? '#ef4444' : '#2563eb', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
               >
                 OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Group Policy Sync Strategy Modal */}
+      {groupSyncModal.isOpen && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.65)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)', padding: '20px' }}>
+          <div style={{ background: 'var(--surface-solid, #1e293b)', border: '1px solid var(--border)', borderRadius: '14px', padding: '28px', width: '100%', maxWidth: '580px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.45)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ width: '42px', height: '42px', borderRadius: '10px', background: 'rgba(245,158,11,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '24px' }}>tune</span>
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text)' }}>Group Policy Sync Strategy</h3>
+                <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--muted)' }}>
+                  Target Group: <strong style={{ color: '#a78bfa' }}>{groupSyncModal.groupName}</strong>
+                </p>
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '8px', padding: '12px 16px', marginBottom: '20px', fontSize: '12px', color: 'var(--text)', lineHeight: 1.5 }}>
+              <div style={{ fontWeight: 700, color: '#f59e0b', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>info</span>
+                {groupSyncModal.overriddenMachines.length} of {groupSyncModal.totalMachines} machines have custom policy overrides:
+              </div>
+              <div style={{ fontFamily: 'var(--mono)', fontSize: '11px', color: '#f59e0b', wordBreak: 'break-all' }}>
+                {groupSyncModal.overriddenMachines.join(', ')}
+              </div>
+            </div>
+
+            <p style={{ fontSize: '13px', color: 'var(--text)', margin: '0 0 16px', fontWeight: 600 }}>
+              How would you like to apply this group policy update?
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '24px' }}>
+              {/* Option 1: Preserve Overrides */}
+              <div
+                onClick={() => saveGroupPolicyWithStrategy(groupSyncModal.groupId, groupSyncModal.policy, false)}
+                style={{
+                  border: '1px solid rgba(167,139,250,0.4)',
+                  background: 'rgba(167,139,250,0.06)',
+                  borderRadius: '10px',
+                  padding: '16px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  gap: '14px',
+                  alignItems: 'flex-start'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.borderColor = '#a78bfa'}
+                onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(167,139,250,0.4)'}
+              >
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(167,139,250,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a78bfa', flexShrink: 0 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>shield</span>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text)' }}>Preserve Overrides</span>
+                    <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: 'rgba(34,197,94,0.2)', color: '#22c55e' }}>RECOMMENDED</span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '11px', color: 'var(--muted)', lineHeight: 1.4 }}>
+                    Updates in-sync machines. Overridden machines retain their custom settings, but <strong>additively inherit</strong> all group DLP folders. Local folders are never wiped.
+                  </p>
+                </div>
+                <button
+                  style={{
+                    background: '#a78bfa',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '8px 14px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    alignSelf: 'center',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  Apply & Preserve
+                </button>
+              </div>
+
+              {/* Option 2: Force Sync */}
+              <div
+                onClick={() => saveGroupPolicyWithStrategy(groupSyncModal.groupId, groupSyncModal.policy, true)}
+                style={{
+                  border: '1px solid rgba(239,68,68,0.3)',
+                  background: 'rgba(239,68,68,0.05)',
+                  borderRadius: '10px',
+                  padding: '16px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  gap: '14px',
+                  alignItems: 'flex-start'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.borderColor = '#ef4444'}
+                onMouseLeave={(e) => e.currentTarget.style.borderColor = 'rgba(239,68,68,0.3)'}
+              >
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(239,68,68,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', flexShrink: 0 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>sync_problem</span>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text)' }}>Force Sync All Machines</span>
+                    <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: 'rgba(239,68,68,0.2)', color: '#ef4444' }}>OVERWRITE OVERRIDES</span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '11px', color: 'var(--muted)', lineHeight: 1.4 }}>
+                    Aligns all {groupSyncModal.totalMachines} machines to this group policy. <strong>Machine-specific DLP folders are safely kept</strong> so endpoint local directories remain monitored.
+                  </p>
+                </div>
+                <button
+                  style={{
+                    background: '#ef4444',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '8px 14px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    alignSelf: 'center',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  Force Sync All
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setGroupSyncModal({ isOpen: false, groupId: null, groupName: '', overriddenMachines: [], totalMachines: 0, policy: null })}
+                style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 18px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Cancel
               </button>
             </div>
           </div>

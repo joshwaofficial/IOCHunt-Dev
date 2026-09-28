@@ -4,17 +4,42 @@ const { isString, isIdentifier, sanitizeText } = require('../utils/inputValidato
 
 async function getGroups(req, res) {
   try {
-    const rowsRes = await req.queryTenant('SELECT * FROM pol_groups');
+    const rowsRes = await req.queryTenant('SELECT * FROM pol_groups ORDER BY name ASC');
     const groups = [];
     for (const g of rowsRes.rows) {
-      const machinesRes = await req.queryTenant('SELECT machine FROM machine_groups WHERE group_id=$1', [g.id]);
-      const machines = machinesRes.rows.map(r => r.machine);
+      const machinesRes = await req.queryTenant(`
+        SELECT mg.machine, p.policy_json, p.applied_at, p.updated_at
+        FROM machine_groups mg
+        LEFT JOIN policies p ON LOWER(p.machine) = LOWER(mg.machine)
+        WHERE mg.group_id=$1
+      `, [g.id]);
+      
+      const machines = [];
+      const overriddenMachines = [];
+      const inSyncMachines = [];
+
+      for (const r of machinesRes.rows) {
+        machines.push(r.machine);
+        let hasOverride = false;
+        try {
+          const pj = JSON.parse(r.policy_json || '{}');
+          if (Object.keys(pj).length > 0) hasOverride = true;
+        } catch (_) {}
+        if (hasOverride) {
+          overriddenMachines.push(r.machine);
+        } else {
+          inSyncMachines.push(r.machine);
+        }
+      }
+
       groups.push({
         id: g.id, 
         name: g.name, 
         policy: JSON.parse(g.policy_json || '{}'),
         updated_at: g.updated_at,
-        machines
+        machines,
+        overridden_machines: overriddenMachines,
+        in_sync_machines: inSyncMachines
       });
     }
     res.json(groups);
@@ -74,7 +99,7 @@ async function updateGroupPolicy(req, res) {
     if (existing.rows.length === 0) {
       return res.status(404).json({ error: 'Group not found' });
     }
-    const { policy } = req.body;
+    const { policy, forceSync, preserveLocalDlp } = req.body;
     if (policy !== undefined && (typeof policy !== 'object' || Array.isArray(policy) || policy === null)) {
       return res.status(400).json({ error: 'policy must be an object' });
     }
@@ -84,19 +109,112 @@ async function updateGroupPolicy(req, res) {
       UPDATE pol_groups SET policy_json=$1, updated_at=$2 WHERE id=$3
     `, [JSON.stringify(policy || {}), now, groupId]);
 
-    // Reset applied_at and advance updated_at for all machines in this group that don't have overrides
+    // Handle machines in this group
+    if (forceSync) {
+      // Force sync mode: Reset machine overrides so all machines are unified with the group!
+      if (preserveLocalDlp !== false) {
+        // Keep each machine's local DLP folders if any, but clear other overrides
+        const overriddenRes = await req.queryTenant(`
+          SELECT machine, policy_json FROM policies 
+          WHERE LOWER(machine) IN (SELECT LOWER(machine) FROM machine_groups WHERE group_id = $1)
+            AND policy_json != '{}' AND policy_json IS NOT NULL
+        `, [groupId]);
+
+        for (const row of overriddenRes.rows) {
+          try {
+            const mPol = JSON.parse(row.policy_json || '{}');
+            const localDlp = Array.isArray(mPol.dlpFolders) ? mPol.dlpFolders : [];
+            const preservedPolicy = localDlp.length > 0 ? { dlpFolders: localDlp } : {};
+            await req.queryTenant(`
+              UPDATE policies 
+              SET policy_json = $1, applied_at = NULL, updated_at = $2 
+              WHERE LOWER(machine) = LOWER($3)
+            `, [JSON.stringify(preservedPolicy), now, row.machine]);
+          } catch (_) {}
+        }
+      } else {
+        // Full reset: completely clear policy_json for all machines in the group
+        await req.queryTenant(`
+          UPDATE policies 
+          SET policy_json = '{}', applied_at = NULL, updated_at = $1 
+          WHERE LOWER(machine) IN (SELECT LOWER(machine) FROM machine_groups WHERE group_id = $2)
+        `, [now, groupId]);
+      }
+    }
+
+    // Reset applied_at and advance updated_at for ALL machines in this group so agents poll and pick up changes
     await req.queryTenant(`
       UPDATE policies 
       SET applied_at = NULL, updated_at = $1
       WHERE LOWER(machine) IN (
         SELECT LOWER(machine) FROM machine_groups WHERE group_id = $2
-      ) AND (policy_json = '{}' OR policy_json IS NULL)
+      )
     `, [now, groupId]);
 
-    res.json({ ok: true });
+    res.json({ ok: true, synced: true });
   } catch (error) {
     console.error('[Groups] Failed to update group policy:', error);
     res.status(500).json({ error: 'Failed to update group policy' });
+  }
+}
+
+async function resetMachineOverride(req, res) {
+  try {
+    if (appMode.isAggregator()) return res.status(403).json({ error: 'Policies are managed centrally. This instance is read-only.' });
+    const groupId = req.params.id;
+    const rawMachine = req.params.machine;
+    const preserveLocalDlp = req.body?.preserveLocalDlp !== false;
+    const now = Math.floor(Date.now() / 1000);
+
+    if (rawMachine === 'all') {
+      const rowsRes = await req.queryTenant(`
+        SELECT machine, policy_json FROM policies 
+        WHERE LOWER(machine) IN (SELECT LOWER(machine) FROM machine_groups WHERE group_id = $1)
+      `, [groupId]);
+
+      for (const row of rowsRes.rows) {
+        let newPol = {};
+        if (preserveLocalDlp) {
+          try {
+            const mPol = JSON.parse(row.policy_json || '{}');
+            const localDlp = Array.isArray(mPol.dlpFolders) ? mPol.dlpFolders : [];
+            if (localDlp.length > 0) newPol = { dlpFolders: localDlp };
+          } catch (_) {}
+        }
+        await req.queryTenant(`
+          UPDATE policies 
+          SET policy_json = $1, applied_at = NULL, updated_at = $2 
+          WHERE LOWER(machine) = LOWER($3)
+        `, [JSON.stringify(newPol), now, row.machine]);
+      }
+      return res.json({ ok: true, reset: 'all' });
+    }
+
+    if (!isIdentifier(rawMachine, 1, 128)) {
+      return res.status(400).json({ error: 'Invalid machine identifier' });
+    }
+    const machine = rawMachine.trim();
+
+    let newPol = {};
+    if (preserveLocalDlp) {
+      const rowRes = await req.queryTenant(`SELECT policy_json FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1`, [machine]);
+      try {
+        const mPol = JSON.parse(rowRes.rows[0]?.policy_json || '{}');
+        const localDlp = Array.isArray(mPol.dlpFolders) ? mPol.dlpFolders : [];
+        if (localDlp.length > 0) newPol = { dlpFolders: localDlp };
+      } catch (_) {}
+    }
+
+    await req.queryTenant(`
+      UPDATE policies 
+      SET policy_json = $1, applied_at = NULL, updated_at = $2 
+      WHERE LOWER(machine) = LOWER($3)
+    `, [JSON.stringify(newPol), now, machine]);
+
+    res.json({ ok: true, machine });
+  } catch (error) {
+    console.error('[Groups] Failed to reset machine override:', error);
+    res.status(500).json({ error: 'Failed to reset machine override' });
   }
 }
 
@@ -179,5 +297,6 @@ module.exports = {
   deleteGroup,
   updateGroupPolicy,
   updateGroupMachines,
-  removeMachineFromGroup
+  removeMachineFromGroup,
+  resetMachineOverride
 };
