@@ -21,6 +21,20 @@ export default function MfaChallenge() {
   }
 
   React.useEffect(() => {
+    const root = document.documentElement;
+    const wasLight = root.classList.contains('light');
+    if (wasLight) {
+      root.classList.remove('light');
+    }
+    return () => {
+      const savedTheme = localStorage.getItem('iochunt-theme');
+      if (savedTheme === 'light') {
+        root.classList.add('light');
+      }
+    };
+  }, []);
+
+  React.useEffect(() => {
     if (!retryAfterSeconds || retryAfterSeconds <= 0) return;
     const interval = setInterval(() => {
       setRetryAfterSeconds((prev) => {
@@ -257,28 +271,28 @@ export default function MfaChallenge() {
 
         .mfa-page-wrapper .totp-input-box {
           width: 100%;
-          padding: 14px 16px;
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid rgba(255, 255, 255, 0.14);
-          border-radius: 12px;
+          padding: 14px 16px !important;
+          background: rgba(255, 255, 255, 0.05) !important;
+          border: 1px solid rgba(255, 255, 255, 0.14) !important;
+          border-radius: 12px !important;
           color: #ffffff !important;
-          font-family: 'Space Mono', monospace;
-          font-size: 26px;
-          font-weight: 700;
-          letter-spacing: 12px;
-          text-align: center;
-          outline: none;
-          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-          box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+          font-family: 'Space Mono', monospace !important;
+          font-size: 26px !important;
+          font-weight: 700 !important;
+          letter-spacing: 12px !important;
+          text-align: center !important;
+          outline: none !important;
+          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+          box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3) !important;
         }
         .mfa-page-wrapper .totp-input-box:focus {
-          border-color: rgba(37, 99, 235, 0.9);
-          background: rgba(37, 99, 235, 0.08);
-          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3), inset 0 2px 4px rgba(0, 0, 0, 0.3);
+          border-color: rgba(37, 99, 235, 0.9) !important;
+          background: rgba(37, 99, 235, 0.08) !important;
+          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3), inset 0 2px 4px rgba(0, 0, 0, 0.3) !important;
         }
         .mfa-page-wrapper .totp-input-box::placeholder {
-          color: rgba(255, 255, 255, 0.2);
-          letter-spacing: 8px;
+          color: rgba(255, 255, 255, 0.2) !important;
+          letter-spacing: 8px !important;
         }
 
         .mfa-page-wrapper .err-box {
@@ -426,7 +440,7 @@ export default function MfaChallenge() {
               pattern="[0-9]{6}" 
               required 
               autoFocus
-              className="totp-input-box"
+              className="totp-input-box input-field"
             />
           </div>
           

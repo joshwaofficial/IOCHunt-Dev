@@ -202,25 +202,37 @@ export default function ForcePasswordChangeModal() {
           color: var(--muted);
           pointer-events: none;
         }
-        .login-page-wrapper .field input {
+        .login-page-wrapper .field input,
+        .login-page-wrapper .login-input {
           width: 100%;
-          padding: 11px 14px;
-          padding-left: 44px !important;
-          background: rgba(255, 255, 255, 0.04);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          border-radius: 10px;
-          color: var(--text);
-          font-size: 13px;
-          outline: none;
-          transition: all 0.2s;
+          padding: 12px 14px 12px 44px !important;
+          background: rgba(255, 255, 255, 0.05) !important;
+          border: 1px solid rgba(255, 255, 255, 0.12) !important;
+          border-radius: 10px !important;
+          color: #f1f5f9 !important;
+          font-size: 13px !important;
+          outline: none !important;
+          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+          box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.25) !important;
         }
-        .login-page-wrapper .field input:focus {
-          border-color: rgba(37, 99, 235, 0.8);
-          background: rgba(37, 99, 235, 0.06);
-          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+        .login-page-wrapper .field input:focus,
+        .login-page-wrapper .login-input:focus {
+          border-color: rgba(37, 99, 235, 0.8) !important;
+          background: rgba(37, 99, 235, 0.08) !important;
+          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25), inset 0 2px 4px rgba(0, 0, 0, 0.25) !important;
         }
-        .login-page-wrapper .field input::placeholder {
-          color: rgba(255, 255, 255, 0.25);
+        .login-page-wrapper .field input::placeholder,
+        .login-page-wrapper .login-input::placeholder {
+          color: rgba(255, 255, 255, 0.35) !important;
+        }
+        .login-page-wrapper .field input:-webkit-autofill,
+        .login-page-wrapper .field input:-webkit-autofill:hover, 
+        .login-page-wrapper .field input:-webkit-autofill:focus, 
+        .login-page-wrapper .field input:-webkit-autofill:active {
+          -webkit-box-shadow: 0 0 0 40px #0e162e inset !important;
+          -webkit-text-fill-color: #f1f5f9 !important;
+          caret-color: #f1f5f9 !important;
+          transition: background-color 5000s ease-in-out 0s;
         }
 
         .login-page-wrapper .btn-login {
@@ -299,6 +311,7 @@ export default function ForcePasswordChangeModal() {
             <div className="input-wrap">
               <span className="input-icon material-symbols-outlined">lock_open</span>
               <input
+                className="login-input input-field"
                 type="password"
                 required
                 value={currentPassword}
@@ -314,6 +327,7 @@ export default function ForcePasswordChangeModal() {
             <div className="input-wrap">
               <span className="input-icon material-symbols-outlined">lock</span>
               <input
+                className="login-input input-field"
                 type="password"
                 required
                 value={newPassword}
@@ -329,6 +343,7 @@ export default function ForcePasswordChangeModal() {
             <div className="input-wrap">
               <span className="input-icon material-symbols-outlined">lock</span>
               <input
+                className="login-input input-field"
                 type="password"
                 required
                 value={confirmPassword}
