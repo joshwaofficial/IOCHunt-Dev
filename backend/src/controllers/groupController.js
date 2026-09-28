@@ -17,6 +17,9 @@ async function getGroups(req, res) {
       const machines = [];
       const overriddenMachines = [];
       const inSyncMachines = [];
+      const appliedMachines = [];
+      const pendingMachines = [];
+      const machineSyncDetails = {};
 
       for (const r of machinesRes.rows) {
         machines.push(r.machine);
@@ -41,11 +44,28 @@ async function getGroups(req, res) {
           if (pj.failedLogonThreshold !== undefined && pj.failedLogonThreshold !== (gj.failedLogonThreshold !== undefined ? gj.failedLogonThreshold : 5)) hasOverride = true;
           if (pj.failedLogonWindowMins !== undefined && pj.failedLogonWindowMins !== (gj.failedLogonWindowMins !== undefined ? gj.failedLogonWindowMins : 10)) hasOverride = true;
         } catch (_) {}
+
         if (hasOverride) {
           overriddenMachines.push(r.machine);
         } else {
           inSyncMachines.push(r.machine);
         }
+
+        // Determine client pickup status (has client applied the newest policy?)
+        const effectiveUpdatedAt = Math.max(g.updated_at || 0, r.updated_at || 0);
+        const isApplied = Boolean(r.applied_at && (!effectiveUpdatedAt || r.applied_at >= effectiveUpdatedAt));
+        if (isApplied) {
+          appliedMachines.push(r.machine);
+        } else {
+          pendingMachines.push(r.machine);
+        }
+
+        machineSyncDetails[r.machine] = {
+          hasOverride,
+          isApplied,
+          applied_at: r.applied_at,
+          updated_at: effectiveUpdatedAt
+        };
       }
 
       groups.push({
@@ -55,7 +75,10 @@ async function getGroups(req, res) {
         updated_at: g.updated_at,
         machines,
         overridden_machines: overriddenMachines,
-        in_sync_machines: inSyncMachines
+        in_sync_machines: inSyncMachines,
+        applied_machines: appliedMachines,
+        pending_machines: pendingMachines,
+        machine_sync_details: machineSyncDetails
       });
     }
     res.json(groups);

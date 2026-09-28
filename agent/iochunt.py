@@ -428,9 +428,19 @@ def start_policy_poller():
                                 if config.get(attr) != pol[k]:
                                     config[attr] = pol[k]
                                     changed = True
+                        if "dlpFolders" in pol and isinstance(pol["dlpFolders"], list):
+                            if config.get("dlp_folders") != pol["dlpFolders"]:
+                                config["dlp_folders"] = pol["dlpFolders"]
+                                changed = True
+                        if "usbLock" in pol:
+                            if config.get("usb_lock") != pol["usbLock"]:
+                                config["usb_lock"] = pol["usbLock"]
+                                changed = True
                         
                         current_policy_payload = {
                             "catModes": cat_modes,
+                            "dlpFolders": config.get("dlp_folders", []),
+                            "usbLock": config.get("usb_lock", "unlocked"),
                             "officeHoursStart": config.get("office_hours_start", 9),
                             "officeHoursEnd": config.get("office_hours_end", 18),
                             "officeHoursDays": config.get("office_hours_days", 62),
@@ -461,6 +471,8 @@ def start_policy_poller():
                     # If we couldn't fetch policy, we still want to report what we have
                     current_policy_payload = {
                         "catModes": cat_modes,
+                        "dlpFolders": config.get("dlp_folders", []),
+                        "usbLock": config.get("usb_lock", "unlocked"),
                         "officeHoursStart": config.get("office_hours_start", 9),
                         "officeHoursEnd": config.get("office_hours_end", 18),
                         "officeHoursDays": config.get("office_hours_days", 62),

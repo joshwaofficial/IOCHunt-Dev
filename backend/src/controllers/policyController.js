@@ -211,17 +211,37 @@ async function updateMachineCurrentPolicy(req, res) {
       return res.status(400).json({ error: 'policy object required' });
     }
 
-    const rowRes = await req.queryTenant('SELECT machine FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1', [machine]);
+    const rowRes = await req.queryTenant('SELECT machine, policy_json FROM policies WHERE LOWER(machine) = LOWER($1) LIMIT 1', [machine]);
     const targetMachine = rowRes.rows[0]?.machine || machine;
+    const mPolicy = rowRes.rows[0]?.policy_json ? JSON.parse(rowRes.rows[0].policy_json) : {};
 
-    console.log(`[Policy] Current state reported for '${machine}' -> catModes: [${(policy.catModes || []).join(',')}], dlp: ${(policy.dlpFolders || []).length}, usbLock: ${policy.usbLock || 'unlocked'}`);
+    const grpRes = await req.queryTenant(`
+      SELECT pg.policy_json FROM machine_groups mg
+      JOIN pol_groups pg ON pg.id = mg.group_id
+      WHERE LOWER(mg.machine) = LOWER($1) LIMIT 1
+    `, [machine]);
+    const gPolicy = grpRes.rows[0]?.policy_json ? JSON.parse(grpRes.rows[0].policy_json) : {};
+
+    const { effectivePolicy } = computeEffectivePolicy(mPolicy, gPolicy);
+    const mergedCurrent = {
+      ...effectivePolicy,
+      ...(policy && typeof policy === 'object' ? policy : {})
+    };
+    if (!Array.isArray(policy?.dlpFolders) || policy.dlpFolders.length === 0) {
+      mergedCurrent.dlpFolders = effectivePolicy.dlpFolders;
+    }
+    if (!policy?.usbLock) {
+      mergedCurrent.usbLock = effectivePolicy.usbLock;
+    }
+
+    console.log(`[Policy] Current state reported for '${machine}' -> catModes: [${(mergedCurrent.catModes || []).join(',')}], dlp: ${(mergedCurrent.dlpFolders || []).length}, usbLock: ${mergedCurrent.usbLock || 'unlocked'}`);
 
     await req.queryTenant(`
       INSERT INTO policies (machine, policy_json, current_json, updated_at)
       VALUES ($1, '{}', $2, (EXTRACT(EPOCH FROM NOW())::INTEGER))
       ON CONFLICT(machine) DO UPDATE SET 
         current_json = excluded.current_json
-    `, [targetMachine, JSON.stringify(policy)]);
+    `, [targetMachine, JSON.stringify(mergedCurrent)]);
 
     res.json({ ok: true });
   } catch (error) {
@@ -342,9 +362,16 @@ async function ackMachinePolicy(req, res) {
 
     const { effectivePolicy } = computeEffectivePolicy(mPolicy, gPolicy);
 
-    const payloadPolicy = (policy && typeof policy === 'object' && !Array.isArray(policy) && Object.keys(policy).length > 0)
-      ? JSON.stringify(policy)
-      : JSON.stringify(effectivePolicy);
+    const mergedCurrent = {
+      ...effectivePolicy,
+      ...(policy && typeof policy === 'object' && !Array.isArray(policy) ? policy : {})
+    };
+    if (!Array.isArray(policy?.dlpFolders) || policy.dlpFolders.length === 0) {
+      mergedCurrent.dlpFolders = effectivePolicy.dlpFolders;
+    }
+    if (!policy?.usbLock) {
+      mergedCurrent.usbLock = effectivePolicy.usbLock;
+    }
 
     await req.queryTenant(`
       INSERT INTO policies (machine, policy_json, current_json, updated_at, applied_at)
@@ -352,7 +379,7 @@ async function ackMachinePolicy(req, res) {
       ON CONFLICT(machine) DO UPDATE SET
         applied_at = (EXTRACT(EPOCH FROM NOW())::INTEGER),
         current_json = EXCLUDED.current_json
-    `, [actualMachine, payloadPolicy]);
+    `, [actualMachine, JSON.stringify(mergedCurrent)]);
 
     console.log(`[Policy] ACK received for '${machine}' (Actual: '${actualMachine}') -> Applied now. Status: in sync`);
 

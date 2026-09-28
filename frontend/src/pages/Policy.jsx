@@ -472,16 +472,19 @@ export default function Policy() {
     const clientDlpFolders = (!editingGroupId && selectedMachine && machinePolicyData?.current && Array.isArray(machinePolicyData.current.dlpFolders))
       ? machinePolicyData.current.dlpFolders
       : null;
-    const isDlpInSync = clientDlpFolders !== null &&
+    const isClientApplied = Boolean(!editingGroupId && selectedMachine && machinePolicyData?.applied_at && (!machinePolicyData?.updated_at || machinePolicyData.applied_at >= machinePolicyData.updated_at));
+    const isDlpInSync = isClientApplied || (
+      clientDlpFolders !== null &&
       dlpFoldersList.length === clientDlpFolders.length &&
-      dlpFoldersList.every(f => clientDlpFolders.includes(f));
+      dlpFoldersList.every(f => clientDlpFolders.includes(f))
+    );
 
     const currentUsbLock = policyObj.usbLock === 'locked' ? 'locked' : 'unlocked';
     const isUsbLocked = currentUsbLock === 'locked';
     const clientUsbLock = (!editingGroupId && selectedMachine && machinePolicyData?.current && machinePolicyData.current.usbLock)
       ? machinePolicyData.current.usbLock
       : null;
-    const isUsbInSync = clientUsbLock !== null && (clientUsbLock === currentUsbLock);
+    const isUsbInSync = isClientApplied || (clientUsbLock !== null && (clientUsbLock === currentUsbLock));
 
     return (
       <div>
@@ -862,11 +865,11 @@ export default function Policy() {
                       {clientDlpFolders !== null && (
                         isDlpInSync ? (
                           <span style={{ fontSize: '11px', color: '#22c55e', marginLeft: 'auto', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check_circle</span> in sync ({clientDlpFolders.length} active)
+                            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>check_circle</span> in sync ({dlpFoldersList.length} active)
                           </span>
                         ) : (
-                          <span style={{ fontSize: '11px', color: '#f97316', marginLeft: 'auto', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>pending</span> Client has {clientDlpFolders.length} folder(s)
+                          <span style={{ fontSize: '11px', color: '#f59e0b', marginLeft: 'auto', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }} title="Agent has not yet picked up the latest DLP folders (agent polls every 60s)">
+                            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>hourglass_top</span> Sync in Progress: {clientDlpFolders.length} of {dlpFoldersList.length} active
                           </span>
                         )
                       )}
@@ -1586,6 +1589,16 @@ export default function Policy() {
                           {overriddenList.length} overridden
                         </span>
                       )}
+                      {(g.applied_machines || []).length > 0 && (
+                        <span style={{ fontSize: '10px', background: 'rgba(34,197,94,0.1)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.25)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>check_circle</span> {(g.applied_machines || []).length} applied
+                        </span>
+                      )}
+                      {(g.pending_machines || []).length > 0 && (
+                        <span style={{ fontSize: '10px', background: 'rgba(245,158,11,0.1)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>hourglass_top</span> {(g.pending_machines || []).length} syncing
+                        </span>
+                      )}
                     </>
                   )}
                   <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -1620,6 +1633,8 @@ export default function Policy() {
                     const machineObj = machines.find(x => x.name === m || String(x.id) === String(m) || x === m);
                     const mName = machineObj ? (machineObj.name || machineObj.hostname || machineObj.label || m) : m;
                     const isOverridden = overriddenList.includes(m);
+                    const syncDetail = g.machine_sync_details ? g.machine_sync_details[m] : null;
+                    const isClientApplied = syncDetail ? syncDetail.isApplied : false;
                     return (
                       <span
                         key={m}
@@ -1642,6 +1657,21 @@ export default function Policy() {
                         <span style={{ fontSize: '9px', opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.3px', background: isOverridden ? 'rgba(245,158,11,0.2)' : 'rgba(34,197,94,0.15)', color: isOverridden ? '#f59e0b' : '#22c55e', padding: '1px 5px', borderRadius: '3px' }}>
                           {isOverridden ? 'Override' : 'In Sync'}
                         </span>
+                        {isClientApplied ? (
+                          <span
+                            title={syncDetail?.applied_at ? `Applied by endpoint on ${new Date(syncDetail.applied_at * 1000).toLocaleString()}` : 'Policy applied by client'}
+                            style={{ fontSize: '9px', fontWeight: 700, background: 'rgba(34,197,94,0.15)', color: '#22c55e', padding: '1px 5px', borderRadius: '3px', display: 'inline-flex', alignItems: 'center', gap: '2px' }}
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '10px' }}>check_circle</span> Applied
+                          </span>
+                        ) : (
+                          <span
+                            title="Pending client pickup (endpoint polls every 60s)"
+                            style={{ fontSize: '9px', fontWeight: 700, background: 'rgba(245,158,11,0.15)', color: '#f59e0b', padding: '1px 5px', borderRadius: '3px', display: 'inline-flex', alignItems: 'center', gap: '2px' }}
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: '10px' }}>hourglass_top</span> Syncing
+                          </span>
+                        )}
                         {!readOnly && isOverridden && (
                           <button
                             onClick={() => handleResetMachineOverride(g.id, m)}
