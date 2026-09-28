@@ -108,6 +108,7 @@ async function updateMachineCurrentPolicy(req, res) {
     }
 
     const policy = req.body?.policy;
+    console.log('🔥 [AGENT-PAYLOAD-RECEIVED] /current:', JSON.stringify(req.body, null, 2));
     if (!policy || typeof policy !== 'object' || Array.isArray(policy)) {
       return res.status(400).json({ error: 'policy object required' });
     }
@@ -189,6 +190,7 @@ async function ackMachinePolicy(req, res) {
     }
 
     const policy = req.body?.policy;
+    console.log('🔥 [AGENT-PAYLOAD-RECEIVED] /ack:', JSON.stringify(req.body, null, 2));
     
     // Get effective policy to synchronize current_json immediately on ACK
     const rowRes = await req.queryTenant('SELECT machine, policy_json FROM policies WHERE LOWER(machine) = LOWER($1) ORDER BY updated_at DESC LIMIT 1', [machine]);
