@@ -10,7 +10,6 @@ const DEFAULT_POLICY = {
   officeHoursDays: 62,
   failedLogonThreshold: 5,
   failedLogonWindowMins: 10,
-  learningMode: true,
   dlpFolders: [],
   usbLock: 'unlocked'
 };
@@ -27,7 +26,7 @@ function normalizePolicy(rawPolicy) {
       }
     }
   }
-  return {
+  const normalized = {
     ...DEFAULT_POLICY,
     ...rawPolicy,
     catModes: mergedCatModes,
@@ -36,12 +35,13 @@ function normalizePolicy(rawPolicy) {
     officeHoursDays: rawPolicy.officeHoursDays !== undefined ? parseInt(rawPolicy.officeHoursDays, 10) : DEFAULT_POLICY.officeHoursDays,
     failedLogonThreshold: rawPolicy.failedLogonThreshold !== undefined ? parseInt(rawPolicy.failedLogonThreshold, 10) : DEFAULT_POLICY.failedLogonThreshold,
     failedLogonWindowMins: rawPolicy.failedLogonWindowMins !== undefined ? parseInt(rawPolicy.failedLogonWindowMins, 10) : DEFAULT_POLICY.failedLogonWindowMins,
-    learningMode: rawPolicy.learningMode !== undefined ? Boolean(rawPolicy.learningMode) : DEFAULT_POLICY.learningMode,
     dlpFolders: Array.isArray(rawPolicy.dlpFolders)
       ? rawPolicy.dlpFolders.filter(f => typeof f === 'string' && f.trim().length > 0).map(f => f.trim())
       : [],
     usbLock: rawPolicy.usbLock === 'locked' ? 'locked' : 'unlocked'
   };
+  delete normalized.learningMode;
+  return normalized;
 }
 
 function computeEffectivePolicy(machinePolicyRaw, groupPolicyRaw) {
@@ -71,7 +71,6 @@ function computeEffectivePolicy(machinePolicyRaw, groupPolicyRaw) {
   if (machinePolicy.officeHoursDays !== undefined) overriddenFields.push('officeHoursDays');
   if (machinePolicy.failedLogonThreshold !== undefined) overriddenFields.push('failedLogonThreshold');
   if (machinePolicy.failedLogonWindowMins !== undefined) overriddenFields.push('failedLogonWindowMins');
-  if (machinePolicy.learningMode !== undefined) overriddenFields.push('learningMode');
   if (machinePolicy.usbLock !== undefined) overriddenFields.push('usbLock');
   if (machineDlp.length > 0) overriddenFields.push('dlpFolders');
 
@@ -93,10 +92,10 @@ function computeEffectivePolicy(machinePolicyRaw, groupPolicyRaw) {
     officeHoursDays: machinePolicy.officeHoursDays !== undefined ? parseInt(machinePolicy.officeHoursDays, 10) : groupNormalized.officeHoursDays,
     failedLogonThreshold: machinePolicy.failedLogonThreshold !== undefined ? parseInt(machinePolicy.failedLogonThreshold, 10) : groupNormalized.failedLogonThreshold,
     failedLogonWindowMins: machinePolicy.failedLogonWindowMins !== undefined ? parseInt(machinePolicy.failedLogonWindowMins, 10) : groupNormalized.failedLogonWindowMins,
-    learningMode: machinePolicy.learningMode !== undefined ? Boolean(machinePolicy.learningMode) : groupNormalized.learningMode,
     dlpFolders: effectiveDlp,
     usbLock: machinePolicy.usbLock !== undefined ? (machinePolicy.usbLock === 'locked' ? 'locked' : 'unlocked') : groupNormalized.usbLock
   };
+  delete effective.learningMode;
 
   return {
     effectivePolicy: effective,

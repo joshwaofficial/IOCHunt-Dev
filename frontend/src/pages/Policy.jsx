@@ -178,17 +178,20 @@ export default function Policy() {
     });
   };
 
-  const buildPolicyObj = (policyObj) => ({
-    catModes: policyObj.catModes || DEFAULT_MODES,
-    officeHoursStart: policyObj.officeHoursStart !== undefined ? policyObj.officeHoursStart : 9,
-    officeHoursEnd: policyObj.officeHoursEnd !== undefined ? policyObj.officeHoursEnd : 18,
-    officeHoursDays: policyObj.officeHoursDays !== undefined ? policyObj.officeHoursDays : 62,
-    failedLogonThreshold: policyObj.failedLogonThreshold !== undefined ? policyObj.failedLogonThreshold : 5,
-    failedLogonWindowMins: policyObj.failedLogonWindowMins !== undefined ? policyObj.failedLogonWindowMins : 10,
-    learningMode: policyObj.learningMode !== undefined ? policyObj.learningMode : true,
-    dlpFolders: Array.isArray(policyObj.dlpFolders) ? policyObj.dlpFolders : [],
-    usbLock: policyObj.usbLock === 'locked' ? 'locked' : 'unlocked'
-  });
+  const buildPolicyObj = (policyObj) => {
+    const res = {
+      catModes: policyObj.catModes || DEFAULT_MODES,
+      officeHoursStart: policyObj.officeHoursStart !== undefined ? policyObj.officeHoursStart : 9,
+      officeHoursEnd: policyObj.officeHoursEnd !== undefined ? policyObj.officeHoursEnd : 18,
+      officeHoursDays: policyObj.officeHoursDays !== undefined ? policyObj.officeHoursDays : 62,
+      failedLogonThreshold: policyObj.failedLogonThreshold !== undefined ? policyObj.failedLogonThreshold : 5,
+      failedLogonWindowMins: policyObj.failedLogonWindowMins !== undefined ? policyObj.failedLogonWindowMins : 10,
+      dlpFolders: Array.isArray(policyObj.dlpFolders) ? policyObj.dlpFolders : [],
+      usbLock: policyObj.usbLock === 'locked' ? 'locked' : 'unlocked'
+    };
+    delete res.learningMode;
+    return res;
+  };
 
   const handleAddDlpFolder = () => {
     if (readOnly) return;
@@ -448,7 +451,6 @@ export default function Policy() {
     const ohDays = policyObj.officeHoursDays !== undefined ? policyObj.officeHoursDays : 62; // Mon-Fri
     const flThreshold = policyObj.failedLogonThreshold !== undefined ? policyObj.failedLogonThreshold : 5;
     const flWindow = policyObj.failedLogonWindowMins !== undefined ? policyObj.failedLogonWindowMins : 10;
-    const learning = policyObj.learningMode !== undefined ? policyObj.learningMode : true;
     const currentModes = (!editingGroupId && selectedMachine && machinePolicyData && machinePolicyData.current && machinePolicyData.current.catModes) ? machinePolicyData.current.catModes : null;
 
     const dlpFoldersList = Array.isArray(policyObj.dlpFolders) ? policyObj.dlpFolders : [];
@@ -780,7 +782,7 @@ export default function Policy() {
                   <th style={{ padding: '16px 20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <span className="material-symbols-outlined" style={{ fontSize: '20px', color: editingGroupId ? '#a78bfa' : '#3b82f6' }}>security</span>
-                      <div style={{ fontSize: '13px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text)' }}>Thresholds & Mode</div>
+                      <div style={{ fontSize: '13px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text)' }}>Security Thresholds</div>
                     </div>
                   </th>
                 </tr>
@@ -820,14 +822,6 @@ export default function Policy() {
                             />
                           </div>
                         </div>
-                      </div>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px', fontFamily: 'var(--mono)' }}>Learning Mode</label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', height: '42px' }}>
-                          <input type="checkbox" disabled={readOnly} checked={learning} onChange={(e) => updatePolicyField('learningMode', e.target.checked)} />
-                          <span style={{ fontSize: '13px', color: 'var(--text)' }}>Enable (Alerts only, no auto-block)</span>
-                        </label>
                       </div>
 
                     </div>
