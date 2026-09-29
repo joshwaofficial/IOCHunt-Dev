@@ -75,10 +75,9 @@ const generateReport = async (req, res) => {
 
     const topTags = (await req.queryTenant(`SELECT tag, COUNT(*) AS n FROM events ${evWhere} GROUP BY tag ORDER BY n DESC LIMIT 25`, evParams)).rows;
 
-    // Retrieve events matching the filters without hardcoded severity restrictions or 300-event cap
-    const maxLimit = Math.min(50000, Math.max(100, parseInt(req.query.limit, 10) || 10000));
+    // Retrieve ALL events matching the filters without any limitation
     const reportEvents = (await req.queryTenant(
-      `SELECT machine, ts, tag, category, severity, message FROM events ${evWhere} ORDER BY ts DESC LIMIT ${maxLimit}`,
+      `SELECT machine, ts, tag, category, severity, message FROM events ${evWhere} ORDER BY ts DESC`,
       evParams
     )).rows;
 
@@ -87,14 +86,14 @@ const generateReport = async (req, res) => {
       OR tag LIKE '%DCSYNC%' OR tag LIKE '%KERBEROAST%' OR tag LIKE '%SPRAY%'
       OR tag LIKE '%SHADOW-CRED%' OR tag LIKE '%ESC%' OR tag LIKE '%CERTIPY%'
       OR tag LIKE '%PASS-THE-HASH%' OR tag LIKE '%SKELETON-KEY%')`;
-    const adEvents = (await req.queryTenant(`SELECT machine, ts, tag, severity, message FROM events ${adWhere} ORDER BY ts DESC LIMIT 1000`, evParams)).rows;
+    const adEvents = (await req.queryTenant(`SELECT machine, ts, tag, severity, message FROM events ${adWhere} ORDER BY ts DESC`, evParams)).rows;
 
     // ── User account events ───────────────────────────────────────────────────
     const userWhere = evWhere + ` AND (tag LIKE '%USER-CREATED%' OR tag LIKE '%USER-DELETED%'
       OR tag LIKE '%USER-ENABLED%' OR tag LIKE '%USER-DISABLED%'
       OR tag LIKE '%GROUP-MEMBER%' OR tag LIKE '%LOG-CLEARED%'
       OR tag LIKE '%PASSWORD-RESET%' OR tag LIKE '%AUDIT-POLICY%')`;
-    const userEvents = (await req.queryTenant(`SELECT machine, ts, tag, severity, message FROM events ${userWhere} ORDER BY ts DESC LIMIT 1000`, evParams)).rows;
+    const userEvents = (await req.queryTenant(`SELECT machine, ts, tag, severity, message FROM events ${userWhere} ORDER BY ts DESC`, evParams)).rows;
 
     // ── Machine summary ───────────────────────────────────────────────────────
     const machines = (await req.queryTenant('SELECT * FROM machines ORDER BY last_seen DESC')).rows;

@@ -3,6 +3,19 @@ import axios from 'axios';
 
 const catColors = { DOMAIN: '#a855f7', ADCS: '#8b5cf6', NETWORK: '#3b82f6', SENSITIVE: '#ef4444', ENUM: '#f97316', PROCESSES: '#ec4899', CONFIG: '#eab308', REGISTRY: '#22c55e', LOGON: '#06b6d4', SERVICES: '#fb923c', TASKS: '#a3e635', USB: '#f43f5e', DEFENDER: '#ef4444', OTHER: '#6b7280' };
 
+function getPageNumbers(current, total) {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+  if (current <= 4) {
+    return [1, 2, 3, 4, 5, '...', total];
+  }
+  if (current >= total - 3) {
+    return [1, '...', total - 4, total - 3, total - 2, total - 1, total];
+  }
+  return [1, '...', current - 1, current, current + 1, '...', total];
+}
+
 export default function Reports() {
   const [filters, setFilters] = useState({
     duration: '24',
@@ -444,110 +457,127 @@ export default function Reports() {
               })
             : rawList;
 
-          const effectivePageSize = eventPageSize === 'all' ? filteredEvents.length : Number(eventPageSize);
+          // Safe bounded per page: strictly between 50 and 1000 max
+          const effectivePageSize = Math.min(1000, Math.max(50, Number(eventPageSize) || 100));
           const totalPages = Math.max(1, Math.ceil(filteredEvents.length / effectivePageSize));
           const currentPage = Math.min(eventPage, totalPages);
           const startIndex = (currentPage - 1) * effectivePageSize;
-          const paginatedEvents = eventPageSize === 'all'
-            ? filteredEvents
-            : filteredEvents.slice(startIndex, startIndex + effectivePageSize);
+          const paginatedEvents = filteredEvents.slice(startIndex, startIndex + effectivePageSize);
 
           return (
-            <div style={{ marginBottom: '32px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', paddingLeft: '4px', flexWrap: 'wrap', gap: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: '18px', color: titleColor }}>{titleIcon}</span>
-                  <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', margin: 0, color: 'var(--text)' }}>
-                    {title}
+            <div style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: '12px',
+              overflow: 'hidden',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.03)',
+              marginBottom: '32px'
+            }}>
+              {/* Premium Header */}
+              <div style={{
+                padding: '16px 20px',
+                borderBottom: '1px solid var(--border)',
+                background: 'linear-gradient(90deg, rgba(37,99,235,0.04) 0%, rgba(0,0,0,0) 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '16px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{
+                    width: '38px',
+                    height: '38px',
+                    borderRadius: '8px',
+                    background: `${titleColor}18`,
+                    border: `1px solid ${titleColor}30`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
+                  }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '20px', color: titleColor }}>{titleIcon}</span>
                   </div>
-                  <span style={{ fontSize: '11px', fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--accent)', background: 'rgba(37,99,235,0.1)', padding: '2px 8px', borderRadius: '4px' }}>
-                    {rawList.length.toLocaleString()} events
-                  </span>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <h3 style={{ fontSize: '14px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.8px', margin: 0, color: 'var(--text)' }}>
+                        {title}
+                      </h3>
+                      <span style={{ fontSize: '11px', fontWeight: 800, fontFamily: 'var(--mono)', color: 'var(--accent)', background: 'rgba(37,99,235,0.1)', border: '1px solid rgba(37,99,235,0.25)', padding: '2px 10px', borderRadius: '12px' }}>
+                        {rawList.length.toLocaleString()} events
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
+                      Showing security activity for the selected filters
+                    </div>
+                  </div>
                 </div>
 
-                {/* Filter and Page controls */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                  {/* Quick in-table search */}
-                  <div style={{ display: 'flex', alignItems: 'center', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px', padding: '0 8px', height: '28px' }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: '14px', color: 'var(--muted)', marginRight: '4px' }}>search</span>
+                  {/* Modern Search Input */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    background: 'var(--surface2)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '8px',
+                    padding: '0 12px',
+                    height: '38px',
+                    width: '320px',
+                    boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.03)',
+                    transition: 'border-color 0.2s'
+                  }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)', marginRight: '8px' }}>search</span>
                     <input
                       type="text"
-                      placeholder="Search in events..."
+                      placeholder="Filter by machine, tag, message..."
                       value={eventSearch}
                       onChange={(e) => { setEventSearch(e.target.value); setEventPage(1); }}
-                      style={{ background: 'transparent', border: 'none', color: 'var(--text)', fontSize: '11px', outline: 'none', width: '130px', fontFamily: 'var(--sans)' }}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--text)',
+                        fontSize: '12px',
+                        outline: 'none',
+                        width: '100%',
+                        fontFamily: 'var(--sans)'
+                      }}
                     />
                     {eventSearch && (
-                      <span onClick={() => { setEventSearch(''); setEventPage(1); }} style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--muted)', marginLeft: '4px' }}>×</span>
+                      <button
+                        onClick={() => { setEventSearch(''); setEventPage(1); }}
+                        title="Clear search"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: 'var(--muted)', padding: '0 2px', display: 'flex', alignItems: 'center' }}
+                      >
+                        ×
+                      </button>
                     )}
                   </div>
-
-                  {/* Rows per page selector */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--muted)' }}>
-                    <span>Rows:</span>
-                    <select
-                      value={eventPageSize}
-                      onChange={(e) => {
-                        const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
-                        setEventPageSize(val);
-                        setEventPage(1);
-                      }}
-                      style={{ height: '28px', padding: '0 6px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '4px', fontSize: '11px', outline: 'none' }}
-                    >
-                      <option value={50}>50</option>
-                      <option value={100}>100</option>
-                      <option value={250}>250</option>
-                      <option value={500}>500</option>
-                      <option value="all">All ({rawList.length})</option>
-                    </select>
-                  </div>
-
-                  {/* Pagination buttons */}
-                  {eventPageSize !== 'all' && totalPages > 1 && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <button
-                        onClick={() => setEventPage(p => Math.max(1, p - 1))}
-                        disabled={currentPage <= 1}
-                        style={{ height: '28px', padding: '0 8px', background: 'var(--surface2)', border: '1px solid var(--border)', color: currentPage <= 1 ? 'var(--muted)' : 'var(--text)', borderRadius: '4px', cursor: currentPage <= 1 ? 'not-allowed' : 'pointer', fontSize: '11px', fontWeight: 600 }}
-                      >
-                        Prev
-                      </button>
-                      <span style={{ fontSize: '11px', fontFamily: 'var(--mono)', color: 'var(--muted)' }}>
-                        {currentPage} / {totalPages}
-                      </span>
-                      <button
-                        onClick={() => setEventPage(p => Math.min(totalPages, p + 1))}
-                        disabled={currentPage >= totalPages}
-                        style={{ height: '28px', padding: '0 8px', background: 'var(--surface2)', border: '1px solid var(--border)', color: currentPage >= totalPages ? 'var(--muted)' : 'var(--text)', borderRadius: '4px', cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer', fontSize: '11px', fontWeight: 600 }}
-                      >
-                        Next
-                      </button>
-                    </div>
-                  )}
                 </div>
               </div>
 
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
+              {/* Table */}
+              <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--mono)' }}>
                   <thead>
-                    <tr style={{ borderBottom: '1px solid var(--border)', background: 'linear-gradient(90deg, rgba(37,99,235,0.06) 0%, rgba(37,99,235,0) 100%)' }}>
-                      <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', width: '130px' }}>Time</th>
-                      <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', width: '140px' }}>Machine</th>
-                      <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', width: '90px' }}>Severity</th>
-                      <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', width: '110px' }}>Category</th>
-                      <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', width: '160px' }}>Tag</th>
-                      <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Message</th>
+                    <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+                      <th style={{ padding: '12px 16px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left', width: '140px' }}>Time</th>
+                      <th style={{ padding: '12px 16px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left', width: '150px' }}>Machine</th>
+                      <th style={{ padding: '12px 16px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left', width: '100px' }}>Severity</th>
+                      <th style={{ padding: '12px 16px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left', width: '120px' }}>Category</th>
+                      <th style={{ padding: '12px 16px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left', width: '160px' }}>Tag</th>
+                      <th style={{ padding: '12px 16px', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>Message</th>
                     </tr>
                   </thead>
                   <tbody>
                     {paginatedEvents.map((e, i) => {
                       const sevClass = (e.severity || 'low').toLowerCase();
                       return (
-                        <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <tr key={i} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.15s ease' }}>
                           <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', color: 'var(--muted2)', fontSize: '11px' }}>
                             {e.ts ? new Date(e.ts).toLocaleString('sv-SE').slice(0, 16).replace('T', ' ') : ''}
                           </td>
-                          <td style={{ padding: '12px 16px', color: 'var(--accent)', fontWeight: 700, fontSize: '11px' }}>
+                          <td style={{ padding: '12px 16px', color: 'var(--accent)', fontWeight: 700, fontSize: '12px' }}>
                             {e.machine}
                           </td>
                           <td style={{ padding: '12px 16px', fontSize: '11px' }}>
@@ -555,62 +585,213 @@ export default function Reports() {
                               {e.severity}
                             </span>
                           </td>
-                          <td style={{ padding: '12px 16px', color: 'var(--muted2)', fontSize: '11px' }}>
+                          <td style={{ padding: '12px 16px', color: 'var(--muted2)', fontSize: '11px', fontWeight: 600 }}>
                             {e.category}
                           </td>
                           <td style={{ padding: '12px 16px', fontSize: '10px', fontFamily: 'var(--mono)', color: '#a855f7' }}>
                             {e.tag}
                           </td>
-                          <td style={{ padding: '12px 16px', fontSize: '11px', whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.5' }}>
+                          <td style={{ padding: '12px 16px', fontSize: '12px', color: 'var(--text)', whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.5' }}>
                             {e.message}
                           </td>
                         </tr>
                       );
                     })}
+                    {paginatedEvents.length === 0 && (
+                      <tr>
+                        <td colSpan={6} style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--muted)', fontSize: '13px' }}>
+                          No events match your search query &quot;{eventSearch}&quot;.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
 
-              {eventPageSize !== 'all' && filteredEvents.length > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', padding: '0 4px', fontSize: '11px', color: 'var(--muted)' }}>
-                  <div>
-                    Showing <strong>{(startIndex + 1).toLocaleString()}</strong> - <strong>{Math.min(startIndex + effectivePageSize, filteredEvents.length).toLocaleString()}</strong> of <strong>{filteredEvents.length.toLocaleString()}</strong> events
+              {/* Dedicated Pagination Footer */}
+              <div style={{
+                padding: '16px 20px',
+                borderTop: '1px solid var(--border)',
+                background: 'rgba(255,255,255,0.01)',
+                display: 'flex',
+                flexWrap: 'wrap',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '16px'
+              }}>
+                {/* Left: Summary text */}
+                <div style={{ fontSize: '12px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                  Showing <strong style={{ color: 'var(--text)' }}>{(filteredEvents.length > 0 ? startIndex + 1 : 0).toLocaleString()}</strong> to <strong style={{ color: 'var(--text)' }}>{Math.min(startIndex + effectivePageSize, filteredEvents.length).toLocaleString()}</strong> of <strong style={{ color: 'var(--text)' }}>{filteredEvents.length.toLocaleString()}</strong> events
+                  {filteredEvents.length !== rawList.length && (
+                    <span style={{ marginLeft: '6px', color: 'var(--muted)' }}>(filtered from {rawList.length.toLocaleString()} total)</span>
+                  )}
+                </div>
+
+                {/* Right: Controls */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
+                  {/* Page Size Segmented Buttons - Max 1,000 */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 700, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Per Page:</span>
+                    <div style={{ display: 'flex', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px', padding: '2px' }}>
+                      {[50, 100, 250, 500, 1000].map(sz => {
+                        const isSelected = effectivePageSize === sz;
+                        return (
+                          <button
+                            key={sz}
+                            onClick={() => { setEventPageSize(sz); setEventPage(1); }}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              fontFamily: 'var(--mono)',
+                              border: 'none',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease',
+                              background: isSelected ? 'var(--accent)' : 'transparent',
+                              color: isSelected ? '#fff' : 'var(--muted)',
+                              boxShadow: isSelected ? '0 2px 6px rgba(37,99,235,0.25)' : 'none'
+                            }}
+                          >
+                            {sz === 1000 ? '1,000' : sz}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
+
+                  {/* Navigation Page Buttons */}
                   {totalPages > 1 && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <button
                         onClick={() => setEventPage(1)}
                         disabled={currentPage <= 1}
-                        style={{ background: 'none', border: 'none', color: currentPage <= 1 ? 'var(--muted)' : 'var(--accent)', cursor: currentPage <= 1 ? 'default' : 'pointer', fontSize: '11px', fontWeight: 600 }}
+                        title="First Page"
+                        style={{
+                          height: '32px',
+                          padding: '0 10px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          background: 'var(--surface2)',
+                          border: '1px solid var(--border)',
+                          color: currentPage <= 1 ? 'var(--muted)' : 'var(--text)',
+                          cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
+                          opacity: currentPage <= 1 ? 0.4 : 1,
+                          transition: 'all 0.15s'
+                        }}
                       >
                         First
                       </button>
+
                       <button
                         onClick={() => setEventPage(p => Math.max(1, p - 1))}
                         disabled={currentPage <= 1}
-                        style={{ background: 'none', border: 'none', color: currentPage <= 1 ? 'var(--muted)' : 'var(--accent)', cursor: currentPage <= 1 ? 'default' : 'pointer', fontSize: '11px', fontWeight: 600 }}
+                        style={{
+                          height: '32px',
+                          padding: '0 12px',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          background: 'var(--surface2)',
+                          border: '1px solid var(--border)',
+                          color: currentPage <= 1 ? 'var(--muted)' : 'var(--text)',
+                          cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
+                          opacity: currentPage <= 1 ? 0.4 : 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          transition: 'all 0.15s'
+                        }}
                       >
-                        Previous
+                        <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>chevron_left</span> Prev
                       </button>
-                      <span>Page {currentPage} of {totalPages}</span>
+
+                      {/* Page numbers chips */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        {getPageNumbers(currentPage, totalPages).map((pNum, pIdx) => {
+                          if (pNum === '...') {
+                            return (
+                              <span key={`dots-${pIdx}`} style={{ padding: '0 4px', color: 'var(--muted)', fontSize: '12px', fontFamily: 'var(--mono)' }}>
+                                ...
+                              </span>
+                            );
+                          }
+                          const isCur = pNum === currentPage;
+                          return (
+                            <button
+                              key={pNum}
+                              onClick={() => setEventPage(pNum)}
+                              style={{
+                                minWidth: '32px',
+                                height: '32px',
+                                padding: '0 6px',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                fontFamily: 'var(--mono)',
+                                border: isCur ? '1px solid var(--accent)' : '1px solid var(--border)',
+                                background: isCur ? 'var(--accent)' : 'var(--surface2)',
+                                color: isCur ? '#fff' : 'var(--text)',
+                                cursor: 'pointer',
+                                boxShadow: isCur ? '0 2px 8px rgba(37,99,235,0.3)' : 'none',
+                                transition: 'all 0.15s'
+                              }}
+                            >
+                              {pNum}
+                            </button>
+                          );
+                        })}
+                      </div>
+
                       <button
                         onClick={() => setEventPage(p => Math.min(totalPages, p + 1))}
                         disabled={currentPage >= totalPages}
-                        style={{ background: 'none', border: 'none', color: currentPage >= totalPages ? 'var(--muted)' : 'var(--accent)', cursor: currentPage >= totalPages ? 'default' : 'pointer', fontSize: '11px', fontWeight: 600 }}
+                        style={{
+                          height: '32px',
+                          padding: '0 12px',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          fontWeight: 700,
+                          background: 'var(--accent)',
+                          border: '1px solid var(--accent)',
+                          color: '#fff',
+                          boxShadow: '0 4px 12px rgba(37,99,235,0.2)',
+                          cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+                          opacity: currentPage >= totalPages ? 0.4 : 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          transition: 'all 0.15s'
+                        }}
                       >
-                        Next
+                        Next <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>chevron_right</span>
                       </button>
+
                       <button
                         onClick={() => setEventPage(totalPages)}
                         disabled={currentPage >= totalPages}
-                        style={{ background: 'none', border: 'none', color: currentPage >= totalPages ? 'var(--muted)' : 'var(--accent)', cursor: currentPage >= totalPages ? 'default' : 'pointer', fontSize: '11px', fontWeight: 600 }}
+                        title="Last Page"
+                        style={{
+                          height: '32px',
+                          padding: '0 10px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          background: 'var(--surface2)',
+                          border: '1px solid var(--border)',
+                          color: currentPage >= totalPages ? 'var(--muted)' : 'var(--text)',
+                          cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+                          opacity: currentPage >= totalPages ? 0.4 : 1,
+                          transition: 'all 0.15s'
+                        }}
                       >
                         Last
                       </button>
                     </div>
                   )}
                 </div>
-              )}
+              </div>
             </div>
           );
         })()}

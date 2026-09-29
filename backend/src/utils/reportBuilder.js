@@ -1,5 +1,24 @@
 const db = require('../config/db');
 const { getSmtpConfig, createTransporter } = require('./emailHelper');
+const { generatePdfReport } = require('./pdfReportBuilder');
+
+function buildCsvReport(events) {
+  const headers = ['Timestamp', 'Machine', 'Severity', 'Category', 'Tag', 'Aggregator / Branch', 'Message'];
+  const lines = [headers.join(',')];
+  for (const e of events) {
+    const row = [
+      `"${(e.ts || '').replace(/"/g, '""')}"`,
+      `"${(e.machine || '').replace(/"/g, '""')}"`,
+      `"${(e.severity || '').toUpperCase().replace(/"/g, '""')}"`,
+      `"${(e.category || '').replace(/"/g, '""')}"`,
+      `"${(e.tag || '').replace(/"/g, '""')}"`,
+      `"${(e.aggregator_name || '').replace(/"/g, '""')}"`,
+      `"${(e.message || '').replace(/"/g, '""')}"`
+    ];
+    lines.push(row.join(','));
+  }
+  return Buffer.from(lines.join('\r\n'), 'utf-8');
+}
 
 async function generateAndSendReport(schedule, queryFn = null, isManual = false) {
   const q = queryFn || db.query.bind(db);
@@ -13,17 +32,33 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
     throw new Error('Scheduled Emails Engine is disabled. Turn it on in the top section and click Save Configuration.');
   }
 
-  // ── Time window ────────────────────────────────────────────────────────────
-  const to = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  // ── Time window determination ──────────────────────────────────────────────
+  const now = new Date();
+  const to = now.toISOString().slice(0, 19).replace('T', ' ');
   let from;
-  const isToday = schedule.duration === 'today';
-  const hours = isToday ? 24 : (Number(schedule.duration) || 24);
-  if (isToday) {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    from = d.toISOString().slice(0, 19).replace('T', ' ');
+  let durLabel = 'Last 24 hours';
+
+  const cronExpr = (schedule.cron_expr || '').trim();
+
+  if (cronExpr === '0 8 * * *') {
+    from = new Date(now.getTime() - 24 * 3600000).toISOString().slice(0, 19).replace('T', ' ');
+    durLabel = 'Last 24 hours (Daily 08:00 AM)';
+  } else if (cronExpr === '0 8 * * 1') {
+    from = new Date(now.getTime() - 7 * 24 * 3600000).toISOString().slice(0, 19).replace('T', ' ');
+    durLabel = 'Last 7 days (Weekly Mon 08:00 AM)';
+  } else if (cronExpr === '0 8 1 * *') {
+    from = new Date(now.getTime() - 30 * 24 * 3600000).toISOString().slice(0, 19).replace('T', ' ');
+    durLabel = 'Last 30 days (Monthly 1st 08:00 AM)';
+  } else if (schedule.last_run && !isManual) {
+    const lastRunMs = Number(schedule.last_run) * 1000;
+    const minLookbackMs = now.getTime() - 30 * 24 * 3600000;
+    const effectiveStart = Math.max(lastRunMs, minLookbackMs);
+    from = new Date(effectiveStart).toISOString().slice(0, 19).replace('T', ' ');
+    durLabel = `Since Last Run (${new Date(effectiveStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`;
   } else {
-    from = new Date(Date.now() - hours * 3600000).toISOString().slice(0, 19).replace('T', ' ');
+    const hours = Number(schedule.duration) || 24;
+    from = new Date(now.getTime() - hours * 3600000).toISOString().slice(0, 19).replace('T', ' ');
+    durLabel = `Last ${hours} hours`;
   }
 
   // ── Build WHERE clause with filters ────────────────────────────────────────
@@ -67,6 +102,7 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
   );
   const byCategory = byCategoryRes.rows || [];
 
+  // Query top critical & high events for email preview & PDF table
   const evListWhere = schedule.severity ? evWhere : `${evWhere} AND severity IN ('critical','high')`;
   const critEventsRes = await q(
     `SELECT machine,ts,tag,category,severity,message FROM events
@@ -74,6 +110,14 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
      ORDER BY ts DESC LIMIT 100`, evParams
   );
   const critEvents = critEventsRes.rows || [];
+
+  // ── Query ALL logs for complete CSV attachment (no LIMIT) ──────────────────
+  const allLogsRes = await q(
+    `SELECT ts, machine, severity, category, tag, message, aggregator_name FROM events
+     ${evWhere}
+     ORDER BY ts DESC`, evParams
+  );
+  const allLogs = allLogsRes.rows || [];
 
   let machQuery = 'SELECT * FROM machines';
   const machParams = [];
@@ -118,59 +162,96 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
     NORMAL: '#22c55e'
   }[threatLevel];
 
-  // ── Build HTML Email ───────────────────────────────────────────────────────
-  const durLabel = isToday ? 'Today (Since 00:00)'
-    : hours === 1 ? 'Last 1 hour'
-    : hours === 2 ? 'Last 2 hours'
-    : hours === 4 ? 'Last 4 hours'
-    : hours === 6 ? 'Last 6 hours'
-    : hours === 12 ? 'Last 12 hours'
-    : hours === 24 ? 'Last 24 hours'
-    : hours === 72 ? 'Last 3 days'
-    : hours === 168 ? 'Last 7 days'
-    : hours === 720 ? 'Last 30 days'
-    : `Last ${hours} hours`;
-  const nowStr = new Date().toLocaleString();
-
   const catColors = {
-    DOMAIN: '#a855f7', ADCS: '#8b5cf6', NETWORK: '#3b82f6',
-    SENSITIVE: '#ef4444', ENUM: '#f97316', PROCESSES: '#ec4899',
-    CONFIG: '#eab308', REGISTRY: '#22c55e', LOGON: '#06b6d4',
-    SERVICES: '#fb923c', TASKS: '#a3e635', USB: '#f43f5e',
-    DEFENDER: '#ef4444', OTHER: '#6b7280'
+    PROCESSES: '#ef4444',
+    POWERSHELL: '#f97316',
+    NETWORK: '#3b82f6',
+    PERSISTENCE: '#8b5cf6',
+    DLP: '#ec4899',
+    USB: '#eab308',
+    DOMAIN: '#a855f7',
+    ADCS: '#06b6d4',
   };
 
-  let html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  const nowStr = now.toLocaleString();
+
+  // ── Generate PDF and CSV attachments in memory ─────────────────────────────
+  let pdfBuffer = null;
+  let csvBuffer = null;
+
+  try {
+    pdfBuffer = await generatePdfReport({
+      scheduleName: schedule.name,
+      generatedAt: nowStr,
+      periodLabel: durLabel,
+      machine: schedule.machine || 'All',
+      branch: schedule.aggregator || 'All',
+      threatLevel,
+      tlColor,
+      totalEvents,
+      critCount,
+      highCount,
+      adCount,
+      activeMachinesCount: machines.length,
+      byCategory,
+      critEvents,
+      adEvents
+    });
+  } catch (pdfErr) {
+    console.error('[REPORT BUILDER] Failed to generate PDF buffer:', pdfErr);
+  }
+
+  try {
+    csvBuffer = buildCsvReport(allLogs);
+  } catch (csvErr) {
+    console.error('[REPORT BUILDER] Failed to generate CSV buffer:', csvErr);
+  }
+
+  // ── Build HTML Email Body ──────────────────────────────────────────────────
+  let html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
 <style>
-body{font-family:Arial,sans-serif;font-size:12px;color:#1a2540;background:#f0f4fc;margin:0;padding:20px}
-.wrap{max-width:800px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.1)}
-.hdr{background:#1e3a5f;color:#fff;padding:24px 28px}
-.hdr h1{margin:0 0 4px;font-size:20px;letter-spacing:1px}
-.hdr .meta{font-size:11px;color:#90afd0;margin-top:6px}
-.threat{padding:16px 28px;background:${tlColor}18;border-left:4px solid ${tlColor}}
-.threat-l{font-size:20px;font-weight:800;color:${tlColor};margin-bottom:6px;letter-spacing:1px}
-.threat-p{font-size:13px;line-height:1.6;color:#4a5578;margin:0}
-.section{padding:24px 28px;border-top:1px solid #e8eef8}
-.section h2{font-size:14px;font-weight:700;color:#1e3a5f;margin:0 0 16px 0;text-transform:uppercase;letter-spacing:1px}
-.stats-grid{display:flex;gap:12px;flex-wrap:wrap}
-.stat{background:#f8faff;border:1px solid #e2e8f0;border-radius:8px;padding:12px 16px;min-width:100px}
-.stat-n{font-size:22px;font-weight:800;margin-bottom:2px}
-.stat-l{font-size:10px;color:#6b82a0;text-transform:uppercase;letter-spacing:.5px}
-table{width:100%;border-collapse:collapse;font-size:11px;text-align:left}
-th{padding:8px 12px;background:#f8faff;color:#6b82a0;font-size:10px;text-transform:uppercase;letter-spacing:.8px;border-bottom:2px solid #e2e8f0;font-weight:700}
-td{padding:10px 12px;border-bottom:1px solid #f0f4fc;vertical-align:middle}
-.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;text-transform:uppercase}
-.c{background:#fef2f2;color:#ef4444}.h{background:#fff7ed;color:#f97316}
-.m{background:#fefce8;color:#ca8a04}.l{background:#f0fdf4;color:#16a34a}
-.ad{background:#faf5ff;color:#a855f7}
-.bar-bg{background:#e2e8f0;height:6px;border-radius:3px;width:100%;overflow:hidden}
-.bar-fg{height:100%;border-radius:3px}
-.footer{padding:20px 28px;background:#1e3a5f;color:#90afd0;font-size:10px;text-align:center}
-</style></head><body>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0f172a; color: #1e293b; margin: 0; padding: 24px; }
+  .wrap { max-width: 720px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+  .hdr { background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); padding: 28px 32px; color: #fff; }
+  .hdr h1 { margin: 0 0 6px; font-size: 20px; letter-spacing: 0.5px; font-weight: 800; }
+  .hdr .meta { font-size: 11px; color: #94a3b8; font-family: monospace; }
+  .attachments-banner { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; margin: 20px 32px 0; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
+  .attachments-banner span { font-size: 12px; color: #1d4ed8; font-weight: 600; }
+  .threat { margin: 20px 32px 0; border-radius: 8px; padding: 16px 20px; background: ${tlColor}15; border-left: 5px solid ${tlColor}; }
+  .threat-l { font-weight: 800; font-size: 14px; color: ${tlColor}; letter-spacing: 0.5px; }
+  .threat-p { margin: 4px 0 0; font-size: 12px; color: #334155; line-height: 1.5; }
+  .section { padding: 20px 32px; }
+  .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #475569; margin: 0 0 12px; font-weight: 700; border-bottom: 2px solid #f1f5f9; padding-bottom: 6px; }
+  .stats-grid { display: table; width: 100%; border-collapse: separate; border-spacing: 8px; }
+  .stat { display: table-cell; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center; }
+  .stat-n { font-size: 20px; font-weight: 800; line-height: 1.2; }
+  .stat-l { font-size: 9px; text-transform: uppercase; color: #64748b; margin-top: 4px; font-weight: 600; letter-spacing: 0.5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 6px; }
+  th { background: #f8fafc; padding: 8px 10px; text-align: left; font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; }
+  td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; }
+  .badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+  .badge.c { background: #fee2e2; color: #dc2626; }
+  .badge.h { background: #ffedd5; color: #ea580c; }
+  .badge.m { background: #fef9c3; color: #ca8a04; }
+  .badge.l { background: #f1f5f9; color: #64748b; }
+  .badge.ad { background: #f3e8ff; color: #7e22ce; }
+  .bar-bg { background: #f1f5f9; border-radius: 3px; height: 6px; width: 100%; overflow: hidden; }
+  .bar-fg { height: 100%; border-radius: 3px; }
+  .footer { background: #f8fafc; padding: 14px 32px; font-size: 10px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; font-family: monospace; }
+</style>
+</head>
+<body>
 <div class="wrap">
   <div class="hdr">
     <h1>IOC HUNT SECURITY REPORT</h1>
     <div class="meta">Generated: ${nowStr} &nbsp;|&nbsp; Period: ${durLabel} &nbsp;|&nbsp; Machine: ${schedule.machine || 'All'} &nbsp;|&nbsp; Sev: ${schedule.severity || 'All'}</div>
+  </div>
+
+  <div class="attachments-banner">
+    <span>📎 2 Files Attached: Executive Summary Report (PDF) & Full Event Logs (CSV, ${totalEvents.toLocaleString()} records)</span>
   </div>
 
   <div class="threat">
@@ -211,14 +292,15 @@ td{padding:10px 12px;border-bottom:1px solid #f0f4fc;vertical-align:middle}
   });
   html += `</tbody></table></div>`;
 
-  // Events table
+  // Events preview table (Top critical & high events)
   if (critEvents.length) {
     const listTitle = schedule.severity 
-      ? `Recent ${schedule.severity.toUpperCase()} Events` 
-      : 'Recent Critical & High Events';
+      ? `Priority ${schedule.severity.toUpperCase()} Alerts (Preview)` 
+      : 'Priority Critical & High Alerts (Preview)';
     html += `<div class="section"><h2>${listTitle}</h2>
+      <p style="font-size:11px;color:#64748b;margin:0 0 8px;">Showing top ${critEvents.length} priority events. For all ${totalEvents.toLocaleString()} events, see attached CSV.</p>
       <table><thead><tr><th>Time</th><th>Machine</th><th>Sev</th><th>Category</th><th>Message</th></tr></thead><tbody>`;
-    critEvents.forEach(e => {
+    critEvents.slice(0, 50).forEach(e => {
       const sevClass = (e.severity || 'l').toLowerCase().charAt(0);
       html += `<tr>
         <td style="white-space:nowrap;color:#4a5578">${(e.ts || '').toString().slice(0, 16)}</td>
@@ -250,14 +332,36 @@ td{padding:10px 12px;border-bottom:1px solid #f0f4fc;vertical-align:middle}
   html += `<div class="footer">IOC Hunt Security Report &nbsp;|&nbsp; ${schedule.name} &nbsp;|&nbsp; ${durLabel} &nbsp;|&nbsp; ${nowStr}</div>`;
   html += `</div></body></html>`;
 
+  // ── Prepare attachments ────────────────────────────────────────────────────
+  const dateStr = now.toISOString().slice(0, 10);
+  const safeName = (schedule.name || 'Report').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const attachments = [];
+
+  if (pdfBuffer) {
+    attachments.push({
+      filename: `IOCHunt_${safeName}_Executive_Report_${dateStr}.pdf`,
+      content: pdfBuffer,
+      contentType: 'application/pdf'
+    });
+  }
+
+  if (csvBuffer) {
+    attachments.push({
+      filename: `IOCHunt_${safeName}_All_Logs_${dateStr}.csv`,
+      content: csvBuffer,
+      contentType: 'text/csv'
+    });
+  }
+
   // ── Send the email ─────────────────────────────────────────────────────────
   const recipients = schedule.recipients.split(',').map(r => r.trim()).filter(Boolean);
   const t = createTransporter(cfg);
   await t.sendMail({
     from: `"${cfg.from_name}" <${cfg.from_addr}>`,
     to: recipients.join(', '),
-    subject: `[IOC Hunt] ${schedule.name} — ${threatLevel} — ${nowStr}`,
+    subject: `[IOC Hunt] ${schedule.name} — ${threatLevel} Threat Level — ${nowStr}`,
     html,
+    attachments
   });
 }
 
