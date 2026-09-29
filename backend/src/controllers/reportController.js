@@ -73,23 +73,28 @@ const generateReport = async (req, res) => {
 
     const hourly = (await req.queryTenant(`SELECT TO_CHAR(ts::timestamp, 'YYYY-MM-DD HH24:00') AS hour, severity, COUNT(*) AS n FROM events ${evWhere} GROUP BY hour, severity ORDER BY hour ASC`, evParams)).rows;
 
-    const topTags = (await req.queryTenant(`SELECT tag, COUNT(*) AS n FROM events ${evWhere} GROUP BY tag ORDER BY n DESC LIMIT 10`, evParams)).rows;
+    const topTags = (await req.queryTenant(`SELECT tag, COUNT(*) AS n FROM events ${evWhere} GROUP BY tag ORDER BY n DESC LIMIT 25`, evParams)).rows;
 
-    const criticalEvents = (await req.queryTenant(`SELECT machine, ts, tag, category, severity, message FROM events ${evWhere.replace('is_noise=false', "is_noise=false AND severity IN ('critical','high')")} ORDER BY ts DESC LIMIT 300`, evParams)).rows;
+    // Retrieve events matching the filters without hardcoded severity restrictions or 300-event cap
+    const maxLimit = Math.min(50000, Math.max(100, parseInt(req.query.limit, 10) || 10000));
+    const reportEvents = (await req.queryTenant(
+      `SELECT machine, ts, tag, category, severity, message FROM events ${evWhere} ORDER BY ts DESC LIMIT ${maxLimit}`,
+      evParams
+    )).rows;
 
     // ── AD attacks in window ──────────────────────────────────────────────────
     const adWhere = evWhere + ` AND (category='DOMAIN' OR category='ADCS'
       OR tag LIKE '%DCSYNC%' OR tag LIKE '%KERBEROAST%' OR tag LIKE '%SPRAY%'
       OR tag LIKE '%SHADOW-CRED%' OR tag LIKE '%ESC%' OR tag LIKE '%CERTIPY%'
       OR tag LIKE '%PASS-THE-HASH%' OR tag LIKE '%SKELETON-KEY%')`;
-    const adEvents = (await req.queryTenant(`SELECT machine, ts, tag, severity, message FROM events ${adWhere} ORDER BY ts DESC LIMIT 50`, evParams)).rows;
+    const adEvents = (await req.queryTenant(`SELECT machine, ts, tag, severity, message FROM events ${adWhere} ORDER BY ts DESC LIMIT 1000`, evParams)).rows;
 
     // ── User account events ───────────────────────────────────────────────────
     const userWhere = evWhere + ` AND (tag LIKE '%USER-CREATED%' OR tag LIKE '%USER-DELETED%'
       OR tag LIKE '%USER-ENABLED%' OR tag LIKE '%USER-DISABLED%'
       OR tag LIKE '%GROUP-MEMBER%' OR tag LIKE '%LOG-CLEARED%'
       OR tag LIKE '%PASSWORD-RESET%' OR tag LIKE '%AUDIT-POLICY%')`;
-    const userEvents = (await req.queryTenant(`SELECT machine, ts, tag, severity, message FROM events ${userWhere} ORDER BY ts DESC LIMIT 50`, evParams)).rows;
+    const userEvents = (await req.queryTenant(`SELECT machine, ts, tag, severity, message FROM events ${userWhere} ORDER BY ts DESC LIMIT 1000`, evParams)).rows;
 
     // ── Machine summary ───────────────────────────────────────────────────────
     const machines = (await req.queryTenant('SELECT * FROM machines ORDER BY last_seen DESC')).rows;
@@ -143,7 +148,7 @@ const generateReport = async (req, res) => {
     res.json({
       generated: new Date().toISOString(),
       filters: { from, to, duration, machine, severity, category, src_ip, dst_ip, action },
-      events: { total: totalEvents, bySeverity, byCategory, byMachine, hourly, topTags, critical: criticalEvents },
+      events: { total: totalEvents, bySeverity, byCategory, byMachine, hourly, topTags, critical: reportEvents, items: reportEvents },
       ad_attacks: adEvents,
       user_events: userEvents,
       machines: machineSummary,

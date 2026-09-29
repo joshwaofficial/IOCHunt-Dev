@@ -67,10 +67,11 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
   );
   const byCategory = byCategoryRes.rows || [];
 
+  const evListWhere = schedule.severity ? evWhere : `${evWhere} AND severity IN ('critical','high')`;
   const critEventsRes = await q(
     `SELECT machine,ts,tag,category,severity,message FROM events
-     ${evWhere.replace('is_noise=false', "is_noise=false AND severity IN ('critical','high')")}
-     ORDER BY ts DESC LIMIT 50`, evParams
+     ${evListWhere}
+     ORDER BY ts DESC LIMIT 100`, evParams
   );
   const critEvents = critEventsRes.rows || [];
 
@@ -210,15 +211,19 @@ td{padding:10px 12px;border-bottom:1px solid #f0f4fc;vertical-align:middle}
   });
   html += `</tbody></table></div>`;
 
-  // Critical & High events table
+  // Events table
   if (critEvents.length) {
-    html += `<div class="section"><h2>Recent Critical &amp; High Events</h2>
+    const listTitle = schedule.severity 
+      ? `Recent ${schedule.severity.toUpperCase()} Events` 
+      : 'Recent Critical & High Events';
+    html += `<div class="section"><h2>${listTitle}</h2>
       <table><thead><tr><th>Time</th><th>Machine</th><th>Sev</th><th>Category</th><th>Message</th></tr></thead><tbody>`;
     critEvents.forEach(e => {
+      const sevClass = (e.severity || 'l').toLowerCase().charAt(0);
       html += `<tr>
         <td style="white-space:nowrap;color:#4a5578">${(e.ts || '').toString().slice(0, 16)}</td>
         <td style="color:#2563eb;font-weight:700">${e.machine}</td>
-        <td><span class="badge ${e.severity === 'critical' ? 'c' : 'h'}">${e.severity}</span></td>
+        <td><span class="badge ${sevClass}">${e.severity}</span></td>
         <td style="color:#4a5578;font-size:10px">${e.category}</td>
         <td>${(e.message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').slice(0, 120)}</td>
       </tr>`;

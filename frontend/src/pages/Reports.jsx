@@ -20,6 +20,9 @@ export default function Reports() {
   const [error, setError] = useState('');
   const [reportData, setReportData] = useState(null);
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
+  const [eventPage, setEventPage] = useState(1);
+  const [eventPageSize, setEventPageSize] = useState(100);
+  const [eventSearch, setEventSearch] = useState('');
 
   useEffect(() => {
     axios.get('/api/machines').then(res => setMachines(res.data.data || res.data)).catch(console.error);
@@ -29,6 +32,8 @@ export default function Reports() {
   const handleGenerate = async () => {
     setLoading(true);
     setError('');
+    setEventPage(1);
+    setEventSearch('');
     try {
       let qs = `duration=${filters.duration}&include_fw=${filters.include_fw ? '1' : '0'}`;
       if (filters.duration === 'custom') {
@@ -175,13 +180,19 @@ export default function Reports() {
       html += `</tbody></table>`;
     }
 
-    if ((ev.critical || []).length) {
-      html += `<h2>Critical &amp; High Events</h2><table><thead><tr><th>Time</th><th>Machine</th><th>Sev</th><th>Category</th><th>Message</th></tr></thead><tbody>`;
-      ev.critical.forEach(e => {
+    const eventsToRender = ev.items || ev.critical || [];
+    if (eventsToRender.length) {
+      const sectionTitle = f.severity 
+        ? `${f.severity.charAt(0).toUpperCase() + f.severity.slice(1)} Events` 
+        : 'Security Events';
+      html += `<h2>${sectionTitle} (${eventsToRender.length.toLocaleString()} events)</h2><table><thead><tr><th>Time</th><th>Machine</th><th>Sev</th><th>Category</th><th>Tag</th><th>Message</th></tr></thead><tbody>`;
+      eventsToRender.forEach(e => {
+        const sevClass = (e.severity || 'l').toLowerCase().charAt(0);
         html += `<tr><td style="white-space:nowrap;color:#4a5578">${e.ts ? new Date(e.ts).toLocaleString('sv-SE').slice(0, 16).replace('T', ' ') : ''}</td>
           <td style="color:#2563eb;font-weight:700">${e.machine}</td>
-          <td><span class="badge ${e.severity === 'critical' ? 'c' : 'h'}">${e.severity}</span></td>
+          <td><span class="badge ${sevClass}">${e.severity}</span></td>
           <td style="color:#4a5578">${e.category}</td>
+          <td style="color:#7c3aed;font-size:9px">${e.tag || ''}</td>
           <td>${(e.message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').slice(0, 120)}</td></tr>`;
       });
       html += `</tbody></table>`;
@@ -399,43 +410,210 @@ export default function Reports() {
           </div>
         )}
 
-        {(ev.critical || []).length > 0 && (
-          <div style={{ marginBottom: '32px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', paddingLeft: '4px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--critical)' }}>warning</span>
-                <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', margin: 0, color: 'var(--text)' }}>Critical &amp; High Events</div>
+        {(() => {
+          const rawList = ev.items || ev.critical || [];
+          if (rawList.length === 0) return null;
+
+          const sevLower = (f.severity || '').toLowerCase();
+          const title = sevLower
+            ? `${sevLower.charAt(0).toUpperCase() + sevLower.slice(1)} Severity Events`
+            : 'Security Events';
+
+          const titleColor = sevLower === 'critical' ? 'var(--critical)'
+            : sevLower === 'high' ? 'var(--high)'
+            : sevLower === 'medium' ? 'var(--medium)'
+            : sevLower === 'low' ? 'var(--low)'
+            : 'var(--accent)';
+
+          const titleIcon = (sevLower === 'critical' || sevLower === 'high') ? 'warning'
+            : sevLower === 'medium' ? 'report_problem'
+            : sevLower === 'low' ? 'verified_user'
+            : 'shield';
+
+          // Search filter within the loaded events
+          const filteredEvents = eventSearch.trim()
+            ? rawList.filter(e => {
+                const term = eventSearch.toLowerCase();
+                return (
+                  (e.machine && e.machine.toLowerCase().includes(term)) ||
+                  (e.tag && e.tag.toLowerCase().includes(term)) ||
+                  (e.category && e.category.toLowerCase().includes(term)) ||
+                  (e.message && e.message.toLowerCase().includes(term)) ||
+                  (e.severity && e.severity.toLowerCase().includes(term))
+                );
+              })
+            : rawList;
+
+          const effectivePageSize = eventPageSize === 'all' ? filteredEvents.length : Number(eventPageSize);
+          const totalPages = Math.max(1, Math.ceil(filteredEvents.length / effectivePageSize));
+          const currentPage = Math.min(eventPage, totalPages);
+          const startIndex = (currentPage - 1) * effectivePageSize;
+          const paginatedEvents = eventPageSize === 'all'
+            ? filteredEvents
+            : filteredEvents.slice(startIndex, startIndex + effectivePageSize);
+
+          return (
+            <div style={{ marginBottom: '32px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', paddingLeft: '4px', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '18px', color: titleColor }}>{titleIcon}</span>
+                  <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', margin: 0, color: 'var(--text)' }}>
+                    {title}
+                  </div>
+                  <span style={{ fontSize: '11px', fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--accent)', background: 'rgba(37,99,235,0.1)', padding: '2px 8px', borderRadius: '4px' }}>
+                    {rawList.length.toLocaleString()} events
+                  </span>
+                </div>
+
+                {/* Filter and Page controls */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  {/* Quick in-table search */}
+                  <div style={{ display: 'flex', alignItems: 'center', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px', padding: '0 8px', height: '28px' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: '14px', color: 'var(--muted)', marginRight: '4px' }}>search</span>
+                    <input
+                      type="text"
+                      placeholder="Search in events..."
+                      value={eventSearch}
+                      onChange={(e) => { setEventSearch(e.target.value); setEventPage(1); }}
+                      style={{ background: 'transparent', border: 'none', color: 'var(--text)', fontSize: '11px', outline: 'none', width: '130px', fontFamily: 'var(--sans)' }}
+                    />
+                    {eventSearch && (
+                      <span onClick={() => { setEventSearch(''); setEventPage(1); }} style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--muted)', marginLeft: '4px' }}>×</span>
+                    )}
+                  </div>
+
+                  {/* Rows per page selector */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--muted)' }}>
+                    <span>Rows:</span>
+                    <select
+                      value={eventPageSize}
+                      onChange={(e) => {
+                        const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
+                        setEventPageSize(val);
+                        setEventPage(1);
+                      }}
+                      style={{ height: '28px', padding: '0 6px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '4px', fontSize: '11px', outline: 'none' }}
+                    >
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                      <option value={250}>250</option>
+                      <option value={500}>500</option>
+                      <option value="all">All ({rawList.length})</option>
+                    </select>
+                  </div>
+
+                  {/* Pagination buttons */}
+                  {eventPageSize !== 'all' && totalPages > 1 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <button
+                        onClick={() => setEventPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage <= 1}
+                        style={{ height: '28px', padding: '0 8px', background: 'var(--surface2)', border: '1px solid var(--border)', color: currentPage <= 1 ? 'var(--muted)' : 'var(--text)', borderRadius: '4px', cursor: currentPage <= 1 ? 'not-allowed' : 'pointer', fontSize: '11px', fontWeight: 600 }}
+                      >
+                        Prev
+                      </button>
+                      <span style={{ fontSize: '11px', fontFamily: 'var(--mono)', color: 'var(--muted)' }}>
+                        {currentPage} / {totalPages}
+                      </span>
+                      <button
+                        onClick={() => setEventPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage >= totalPages}
+                        style={{ height: '28px', padding: '0 8px', background: 'var(--surface2)', border: '1px solid var(--border)', color: currentPage >= totalPages ? 'var(--muted)' : 'var(--text)', borderRadius: '4px', cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer', fontSize: '11px', fontWeight: 600 }}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>{(ev.critical || []).length} events (max 300)</div>
-            </div>
-            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--mono)' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border)', background: 'linear-gradient(90deg, rgba(37,99,235,0.06) 0%, rgba(37,99,235,0) 100%)' }}>
-                    <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Time</th>
-                    <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Machine</th>
-                    <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Severity</th>
-                    <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Category</th>
-                    <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Tag</th>
-                    <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Message</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ev.critical.map((e, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '14px 16px', whiteSpace: 'nowrap', color: 'var(--muted2)', fontSize: '11px' }}>{e.ts ? new Date(e.ts).toLocaleString('sv-SE').slice(0, 16).replace('T', ' ') : ''}</td>
-                      <td style={{ padding: '14px 16px', color: 'var(--accent)', fontWeight: 700, fontSize: '11px' }}>{e.machine}</td>
-                      <td style={{ padding: '14px 16px', fontSize: '11px' }}><span className={`badge ${e.severity === 'critical' ? 'sev-critical' : 'sev-high'}`}>{e.severity}</span></td>
-                      <td style={{ padding: '14px 16px', color: 'var(--muted2)', fontSize: '11px' }}>{e.category}</td>
-                      <td style={{ padding: '14px 16px', fontSize: '10px', fontFamily: 'var(--mono)' }}>{e.tag}</td>
-                      <td style={{ padding: '14px 16px', fontSize: '11px', whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.5' }}>{e.message}</td>
+
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--mono)' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)', background: 'linear-gradient(90deg, rgba(37,99,235,0.06) 0%, rgba(37,99,235,0) 100%)' }}>
+                      <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', width: '130px' }}>Time</th>
+                      <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', width: '140px' }}>Machine</th>
+                      <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', width: '90px' }}>Severity</th>
+                      <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', width: '110px' }}>Category</th>
+                      <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', width: '160px' }}>Tag</th>
+                      <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Message</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {paginatedEvents.map((e, i) => {
+                      const sevClass = (e.severity || 'low').toLowerCase();
+                      return (
+                        <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '12px 16px', whiteSpace: 'nowrap', color: 'var(--muted2)', fontSize: '11px' }}>
+                            {e.ts ? new Date(e.ts).toLocaleString('sv-SE').slice(0, 16).replace('T', ' ') : ''}
+                          </td>
+                          <td style={{ padding: '12px 16px', color: 'var(--accent)', fontWeight: 700, fontSize: '11px' }}>
+                            {e.machine}
+                          </td>
+                          <td style={{ padding: '12px 16px', fontSize: '11px' }}>
+                            <span className={`badge sev-${sevClass}`}>
+                              {e.severity}
+                            </span>
+                          </td>
+                          <td style={{ padding: '12px 16px', color: 'var(--muted2)', fontSize: '11px' }}>
+                            {e.category}
+                          </td>
+                          <td style={{ padding: '12px 16px', fontSize: '10px', fontFamily: 'var(--mono)', color: '#a855f7' }}>
+                            {e.tag}
+                          </td>
+                          <td style={{ padding: '12px 16px', fontSize: '11px', whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.5' }}>
+                            {e.message}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {eventPageSize !== 'all' && filteredEvents.length > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', padding: '0 4px', fontSize: '11px', color: 'var(--muted)' }}>
+                  <div>
+                    Showing <strong>{(startIndex + 1).toLocaleString()}</strong> - <strong>{Math.min(startIndex + effectivePageSize, filteredEvents.length).toLocaleString()}</strong> of <strong>{filteredEvents.length.toLocaleString()}</strong> events
+                  </div>
+                  {totalPages > 1 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        onClick={() => setEventPage(1)}
+                        disabled={currentPage <= 1}
+                        style={{ background: 'none', border: 'none', color: currentPage <= 1 ? 'var(--muted)' : 'var(--accent)', cursor: currentPage <= 1 ? 'default' : 'pointer', fontSize: '11px', fontWeight: 600 }}
+                      >
+                        First
+                      </button>
+                      <button
+                        onClick={() => setEventPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage <= 1}
+                        style={{ background: 'none', border: 'none', color: currentPage <= 1 ? 'var(--muted)' : 'var(--accent)', cursor: currentPage <= 1 ? 'default' : 'pointer', fontSize: '11px', fontWeight: 600 }}
+                      >
+                        Previous
+                      </button>
+                      <span>Page {currentPage} of {totalPages}</span>
+                      <button
+                        onClick={() => setEventPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage >= totalPages}
+                        style={{ background: 'none', border: 'none', color: currentPage >= totalPages ? 'var(--muted)' : 'var(--accent)', cursor: currentPage >= totalPages ? 'default' : 'pointer', fontSize: '11px', fontWeight: 600 }}
+                      >
+                        Next
+                      </button>
+                      <button
+                        onClick={() => setEventPage(totalPages)}
+                        disabled={currentPage >= totalPages}
+                        style={{ background: 'none', border: 'none', color: currentPage >= totalPages ? 'var(--muted)' : 'var(--accent)', cursor: currentPage >= totalPages ? 'default' : 'pointer', fontSize: '11px', fontWeight: 600 }}
+                      >
+                        Last
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {adEvs.length > 0 && (
           <div style={{ marginBottom: '32px' }}>
