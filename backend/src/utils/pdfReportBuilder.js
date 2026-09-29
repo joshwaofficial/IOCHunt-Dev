@@ -14,6 +14,8 @@ const PDFDocument = require('pdfkit');
  * @param {number} data.totalEvents
  * @param {number} data.critCount
  * @param {number} data.highCount
+ * @param {number} data.medCount
+ * @param {number} data.lowCount
  * @param {number} data.adCount
  * @param {number} data.activeMachinesCount
  * @param {Array}  data.byCategory  [{ category, n }]
@@ -52,6 +54,12 @@ function generatePdfReport(data) {
       const C_BORDER = '#e2e8f0';
       const C_SURFACE = '#f8fafc';
 
+      const formatTs = (ts) => {
+        if (!ts) return '';
+        if (ts instanceof Date) return ts.toISOString().slice(0, 19).replace('T', ' ');
+        return String(ts);
+      };
+
       // ── 1. HEADER ───────────────────────────────────────────────────────────
       doc.rect(margin, margin, contentWidth, 54)
         .fill(C_PRIMARY);
@@ -64,7 +72,7 @@ function generatePdfReport(data) {
       doc.fillColor('#94a3b8')
         .font('Helvetica')
         .fontSize(8.5)
-        .text(`Generated: ${data.generatedAt}   |   Period: ${data.periodLabel}   |   Branch: ${data.branch || 'All'}   |   Machine: ${data.machine || 'All'}`, margin + 14, margin + 34);
+        .text(`Generated: ${data.generatedAt}   |   Time Window: ${data.periodLabel}   |   Branch: ${data.branch || 'All'}   |   Machine: ${data.machine || 'All'}`, margin + 14, margin + 34);
 
       doc.y = margin + 64;
 
@@ -85,15 +93,15 @@ function generatePdfReport(data) {
         .font('Helvetica')
         .fontSize(8.5)
         .text(
-          `${(data.totalEvents || 0).toLocaleString()} total events recorded. ${data.critCount || 0} critical, ${data.highCount || 0} high severity alerts.${data.adCount > 0 ? `  (${data.adCount} Active Directory indicators detected)` : ''}`,
+          `${(data.totalEvents || 0).toLocaleString()} total events recorded. ${data.critCount || 0} critical, ${data.highCount || 0} high, ${data.medCount || 0} medium, ${data.lowCount || 0} low severity events.${data.adCount > 0 ? `  (${data.adCount} Active Directory indicators detected)` : ''}`,
           margin + 14, bannerY + 22
         );
 
       doc.y = bannerY + 46;
 
-      // ── 3. SUMMARY KPI CARDS ────────────────────────────────────────────────
+      // ── 3. SUMMARY KPI CARDS (6 Cards) ──────────────────────────────────────
       const cardY = doc.y;
-      const numCards = 5;
+      const numCards = 6;
       const cardSpacing = 6;
       const cardWidth = (contentWidth - ((numCards - 1) * cardSpacing)) / numCards;
       const cardHeight = 44;
@@ -102,6 +110,7 @@ function generatePdfReport(data) {
         { label: 'Total Events', value: (data.totalEvents || 0).toLocaleString(), color: '#1e3a5f' },
         { label: 'Critical', value: (data.critCount || 0).toLocaleString(), color: '#ef4444' },
         { label: 'High', value: (data.highCount || 0).toLocaleString(), color: '#f97316' },
+        { label: 'Medium', value: (data.medCount || 0).toLocaleString(), color: '#eab308' },
         { label: 'AD Indicators', value: (data.adCount || 0).toLocaleString(), color: '#a855f7' },
         { label: 'Active Machines', value: (data.activeMachinesCount || 0).toLocaleString(), color: '#4a5578' }
       ];
@@ -113,12 +122,12 @@ function generatePdfReport(data) {
 
         doc.fillColor(card.color)
           .font('Helvetica-Bold')
-          .fontSize(13)
+          .fontSize(12)
           .text(String(card.value), cx, cardY + 8, { width: cardWidth, align: 'center' });
 
         doc.fillColor(C_MUTED)
           .font('Helvetica')
-          .fontSize(7.5)
+          .fontSize(7)
           .text(card.label.toUpperCase(), cx, cardY + 26, { width: cardWidth, align: 'center' });
       });
 
@@ -170,7 +179,7 @@ function generatePdfReport(data) {
 
       doc.y = curCatY + 14;
 
-      // ── 5. TOP CRITICAL & HIGH EVENTS TABLE ──────────────────────────────────
+      // ── 5. PRIORITY INCIDENT ALERTS (Critical, High & Medium) ────────────────
       const checkPageBreak = (neededHeight) => {
         if (doc.y + neededHeight > doc.page.height - 40) {
           doc.addPage();
@@ -185,7 +194,7 @@ function generatePdfReport(data) {
       doc.fillColor(C_TEXT)
         .font('Helvetica-Bold')
         .fontSize(11)
-        .text('Priority Incident Alerts (Critical & High)', margin, doc.y);
+        .text('Priority Incident Alerts', margin, doc.y);
 
       doc.y += 6;
       let evY = doc.y;
@@ -196,8 +205,8 @@ function generatePdfReport(data) {
         doc.text('TIME', margin + 6, y + 5);
         doc.text('MACHINE', margin + 95, y + 5);
         doc.text('SEV', margin + 195, y + 5);
-        doc.text('CATEGORY', margin + 240, y + 5);
-        doc.text('MESSAGE', margin + 310, y + 5);
+        doc.text('CATEGORY', margin + 245, y + 5);
+        doc.text('MESSAGE', margin + 315, y + 5);
       };
 
       drawEventHeader(evY);
@@ -214,25 +223,26 @@ function generatePdfReport(data) {
         }
 
         const sev = (e.severity || 'low').toLowerCase();
-        const sevColor = sev === 'critical' ? '#ef4444' : sev === 'high' ? '#f97316' : '#64748b';
+        const sevColor = sev === 'critical' ? '#ef4444' : sev === 'high' ? '#f97316' : sev === 'medium' ? '#eab308' : '#64748b';
+        const tsFormatted = formatTs(e.ts).slice(0, 16);
 
         doc.rect(margin, evY, contentWidth, 16)
           .fill(evY % 32 === 0 ? '#ffffff' : '#f8fafc');
 
         doc.fillColor(C_MUTED).font('Helvetica').fontSize(7)
-          .text((e.ts || '').toString().slice(0, 16), margin + 6, evY + 4);
+          .text(tsFormatted, margin + 6, evY + 4);
 
         doc.fillColor(C_ACCENT).font('Helvetica-Bold').fontSize(7.5)
-          .text((e.machine || '').slice(0, 18), margin + 95, evY + 4);
+          .text(String(e.machine || '').slice(0, 18), margin + 95, evY + 4);
 
         doc.fillColor(sevColor).font('Helvetica-Bold').fontSize(7)
           .text(sev.toUpperCase(), margin + 195, evY + 4);
 
         doc.fillColor(C_TEXT).font('Helvetica').fontSize(7)
-          .text((e.category || '').slice(0, 12), margin + 240, evY + 4);
+          .text(String(e.category || '').slice(0, 12), margin + 245, evY + 4);
 
         doc.fillColor(C_TEXT).font('Helvetica').fontSize(7)
-          .text((e.message || '').replace(/\s+/g, ' ').slice(0, 52), margin + 310, evY + 4);
+          .text(String(e.message || '').replace(/\s+/g, ' ').slice(0, 50), margin + 315, evY + 4);
 
         evY += 16;
       });
@@ -262,13 +272,14 @@ function generatePdfReport(data) {
             doc.addPage();
             adY = margin;
           }
+          const tsFormatted = formatTs(e.ts).slice(0, 16);
           doc.rect(margin, adY, contentWidth, 16).fill('#ffffff');
           doc.fillColor(C_MUTED).font('Helvetica').fontSize(7)
-            .text((e.ts || '').toString().slice(0, 16), margin + 6, adY + 4);
+            .text(tsFormatted, margin + 6, adY + 4);
           doc.fillColor(C_ACCENT).font('Helvetica-Bold').fontSize(7.5)
-            .text((e.machine || '').slice(0, 18), margin + 95, adY + 4);
+            .text(String(e.machine || '').slice(0, 18), margin + 95, adY + 4);
           doc.fillColor(C_TEXT).font('Helvetica').fontSize(7)
-            .text((e.message || '').slice(0, 75), margin + 200, adY + 4);
+            .text(String(e.message || '').slice(0, 75), margin + 200, adY + 4);
           adY += 16;
         });
       }

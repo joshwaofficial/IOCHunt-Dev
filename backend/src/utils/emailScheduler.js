@@ -32,9 +32,15 @@ function startSchedule(s, tenantId = null) {
   try {
     activeCrons[cronKey] = cron.schedule(s.cron_expr, async () => {
       try {
-        await generateAndSendReport(s, q, false);
+        const freshRes = await q('SELECT * FROM email_schedules WHERE id=$1', [s.id]);
+        const currentSched = freshRes.rows[0] || s;
+
+        await generateAndSendReport(currentSched, q, false);
+
+        const nowUnix = Math.floor(Date.now() / 1000);
         await q('UPDATE email_schedules SET last_run=$1,last_status=$2 WHERE id=$3',
-          [Math.floor(Date.now() / 1000), 'OK', s.id]);
+          [nowUnix, 'OK', s.id]);
+        s.last_run = nowUnix;
       } catch (e) {
         console.error(`[EMAIL] Schedule "${s.name}" (Tenant: ${tId || 'default'}) failed:`, e.message);
         await q('UPDATE email_schedules SET last_run=$1,last_status=$2 WHERE id=$3',

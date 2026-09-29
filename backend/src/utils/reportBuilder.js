@@ -2,18 +2,27 @@ const db = require('../config/db');
 const { getSmtpConfig, createTransporter } = require('./emailHelper');
 const { generatePdfReport } = require('./pdfReportBuilder');
 
+function formatTs(ts) {
+  if (!ts) return '';
+  if (ts instanceof Date) {
+    return ts.toISOString().slice(0, 19).replace('T', ' ');
+  }
+  return String(ts);
+}
+
 function buildCsvReport(events) {
   const headers = ['Timestamp', 'Machine', 'Severity', 'Category', 'Tag', 'Aggregator / Branch', 'Message'];
   const lines = [headers.join(',')];
   for (const e of events) {
+    const tsStr = formatTs(e.ts);
     const row = [
-      `"${(e.ts || '').replace(/"/g, '""')}"`,
-      `"${(e.machine || '').replace(/"/g, '""')}"`,
-      `"${(e.severity || '').toUpperCase().replace(/"/g, '""')}"`,
-      `"${(e.category || '').replace(/"/g, '""')}"`,
-      `"${(e.tag || '').replace(/"/g, '""')}"`,
-      `"${(e.aggregator_name || '').replace(/"/g, '""')}"`,
-      `"${(e.message || '').replace(/"/g, '""')}"`
+      `"${tsStr.replace(/"/g, '""')}"`,
+      `"${String(e.machine || '').replace(/"/g, '""')}"`,
+      `"${String(e.severity || '').toUpperCase().replace(/"/g, '""')}"`,
+      `"${String(e.category || '').replace(/"/g, '""')}"`,
+      `"${String(e.tag || '').replace(/"/g, '""')}"`,
+      `"${String(e.aggregator_name || '').replace(/"/g, '""')}"`,
+      `"${String(e.message || '').replace(/"/g, '""')}"`
     ];
     lines.push(row.join(','));
   }
@@ -40,25 +49,23 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
 
   const cronExpr = (schedule.cron_expr || '').trim();
 
-  if (cronExpr === '0 8 * * *') {
+  if (cronExpr.startsWith('0 8 * * *')) {
     from = new Date(now.getTime() - 24 * 3600000).toISOString().slice(0, 19).replace('T', ' ');
-    durLabel = 'Last 24 hours (Daily 08:00 AM)';
-  } else if (cronExpr === '0 8 * * 1') {
+    durLabel = `Daily (24 Hours: ${from} to ${to})`;
+  } else if (cronExpr.endsWith('* * 1')) {
     from = new Date(now.getTime() - 7 * 24 * 3600000).toISOString().slice(0, 19).replace('T', ' ');
-    durLabel = 'Last 7 days (Weekly Mon 08:00 AM)';
-  } else if (cronExpr === '0 8 1 * *') {
+    durLabel = `Weekly (7 Days: ${from} to ${to})`;
+  } else if (cronExpr.includes(' 1 * *')) {
     from = new Date(now.getTime() - 30 * 24 * 3600000).toISOString().slice(0, 19).replace('T', ' ');
-    durLabel = 'Last 30 days (Monthly 1st 08:00 AM)';
-  } else if (schedule.last_run && !isManual) {
+    durLabel = `Monthly (30 Days: ${from} to ${to})`;
+  } else if (schedule.last_run) {
     const lastRunMs = Number(schedule.last_run) * 1000;
-    const minLookbackMs = now.getTime() - 30 * 24 * 3600000;
-    const effectiveStart = Math.max(lastRunMs, minLookbackMs);
-    from = new Date(effectiveStart).toISOString().slice(0, 19).replace('T', ' ');
-    durLabel = `Since Last Run (${new Date(effectiveStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`;
+    from = new Date(lastRunMs).toISOString().slice(0, 19).replace('T', ' ');
+    durLabel = `${from} to ${to}`;
   } else {
     const hours = Number(schedule.duration) || 24;
     from = new Date(now.getTime() - hours * 3600000).toISOString().slice(0, 19).replace('T', ' ');
-    durLabel = `Last ${hours} hours`;
+    durLabel = `${from} to ${to}`;
   }
 
   // ── Build WHERE clause with filters ────────────────────────────────────────
@@ -102,8 +109,10 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
   );
   const byCategory = byCategoryRes.rows || [];
 
-  // Query top critical & high events for email preview & PDF table
-  const evListWhere = schedule.severity ? evWhere : `${evWhere} AND severity IN ('critical','high')`;
+  // Query priority events (Critical, High & Medium) for the PDF report
+  const evListWhere = schedule.severity 
+    ? evWhere 
+    : `${evWhere} AND severity IN ('critical','high','medium')`;
   const critEventsRes = await q(
     `SELECT machine,ts,tag,category,severity,message FROM events
      ${evListWhere}
@@ -111,7 +120,7 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
   );
   const critEvents = critEventsRes.rows || [];
 
-  // ── Query ALL logs for complete CSV attachment (no LIMIT) ──────────────────
+  // ── Query ALL logs for complete CSV attachment (no LIMIT, all severities) ──
   const allLogsRes = await q(
     `SELECT ts, machine, severity, category, tag, message, aggregator_name FROM events
      ${evWhere}
@@ -143,17 +152,19 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
   );
   const adEvents = adEventsRes.rows || [];
 
-  // ── Calculate threat level ─────────────────────────────────────────────────
+  // ── Calculate threat level & counts ────────────────────────────────────────
   const sevMap = {};
-  bySeverity.forEach(r => { sevMap[r.severity] = parseInt(r.n, 10); });
+  bySeverity.forEach(r => { sevMap[(r.severity || '').toLowerCase()] = parseInt(r.n, 10); });
   const critCount = sevMap.critical || 0;
   const highCount = sevMap.high || 0;
+  const medCount = sevMap.medium || 0;
+  const lowCount = (sevMap.low || 0) + (sevMap.info || 0);
   const adCount = adEvents.length;
 
   const threatLevel =
     critCount > 5 || adCount > 2 ? 'CRITICAL' :
     critCount > 0 || highCount > 5 ? 'HIGH' :
-    highCount > 0 ? 'ELEVATED' : 'NORMAL';
+    highCount > 0 || medCount > 10 ? 'ELEVATED' : 'NORMAL';
 
   const tlColor = {
     CRITICAL: '#ef4444',
@@ -191,6 +202,8 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
       totalEvents,
       critCount,
       highCount,
+      medCount,
+      lowCount,
       adCount,
       activeMachinesCount: machines.length,
       byCategory,
@@ -207,7 +220,7 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
     console.error('[REPORT BUILDER] Failed to generate CSV buffer:', csvErr);
   }
 
-  // ── Build HTML Email Body ──────────────────────────────────────────────────
+  // ── Build HTML Email Body (Dashboard & Stats only — no inline raw table) ──
   let html = `<!DOCTYPE html>
 <html>
 <head>
@@ -217,26 +230,23 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
   .wrap { max-width: 720px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
   .hdr { background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%); padding: 28px 32px; color: #fff; }
   .hdr h1 { margin: 0 0 6px; font-size: 20px; letter-spacing: 0.5px; font-weight: 800; }
-  .hdr .meta { font-size: 11px; color: #94a3b8; font-family: monospace; }
-  .attachments-banner { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; margin: 20px 32px 0; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
-  .attachments-banner span { font-size: 12px; color: #1d4ed8; font-weight: 600; }
+  .hdr .meta { font-size: 11px; color: #94a3b8; font-family: monospace; line-height: 1.6; }
+  .attachments-banner { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; margin: 20px 32px 0; padding: 14px 18px; }
+  .attachments-banner .title { font-size: 12px; color: #1d4ed8; font-weight: 700; margin-bottom: 4px; }
+  .attachments-banner .desc { font-size: 11px; color: #3b82f6; }
   .threat { margin: 20px 32px 0; border-radius: 8px; padding: 16px 20px; background: ${tlColor}15; border-left: 5px solid ${tlColor}; }
   .threat-l { font-weight: 800; font-size: 14px; color: ${tlColor}; letter-spacing: 0.5px; }
   .threat-p { margin: 4px 0 0; font-size: 12px; color: #334155; line-height: 1.5; }
   .section { padding: 20px 32px; }
   .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #475569; margin: 0 0 12px; font-weight: 700; border-bottom: 2px solid #f1f5f9; padding-bottom: 6px; }
-  .stats-grid { display: table; width: 100%; border-collapse: separate; border-spacing: 8px; }
-  .stat { display: table-cell; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center; }
-  .stat-n { font-size: 20px; font-weight: 800; line-height: 1.2; }
-  .stat-l { font-size: 9px; text-transform: uppercase; color: #64748b; margin-top: 4px; font-weight: 600; letter-spacing: 0.5px; }
+  .stats-grid { display: table; width: 100%; border-collapse: separate; border-spacing: 6px; }
+  .stat { display: table-cell; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 6px; text-align: center; }
+  .stat-n { font-size: 18px; font-weight: 800; line-height: 1.2; }
+  .stat-l { font-size: 8.5px; text-transform: uppercase; color: #64748b; margin-top: 4px; font-weight: 600; letter-spacing: 0.5px; }
   table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 6px; }
   th { background: #f8fafc; padding: 8px 10px; text-align: left; font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; }
   td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; }
   .badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 9px; font-weight: 700; text-transform: uppercase; }
-  .badge.c { background: #fee2e2; color: #dc2626; }
-  .badge.h { background: #ffedd5; color: #ea580c; }
-  .badge.m { background: #fef9c3; color: #ca8a04; }
-  .badge.l { background: #f1f5f9; color: #64748b; }
   .badge.ad { background: #f3e8ff; color: #7e22ce; }
   .bar-bg { background: #f1f5f9; border-radius: 3px; height: 6px; width: 100%; overflow: hidden; }
   .bar-fg { height: 100%; border-radius: 3px; }
@@ -247,19 +257,26 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
 <div class="wrap">
   <div class="hdr">
     <h1>IOC HUNT SECURITY REPORT</h1>
-    <div class="meta">Generated: ${nowStr} &nbsp;|&nbsp; Period: ${durLabel} &nbsp;|&nbsp; Machine: ${schedule.machine || 'All'} &nbsp;|&nbsp; Sev: ${schedule.severity || 'All'}</div>
+    <div class="meta">
+      <b>Generated:</b> ${nowStr}<br>
+      <b>Time Window:</b> ${durLabel}<br>
+      <b>Filters:</b> Branch: ${schedule.aggregator || 'All'} | Machine: ${schedule.machine || 'All'} | Severity: ${schedule.severity || 'All'}
+    </div>
   </div>
 
   <div class="attachments-banner">
-    <span>📎 2 Files Attached: Executive Summary Report (PDF) & Full Event Logs (CSV, ${totalEvents.toLocaleString()} records)</span>
+    <div class="title">📎 2 Reports Attached to this Email:</div>
+    <div class="desc">• <b>Executive Report (PDF)</b>: High-level visual dashboard with charts & incident alerts.<br>• <b>Full Event Logs (Excel/CSV)</b>: Complete log dataset (${totalEvents.toLocaleString()} records) for deep analysis.</div>
   </div>
 
   <div class="threat">
     <div class="threat-l">${threatLevel} THREAT LEVEL</div>
     <p class="threat-p">
-      <b>${totalEvents.toLocaleString()}</b> total events recorded.
-      ${critCount > 0 ? `<span style="color:#ef4444;font-weight:700">${critCount} critical</span>, ` : ''}
-      <span style="color:#f97316;font-weight:700">${highCount} high</span> severity events.
+      <b>${totalEvents.toLocaleString()}</b> total events recorded: 
+      <span style="color:#ef4444;font-weight:700">${critCount} critical</span>, 
+      <span style="color:#f97316;font-weight:700">${highCount} high</span>, 
+      <span style="color:#eab308;font-weight:700">${medCount} medium</span>, 
+      <span style="color:#3b82f6;font-weight:700">${lowCount} low</span> severity events.
       ${adCount > 0 ? `<br><span style="color:#a855f7;font-weight:700">⚠️ ${adCount} AD Attack Indicators detected!</span>` : ''}
     </p>
   </div>
@@ -267,11 +284,13 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
   <div class="section">
     <h2>Summary Statistics</h2>
     <div class="stats-grid">
-      <div class="stat"><div class="stat-n" style="color:#1e3a5f">${totalEvents.toLocaleString()}</div><div class="stat-l">Total Events</div></div>
+      <div class="stat"><div class="stat-n" style="color:#1e3a5f">${totalEvents.toLocaleString()}</div><div class="stat-l">Total</div></div>
       <div class="stat"><div class="stat-n" style="color:#ef4444">${critCount}</div><div class="stat-l">Critical</div></div>
       <div class="stat"><div class="stat-n" style="color:#f97316">${highCount}</div><div class="stat-l">High</div></div>
-      <div class="stat"><div class="stat-n" style="color:#a855f7">${adCount}</div><div class="stat-l">AD Indicators</div></div>
-      <div class="stat"><div class="stat-n" style="color:#4a5578">${machines.length}</div><div class="stat-l">Active Machines</div></div>
+      <div class="stat"><div class="stat-n" style="color:#eab308">${medCount}</div><div class="stat-l">Medium</div></div>
+      <div class="stat"><div class="stat-n" style="color:#3b82f6">${lowCount}</div><div class="stat-l">Low</div></div>
+      <div class="stat"><div class="stat-n" style="color:#a855f7">${adCount}</div><div class="stat-l">AD Alerts</div></div>
+      <div class="stat"><div class="stat-n" style="color:#4a5578">${machines.length}</div><div class="stat-l">Machines</div></div>
     </div>
   </div>
 
@@ -292,34 +311,14 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
   });
   html += `</tbody></table></div>`;
 
-  // Events preview table (Top critical & high events)
-  if (critEvents.length) {
-    const listTitle = schedule.severity 
-      ? `Priority ${schedule.severity.toUpperCase()} Alerts (Preview)` 
-      : 'Priority Critical & High Alerts (Preview)';
-    html += `<div class="section"><h2>${listTitle}</h2>
-      <p style="font-size:11px;color:#64748b;margin:0 0 8px;">Showing top ${critEvents.length} priority events. For all ${totalEvents.toLocaleString()} events, see attached CSV.</p>
-      <table><thead><tr><th>Time</th><th>Machine</th><th>Sev</th><th>Category</th><th>Message</th></tr></thead><tbody>`;
-    critEvents.slice(0, 50).forEach(e => {
-      const sevClass = (e.severity || 'l').toLowerCase().charAt(0);
-      html += `<tr>
-        <td style="white-space:nowrap;color:#4a5578">${(e.ts || '').toString().slice(0, 16)}</td>
-        <td style="color:#2563eb;font-weight:700">${e.machine}</td>
-        <td><span class="badge ${sevClass}">${e.severity}</span></td>
-        <td style="color:#4a5578;font-size:10px">${e.category}</td>
-        <td>${(e.message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').slice(0, 120)}</td>
-      </tr>`;
-    });
-    html += `</tbody></table></div>`;
-  }
-
-  // AD Attack Indicators table
+  // AD Attack Indicators table (if any)
   if (adEvents.length) {
     html += `<div class="section"><h2>AD Attack Indicators</h2>
       <table><thead><tr><th>Time</th><th>Machine</th><th>Severity</th><th>Message</th></tr></thead><tbody>`;
     adEvents.forEach(e => {
+      const tsFormatted = formatTs(e.ts).slice(0, 16);
       html += `<tr>
-        <td style="white-space:nowrap;color:#4a5578">${(e.ts || '').toString().slice(0, 16)}</td>
+        <td style="white-space:nowrap;color:#4a5578">${tsFormatted}</td>
         <td style="color:#2563eb;font-weight:700">${e.machine}</td>
         <td><span class="badge ad">${e.severity}</span></td>
         <td>${(e.message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').slice(0, 120)}</td>
@@ -329,7 +328,7 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
   }
 
   // Footer
-  html += `<div class="footer">IOC Hunt Security Report &nbsp;|&nbsp; ${schedule.name} &nbsp;|&nbsp; ${durLabel} &nbsp;|&nbsp; ${nowStr}</div>`;
+  html += `<div class="footer">IOC Hunt Security Report &nbsp;|&nbsp; ${schedule.name} &nbsp;|&nbsp; ${durLabel}</div>`;
   html += `</div></body></html>`;
 
   // ── Prepare attachments ────────────────────────────────────────────────────
@@ -366,5 +365,6 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
 }
 
 module.exports = {
-  generateAndSendReport
+  generateAndSendReport,
+  buildCsvReport
 };

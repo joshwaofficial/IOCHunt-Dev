@@ -7,31 +7,23 @@ import { Navigate } from 'react-router-dom';
 
 const FREQUENCY_PRESETS = [
   {
-    id: 'daily_8am',
-    label: 'Daily (Every Morning at 08:00 AM)',
-    cron: '0 8 * * *',
-    recommendedDuration: 24,
-    description: 'Triggers daily at 8:00 AM sharp • Covers preceding 24 hours of logs'
+    id: 'daily',
+    label: 'Daily',
+    description: 'Triggers every day at the selected dispatch time • Covers preceding 24 hours of logs'
   },
   {
-    id: 'weekly_mon_8am',
-    label: 'Weekly (Every Monday at 08:00 AM)',
-    cron: '0 8 * * 1',
-    recommendedDuration: 168,
-    description: 'Triggers every Monday at 8:00 AM sharp • Covers preceding 7 days of logs'
+    id: 'weekly',
+    label: 'Weekly (Every Monday)',
+    description: 'Triggers every Monday at the selected dispatch time • Covers preceding 7 days of logs'
   },
   {
-    id: 'monthly_1st_8am',
-    label: 'Monthly (1st of Every Month at 08:00 AM)',
-    cron: '0 8 1 * *',
-    recommendedDuration: 720,
-    description: 'Triggers on 1st of month at 8:00 AM sharp • Covers preceding 30 days of logs'
+    id: 'monthly',
+    label: 'Monthly (1st of Every Month)',
+    description: 'Triggers on 1st of month at the selected dispatch time • Covers preceding 30 days of logs'
   },
   {
     id: 'custom',
     label: '⚙ Custom Cron Expression...',
-    cron: '',
-    recommendedDuration: 24,
     description: 'User-specified cron syntax (reports logs since last execution)'
   }
 ];
@@ -39,9 +31,29 @@ const FREQUENCY_PRESETS = [
 const getCronHumanReadable = (cronExpr) => {
   if (!cronExpr) return 'Custom';
   const trimmed = cronExpr.trim();
-  if (trimmed === '0 8 * * *') return 'Daily (08:00 AM)';
-  if (trimmed === '0 8 * * 1') return 'Weekly (Mon 08:00 AM)';
-  if (trimmed === '0 8 1 * *') return 'Monthly (1st at 08:00 AM)';
+  const mDaily = trimmed.match(/^0\s+(\d+)\s+\*\s+\*\s+\*$/);
+  if (mDaily) {
+    const h = parseInt(mDaily[1], 10);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    return `Daily at ${h12 < 10 ? '0' + h12 : h12}:00 ${ampm}`;
+  }
+  const mWeekly = trimmed.match(/^0\s+(\d+)\s+\*\s+\*\s+1$/);
+  if (mWeekly) {
+    const h = parseInt(mWeekly[1], 10);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    return `Weekly (Mon ${h12 < 10 ? '0' + h12 : h12}:00 ${ampm})`;
+  }
+  const mMonthly = trimmed.match(/^0\s+(\d+)\s+1\s+\*\s+\*$/);
+  if (mMonthly) {
+    const h = parseInt(mMonthly[1], 10);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    return `Monthly (1st at ${h12 < 10 ? '0' + h12 : h12}:00 ${ampm})`;
+  }
+  if (trimmed === '* * * * *') return 'Every Minute (* * * * *)';
+  if (trimmed === '0 9 * * 1-5') return 'Weekdays (Mon-Fri 09:00 AM)';
   return trimmed;
 };
 
@@ -65,7 +77,7 @@ export default function EmailReports() {
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [loadingSchedules, setLoadingSchedules] = useState(false);
-  
+
   const [testEmail, setTestEmail] = useState('');
   const [smtpMsg, setSmtpMsg] = useState({ text: '', type: '' });
   const [schedMsg, setSchedMsg] = useState({ text: '', type: '' });
@@ -158,8 +170,8 @@ export default function EmailReports() {
     const { id, value, type, checked } = e.target;
     const key = id.replace('smtp-', '');
     if (key === 'secure') {
-      const nextPort = checked 
-        ? (Number(smtpConfig.port) === 587 ? 465 : smtpConfig.port) 
+      const nextPort = checked
+        ? (Number(smtpConfig.port) === 587 ? 465 : smtpConfig.port)
         : (Number(smtpConfig.port) === 465 ? 587 : smtpConfig.port);
       setSmtpConfig({ ...smtpConfig, secure: checked, port: nextPort });
       return;
@@ -174,25 +186,45 @@ export default function EmailReports() {
     setFormData({ ...formData, [key]: type === 'checkbox' ? checked : value });
   };
 
+  const computeCron = (preset, hour) => {
+    const h = parseInt(hour, 10);
+    const validH = isNaN(h) ? 8 : h;
+    if (preset === 'daily' || preset === 'daily_8am') return `0 ${validH} * * *`;
+    if (preset === 'weekly' || preset === 'weekly_mon_8am') return `0 ${validH} * * 1`;
+    if (preset === 'monthly' || preset === 'monthly_1st_8am') return `0 ${validH} 1 * *`;
+    return null;
+  };
+
   const handleFrequencyChange = (e) => {
     if (!isAdmin) return;
     const selectedPresetId = e.target.value;
-    const preset = FREQUENCY_PRESETS.find(p => p.id === selectedPresetId);
-    if (!preset) return;
-
-    if (preset.id === 'custom') {
+    if (selectedPresetId === 'custom') {
       setFormData(prev => ({
         ...prev,
         frequency_preset: 'custom'
       }));
     } else {
+      const hour = formData.dispatch_hour || '8';
+      const cron = computeCron(selectedPresetId, hour);
+      const duration = selectedPresetId === 'daily' ? 24 : selectedPresetId === 'weekly' ? 168 : 720;
       setFormData(prev => ({
         ...prev,
-        frequency_preset: preset.id,
-        cron_expr: preset.cron,
-        duration: preset.recommendedDuration
+        frequency_preset: selectedPresetId,
+        cron_expr: cron || prev.cron_expr,
+        duration
       }));
     }
+  };
+
+  const handleDispatchHourChange = (e) => {
+    if (!isAdmin) return;
+    const hour = e.target.value;
+    const cron = computeCron(formData.frequency_preset, hour);
+    setFormData(prev => ({
+      ...prev,
+      dispatch_hour: hour,
+      cron_expr: cron || prev.cron_expr
+    }));
   };
 
   const openNewForm = () => {
@@ -201,7 +233,8 @@ export default function EmailReports() {
     setFormData({
       name: '',
       recipients: '',
-      frequency_preset: 'daily_8am',
+      frequency_preset: 'daily',
+      dispatch_hour: '8',
       cron_expr: '0 8 * * *',
       duration: 24,
       aggregator: [],
@@ -218,11 +251,30 @@ export default function EmailReports() {
   const editSchedule = (s) => {
     if (!isAdmin) return;
     setEditId(s.id);
-    const matched = FREQUENCY_PRESETS.find(p => p.cron === (s.cron_expr || '').trim());
+    const cron = (s.cron_expr || '').trim();
+    let preset = 'custom';
+    let hour = '8';
+
+    const mDaily = cron.match(/^0\s+(\d+)\s+\*\s+\*\s+\*$/);
+    const mWeekly = cron.match(/^0\s+(\d+)\s+\*\s+\*\s+1$/);
+    const mMonthly = cron.match(/^0\s+(\d+)\s+1\s+\*\s+\*$/);
+
+    if (mDaily) {
+      preset = 'daily';
+      hour = mDaily[1];
+    } else if (mWeekly) {
+      preset = 'weekly';
+      hour = mWeekly[1];
+    } else if (mMonthly) {
+      preset = 'monthly';
+      hour = mMonthly[1];
+    }
+
     setFormData({
       name: s.name,
       recipients: s.recipients,
-      frequency_preset: matched ? matched.id : 'custom',
+      frequency_preset: preset,
+      dispatch_hour: hour,
       cron_expr: s.cron_expr,
       duration: s.duration,
       aggregator: s.aggregator ? s.aggregator.split(',') : [],
@@ -318,10 +370,10 @@ export default function EmailReports() {
             </span>
           </div>
         </div>
-        
+
         <div style={{ padding: '20px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '20px' }}>
-            
+
             {/* Connection Settings */}
             <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px' }}>
               <h3 style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '1px', margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -390,10 +442,10 @@ export default function EmailReports() {
               </div>
               Enable Scheduled Emails Engine
             </label>
-            
+
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
               <span style={{ fontFamily: 'var(--mono)', fontSize: '11px', color: smtpMsg.type === 'error' ? 'var(--critical)' : 'var(--low)' }}>{smtpMsg.text}</span>
-              
+
               <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden', height: '36px', opacity: isAdmin ? 1 : 0.6 }}>
                 <input type="text" className="input-field no-focus-outline" autoComplete="new-password" placeholder="test@example.com" value={testEmail} onChange={e => setTestEmail(e.target.value)} disabled={!isAdmin}
                   style={{ background: 'transparent', border: 'none', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', padding: '0 12px', width: '200px', outline: 'none', boxShadow: 'none', cursor: isAdmin ? 'text' : 'not-allowed' }} />
@@ -421,7 +473,7 @@ export default function EmailReports() {
           </div>
           <button onClick={openNewForm} disabled={!isAdmin} title={isAdmin ? "Create new email schedule" : "Admin privileges required"}
             style={{ background: isAdmin ? '#2563eb' : 'var(--surface2)', color: isAdmin ? '#fff' : 'var(--muted)', border: isAdmin ? 'none' : '1px solid var(--border)', padding: '6px 14px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', cursor: isAdmin ? 'pointer' : 'not-allowed', opacity: isAdmin ? 1 : 0.5 }}>
-             + New Schedule
+            + New Schedule
           </button>
         </div>
 
@@ -431,7 +483,7 @@ export default function EmailReports() {
               <div style={{ fontFamily: 'var(--mono)', fontSize: '10px', color: '#2563eb', letterSpacing: '1px', textTransform: 'uppercase', fontWeight: 700 }}>{editId ? 'EDIT SCHEDULE' : 'NEW SCHEDULE'}</div>
               <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}><span className="material-symbols-outlined">close</span></button>
             </div>
-            
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>Schedule Name</label>
@@ -443,35 +495,63 @@ export default function EmailReports() {
                 <input id="sched-recipients" className="input-field" type="text" placeholder="admin@org.com, soc@org.com" value={formData.recipients} onChange={handleFormChange}
                   style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} />
               </div>
-              <div style={{ gridColumn: 'span 2' }}>
+              <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                   <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>
                     Schedule Frequency
                   </label>
-                  <span style={{ fontSize: '10px', color: '#22c55e', fontFamily: 'var(--mono)', fontWeight: 600 }}>Fixed 08:00 AM Dispatch</span>
+                  <span style={{ fontSize: '10px', color: '#22c55e', fontFamily: 'var(--mono)', fontWeight: 600 }}>Automated Dispatch</span>
                 </div>
                 <select
                   id="sched-frequency_preset"
                   className="input-field"
-                  value={formData.frequency_preset || 'daily_8am'}
+                  value={formData.frequency_preset || 'daily'}
                   onChange={handleFrequencyChange}
                   style={{ width: '100%', height: '36px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', outline: 'none', cursor: 'pointer' }}
                 >
-                  <optgroup label="Standard 08:00 AM Schedules">
-                    {FREQUENCY_PRESETS.filter(p => p.id !== 'custom').map(p => (
-                      <option key={p.id} value={p.id}>{p.label}</option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="Custom">
-                    <option value="custom">⚙ Custom Cron Expression...</option>
-                  </optgroup>
+                  <option value="daily">Daily (Every Day)</option>
+                  <option value="weekly">Weekly (Every Monday)</option>
+                  <option value="monthly">Monthly (1st of Every Month)</option>
+                  <option value="custom">Custom Cron Expression...</option>
                 </select>
-                <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '6px', fontFamily: 'var(--sans)' }}>
-                  {formData.frequency_preset === 'daily_8am' && '✓ Automatically sends 24 hours of logs (from yesterday 08:00 AM to today 08:00 AM sharp).'}
-                  {formData.frequency_preset === 'weekly_mon_8am' && '✓ Automatically sends 7 days of logs (from last Monday 08:00 AM to this Monday 08:00 AM sharp).'}
-                  {formData.frequency_preset === 'monthly_1st_8am' && '✓ Automatically sends 30 days of logs (full previous month up to 1st of month 08:00 AM sharp).'}
-                  {formData.frequency_preset === 'custom' && '✓ Automatically sends all logs accumulated since the last email run.'}
+              </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>
+                    Dispatch Time
+                  </label>
+                  <span style={{ fontSize: '10px', color: '#38bdf8', fontFamily: 'var(--mono)', fontWeight: 600 }}>Fixed Run Time</span>
                 </div>
+                <select
+                  id="sched-dispatch_hour"
+                  className="input-field"
+                  value={formData.dispatch_hour || '8'}
+                  onChange={handleDispatchHourChange}
+                  disabled={formData.frequency_preset === 'custom'}
+                  style={{ width: '100%', height: '36px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', outline: 'none', cursor: formData.frequency_preset === 'custom' ? 'not-allowed' : 'pointer', opacity: formData.frequency_preset === 'custom' ? 0.5 : 1 }}
+                >
+                  <option value="0">12:00 AM (Midnight)</option>
+                  <option value="6">06:00 AM</option>
+                  <option value="7">07:00 AM</option>
+                  <option value="8">08:00 AM (Recommended Default)</option>
+                  <option value="9">09:00 AM</option>
+                  <option value="10">10:00 AM</option>
+                  <option value="11">11:00 AM</option>
+                  <option value="12">12:00 PM (Noon)</option>
+                  <option value="13">01:00 PM</option>
+                  <option value="14">02:00 PM</option>
+                  <option value="17">05:00 PM</option>
+                  <option value="18">06:00 PM</option>
+                  <option value="20">08:00 PM</option>
+                </select>
+              </div>
+
+              <div style={{ gridColumn: 'span 2', fontSize: '11px', color: 'var(--muted)', marginTop: '-8px', marginBottom: '4px', fontFamily: 'var(--sans)' }}>
+                {formData.frequency_preset === 'daily' && `Automatically triggers daily at ${formData.dispatch_hour ? (formData.dispatch_hour % 12 || 12) + ':00 ' + (formData.dispatch_hour >= 12 ? 'PM' : 'AM') : '08:00 AM'} sharp and sends 24 hours of logs.`}
+                {formData.frequency_preset === 'weekly' && `Automatically triggers every Monday at ${formData.dispatch_hour ? (formData.dispatch_hour % 12 || 12) + ':00 ' + (formData.dispatch_hour >= 12 ? 'PM' : 'AM') : '08:00 AM'} sharp and sends 7 days of logs.`}
+                {formData.frequency_preset === 'monthly' && `Automatically triggers on the 1st of every month at ${formData.dispatch_hour ? (formData.dispatch_hour % 12 || 12) + ':00 ' + (formData.dispatch_hour >= 12 ? 'PM' : 'AM') : '08:00 AM'} sharp and sends 30 days of logs.`}
+                {formData.frequency_preset === 'custom' && 'Automatically sends all logs accumulated since the last email run.'}
               </div>
 
               {formData.frequency_preset === 'custom' && (
@@ -496,60 +576,63 @@ export default function EmailReports() {
                   </div>
                 </div>
               )}
-              <div style={{ position: 'relative' }}>
-                <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>Branch (optional)</label>
-                <div 
-                  onClick={() => setShowBranchDropdown(!showBranchDropdown)}
-                  style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
-                >
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {formData.aggregator.length === 0 ? 'All Branches' : `${formData.aggregator.length} selected`}
-                  </span>
-                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'var(--muted)' }}>expand_more</span>
-                </div>
-                
-                {showBranchDropdown && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', marginTop: '4px', zIndex: 10, padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-                    {aggregators.map(a => (
-                      <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', color: 'var(--text)' }}>
-                        <input 
-                          type="checkbox"
-                          checked={formData.aggregator.includes(a.name)}
-                          onChange={(e) => {
-                            const isChecked = e.target.checked;
-                            let newAggrs = [...formData.aggregator];
-                            if (isChecked) {
-                              newAggrs.push(a.name);
-                            } else {
-                              newAggrs = newAggrs.filter(name => name !== a.name);
-                            }
-                            setFormData({ ...formData, aggregator: newAggrs });
-                          }}
-                        />
-                        {a.name}
-                      </label>
-                    ))}
-                    {aggregators.length === 0 && <div style={{ fontSize: '11px', color: 'var(--muted)' }}>No branches available</div>}
+
+              <div style={{ gridColumn: 'span 2', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                <div style={{ position: 'relative' }}>
+                  <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>Branch (optional)</label>
+                  <div
+                    onClick={() => setShowBranchDropdown(!showBranchDropdown)}
+                    style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {formData.aggregator.length === 0 ? 'All Branches' : `${formData.aggregator.length} selected`}
+                    </span>
+                    <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'var(--muted)' }}>expand_more</span>
                   </div>
-                )}
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>Machine (optional)</label>
-                <select id="sched-machine" className="input-field" value={formData.machine} onChange={handleFormChange}
-                  style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', outline: 'none' }}>
-                  <option value="">All Machines</option>
-                  {filteredMachines.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>Severity Filter</label>
-                <select id="sched-severity" className="input-field" value={formData.severity} onChange={handleFormChange}
-                  style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', outline: 'none' }}>
-                  <option value="">All Severities</option>
-                  <option value="critical">Critical</option>
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                </select>
+
+                  {showBranchDropdown && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', marginTop: '4px', zIndex: 10, padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                      {aggregators.map(a => (
+                        <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', color: 'var(--text)' }}>
+                          <input
+                            type="checkbox"
+                            checked={formData.aggregator.includes(a.name)}
+                            onChange={(e) => {
+                              const isChecked = e.target.checked;
+                              let newAggrs = [...formData.aggregator];
+                              if (isChecked) {
+                                newAggrs.push(a.name);
+                              } else {
+                                newAggrs = newAggrs.filter(name => name !== a.name);
+                              }
+                              setFormData({ ...formData, aggregator: newAggrs });
+                            }}
+                          />
+                          {a.name}
+                        </label>
+                      ))}
+                      {aggregators.length === 0 && <div style={{ fontSize: '11px', color: 'var(--muted)' }}>No branches available</div>}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>Machine (optional)</label>
+                  <select id="sched-machine" className="input-field" value={formData.machine} onChange={handleFormChange}
+                    style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', outline: 'none' }}>
+                    <option value="">All Machines</option>
+                    {filteredMachines.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>Severity Filter</label>
+                  <select id="sched-severity" className="input-field" value={formData.severity} onChange={handleFormChange}
+                    style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', outline: 'none' }}>
+                    <option value="">All Severities</option>
+                    <option value="critical">Critical</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -621,22 +704,22 @@ export default function EmailReports() {
                         {s.last_run ? (
                           <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
-                              <span style={{ 
-                                display: 'inline-flex', 
-                                alignItems: 'center', 
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
                                 gap: '3px',
-                                padding: '2px 7px', 
-                                borderRadius: '4px', 
-                                fontSize: '10px', 
-                                fontWeight: 700, 
-                                background: s.last_status === 'OK' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)', 
-                                color: s.last_status === 'OK' ? '#22c55e' : '#ef4444' 
+                                padding: '2px 7px',
+                                borderRadius: '4px',
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                background: s.last_status === 'OK' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+                                color: s.last_status === 'OK' ? '#22c55e' : '#ef4444'
                               }}>
-                                {s.last_status === 'OK' ? '✓ Delivered' : '⚠ Failed'}
+                                {s.last_status === 'OK' ? 'Delivered' : 'Failed'}
                               </span>
                             </div>
                             <div style={{ fontSize: '10px', color: '#728bb2', fontFamily: 'var(--mono)' }}>
-                              {new Date(s.last_run * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              {new Date(s.last_run * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
                             </div>
                             {s.last_status && s.last_status !== 'OK' && (
                               <div style={{ fontSize: '9px', color: '#ef4444', marginTop: '2px', maxWidth: '170px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.last_status}>
@@ -655,57 +738,57 @@ export default function EmailReports() {
                       </td>
                       <td style={{ padding: '14px 16px', whiteSpace: 'nowrap', textAlign: 'right' }}>
                         <div style={{ display: 'inline-flex', gap: '6px', justifyContent: 'flex-end', fontFamily: 'var(--sans)' }}>
-                          <button 
-                            onClick={() => isAdmin && runSchedule(s.id)} 
+                          <button
+                            onClick={() => isAdmin && runSchedule(s.id)}
                             disabled={!isAdmin}
                             title={isAdmin ? "Run schedule now" : "Admin privileges required"}
-                            style={{ 
-                              background: isAdmin ? 'rgba(34,212,122,0.1)' : 'var(--surface2)', 
-                              color: isAdmin ? '#22c55e' : 'var(--muted)', 
-                              border: `1px solid ${isAdmin ? 'rgba(34,212,122,0.2)' : 'var(--border)'}`, 
-                              padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, 
+                            style={{
+                              background: isAdmin ? 'rgba(34,212,122,0.1)' : 'var(--surface2)',
+                              color: isAdmin ? '#22c55e' : 'var(--muted)',
+                              border: `1px solid ${isAdmin ? 'rgba(34,212,122,0.2)' : 'var(--border)'}`,
+                              padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600,
                               cursor: isAdmin ? 'pointer' : 'not-allowed',
                               opacity: isAdmin ? 1 : 0.4
                             }}>
                             Run
                           </button>
-                          <button 
-                            onClick={() => isAdmin && editSchedule(s)} 
+                          <button
+                            onClick={() => isAdmin && editSchedule(s)}
                             disabled={!isAdmin}
                             title={isAdmin ? "Edit schedule" : "Admin privileges required"}
-                            style={{ 
-                              background: 'var(--surface2)', 
-                              color: isAdmin ? 'var(--text)' : 'var(--muted)', 
-                              border: '1px solid var(--border)', 
-                              padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, 
+                            style={{
+                              background: 'var(--surface2)',
+                              color: isAdmin ? 'var(--text)' : 'var(--muted)',
+                              border: '1px solid var(--border)',
+                              padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600,
                               cursor: isAdmin ? 'pointer' : 'not-allowed',
                               opacity: isAdmin ? 1 : 0.4
                             }}>
                             Edit
                           </button>
-                          <button 
-                            onClick={() => isAdmin && toggleSchedule(s)} 
+                          <button
+                            onClick={() => isAdmin && toggleSchedule(s)}
                             disabled={!isAdmin}
                             title={isAdmin ? (s.enabled ? 'Pause schedule' : 'Resume schedule') : "Admin privileges required"}
-                            style={{ 
-                              background: 'var(--surface2)', 
-                              color: isAdmin ? 'var(--text)' : 'var(--muted)', 
-                              border: '1px solid var(--border)', 
-                              padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, 
+                            style={{
+                              background: 'var(--surface2)',
+                              color: isAdmin ? 'var(--text)' : 'var(--muted)',
+                              border: '1px solid var(--border)',
+                              padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600,
                               cursor: isAdmin ? 'pointer' : 'not-allowed',
                               opacity: isAdmin ? 1 : 0.4
                             }}>
                             {s.enabled ? 'Pause' : 'Resume'}
                           </button>
-                          <button 
-                            onClick={() => isAdmin && deleteSchedule(s.id)} 
+                          <button
+                            onClick={() => isAdmin && deleteSchedule(s.id)}
                             disabled={!isAdmin}
                             title={isAdmin ? "Delete schedule" : "Admin privileges required"}
-                            style={{ 
-                              background: isAdmin ? 'rgba(239,68,68,0.1)' : 'var(--surface2)', 
-                              color: isAdmin ? '#ef4444' : 'var(--muted)', 
-                              border: `1px solid ${isAdmin ? 'rgba(239,68,68,0.2)' : 'var(--border)'}`, 
-                              padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, 
+                            style={{
+                              background: isAdmin ? 'rgba(239,68,68,0.1)' : 'var(--surface2)',
+                              color: isAdmin ? '#ef4444' : 'var(--muted)',
+                              border: `1px solid ${isAdmin ? 'rgba(239,68,68,0.2)' : 'var(--border)'}`,
+                              padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600,
                               cursor: isAdmin ? 'pointer' : 'not-allowed',
                               opacity: isAdmin ? 1 : 0.4
                             }}>
@@ -729,17 +812,17 @@ export default function EmailReports() {
             <h3 style={{ margin: '0 0 10px', fontSize: '18px', fontWeight: 800, color: 'var(--text)' }}>{confirmDialog.title}</h3>
             <p style={{ margin: '0 0 24px', fontSize: '14px', color: 'var(--muted)', lineHeight: 1.5 }}>{confirmDialog.message}</p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button 
-                onClick={() => setConfirmDialog({ isOpen: false })} 
+              <button
+                onClick={() => setConfirmDialog({ isOpen: false })}
                 style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 16px', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
               >
                 Cancel
               </button>
-              <button 
+              <button
                 onClick={() => {
                   if (confirmDialog.onConfirm) confirmDialog.onConfirm();
                   setConfirmDialog({ isOpen: false });
-                }} 
+                }}
                 style={{ background: confirmDialog.type === 'danger' ? '#ef4444' : '#2563eb', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
               >
                 Confirm
@@ -756,8 +839,8 @@ export default function EmailReports() {
             <h3 style={{ margin: '0 0 10px', fontSize: '18px', fontWeight: 800, color: 'var(--text)' }}>{alertDialog.title}</h3>
             <p style={{ margin: '0 0 24px', fontSize: '14px', color: 'var(--muted)', lineHeight: 1.5 }}>{alertDialog.message}</p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button 
-                onClick={() => setAlertDialog({ isOpen: false })} 
+              <button
+                onClick={() => setAlertDialog({ isOpen: false })}
                 style={{ background: alertDialog.type === 'danger' ? '#ef4444' : '#2563eb', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
               >
                 OK
