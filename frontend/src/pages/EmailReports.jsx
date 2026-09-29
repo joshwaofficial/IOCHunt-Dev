@@ -9,22 +9,22 @@ const FREQUENCY_PRESETS = [
   {
     id: 'daily',
     label: 'Daily',
-    description: 'Triggers every day at the selected dispatch time • Covers preceding 24 hours of logs'
+    description: 'Triggers every day at the selected dispatch time • Covers preceding 24 hours of threat intelligence'
   },
   {
     id: 'weekly',
     label: 'Weekly (Every Monday)',
-    description: 'Triggers every Monday at the selected dispatch time • Covers preceding 7 days of logs'
+    description: 'Triggers every Monday at the selected dispatch time • Covers preceding 7 days of threat intelligence'
   },
   {
     id: 'monthly',
     label: 'Monthly (1st of Every Month)',
-    description: 'Triggers on 1st of month at the selected dispatch time • Covers preceding 30 days of logs'
+    description: 'Triggers on 1st of month at the selected dispatch time • Covers preceding 30 days of threat intelligence'
   },
   {
     id: 'custom',
     label: '⚙ Custom Cron Expression...',
-    description: 'User-specified cron syntax (reports logs since last execution)'
+    description: 'User-specified cron syntax (reports threat intelligence since last execution)'
   }
 ];
 
@@ -87,6 +87,7 @@ export default function EmailReports() {
 
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [downloadingPeriod, setDownloadingPeriod] = useState(null);
   const [formData, setFormData] = useState({
     name: '', recipients: '', frequency_preset: 'daily_8am', cron_expr: '0 8 * * *', duration: 24, aggregator: [], machine: '', severity: '', category: '', include_fw: true, enabled: true
   });
@@ -162,6 +163,34 @@ export default function EmailReports() {
       setSmtpMsg({ text: e.response?.data?.error || 'Failed to send', type: 'error' });
     } finally {
       setLoadingConfig(false);
+    }
+  };
+
+  const handleDownloadPreview = async (period) => {
+    try {
+      setDownloadingPeriod(period);
+      const res = await axios.get(`/api/smtp/preview-pdf?period=${period}`, {
+        responseType: 'blob'
+      });
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `IOCHunt_${period.toUpperCase()}_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download preview PDF:', err);
+      setAlertDialog({
+        isOpen: true,
+        title: 'Preview Generation Error',
+        message: 'Failed to generate PDF preview. ' + (err.response?.data?.error || err.message),
+        type: 'danger'
+      });
+    } finally {
+      setDownloadingPeriod(null);
     }
   };
 
@@ -477,6 +506,101 @@ export default function EmailReports() {
           </button>
         </div>
 
+        {/* Instant Live Report Simulation & Test Download Bar */}
+        <div style={{ padding: '14px 20px', background: 'rgba(37,99,235,0.03)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(56,189,248,0.1)', color: '#38bdf8' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>download</span>
+            </div>
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                Simulate & Test Download Live Executive PDF
+                <span style={{ fontSize: '9px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: 'rgba(56,189,248,0.15)', color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Instant Test</span>
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
+                Download and inspect the exact continuous vector PDF that is dispatched via email:
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={() => handleDownloadPreview('daily')}
+              disabled={Boolean(downloadingPeriod)}
+              title="Download live continuous report for preceding 24 hours"
+              style={{
+                background: downloadingPeriod === 'daily' ? 'rgba(56,189,248,0.2)' : 'var(--surface)',
+                border: '1px solid #38bdf8',
+                color: '#38bdf8',
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '11px',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: downloadingPeriod ? 'wait' : 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>
+                {downloadingPeriod === 'daily' ? 'sync' : 'picture_as_pdf'}
+              </span>
+              {downloadingPeriod === 'daily' ? 'Generating 24h...' : 'Daily (24h) PDF'}
+            </button>
+
+            <button
+              onClick={() => handleDownloadPreview('weekly')}
+              disabled={Boolean(downloadingPeriod)}
+              title="Download live continuous report for preceding 7 days"
+              style={{
+                background: downloadingPeriod === 'weekly' ? 'rgba(139,92,246,0.2)' : 'var(--surface)',
+                border: '1px solid #8b5cf6',
+                color: '#8b5cf6',
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '11px',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: downloadingPeriod ? 'wait' : 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>
+                {downloadingPeriod === 'weekly' ? 'sync' : 'picture_as_pdf'}
+              </span>
+              {downloadingPeriod === 'weekly' ? 'Generating 7d...' : 'Weekly (7d) PDF'}
+            </button>
+
+            <button
+              onClick={() => handleDownloadPreview('monthly')}
+              disabled={Boolean(downloadingPeriod)}
+              title="Download live continuous report for preceding 30 days"
+              style={{
+                background: downloadingPeriod === 'monthly' ? 'rgba(16,185,129,0.2)' : 'var(--surface)',
+                border: '1px solid #10b981',
+                color: '#10b981',
+                padding: '6px 14px',
+                borderRadius: '6px',
+                fontSize: '11px',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: downloadingPeriod ? 'wait' : 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>
+                {downloadingPeriod === 'monthly' ? 'sync' : 'picture_as_pdf'}
+              </span>
+              {downloadingPeriod === 'monthly' ? 'Generating 30d...' : 'Monthly (30d) PDF'}
+            </button>
+          </div>
+        </div>
+
         {showForm && isAdmin && (
           <div style={{ padding: '20px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -548,10 +672,10 @@ export default function EmailReports() {
               </div>
 
               <div style={{ gridColumn: 'span 2', fontSize: '11px', color: 'var(--muted)', marginTop: '-8px', marginBottom: '4px', fontFamily: 'var(--sans)' }}>
-                {formData.frequency_preset === 'daily' && `Automatically triggers daily at ${formData.dispatch_hour ? (formData.dispatch_hour % 12 || 12) + ':00 ' + (formData.dispatch_hour >= 12 ? 'PM' : 'AM') : '08:00 AM'} sharp and sends 24 hours of logs.`}
-                {formData.frequency_preset === 'weekly' && `Automatically triggers every Monday at ${formData.dispatch_hour ? (formData.dispatch_hour % 12 || 12) + ':00 ' + (formData.dispatch_hour >= 12 ? 'PM' : 'AM') : '08:00 AM'} sharp and sends 7 days of logs.`}
-                {formData.frequency_preset === 'monthly' && `Automatically triggers on the 1st of every month at ${formData.dispatch_hour ? (formData.dispatch_hour % 12 || 12) + ':00 ' + (formData.dispatch_hour >= 12 ? 'PM' : 'AM') : '08:00 AM'} sharp and sends 30 days of logs.`}
-                {formData.frequency_preset === 'custom' && 'Automatically sends all logs accumulated since the last email run.'}
+                {formData.frequency_preset === 'daily' && `Automatically triggers daily at ${formData.dispatch_hour ? (formData.dispatch_hour % 12 || 12) + ':00 ' + (formData.dispatch_hour >= 12 ? 'PM' : 'AM') : '08:00 AM'} sharp and sends 24 hours of executive threat analytics.`}
+                {formData.frequency_preset === 'weekly' && `Automatically triggers every Monday at ${formData.dispatch_hour ? (formData.dispatch_hour % 12 || 12) + ':00 ' + (formData.dispatch_hour >= 12 ? 'PM' : 'AM') : '08:00 AM'} sharp and sends 7 days of executive threat analytics.`}
+                {formData.frequency_preset === 'monthly' && `Automatically triggers on the 1st of every month at ${formData.dispatch_hour ? (formData.dispatch_hour % 12 || 12) + ':00 ' + (formData.dispatch_hour >= 12 ? 'PM' : 'AM') : '08:00 AM'} sharp and sends 30 days of executive threat analytics.`}
+                {formData.frequency_preset === 'custom' && 'Automatically sends executive threat analytics accumulated since the last email run.'}
               </div>
 
               {formData.frequency_preset === 'custom' && (

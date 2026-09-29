@@ -3,7 +3,7 @@ const cron = require('node-cron');
 const appMode = require('../config/appMode');
 const { getSmtpConfig, createTransporter } = require('../utils/emailHelper');
 const { startSchedule, stopSchedule } = require('../utils/emailScheduler');
-const { generateAndSendReport } = require('../utils/reportBuilder');
+const { generateAndSendReport, buildReportDataAndPdf } = require('../utils/reportBuilder');
 const { encryptText } = require('../utils/cryptoHelper');
 const { isString, isEmail, isInteger, parseSafeInt, isPositiveInteger, sanitizeText } = require('../utils/inputValidator');
 
@@ -308,5 +308,35 @@ exports.runSchedule = async (req, res) => {
   } catch (err) {
     console.error('[Schedules] Run error:', err);
     res.status(500).json({ error: 'Failed to trigger schedule run' });
+  }
+};
+
+// ── GET /api/smtp/preview-pdf ───────────────────────────────────────────────
+// Generates and directly streams a simulation PDF report for immediate download
+exports.previewPdf = async (req, res) => {
+  if (appMode.isAggregator()) {
+    return res.status(403).json({ error: 'Email reporting is only available on Central Server' });
+  }
+  try {
+    const period = (req.query.period || 'daily').toLowerCase();
+    const q = req.queryTenant || req.queryControlPlane;
+
+    const { pdfBuffer } = await buildReportDataAndPdf({
+      period,
+      simulated: true,
+      aggregator: req.query.aggregator || '',
+      machine: req.query.machine || '',
+      severity: req.query.severity || '',
+      category: req.query.category || '',
+      name: `${period.toUpperCase()} Simulation Threat Intelligence Report`
+    }, q);
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="IOCHunt_${period.toUpperCase()}_Live_Report_${dateStr}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('[PDF Preview Error]:', err);
+    res.status(500).json({ error: 'Failed to generate PDF preview: ' + err.message });
   }
 };
