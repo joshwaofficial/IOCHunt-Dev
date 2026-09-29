@@ -514,11 +514,11 @@ export default function EmailReports() {
             </div>
             <div>
               <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                Simulate & Test Download Live Executive PDF
-                <span style={{ fontSize: '9px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: 'rgba(56,189,248,0.15)', color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Instant Test</span>
+                Download Live Executive Threat Report
+                <span style={{ fontSize: '9px', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: 'rgba(16,185,129,0.15)', color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Live Data</span>
               </div>
               <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-                Download and inspect the exact continuous vector PDF that is dispatched via email:
+                Directly generate and download the exact continuous executive PDF report from live database telemetry:
               </div>
             </div>
           </div>

@@ -1,6 +1,26 @@
-const { createCanvas } = require('@napi-rs/canvas');
+const path = require('path');
+const fs = require('fs');
+const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
 const { Chart, registerables } = require('chart.js');
 Chart.register(...registerables);
+
+// Register bundled Inter fonts to guarantee labels render on any headless Linux or macOS server
+try {
+  const regPath = path.join(__dirname, '../assets/fonts/inter-regular.woff');
+  const boldPath = path.join(__dirname, '../assets/fonts/inter-bold.woff');
+  if (fs.existsSync(regPath)) {
+    GlobalFonts.registerFromPath(regPath, 'Inter');
+  }
+  if (fs.existsSync(boldPath)) {
+    GlobalFonts.registerFromPath(boldPath, 'InterBold');
+  }
+  GlobalFonts.loadSystemFonts();
+} catch (fontErr) {
+  console.warn('[ChartRenderer] Font registration warning:', fontErr.message);
+}
+
+// Ensure Chart.js defaults to Inter with fallbacks
+Chart.defaults.font.family = "'Inter', 'InterBold', 'Helvetica Neue', 'Helvetica', 'Arial', sans-serif";
 
 // Curated SOC Palette
 const PALETTE = {
@@ -31,12 +51,12 @@ function createCenterTextPlugin(primaryText, subText) {
       ctx.textBaseline = 'middle';
 
       // Primary value
-      ctx.font = 'bold 32px sans-serif';
+      ctx.font = 'bold 32px Inter, Arial, sans-serif';
       ctx.fillStyle = '#0f172a';
       ctx.fillText(primaryText, width / 2, height / 2 - 8);
 
       // Subtitle
-      ctx.font = 'bold 12px sans-serif';
+      ctx.font = 'bold 12px Inter, Arial, sans-serif';
       ctx.fillStyle = '#64748b';
       ctx.fillText(subText, width / 2, height / 2 + 18);
       ctx.restore();
@@ -116,7 +136,7 @@ async function generateTimelineChartBuffer(timeline) {
         x: {
           grid: { display: false },
           ticks: {
-            font: { size: 12, weight: 'bold', family: 'sans-serif' },
+            font: { size: 12, weight: 'bold', family: 'Inter, Arial, sans-serif' },
             color: '#64748b',
             maxRotation: 0
           }
@@ -129,13 +149,13 @@ async function generateTimelineChartBuffer(timeline) {
             lineWidth: 1
           },
           ticks: {
-            font: { size: 11, family: 'sans-serif' },
+            font: { size: 11, family: 'Inter, Arial, sans-serif' },
             color: '#94a3b8'
           },
           title: {
             display: true,
             text: 'Baseline Event Volume',
-            font: { size: 11, weight: 'bold', family: 'sans-serif' },
+            font: { size: 11, weight: 'bold', family: 'Inter, Arial, sans-serif' },
             color: '#64748b'
           }
         },
@@ -144,14 +164,14 @@ async function generateTimelineChartBuffer(timeline) {
           beginAtZero: true,
           grid: { display: false },
           ticks: {
-            font: { size: 11, weight: 'bold', family: 'sans-serif' },
+            font: { size: 11, weight: 'bold', family: 'Inter, Arial, sans-serif' },
             color: '#ef4444',
             precision: 0
           },
           title: {
             display: true,
             text: 'Threat Attack Pulses',
-            font: { size: 11, weight: 'bold', family: 'sans-serif' },
+            font: { size: 11, weight: 'bold', family: 'Inter, Arial, sans-serif' },
             color: '#ef4444'
           }
         }
@@ -164,7 +184,7 @@ async function generateTimelineChartBuffer(timeline) {
             usePointStyle: true,
             boxWidth: 10,
             boxHeight: 10,
-            font: { size: 12, weight: 'bold', family: 'sans-serif' },
+            font: { size: 12, weight: 'bold', family: 'Inter, Arial, sans-serif' },
             color: '#475569',
             padding: 16
           }
@@ -266,11 +286,11 @@ async function generateMitreChartBuffer(tacticList) {
         x: {
           beginAtZero: true,
           grid: { color: '#e2e8f0', lineWidth: 1 },
-          ticks: { font: { size: 12, family: 'sans-serif' }, color: '#94a3b8' }
+          ticks: { font: { size: 12, family: 'Inter, Arial, sans-serif' }, color: '#94a3b8' }
         },
         y: {
           grid: { display: false },
-          ticks: { font: { size: 13, weight: 'bold', family: 'sans-serif' }, color: '#1e293b' }
+          ticks: { font: { size: 13, weight: 'bold', family: 'Inter, Arial, sans-serif' }, color: '#1e293b' }
         }
       },
       plugins: {
@@ -322,11 +342,11 @@ async function generatePortsChartBuffer(portList) {
         x: {
           beginAtZero: true,
           grid: { color: '#e2e8f0', lineWidth: 1 },
-          ticks: { font: { size: 12, family: 'sans-serif' }, color: '#94a3b8' }
+          ticks: { font: { size: 12, family: 'Inter, Arial, sans-serif' }, color: '#94a3b8' }
         },
         y: {
           grid: { display: false },
-          ticks: { font: { size: 13, weight: 'bold', family: 'sans-serif' }, color: '#1e293b' }
+          ticks: { font: { size: 13, weight: 'bold', family: 'Inter, Arial, sans-serif' }, color: '#1e293b' }
         }
       },
       plugins: {

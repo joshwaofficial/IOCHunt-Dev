@@ -473,8 +473,7 @@ async function generatePdfReport(data) {
       doc.y = fleetBoxY + fleetBoxH + 16;
 
       // ── 11. Incident Forensics Case Cards (Top 3-5 Ranked Threats + Register) ──
-      renderSectionHeading('Incident Management Briefing & Forensics Case Cards', 'Prioritized forensic investigation briefs with blast-radius telemetry evidence');
-      ensureSpace(80);
+      renderSectionHeading('Incident Management Briefing & Forensics Case Cards', 'Prioritized forensic investigation briefs with blast-radius telemetry evidence', 120);
 
       // Resolution & MTTR KPI Strip
       const incData = data.incidents || { total: 0, open: 0, resolved: 0, avgResolutionMin: 0 };
@@ -495,43 +494,52 @@ async function generatePdfReport(data) {
         doc.roundedRect(margin, doc.y, contentWidth, 26, 4).fillAndStroke(C_BG_LIGHT, C_BORDER);
         doc.fillColor(C_LOW).font('Helvetica-Bold').fontSize(7.5)
           .text('✓ Zero critical security incidents active during this operational window.', margin, doc.y + 9, { width: contentWidth, align: 'center' });
-        doc.y += 36;
+        doc.y += 34;
       } else {
         topCards.slice(0, 4).forEach(card => {
-          ensureSpace(58);
+          ensureSpace(62);
           const cardBoxY = doc.y;
           const isP1 = card.priority === 'P1';
           const cardAccent = isP1 ? C_CRIT : C_HIGH;
 
-          doc.roundedRect(margin, cardBoxY, contentWidth, 52, 4).fillAndStroke(C_BG_LIGHT, C_BORDER);
-          doc.rect(margin, cardBoxY, 4, 52).fill(cardAccent);
+          // Main Card Container with Subtle Shadow / Border
+          doc.roundedRect(margin, cardBoxY, contentWidth, 54, 4).fillAndStroke('#ffffff', '#cbd5e1');
+          doc.roundedRect(margin, cardBoxY, 4, 54, 2).fill(cardAccent);
 
-          // Header Row: ID, Title, Severity Badge, Status Badge
-          doc.fillColor(cardAccent).font('Helvetica-Bold').fontSize(8.5)
-            .text(`${card.id}: ${card.title}`, margin + 12, cardBoxY + 6);
+          // ID Pill (Clean light container)
+          doc.roundedRect(margin + 10, cardBoxY + 6, 52, 13, 3).fillAndStroke('#f1f5f9', '#cbd5e1');
+          doc.fillColor('#1e293b').font('Helvetica-Bold').fontSize(6.5)
+            .text(card.id, margin + 10, cardBoxY + 8.5, { width: 52, align: 'center' });
+
+          // Incident Title
+          doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(8.5)
+            .text(card.title, margin + 68, cardBoxY + 7, { width: contentWidth - 195, lineBreak: false });
 
           // Priority badge
-          const pBadgeX = margin + contentWidth - 110;
-          doc.roundedRect(pBadgeX, cardBoxY + 5, 45, 12, 2).fill(cardAccent);
-          doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(6)
-            .text(card.priority === 'P1' ? 'P1 CRITICAL' : card.priority, pBadgeX, cardBoxY + 7.5, { width: 45, align: 'center' });
+          const pBadgeX = margin + contentWidth - 118;
+          doc.roundedRect(pBadgeX, cardBoxY + 6, 50, 13, 3).fill(cardAccent);
+          doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(6.5)
+            .text(card.priority === 'P1' ? 'P1 CRITICAL' : card.priority, pBadgeX, cardBoxY + 8.5, { width: 50, align: 'center' });
 
           // Status badge
-          const sBadgeX = margin + contentWidth - 60;
-          doc.roundedRect(sBadgeX, cardBoxY + 5, 52, 12, 2).fill(card.status.includes('RESOLV') ? C_LOW : '#64748b');
-          doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(6)
-            .text(card.status, sBadgeX, cardBoxY + 7.5, { width: 52, align: 'center' });
+          const sBadgeX = margin + contentWidth - 62;
+          doc.roundedRect(sBadgeX, cardBoxY + 6, 54, 13, 3).fill(card.status.includes('RESOLV') ? C_LOW : '#64748b');
+          doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(6.5)
+            .text(card.status, sBadgeX, cardBoxY + 8.5, { width: 54, align: 'center' });
 
           // Metadata row
-          doc.fillColor(C_MUTED).font('Helvetica').fontSize(6.5)
-            .text(`Host: ${card.machine}   |   Analyst: ${card.assigned_to}   |   Detected: ${card.created_at}   |   Evidence Events: ${card.linked_count}`, margin + 12, cardBoxY + 20);
+          doc.fillColor('#475569').font('Helvetica').fontSize(6.5)
+            .text(`Host: ${card.machine}   |   Analyst: ${card.assigned_to}   |   Detected: ${card.created_at}   |   Evidence Events: ${card.linked_count}`, margin + 10, cardBoxY + 22);
 
-          // Evidence Box
-          doc.roundedRect(margin + 12, cardBoxY + 31, contentWidth - 24, 15, 2).fill('#f1f5f9');
+          // Clean Light Evidence Container
+          doc.roundedRect(margin + 10, cardBoxY + 33, contentWidth - 20, 15, 3).fillAndStroke('#f8fafc', '#e2e8f0');
+          doc.fillColor('#2563eb').font('Courier-Bold').fontSize(6)
+            .text('Evidence: ', margin + 14, cardBoxY + 36.5, { continued: true });
           doc.fillColor('#334155').font('Courier-Bold').fontSize(6)
-            .text(`Evidence: ${card.evidence}`, margin + 16, cardBoxY + 35, { width: contentWidth - 32 });
+            .text(card.evidence, { width: contentWidth - 36, lineBreak: false });
 
-          doc.y += 58;
+          // Tighten card spacing: exactly 8px between cards
+          doc.y = cardBoxY + 54 + 8;
         });
       }
 
@@ -561,7 +569,7 @@ async function generatePdfReport(data) {
           doc.fillColor(C_TEXT).font('Helvetica').fontSize(6.5).text(r.title, margin + 250, rowY);
           doc.fillColor(r.status.includes('RESOLV') ? C_LOW : C_MUTED).font('Helvetica-Bold').fontSize(6.5).text(r.status, margin + contentWidth - 65, rowY, { width: 60, align: 'right' });
         });
-        doc.y = regY + 16 + (register.length * 14) + 14;
+        doc.y = regY + 16 + (register.length * 14) + 10;
       }
 
       // ── 12. Recommended SOC Remediation Action Checklist ───────────────────

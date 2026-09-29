@@ -323,12 +323,12 @@ exports.previewPdf = async (req, res) => {
 
     const { pdfBuffer } = await buildReportDataAndPdf({
       period,
-      simulated: true,
+      simulated: req.query.simulated === 'true',
       aggregator: req.query.aggregator || '',
       machine: req.query.machine || '',
       severity: req.query.severity || '',
       category: req.query.category || '',
-      name: `${period.toUpperCase()} Simulation Threat Intelligence Report`
+      name: `${period.toUpperCase()} Security Threat Intelligence Report`
     }, q);
 
     const dateStr = new Date().toISOString().slice(0, 10);

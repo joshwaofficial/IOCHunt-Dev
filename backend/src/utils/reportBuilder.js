@@ -1190,7 +1190,7 @@ async function buildReportDataAndPdf(options, queryFn = null) {
       country: g.src_country,
       count: parseInt(g.count || 0, 10)
     }));
-  } catch (fwErr) {}
+  } catch (fwErr) { }
 
   // ── Query Hardware / USB & DLP Log ─────────────────────────────────────────
   let usbDlp = { usbCount: 0, dlpCount: 0, recentList: [] };
@@ -1217,7 +1217,7 @@ async function buildReportDataAndPdf(options, queryFn = null) {
       evParams
     );
     usbDlp.recentList = (recentUsbRes.rows || []).map(r => parseUsbEvent(r));
-  } catch (usbErr) {}
+  } catch (usbErr) { }
 
   // ── Query Fleet OS & Branch Distribution ───────────────────────────────────
   let fleetDistribution = { osList: [], branchList: [] };
@@ -1245,7 +1245,7 @@ async function buildReportDataAndPdf(options, queryFn = null) {
       branch: b.branch,
       count: parseInt(b.count || 0, 10)
     }));
-  } catch (fleetDistErr) {}
+  } catch (fleetDistErr) { }
 
   // ── Posture Score & Threat Level ───────────────────────────────────────────
   let score = 100;
@@ -1258,8 +1258,8 @@ async function buildReportDataAndPdf(options, queryFn = null) {
 
   const threatLevel =
     postureScore < 50 || critCount > 5 ? 'CRITICAL' :
-    postureScore < 70 || critCount > 0 || highCount > 5 ? 'HIGH' :
-    postureScore < 85 || highCount > 0 || medCount > 10 ? 'ELEVATED' : 'NORMAL';
+      postureScore < 70 || critCount > 0 || highCount > 5 ? 'HIGH' :
+        postureScore < 85 || highCount > 0 || medCount > 10 ? 'ELEVATED' : 'NORMAL';
 
   const tlColor = {
     CRITICAL: '#ef4444',
