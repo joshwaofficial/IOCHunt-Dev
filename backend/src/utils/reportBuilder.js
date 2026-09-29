@@ -120,8 +120,14 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
   // ── Build HTML Email ───────────────────────────────────────────────────────
   const durLabel = isToday ? 'Today (Since 00:00)'
     : hours === 1 ? 'Last 1 hour'
+    : hours === 2 ? 'Last 2 hours'
+    : hours === 4 ? 'Last 4 hours'
+    : hours === 6 ? 'Last 6 hours'
+    : hours === 12 ? 'Last 12 hours'
     : hours === 24 ? 'Last 24 hours'
+    : hours === 72 ? 'Last 3 days'
     : hours === 168 ? 'Last 7 days'
+    : hours === 720 ? 'Last 30 days'
     : `Last ${hours} hours`;
   const nowStr = new Date().toLocaleString();
 

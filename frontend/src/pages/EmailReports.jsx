@@ -5,6 +5,124 @@ import { useAuth } from '../context/AuthContext';
 import { useInstance } from '../context/InstanceContext';
 import { Navigate } from 'react-router-dom';
 
+const FREQUENCY_PRESETS = [
+  {
+    id: 'daily_8am',
+    label: 'Daily at 08:00 AM (Recommended)',
+    cron: '0 8 * * *',
+    recommendedDuration: 24,
+    description: 'Every day at 8:00 AM — covers past 24 hours'
+  },
+  {
+    id: 'daily_midnight',
+    label: 'Daily at 00:00 (Midnight)',
+    cron: '0 0 * * *',
+    recommendedDuration: 24,
+    description: 'Every night at 12:00 AM — covers past 24 hours'
+  },
+  {
+    id: 'weekly_monday',
+    label: 'Weekly — Every Monday at 08:00 AM',
+    cron: '0 8 * * 1',
+    recommendedDuration: 168,
+    description: 'Every Monday morning — covers past 7 days'
+  },
+  {
+    id: 'weekly_friday',
+    label: 'Weekly — Every Friday at 05:00 PM',
+    cron: '0 17 * * 5',
+    recommendedDuration: 168,
+    description: 'End of work-week report — covers past 7 days'
+  },
+  {
+    id: 'monthly_1st',
+    label: 'Monthly — 1st of Month at 08:00 AM',
+    cron: '0 8 1 * *',
+    recommendedDuration: 720,
+    description: 'First day of each month — covers past 30 days'
+  },
+  {
+    id: 'every_12h',
+    label: 'Every 12 Hours (08:00 & 20:00)',
+    cron: '0 8,20 * * *',
+    recommendedDuration: 12,
+    description: 'Shift handover report — covers past 12 hours'
+  },
+  {
+    id: 'every_6h',
+    label: 'Every 6 Hours (00, 06, 12, 18)',
+    cron: '0 */6 * * *',
+    recommendedDuration: 6,
+    description: 'Every 6 hours throughout the day'
+  },
+  {
+    id: 'every_4h',
+    label: 'Every 4 Hours',
+    cron: '0 */4 * * *',
+    recommendedDuration: 4,
+    description: 'Every 4 hours throughout the day'
+  },
+  {
+    id: 'every_2h',
+    label: 'Every 2 Hours',
+    cron: '0 */2 * * *',
+    recommendedDuration: 2,
+    description: 'Every 2 hours throughout the day'
+  },
+  {
+    id: 'hourly',
+    label: 'Hourly (at minute :00)',
+    cron: '0 * * * *',
+    recommendedDuration: 1,
+    description: 'Top of every hour — covers past 1 hour'
+  },
+  {
+    id: 'every_30m',
+    label: 'Every 30 Minutes',
+    cron: '*/30 * * * *',
+    recommendedDuration: 1,
+    description: 'Every 30 minutes — covers past 1 hour'
+  },
+  {
+    id: 'custom',
+    label: '⚙ Custom Cron Expression...',
+    cron: '',
+    recommendedDuration: 24,
+    description: 'Specify a custom 5-part cron syntax'
+  }
+];
+
+const getCronHumanReadable = (cronExpr) => {
+  if (!cronExpr) return 'Custom';
+  const trimmed = cronExpr.trim();
+  const matched = FREQUENCY_PRESETS.find(p => p.cron === trimmed);
+  if (matched && matched.id !== 'custom') return matched.label;
+  if (trimmed === '0 8 * * 1') return 'Weekly (Mon 8:00 AM)';
+  if (trimmed === '0 8 * * *') return 'Daily (8:00 AM)';
+  if (trimmed === '0 0 * * *') return 'Daily (Midnight)';
+  if (trimmed === '0 8 1 * *') return 'Monthly (1st at 8:00 AM)';
+  if (trimmed === '0 */6 * * *') return 'Every 6 Hours';
+  if (trimmed === '0 */12 * * *' || trimmed === '0 8,20 * * *') return 'Every 12 Hours';
+  if (trimmed === '0 * * * *') return 'Hourly';
+  if (trimmed === '*/30 * * * *') return 'Every 30 Mins';
+  return trimmed;
+};
+
+const getDurationLabel = (dur) => {
+  if (dur === 'today') return 'Today';
+  const n = Number(dur);
+  if (n === 1) return 'Last 1 hour';
+  if (n === 2) return 'Last 2 hours';
+  if (n === 4) return 'Last 4 hours';
+  if (n === 6) return 'Last 6 hours';
+  if (n === 12) return 'Last 12 hours';
+  if (n === 24) return 'Last 24 hours';
+  if (n === 72) return 'Last 3 days';
+  if (n === 168) return 'Last 7 days';
+  if (n === 720) return 'Last 30 days';
+  return `Last ${dur}h`;
+};
+
 export default function EmailReports() {
   const { user } = useAuth();
   const { isCentral, isAggregator, loading: instanceLoading } = useInstance();
@@ -36,7 +154,7 @@ export default function EmailReports() {
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [formData, setFormData] = useState({
-    name: '', recipients: '', cron_expr: '0 8 * * 1', duration: 24, aggregator: [], machine: '', severity: '', category: '', include_fw: true, enabled: true
+    name: '', recipients: '', frequency_preset: 'daily_8am', cron_expr: '0 8 * * *', duration: 24, aggregator: [], machine: '', severity: '', category: '', include_fw: true, enabled: true
   });
 
   useEffect(() => {
@@ -134,10 +252,43 @@ export default function EmailReports() {
     setFormData({ ...formData, [key]: type === 'checkbox' ? checked : value });
   };
 
+  const handleFrequencyChange = (e) => {
+    if (!isAdmin) return;
+    const selectedPresetId = e.target.value;
+    const preset = FREQUENCY_PRESETS.find(p => p.id === selectedPresetId);
+    if (!preset) return;
+
+    if (preset.id === 'custom') {
+      setFormData(prev => ({
+        ...prev,
+        frequency_preset: 'custom'
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        frequency_preset: preset.id,
+        cron_expr: preset.cron,
+        duration: preset.recommendedDuration
+      }));
+    }
+  };
+
   const openNewForm = () => {
     if (!isAdmin) return;
     setEditId(null);
-    setFormData({ name: '', recipients: '', cron_expr: '0 8 * * 1', duration: 24, aggregator: [], machine: '', severity: '', category: '', include_fw: true, enabled: true });
+    setFormData({
+      name: '',
+      recipients: '',
+      frequency_preset: 'daily_8am',
+      cron_expr: '0 8 * * *',
+      duration: 24,
+      aggregator: [],
+      machine: '',
+      severity: '',
+      category: '',
+      include_fw: true,
+      enabled: true
+    });
     setShowForm(true);
     setSchedMsg({ text: '', type: '' });
   };
@@ -145,8 +296,19 @@ export default function EmailReports() {
   const editSchedule = (s) => {
     if (!isAdmin) return;
     setEditId(s.id);
+    const matched = FREQUENCY_PRESETS.find(p => p.cron === (s.cron_expr || '').trim());
     setFormData({
-      name: s.name, recipients: s.recipients, cron_expr: s.cron_expr, duration: s.duration, aggregator: s.aggregator ? s.aggregator.split(',') : [], machine: s.machine || '', severity: s.severity || '', category: s.category || '', include_fw: s.include_fw === 1, enabled: s.enabled === 1
+      name: s.name,
+      recipients: s.recipients,
+      frequency_preset: matched ? matched.id : 'custom',
+      cron_expr: s.cron_expr,
+      duration: s.duration,
+      aggregator: s.aggregator ? s.aggregator.split(',') : [],
+      machine: s.machine || '',
+      severity: s.severity || '',
+      category: s.category || '',
+      include_fw: s.include_fw === 1,
+      enabled: s.enabled === 1
     });
     setShowForm(true);
     setSchedMsg({ text: '', type: '' });
@@ -360,23 +522,79 @@ export default function EmailReports() {
                   style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>Cron Expression</label>
-                <input id="sched-cron_expr" className="input-field" type="text" placeholder="0 8 * * 1" value={formData.cron_expr} onChange={handleFormChange}
-                  style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>Report Duration</label>
-                <select id="sched-duration" className="input-field" value={formData.duration} onChange={handleFormChange}
-                  style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', outline: 'none' }}>
-                  <option value="today">Today (00:00 to now)</option>
-                  <option value="1">Last 1 hour</option>
-                  <option value="4">Last 4 hours</option>
-                  <option value="24">Last 24 hours</option>
-                  <option value="72">Last 3 days</option>
-                  <option value="168">Last 7 days</option>
-                  <option value="720">Last 30 days</option>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>
+                    Schedule Frequency
+                  </label>
+                  <span style={{ fontSize: '10px', color: '#38bdf8', fontFamily: 'var(--mono)', fontWeight: 600 }}>Quick Presets</span>
+                </div>
+                <select
+                  id="sched-frequency_preset"
+                  className="input-field"
+                  value={formData.frequency_preset || 'daily_8am'}
+                  onChange={handleFrequencyChange}
+                  style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', outline: 'none', cursor: 'pointer' }}
+                >
+                  <optgroup label="Standard Presets">
+                    {FREQUENCY_PRESETS.filter(p => p.id !== 'custom').map(p => (
+                      <option key={p.id} value={p.id}>{p.label}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Custom">
+                    <option value="custom">⚙ Custom Cron Expression...</option>
+                  </optgroup>
                 </select>
               </div>
+
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>
+                    Report Duration
+                  </label>
+                  <span style={{ fontSize: '10px', color: '#22c55e', fontFamily: 'var(--mono)', fontWeight: 600 }}>✓ Auto-synced</span>
+                </div>
+                <select
+                  id="sched-duration"
+                  className="input-field"
+                  value={formData.duration}
+                  onChange={handleFormChange}
+                  style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', outline: 'none' }}
+                >
+                  <option value="1">Last 1 hour</option>
+                  <option value="2">Last 2 hours</option>
+                  <option value="4">Last 4 hours</option>
+                  <option value="6">Last 6 hours</option>
+                  <option value="12">Last 12 hours</option>
+                  <option value="24">Last 24 hours (1 day)</option>
+                  <option value="today">Today (Since 00:00 midnight)</option>
+                  <option value="72">Last 3 days</option>
+                  <option value="168">Last 7 days (1 week)</option>
+                  <option value="720">Last 30 days (1 month)</option>
+                </select>
+              </div>
+
+              {formData.frequency_preset === 'custom' && (
+                <div style={{ gridColumn: 'span 2', background: 'var(--surface)', border: '1px dashed #3b82f6', borderRadius: '6px', padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ fontSize: '10px', color: '#38bdf8', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', fontWeight: 700 }}>
+                      Custom Cron Expression
+                    </label>
+                    <span style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Format: minute hour day month day-of-week</span>
+                  </div>
+                  <input
+                    id="sched-cron_expr"
+                    className="input-field"
+                    type="text"
+                    placeholder="e.g. 0 9 * * 1-5"
+                    value={formData.cron_expr}
+                    onChange={handleFormChange}
+                    style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '12px', borderRadius: '6px', outline: 'none' }}
+                  />
+                  <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '6px', fontFamily: 'var(--mono)' }}>
+                    Examples: <code style={{ color: '#38bdf8' }}>0 9 * * 1-5</code> (Mon-Fri 9:00 AM) &nbsp;|&nbsp; <code style={{ color: '#38bdf8' }}>*/15 * * * *</code> (Every 15 mins) &nbsp;|&nbsp; <code style={{ color: '#38bdf8' }}>0 0,12 * * *</code> (Twice daily)
+                  </div>
+                </div>
+              )}
               <div style={{ position: 'relative' }}>
                 <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>Branch (optional)</label>
                 <div 
@@ -451,30 +669,6 @@ export default function EmailReports() {
               </label>
             </div>
 
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '8px' }}>Quick Presets</div>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {['0 8 * * 1', '0 8 * * *', '0 8 1 * *', '0 */6 * * *', '0 * * * *'].map(cron => {
-                  const isSelected = formData.cron_expr === cron;
-                  return (
-                    <button key={cron} onClick={() => setFormData({ ...formData, cron_expr: cron })}
-                      style={{ 
-                        background: 'var(--surface)', 
-                        border: isSelected ? '2px solid #2563eb' : '1px solid var(--border)', 
-                        color: isSelected ? 'var(--text)' : 'var(--muted)', 
-                        padding: isSelected ? '5px 9px' : '6px 10px', 
-                        borderRadius: '4px', 
-                        cursor: 'pointer', 
-                        fontSize: '11px',
-                        fontWeight: isSelected ? 600 : 400
-                      }}>
-                      {cron === '0 8 * * 1' ? 'Every Monday 8am' : cron === '0 8 * * *' ? 'Daily 8am' : cron === '0 8 1 * *' ? '1st of Month' : cron === '0 */6 * * *' ? 'Every 6 Hours' : 'Hourly'}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
             <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
               <button onClick={saveSchedule} disabled={loadingSchedules} style={{ background: '#2563eb', color: '#fff', border: 'none', padding: '8px 20px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', opacity: loadingSchedules ? 0.5 : 1 }}>
                 Save Schedule
@@ -511,9 +705,12 @@ export default function EmailReports() {
                     <tr key={s.id} className="hover-row" style={{ borderBottom: '1px solid var(--border)' }}>
                       <td style={{ padding: '14px 16px', fontSize: '12px', fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--sans)' }}>{s.name}</td>
                       <td style={{ padding: '14px 16px', color: '#728bb2', fontSize: '11px' }}>{s.recipients.length > 20 ? s.recipients.substring(0, 20) + '...' : s.recipients}</td>
-                      <td style={{ padding: '14px 16px', color: '#38bdf8', fontSize: '11px' }}>{s.cron_expr}</td>
-                      <td style={{ padding: '14px 16px', color: 'var(--text)', fontSize: '11px' }}>
-                        {s.duration === 'today' ? 'Today' : s.duration === 1 ? '1h' : s.duration === 4 ? '4h' : s.duration === 24 ? '24h' : s.duration === 72 ? '3d' : s.duration === 168 ? '7d' : s.duration === 720 ? '30d' : `${s.duration}h`}
+                      <td style={{ padding: '14px 16px', fontSize: '11px' }}>
+                        <div style={{ color: '#38bdf8', fontWeight: 600, fontFamily: 'var(--sans)' }}>{getCronHumanReadable(s.cron_expr)}</div>
+                        <div style={{ color: 'var(--muted)', fontSize: '10px', fontFamily: 'var(--mono)', marginTop: '2px' }}>{s.cron_expr}</div>
+                      </td>
+                      <td style={{ padding: '14px 16px', color: 'var(--text)', fontSize: '11px', fontFamily: 'var(--sans)' }}>
+                        {getDurationLabel(s.duration)}
                       </td>
                       <td style={{ padding: '14px 16px', color: '#728bb2', fontSize: '11px' }}>{s.aggregator ? (s.aggregator.split(',').length > 1 ? `${s.aggregator.split(',').length} selected` : s.aggregator) : 'All'}</td>
                       <td style={{ padding: '14px 16px', color: '#728bb2', fontSize: '11px' }}>{s.machine || 'All'}</td>
