@@ -309,6 +309,10 @@ async function setMachinePolicy(req, res) {
       if (payloadPolicy.officeHoursDays === groupNormalized.officeHoursDays) delete payloadPolicy.officeHoursDays;
       if (payloadPolicy.failedLogonThreshold === groupNormalized.failedLogonThreshold) delete payloadPolicy.failedLogonThreshold;
       if (payloadPolicy.failedLogonWindowMins === groupNormalized.failedLogonWindowMins) delete payloadPolicy.failedLogonWindowMins;
+    } else {
+      if (Array.isArray(req.body.machine_dlp_folders)) {
+        payloadPolicy.dlpFolders = req.body.machine_dlp_folders.filter(f => typeof f === 'string' && f.trim().length > 0);
+      }
     }
 
     await req.queryTenant(`

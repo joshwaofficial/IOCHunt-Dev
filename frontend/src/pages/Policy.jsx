@@ -59,7 +59,7 @@ export default function Policy() {
   useEffect(() => {
     const interval = setInterval(() => {
       fetchGroups();
-      if (selectedMachine && !selectedMachine.startsWith('grp:')) {
+      if (selectedMachine && !selectedMachine.startsWith('grp:') && !hasChangesRef.current) {
         fetchMachinePolicy(selectedMachine, true);
       }
     }, 5000);
@@ -96,8 +96,13 @@ export default function Policy() {
       setMachinePolicyData(prev => {
         if (isPolling && prev && hasChangesRef.current) {
           return {
-            ...res.data,
-            effective_policy: prev.effective_policy
+            ...prev,
+            applied_at: res.data.applied_at,
+            agent_version: res.data.agent_version,
+            status: res.data.status,
+            last_seen: res.data.last_seen,
+            group_sync_status: res.data.group_sync_status,
+            applied_machine_names: res.data.applied_machine_names
           };
         }
         return res.data;
@@ -318,7 +323,9 @@ export default function Policy() {
         await saveGroupPolicyWithStrategy(editingGroupId, pol, false);
       } else if (selectedMachine) {
         const pol = buildPolicyObj(machinePolicyData.effective_policy || {});
-        const localDlp = machinePolicyData.machine_dlp_folders || pol.dlpFolders;
+        const localDlp = Array.isArray(machinePolicyData.machine_dlp_folders)
+          ? machinePolicyData.machine_dlp_folders
+          : [];
         await axios.post(`/api/policy/${encodeURIComponent(selectedMachine)}`, {
           policy: pol,
           machine_dlp_folders: localDlp
