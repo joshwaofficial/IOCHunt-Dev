@@ -87,7 +87,7 @@ async function generatePdfReport(data) {
           // Running top header on subsequent pages
           doc.rect(margin, margin, contentWidth, 20).fill(C_DARK);
           doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8)
-            .text('IOC HUNT SIEM • EXECUTIVE THREAT INTELLIGENCE & ANALYTICS', margin + 8, margin + 6);
+            .text('IOCHUNT • EXECUTIVE THREAT INTELLIGENCE & ANALYTICS', margin + 8, margin + 6);
           doc.fillColor('#94a3b8').font('Helvetica').fontSize(7)
             .text(data.generatedAt || '', margin + contentWidth - 140, margin + 6, { width: 132, align: 'right' });
           doc.y = margin + 28;
@@ -130,15 +130,16 @@ async function generatePdfReport(data) {
       doc.fillColor(tlColor).font('Helvetica-Bold').fontSize(14).text(`${data.postureScore || 100}/100`, scoreBoxX, scoreBoxY + 16, { width: scoreBoxW, align: 'center' });
 
       // ── 2. Posture & Executive Narrative Banner ────────────────────────────
-      doc.y = margin + 64;
-      doc.roundedRect(margin, doc.y, contentWidth, 46, 5).fill(C_BG_LIGHT);
-      doc.rect(margin, doc.y, 5, 46).fill(tlColor);
+      const bannerY = margin + 64;
+      const bannerH = 44;
+      doc.roundedRect(margin, bannerY, contentWidth, bannerH, 4).fill(C_BG_LIGHT);
+      doc.rect(margin, bannerY, 4, bannerH).fill(tlColor);
 
-      doc.fillColor(tlColor).font('Helvetica-Bold').fontSize(10)
-        .text(`SECURITY THREAT LEVEL: ${data.threatLevel || 'NORMAL'}`, margin + 14, doc.y + 7);
+      doc.fillColor(tlColor).font('Helvetica-Bold').fontSize(9.5)
+        .text(`SECURITY THREAT LEVEL: ${data.threatLevel || 'NORMAL'}`, margin + 14, bannerY + 7);
       doc.fillColor(C_TEXT).font('Helvetica').fontSize(7.5).lineGap(1.5)
-        .text(data.narrative || 'All monitored telemetry within normal operational baseline.', margin + 14, doc.y + 20, { width: contentWidth - 28 });
-      doc.y += 54;
+        .text(data.narrative || 'All monitored telemetry within normal operational baseline.', margin + 14, bannerY + 20, { width: contentWidth - 28 });
+      doc.y = bannerY + bannerH + 10;
 
       // ── 3. Core KPI Metric Cards (6 cards) ─────────────────────────────────
       ensureSpace(58);
@@ -241,9 +242,9 @@ async function generatePdfReport(data) {
 
       doc.y = donutBoxY + donutBoxH + 16;
 
-      // ── 6. MITRE ATT&CK Framework Kill-Chain Mapping ───────────────────────
+      // ── 6. Adversary Attack Tactics & Behavioral Detections ───────────────
       const mitreBoxH = 125;
-      renderSectionHeading('MITRE ATT&CK Framework Kill-Chain Mapping', 'Adversary behavioral tactics and observed attack techniques', 30 + mitreBoxH);
+      renderSectionHeading('Adversary Attack Tactics & Behavioral Detections', 'Threat tactic categories and top observed security detections', 30 + mitreBoxH);
       const mitreBoxY = doc.y;
       doc.roundedRect(margin, mitreBoxY, contentWidth, mitreBoxH, 6).fillAndStroke(C_BG_LIGHT, C_BORDER);
 
@@ -253,37 +254,44 @@ async function generatePdfReport(data) {
         height: mitreBoxH - 12
       });
 
-      // Right Column: Top Observed MITRE Techniques
+      // Right Column: Top Observed Threat Detections (NO TECHNIQUE ID)
       const mTableX = margin + 255;
       const mTableW = contentWidth - 265;
       const mTableY = mitreBoxY + 10;
 
       doc.rect(mTableX, mTableY, mTableW, 16).fill('#f1f5f9');
       doc.fillColor(C_MUTED).font('Helvetica-Bold').fontSize(6.5);
-      doc.text('TECHNIQUE ID', mTableX + 6, mTableY + 5);
-      doc.text('TECHNIQUE NAME', mTableX + 65, mTableY + 5);
-      doc.text('OBSERVED', mTableX + mTableW - 55, mTableY + 5, { width: 50, align: 'right' });
+      doc.text('THREAT / DETECTION TYPE', mTableX + 8, mTableY + 5);
+      doc.text('SEV', mTableX + mTableW - 110, mTableY + 5, { width: 30, align: 'center' });
+      doc.text('OBSERVED', mTableX + mTableW - 75, mTableY + 5, { width: 70, align: 'right' });
 
-      const techniques = (data.mitre?.topTechniques && data.mitre.topTechniques.length)
-        ? data.mitre.topTechniques
+      const detections = (data.topDetections && data.topDetections.length)
+        ? data.topDetections
         : [
-            { id: 'T1003', name: 'OS Credential Dumping', count: data.adAudit?.dcsync || 0 },
-            { id: 'T1059', name: 'Command & Scripting Interpreter', count: 12 },
-            { id: 'T1021', name: 'Remote Services (SMB/RDP)', count: 8 },
-            { id: 'T1053', name: 'Scheduled Task / System Job', count: 4 }
+            { name: 'Command & Script Execution', tag: 'CMD-EXEC', count: 2010, sev: 'HIGH' },
+            { name: 'Data Loss Prevention (DLP) Violation', tag: 'DLP', count: 1017, sev: 'MED' },
+            { name: 'Behavioral File Append / Modify', tag: 'BEHAVIORAL', count: 500, sev: 'MED' },
+            { name: 'Defense Tamper Detection', tag: 'TAMPER', count: 402, sev: 'CRIT' },
+            { name: 'Account / User Enumeration', tag: 'ENUM', count: 428, sev: 'LOW' }
           ];
 
-      techniques.slice(0, 5).forEach((tech, idx) => {
+      detections.slice(0, 5).forEach((det, idx) => {
         const rowY = mTableY + 19 + (idx * 18);
-        doc.roundedRect(mTableX + 6, rowY + 1, 48, 12, 2).fill('#e0f2fe');
-        doc.fillColor('#0284c7').font('Helvetica-Bold').fontSize(6.5)
-          .text(tech.id, mTableX + 6, rowY + 3.5, { width: 48, align: 'center' });
+        const tagCol = det.sev === 'CRIT' ? C_CRIT : det.sev === 'HIGH' ? C_HIGH : '#0284c7';
+        const tagBg = det.sev === 'CRIT' ? '#fee2e2' : det.sev === 'HIGH' ? '#ffedd5' : '#e0f2fe';
+
+        doc.roundedRect(mTableX + 6, rowY + 1, 48, 12, 2).fill(tagBg);
+        doc.fillColor(tagCol).font('Helvetica-Bold').fontSize(6)
+          .text(det.tag || 'ALERT', mTableX + 6, rowY + 3.5, { width: 48, align: 'center' });
 
         doc.fillColor(C_TEXT).font('Helvetica').fontSize(6.5)
-          .text(tech.name, mTableX + 65, rowY + 3.5, { width: mTableW - 130 });
+          .text(det.name, mTableX + 58, rowY + 3.5, { width: mTableW - 170 });
 
-        doc.fillColor(tech.count > 0 ? C_CRIT : C_MUTED).font('Helvetica-Bold').fontSize(7)
-          .text(`${tech.count} hits`, mTableX + mTableW - 55, rowY + 3.5, { width: 50, align: 'right' });
+        doc.fillColor(tagCol).font('Helvetica-Bold').fontSize(6)
+          .text(det.sev || 'MED', mTableX + mTableW - 110, rowY + 3.5, { width: 30, align: 'center' });
+
+        doc.fillColor(det.count > 0 ? C_CRIT : C_MUTED).font('Helvetica-Bold').fontSize(7)
+          .text(`${Number(det.count).toLocaleString()} hits`, mTableX + mTableW - 75, rowY + 3.5, { width: 70, align: 'right' });
       });
 
       doc.y = mitreBoxY + mitreBoxH + 16;
@@ -315,7 +323,7 @@ async function generatePdfReport(data) {
       doc.fillColor(C_MUTED).font('Helvetica-Bold').fontSize(6.5);
       doc.text('TARGETED IDENTITY ACCOUNT', margin + 20, userTableY + 4);
       doc.text('SECURITY EVENTS', margin + 240, userTableY + 4);
-      doc.text('ASSESSED IDENTITY RISK', margin + contentWidth - 140, userTableY + 4, { width: 120, align: 'right' });
+      doc.text('ACCOUNT ROLE', margin + contentWidth - 140, userTableY + 4, { width: 120, align: 'right' });
 
       const targetUsers = (data.adAudit?.topUsers && data.adAudit.topUsers.length)
         ? data.adAudit.topUsers
@@ -337,7 +345,7 @@ async function generatePdfReport(data) {
 
       // ── 8. Perimeter Defense: Firewall GeoIP & Top Targeted Ports ──────────
       const fwBoxH = 125;
-      renderSectionHeading('Perimeter Defense: Firewall GeoIP & Port Attacks', 'Network boundary traffic filtering, targeted ports, and foreign source origins', 30 + fwBoxH);
+      renderSectionHeading('Perimeter Defense: Firewall Inbound Attacks & Ports', 'Network boundary traffic filtering, targeted ports, and top attacking source IPs', 30 + fwBoxH);
       const fwBoxY = doc.y;
       doc.roundedRect(margin, fwBoxY, contentWidth, fwBoxH, 6).fillAndStroke(C_BG_LIGHT, C_BORDER);
 
@@ -347,7 +355,7 @@ async function generatePdfReport(data) {
         height: fwBoxH - 12
       });
 
-      // Right Column: GeoIP Inbound Source Countries & Filter Stats
+      // Right Column: Top Inbound Attacking Source IPs & Filter Stats
       const geoX = margin + 255;
       const geoW = contentWidth - 265;
       const geoY = fwBoxY + 10;
@@ -357,21 +365,23 @@ async function generatePdfReport(data) {
       doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(7)
         .text(`BLOCKED: ${(data.firewall?.blocked || 0).toLocaleString()}   |   ALLOWED: ${(data.firewall?.allowed || 0).toLocaleString()}   |   TOTAL: ${(data.firewall?.total || 0).toLocaleString()}`, geoX, geoY + 6, { width: geoW, align: 'center' });
 
-      // GeoIP Country Table
+      // Top Source IPs Table
       const geoTableY = geoY + 26;
       doc.rect(geoX, geoTableY, geoW, 15).fill('#f1f5f9');
       doc.fillColor(C_MUTED).font('Helvetica-Bold').fontSize(6.5);
-      doc.text('SOURCE ORIGIN (GEOIP)', geoX + 6, geoTableY + 4);
-      doc.text('INBOUND ATTEMPTS', geoX + geoW - 75, geoTableY + 4, { width: 70, align: 'right' });
+      doc.text('TOP INBOUND SOURCE IP', geoX + 6, geoTableY + 4);
+      doc.text('ATTEMPTS', geoX + geoW - 75, geoTableY + 4, { width: 70, align: 'right' });
 
-      const countries = (data.firewall?.topCountries && data.firewall.topCountries.length)
-        ? data.firewall.topCountries
-        : [{ country: 'Internal Network Traffic Only', count: data.firewall?.total || 0 }];
+      const topIps = (data.firewall?.topSourceIps && data.firewall.topSourceIps.length)
+        ? data.firewall.topSourceIps
+        : (data.firewall?.topCountries && data.firewall.topCountries.length)
+          ? data.firewall.topCountries.map(c => ({ ip: c.country, count: c.count }))
+          : [{ ip: 'Internal Network Traffic Only', count: data.firewall?.total || 0 }];
 
-      countries.slice(0, 4).forEach((c, idx) => {
+      topIps.slice(0, 4).forEach((c, idx) => {
         const cRowY = geoTableY + 17 + (idx * 15.5);
         doc.fillColor(C_TEXT).font('Helvetica').fontSize(7)
-          .text(c.country || 'Unknown', geoX + 6, cRowY);
+          .text(c.ip || c.country || 'Unknown', geoX + 6, cRowY);
         doc.fillColor(C_CRIT).font('Helvetica-Bold').fontSize(7)
           .text((c.count || 0).toLocaleString(), geoX + geoW - 75, cRowY, { width: 70, align: 'right' });
       });
@@ -602,7 +612,7 @@ async function generatePdfReport(data) {
           .stroke();
 
         doc.fillColor(C_MUTED).font('Helvetica').fontSize(6.5)
-          .text(`IOC Hunt SIEM Enterprise • Confidential SOC Briefing • Generated ${data.generatedAt || ''}`, margin, footerY);
+          .text(`IOCHunt Enterprise Security • Confidential SOC Briefing • Generated ${data.generatedAt || ''}`, margin, footerY);
 
         doc.fillColor(C_MUTED).font('Helvetica-Bold').fontSize(6.5)
           .text(`Page ${i + 1} of ${totalPages}`, margin + contentWidth - 70, footerY, { width: 70, align: 'right' });

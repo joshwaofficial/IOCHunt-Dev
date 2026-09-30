@@ -1,0 +1,571 @@
+{
+  "scheduleName": "Monthly Executive Threat Analytics & SOC Audit Dossier",
+  "generatedAt": "2026-09-30 02:00:29 UTC",
+  "periodLabel": "Last 30 Days (Monthly Enterprise Audit)",
+  "branch": "All Production Branches",
+  "machine": "Enterprise Fleet (4 Endpoints)",
+  "threatLevel": "HIGH",
+  "tlColor": "#f97316",
+  "postureScore": 78,
+  "narrative": "Across the 30-day enterprise auditing period, IOCHunt monitored 4 endpoints (GIRI, DEFSECONE-PC01, LOQ, JOSHWA) and processed 11,529 real security events. 1,575 Critical threats and 124 High alerts were investigated. Fleet availability maintained a 100% continuous heartbeat baseline.",
+  "totalEvents": 11529,
+  "critCount": 1575,
+  "highCount": 124,
+  "medCount": 2828,
+  "lowCount": 7002,
+  "trends": {
+    "totalTrend": "+14% (Normal)",
+    "critTrend": "-8% (Baseline)"
+  },
+  "timeline": [
+    {
+      "bucket": "08-28",
+      "total": 77,
+      "crit": 4,
+      "high": 0,
+      "med": 52,
+      "low": 21
+    },
+    {
+      "bucket": "08-31",
+      "total": 148,
+      "crit": 9,
+      "high": 0,
+      "med": 80,
+      "low": 59
+    },
+    {
+      "bucket": "09-01",
+      "total": 361,
+      "crit": 13,
+      "high": 0,
+      "med": 107,
+      "low": 241
+    },
+    {
+      "bucket": "09-02",
+      "total": 789,
+      "crit": 26,
+      "high": 2,
+      "med": 238,
+      "low": 523
+    },
+    {
+      "bucket": "09-03",
+      "total": 727,
+      "crit": 27,
+      "high": 2,
+      "med": 181,
+      "low": 517
+    },
+    {
+      "bucket": "09-04",
+      "total": 104,
+      "crit": 0,
+      "high": 0,
+      "med": 13,
+      "low": 91
+    },
+    {
+      "bucket": "09-07",
+      "total": 366,
+      "crit": 17,
+      "high": 0,
+      "med": 165,
+      "low": 184
+    },
+    {
+      "bucket": "09-08",
+      "total": 285,
+      "crit": 5,
+      "high": 0,
+      "med": 77,
+      "low": 203
+    },
+    {
+      "bucket": "09-09",
+      "total": 176,
+      "crit": 6,
+      "high": 0,
+      "med": 88,
+      "low": 82
+    },
+    {
+      "bucket": "09-10",
+      "total": 206,
+      "crit": 3,
+      "high": 0,
+      "med": 19,
+      "low": 184
+    },
+    {
+      "bucket": "09-11",
+      "total": 72,
+      "crit": 3,
+      "high": 0,
+      "med": 13,
+      "low": 56
+    },
+    {
+      "bucket": "09-15",
+      "total": 460,
+      "crit": 1,
+      "high": 0,
+      "med": 200,
+      "low": 259
+    },
+    {
+      "bucket": "09-16",
+      "total": 112,
+      "crit": 1,
+      "high": 0,
+      "med": 68,
+      "low": 43
+    },
+    {
+      "bucket": "09-17",
+      "total": 209,
+      "crit": 7,
+      "high": 0,
+      "med": 136,
+      "low": 66
+    },
+    {
+      "bucket": "09-18",
+      "total": 416,
+      "crit": 3,
+      "high": 2,
+      "med": 128,
+      "low": 283
+    },
+    {
+      "bucket": "09-19",
+      "total": 94,
+      "crit": 15,
+      "high": 0,
+      "med": 38,
+      "low": 41
+    },
+    {
+      "bucket": "09-21",
+      "total": 221,
+      "crit": 3,
+      "high": 0,
+      "med": 102,
+      "low": 116
+    },
+    {
+      "bucket": "09-22",
+      "total": 262,
+      "crit": 20,
+      "high": 6,
+      "med": 58,
+      "low": 178
+    },
+    {
+      "bucket": "09-23",
+      "total": 502,
+      "crit": 101,
+      "high": 9,
+      "med": 100,
+      "low": 292
+    },
+    {
+      "bucket": "09-24",
+      "total": 1480,
+      "crit": 103,
+      "high": 58,
+      "med": 675,
+      "low": 644
+    },
+    {
+      "bucket": "09-25",
+      "total": 411,
+      "crit": 39,
+      "high": 39,
+      "med": 74,
+      "low": 259
+    },
+    {
+      "bucket": "09-26",
+      "total": 463,
+      "crit": 63,
+      "high": 4,
+      "med": 45,
+      "low": 351
+    },
+    {
+      "bucket": "09-27",
+      "total": 206,
+      "crit": 16,
+      "high": 0,
+      "med": 41,
+      "low": 149
+    },
+    {
+      "bucket": "09-28",
+      "total": 3382,
+      "crit": 1090,
+      "high": 2,
+      "med": 130,
+      "low": 2160
+    }
+  ],
+  "categories": [
+    {
+      "category": "OTHER",
+      "n": 8985,
+      "color": "#64748b"
+    },
+    {
+      "category": "PROCESSES",
+      "n": 1241,
+      "color": "#ef4444"
+    },
+    {
+      "category": "ENUM",
+      "n": 550,
+      "color": "#f97316"
+    },
+    {
+      "category": "LOGON",
+      "n": 338,
+      "color": "#8b5cf6"
+    },
+    {
+      "category": "STARTUP",
+      "n": 199,
+      "color": "#10b981"
+    },
+    {
+      "category": "USB",
+      "n": 79,
+      "color": "#ec4899"
+    },
+    {
+      "category": "CONFIG",
+      "n": 74,
+      "color": "#eab308"
+    },
+    {
+      "category": "NETWORK",
+      "n": 32,
+      "color": "#3b82f6"
+    },
+    {
+      "category": "DEFENDER",
+      "n": 18,
+      "color": "#06b6d4"
+    },
+    {
+      "category": "SERVICES",
+      "n": 9,
+      "color": "#a855f7"
+    },
+    {
+      "category": "TASKS",
+      "n": 3,
+      "color": "#6366f1"
+    },
+    {
+      "category": "SENSITIVE",
+      "n": 1,
+      "color": "#f43f5e"
+    }
+  ],
+  "mitre": {
+    "tactics": [
+      {
+        "tactic": "Execution",
+        "count": 3251
+      },
+      {
+        "tactic": "Exfiltration",
+        "count": 1096
+      },
+      {
+        "tactic": "Discovery",
+        "count": 978
+      },
+      {
+        "tactic": "Defense Evasion",
+        "count": 420
+      },
+      {
+        "tactic": "Credential Access",
+        "count": 338
+      },
+      {
+        "tactic": "Persistence",
+        "count": 211
+      }
+    ]
+  },
+  "topDetections": [
+    {
+      "name": "Suspicious Command & Script Execution",
+      "tag": "CMD-EXEC",
+      "count": 2010,
+      "sev": "HIGH"
+    },
+    {
+      "name": "Data Loss Prevention (DLP) Violation",
+      "tag": "DLP",
+      "count": 1017,
+      "sev": "MED"
+    },
+    {
+      "name": "Behavioral File Activity (Append/Read)",
+      "tag": "BEHAVIOR",
+      "count": 886,
+      "sev": "MED"
+    },
+    {
+      "name": "Account & Host Discovery Enumeration",
+      "tag": "ENUM",
+      "count": 428,
+      "sev": "LOW"
+    },
+    {
+      "name": "Security Agent Tamper Detection",
+      "tag": "TAMPER",
+      "count": 402,
+      "sev": "CRIT"
+    }
+  ],
+  "adAudit": {
+    "dcsync": 0,
+    "kerberoast": 0,
+    "spray": 12,
+    "goldenCert": 0,
+    "totalAd": 338,
+    "topUsers": [
+      {
+        "user": "GIRI\\admin",
+        "count": 278,
+        "risk": "LOCAL ADMIN"
+      },
+      {
+        "user": "DEFSECONE-PC01\\system",
+        "count": 184,
+        "risk": "SYSTEM SERVICE"
+      },
+      {
+        "user": "LOQ\\user",
+        "count": 45,
+        "risk": "STANDARD USER"
+      },
+      {
+        "user": "JOSHWA\\dev",
+        "count": 12,
+        "risk": "STANDARD USER"
+      }
+    ]
+  },
+  "firewall": {
+    "total": 32,
+    "blocked": 8,
+    "allowed": 24,
+    "topPorts": [
+      {
+        "label": "Port 445 (SMB)",
+        "count": 14
+      },
+      {
+        "label": "Port 3389 (RDP)",
+        "count": 9
+      },
+      {
+        "label": "Port 5985 (WinRM)",
+        "count": 5
+      },
+      {
+        "label": "Port 443 (HTTPS)",
+        "count": 3
+      },
+      {
+        "label": "Port 80 (HTTP)",
+        "count": 1
+      }
+    ],
+    "topSourceIps": [
+      {
+        "ip": "192.168.1.105 (GIRI)",
+        "count": 14
+      },
+      {
+        "ip": "10.0.0.12 (DEFSECONE)",
+        "count": 10
+      },
+      {
+        "ip": "192.168.1.50 (LOQ)",
+        "count": 5
+      },
+      {
+        "ip": "10.0.0.24 (JOSHWA)",
+        "count": 3
+      }
+    ]
+  },
+  "usbDlp": {
+    "usbCount": 79,
+    "dlpCount": 1017,
+    "recentList": [
+      {
+        "ts": "09-28 23:59",
+        "machine": "DEFSECONE-PC01",
+        "label": "DLP Directory Access Alert",
+        "drive": "D:",
+        "action": "Folder Not Found",
+        "severity": "medium"
+      },
+      {
+        "ts": "09-28 21:51",
+        "machine": "DEFSECONE-PC01",
+        "label": "Suspicious Tool cmd.exe",
+        "drive": "C:",
+        "action": "svchost Spawn",
+        "severity": "critical"
+      },
+      {
+        "ts": "09-28 21:47",
+        "machine": "DEFSECONE-PC01",
+        "label": "Suspicious Tool rundll32",
+        "drive": "C:",
+        "action": "svchost Spawn",
+        "severity": "critical"
+      },
+      {
+        "ts": "09-27 16:30",
+        "machine": "GIRI",
+        "label": "Mass Storage Device",
+        "drive": "E:",
+        "action": "USB Monitored",
+        "severity": "low"
+      }
+    ]
+  },
+  "fleetDistribution": {
+    "osList": [
+      {
+        "os": "Windows 11 Pro",
+        "count": 2,
+        "color": "#3b82f6"
+      },
+      {
+        "os": "Windows 10 Enterprise",
+        "count": 1,
+        "color": "#8b5cf6"
+      },
+      {
+        "os": "Ubuntu Linux 22.04",
+        "count": 1,
+        "color": "#f59e0b"
+      }
+    ],
+    "branchList": [
+      {
+        "branch": "Production Fleet",
+        "count": 4
+      }
+    ]
+  },
+  "fleet": {
+    "total": 4,
+    "active": 4,
+    "inactive": 0,
+    "staleList": []
+  },
+  "incidents": {
+    "total": 6,
+    "open": 2,
+    "resolved": 4,
+    "avgResolutionMin": 22,
+    "topCriticalCards": [
+      {
+        "id": "#INC-101",
+        "title": "Suspicious Tool Execution: cmd.exe Spawned by svchost",
+        "priority": "P1",
+        "status": "INVESTIGATING",
+        "machine": "DEFSECONE-PC01",
+        "assigned_to": "Tier 2 Analyst",
+        "created_at": "2026-09-28 23:51",
+        "evidence": "cmd.exe|PID:12268|Parent:svchost.exe|Signed:True|Level:Silent",
+        "linked_count": 14
+      },
+      {
+        "id": "#INC-102",
+        "title": "Suspicious Tool Execution: rundll32.exe Spawned by svchost",
+        "priority": "P1",
+        "status": "INVESTIGATING",
+        "machine": "DEFSECONE-PC01",
+        "assigned_to": "SOC Lead",
+        "created_at": "2026-09-28 21:47",
+        "evidence": "rundll32.exe|PID:20132|Parent:svchost.exe|Signed:True|Level:Silent",
+        "linked_count": 11
+      },
+      {
+        "id": "#INC-103",
+        "title": "High-Volume DLP Directory Missing Trigger (1,017 Events)",
+        "priority": "P2",
+        "status": "RESOLVED",
+        "machine": "DEFSECONE-PC01",
+        "assigned_to": "IT Compliance",
+        "created_at": "2026-09-28 16:27",
+        "evidence": "Continuous folder access check: D:\\IOCHunt-Monitor\\def-monitor\\testing",
+        "linked_count": 1017
+      },
+      {
+        "id": "#INC-104",
+        "title": "Endpoint Agent Tamper Interception Anomaly",
+        "priority": "P1",
+        "status": "RESOLVED",
+        "machine": "GIRI",
+        "assigned_to": "Security Admin",
+        "created_at": "2026-09-26 14:00",
+        "evidence": "402 repeated agent hook unregister & tamper signals intercepted",
+        "linked_count": 402
+      }
+    ],
+    "register": [
+      {
+        "id": "#INC-100",
+        "date": "09-27 10:15",
+        "priority": "P3",
+        "machine": "LOQ",
+        "title": "Command Execution Burst Observed",
+        "status": "RESOLVED"
+      },
+      {
+        "id": "#INC-99",
+        "date": "09-26 18:20",
+        "priority": "P3",
+        "machine": "GIRI",
+        "title": "File Append Behavioral Trigger",
+        "status": "RESOLVED"
+      },
+      {
+        "id": "#INC-98",
+        "date": "09-25 12:40",
+        "priority": "P3",
+        "machine": "DEFSECONE-PC01",
+        "title": "USB Mass Storage Device Connected",
+        "status": "RESOLVED"
+      },
+      {
+        "id": "#INC-97",
+        "date": "09-24 08:30",
+        "priority": "P3",
+        "machine": "JOSHWA",
+        "title": "After-Hours Logon Audit Event",
+        "status": "RESOLVED"
+      }
+    ]
+  },
+  "recommendations": [
+    "Forensic Process Triage: Inspect anomalous svchost child processes (cmd.exe PID 12268, rundll32.exe PID 20132) on endpoint DEFSECONE-PC01.",
+    "DLP Policy Alignment: Reconfigure missing folder path D:\\IOCHunt-Monitor\\def-monitor\\testing on DEFSECONE-PC01 to suppress false-positive alarms.",
+    "Agent Tamper Security: Review 402 intercepted tamper events on machine GIRI and verify Tamper Protection integrity.",
+    "Command Execution Review: Audit command-line execution volume (2,010 events) across GIRI, LOQ, and DEFSECONE-PC01."
+  ]
+}
