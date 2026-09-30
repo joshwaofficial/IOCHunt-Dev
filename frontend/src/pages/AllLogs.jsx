@@ -299,6 +299,7 @@ export default function AllLogs() {
                 <span className="material-symbols-outlined" style={{ position: 'absolute', left: '10px', fontSize: '16px', color: 'var(--muted)', pointerEvents: 'none', zIndex: 2 }}>search</span>
                 <input 
                   type="text" 
+                  className="search-input-inner"
                   value={searchTerm}
                   onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }} 
                   placeholder="Search logs..." 

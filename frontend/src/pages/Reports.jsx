@@ -520,17 +520,17 @@ export default function Reports() {
                     alignItems: 'center',
                     background: 'var(--surface2)',
                     border: '1px solid var(--border)',
-                    borderRadius: '6px',
-                    padding: '0 10px',
-                    height: '34px',
-                    width: '300px',
+                    borderRadius: '8px',
+                    padding: '0 12px',
+                    height: '36px',
+                    width: '320px',
                     boxSizing: 'border-box',
-                    boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.03)',
-                    transition: 'border-color 0.2s'
+                    transition: 'all 0.2s ease'
                   }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'var(--muted)', marginRight: '6px', flexShrink: 0 }}>search</span>
+                    <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)', marginRight: '8px', flexShrink: 0, lineHeight: 1 }}>search</span>
                     <input
                       type="text"
+                      className="search-input-inner"
                       placeholder="Filter by machine, tag, message..."
                       value={eventSearch}
                       onChange={(e) => { setEventSearch(e.target.value); setEventPage(1); }}
@@ -542,7 +542,6 @@ export default function Reports() {
                         outline: 'none',
                         width: '100%',
                         height: '100%',
-                        lineHeight: '34px',
                         padding: 0,
                         margin: 0,
                         fontFamily: 'var(--sans)',
@@ -553,7 +552,7 @@ export default function Reports() {
                       <button
                         onClick={() => { setEventSearch(''); setEventPage(1); }}
                         title="Clear search"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: 'var(--muted)', padding: '0 2px', display: 'flex', alignItems: 'center' }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: 'var(--muted)', padding: '0 2px', display: 'flex', alignItems: 'center', flexShrink: 0 }}
                       >
                         ×
                       </button>
