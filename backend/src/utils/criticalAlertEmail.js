@@ -1,11 +1,31 @@
 // ════════════════════════════════════════════════════════════════
-// IOC Hunt — Critical Log Email Notification Helper
+// IOC Hunt — Critical Log Email Notification Helper (Light Theme)
 // ════════════════════════════════════════════════════════════════
 
+const { DateTime } = require('luxon');
 const { getSmtpConfig, createTransporter } = require('./emailHelper');
 
 /**
- * Constructs and sends a consolidated HTML email alert for critical severity logs to SOC team users.
+ * Formats event log timestamps cleanly in local IST (Asia/Kolkata) to match the dashboard table.
+ */
+function formatLogTimestamp(ts) {
+  if (!ts) return 'N/A';
+  if (ts instanceof Date) {
+    return DateTime.fromJSDate(ts).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd HH:mm:ss');
+  }
+  const str = String(ts).trim();
+  let dt = DateTime.fromISO(str.replace(' ', 'T'), { setZone: true });
+  if (!dt.isValid) {
+    dt = DateTime.fromSQL(str, { zone: 'system' });
+  }
+  if (dt.isValid) {
+    return dt.setZone('Asia/Kolkata').toFormat('yyyy-MM-dd HH:mm:ss');
+  }
+  return str.slice(0, 19);
+}
+
+/**
+ * Constructs and sends a consolidated Light-Themed HTML email alert for critical severity logs to SOC team users.
  * 
  * @param {Object} options
  * @param {Array<Object>} options.events - Array of critical event objects
@@ -56,45 +76,47 @@ async function sendCriticalAlertEmail({ events, recipients, queryFn, tenantId = 
   const totalEvents = events.length;
   const uniqueMachines = Object.keys(machineMap);
   const machineCount = uniqueMachines.length;
-  const timestampStr = new Date().toUTCString();
+
+  // Notification time strictly in Indian Standard Time (IST)
+  const notificationTimeIST = DateTime.now().setZone('Asia/Kolkata').toFormat('dd MMM yyyy, hh:mm:ss a') + ' IST';
 
   const machineListStr = uniqueMachines.slice(0, 3).join(', ') + (uniqueMachines.length > 3 ? ` +${uniqueMachines.length - 3} more` : '');
   const subject = `🚨 [IOC Hunt Critical Alert] ${totalEvents} Critical Log${totalEvents > 1 ? 's' : ''} Detected (${machineListStr})`;
 
-  // Build Machine HTML Blocks
+  // Build Light-Themed Machine HTML Blocks
   let machineBlocksHtml = '';
   for (const [mName, mEvents] of Object.entries(machineMap)) {
     let rowsHtml = '';
     for (const e of mEvents) {
-      const formattedTs = e.ts ? new Date(e.ts).toISOString().replace('T', ' ').slice(0, 19) : 'N/A';
+      const formattedTs = formatLogTimestamp(e.ts);
       const tagStr = (e.tag || 'CRITICAL').toUpperCase();
       const catStr = (e.category || 'SECURITY').toUpperCase();
       const safeMsg = (e.message || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
       rowsHtml += `
-        <tr style="border-bottom: 1px solid #1e293b;">
-          <td style="padding: 10px; font-family: monospace; font-size: 11px; color: #94a3b8; white-space: nowrap; vertical-align: top;">${formattedTs}</td>
-          <td style="padding: 10px; vertical-align: top;">
-            <span style="display: inline-block; background: #450a0a; color: #fca5a5; border: 1px solid #991b1b; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; font-family: monospace;">${tagStr}</span>
-            <span style="display: inline-block; background: #1e293b; color: #cbd5e1; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-family: monospace; margin-left: 4px;">${catStr}</span>
+        <tr style="border-bottom: 1px solid #e2e8f0; background-color: #ffffff;">
+          <td style="padding: 10px 12px; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 11px; color: #475569; white-space: nowrap; vertical-align: top; font-weight: 500;">${formattedTs}</td>
+          <td style="padding: 10px 12px; vertical-align: top; white-space: nowrap;">
+            <span style="display: inline-block; background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; font-family: monospace;">${tagStr}</span>
+            <span style="display: inline-block; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-family: monospace; margin-left: 4px;">${catStr}</span>
           </td>
-          <td style="padding: 10px; font-size: 12px; color: #e2e8f0; font-family: monospace; line-height: 1.5; word-break: break-all; vertical-align: top;">${safeMsg}</td>
+          <td style="padding: 10px 12px; font-size: 12px; color: #0f172a; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; line-height: 1.5; word-break: break-all; vertical-align: top;">${safeMsg}</td>
         </tr>
       `;
     }
 
     machineBlocksHtml += `
-      <div style="margin-bottom: 20px; background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; overflow: hidden;">
-        <div style="background: #1e293b; padding: 10px 14px; font-size: 13px; font-weight: bold; color: #f8fafc; display: flex; align-items: center; border-bottom: 1px solid #334155;">
-          💻 Machine: <span style="color: #38bdf8; margin-left: 6px;">${mName}</span>
-          <span style="margin-left: auto; background: #dc2626; color: #ffffff; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">${mEvents.length} alert${mEvents.length > 1 ? 's' : ''}</span>
+      <div style="margin-bottom: 24px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+        <div style="background: #f8fafc; padding: 12px 16px; font-size: 13px; font-weight: 700; color: #0f172a; display: flex; align-items: center; border-bottom: 1px solid #e2e8f0;">
+          💻 Machine: <span style="color: #0284c7; margin-left: 6px; font-family: monospace; font-size: 14px;">${mName}</span>
+          <span style="margin-left: auto; background: #dc2626; color: #ffffff; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700;">${mEvents.length} alert${mEvents.length > 1 ? 's' : ''}</span>
         </div>
         <table style="width: 100%; border-collapse: collapse; text-align: left;">
           <thead>
-            <tr style="background: #090d16; color: #64748b; font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px;">
-              <th style="padding: 8px 10px; width: 150px;">Timestamp (UTC)</th>
-              <th style="padding: 8px 10px; width: 160px;">Tag / Category</th>
-              <th style="padding: 8px 10px;">Event Details / Message</th>
+            <tr style="background: #f1f5f9; color: #475569; font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; border-bottom: 1px solid #cbd5e1;">
+              <th style="padding: 10px 12px; width: 160px; font-weight: 700;">Log Timestamp</th>
+              <th style="padding: 10px 12px; width: 170px; font-weight: 700;">Tag / Category</th>
+              <th style="padding: 10px 12px; font-weight: 700;">Event Details / Message</th>
             </tr>
           </thead>
           <tbody>
@@ -105,68 +127,65 @@ async function sendCriticalAlertEmail({ events, recipients, queryFn, tenantId = 
     `;
   }
 
+  // Pure Clean Light-Theme Template
   const html = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
   <title>IOC Hunt Critical Security Alert</title>
 </head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #0b0f19; color: #e2e8f0; margin: 0; padding: 24px;">
-  <div style="max-width: 720px; margin: 0 auto; background: #111827; border: 1px solid #1f2937; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f6f9; color: #1e293b; margin: 0; padding: 24px;">
+  <div style="max-width: 760px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.06);">
     
-    <!-- Header Banner -->
-    <div style="background: linear-gradient(135deg, #7f1d1d 0%, #dc2626 100%); padding: 20px 24px; color: #ffffff;">
-      <div style="display: flex; align-items: center; justify-content: space-between;">
-        <div>
-          <h1 style="margin: 0; font-size: 20px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;">
-            🚨 Critical Log Alert
-          </h1>
-          <p style="margin: 4px 0 0 0; font-size: 12px; color: #fca5a5; opacity: 0.9;">
-            Immediate SOC Security Notification — ${totalEvents} critical event${totalEvents > 1 ? 's' : ''} received across ${machineCount} machine${machineCount > 1 ? 's' : ''}
-          </p>
-        </div>
-      </div>
+    <!-- Red Header Alert Banner -->
+    <div style="background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); padding: 22px 28px; color: #ffffff;">
+      <h1 style="margin: 0; font-size: 20px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;">
+        🚨 Critical Log Alert
+      </h1>
+      <p style="margin: 6px 0 0 0; font-size: 13px; color: #fee2e2; font-weight: 500;">
+        Immediate SOC Security Notification — ${totalEvents} critical event${totalEvents > 1 ? 's' : ''} received across ${machineCount} machine${machineCount > 1 ? 's' : ''}
+      </p>
     </div>
 
-    <!-- Alert Overview Metadata -->
-    <div style="background: #1e293b; padding: 14px 24px; border-bottom: 1px solid #334155; display: flex; flex-wrap: wrap; gap: 16px; font-size: 12px;">
+    <!-- Alert Overview Metadata Bar (Light Theme) -->
+    <div style="background: #f8fafc; padding: 14px 28px; border-bottom: 1px solid #e2e8f0; display: flex; flex-wrap: wrap; gap: 20px; font-size: 12px;">
       <div>
-        <span style="color: #94a3b8; text-transform: uppercase; font-size: 10px; font-weight: 700; display: block;">Tenant ID</span>
-        <span style="color: #f8fafc; font-family: monospace; font-weight: 600;">${tenantId}</span>
+        <span style="color: #64748b; text-transform: uppercase; font-size: 10px; font-weight: 700; display: block;">Tenant ID</span>
+        <span style="color: #0f172a; font-family: monospace; font-weight: 700; font-size: 13px;">${tenantId}</span>
       </div>
-      <div style="margin-left: 20px;">
-        <span style="color: #94a3b8; text-transform: uppercase; font-size: 10px; font-weight: 700; display: block;">Total Critical Logs</span>
-        <span style="color: #ef4444; font-family: monospace; font-weight: 700;">${totalEvents}</span>
+      <div style="margin-left: 16px;">
+        <span style="color: #64748b; text-transform: uppercase; font-size: 10px; font-weight: 700; display: block;">Total Critical Logs</span>
+        <span style="color: #dc2626; font-family: monospace; font-weight: 800; font-size: 13px;">${totalEvents}</span>
       </div>
-      <div style="margin-left: 20px;">
-        <span style="color: #94a3b8; text-transform: uppercase; font-size: 10px; font-weight: 700; display: block;">Affected Machines</span>
-        <span style="color: #38bdf8; font-family: monospace; font-weight: 600;">${machineCount}</span>
+      <div style="margin-left: 16px;">
+        <span style="color: #64748b; text-transform: uppercase; font-size: 10px; font-weight: 700; display: block;">Affected Machines</span>
+        <span style="color: #0284c7; font-family: monospace; font-weight: 700; font-size: 13px;">${machineCount}</span>
       </div>
       <div style="margin-left: auto;">
-        <span style="color: #94a3b8; text-transform: uppercase; font-size: 10px; font-weight: 700; display: block;">Notification Time</span>
-        <span style="color: #cbd5e1; font-family: monospace;">${timestampStr}</span>
+        <span style="color: #64748b; text-transform: uppercase; font-size: 10px; font-weight: 700; display: block;">Notification Time (IST)</span>
+        <span style="color: #334155; font-family: monospace; font-weight: 600;">${notificationTimeIST}</span>
       </div>
     </div>
 
-    <!-- Body Content -->
-    <div style="padding: 24px;">
-      <p style="font-size: 13px; color: #cbd5e1; margin-top: 0; margin-bottom: 20px; line-height: 1.6;">
-        The following critical security logs were received during ingestion and require immediate attention from the SOC Team (Admin / L1 / L2 / L3).
+    <!-- Main Content Container -->
+    <div style="padding: 28px;">
+      <p style="font-size: 13px; color: #334155; margin-top: 0; margin-bottom: 22px; line-height: 1.6;">
+        The following critical security logs were received during ingestion and require immediate review by the SOC Team (Admin / L1 / L2 / L3).
       </p>
 
       ${machineBlocksHtml}
 
-      <!-- Call to Action -->
-      <div style="text-align: center; margin-top: 28px; padding-top: 20px; border-top: 1px solid #1f2937;">
-        <p style="font-size: 12px; color: #94a3b8; margin-bottom: 14px;">
-          Log into IOC Hunt Platform to investigate full process telemetry and take isolation actions.
+      <!-- Call to Action Button -->
+      <div style="text-align: center; margin-top: 28px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+        <p style="font-size: 12px; color: #64748b; margin-bottom: 14px;">
+          Log into IOC Hunt Command Center to investigate full process telemetry and take isolation actions.
         </p>
       </div>
     </div>
 
-    <!-- Footer -->
-    <div style="background: #090d16; padding: 14px 24px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px solid #1e293b;">
-      IOC Hunt Automated SOC Alert System &nbsp;|&nbsp; Tenant: <strong style="color: #94a3b8;">${tenantId}</strong>
+    <!-- Light Footer -->
+    <div style="background: #f8fafc; padding: 14px 28px; text-align: center; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0;">
+      IOC Hunt Automated SOC Alert System &nbsp;|&nbsp; Tenant: <strong style="color: #334155;">${tenantId}</strong>
     </div>
 
   </div>
