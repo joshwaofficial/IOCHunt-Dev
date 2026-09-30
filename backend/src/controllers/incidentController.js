@@ -175,8 +175,8 @@ async function createIncident(req, res) {
       [incId, created_by, `Incident created with priority ${priority}.`, 'system']);
 
     if (assigned_to) {
-      const newInc = { id: incId, title, description, priority, machine, status, assigned_to };
-      await sendAssignmentEmail(newInc, assigned_to);
+      const newInc = { id: incId, title: cleanTitle, description: cleanDesc, priority: cleanPriority, machine, status: cleanStatus, assigned_to };
+      sendAssignmentEmail(newInc, assigned_to, req.queryTenant, req.tenantId).catch(err => console.error('[EMAIL] sendAssignmentEmail create error:', err.message));
     }
 
     return res.status(201).json({ ok: true, id: incId });
@@ -271,7 +271,7 @@ async function updateIncident(req, res) {
       auditLines.push(assigned_to ? `Assigned to ${assigned_to}.` : `Assignment cleared.`);
       if (assigned_to) {
         const updatedInc = { ...inc, assigned_to, title: title || inc.title, description: description || inc.description, priority: priority || inc.priority, machine: machine || inc.machine };
-        await sendAssignmentEmail(updatedInc, assigned_to);
+        sendAssignmentEmail(updatedInc, assigned_to, req.queryTenant, req.tenantId).catch(err => console.error('[EMAIL] sendAssignmentEmail update error:', err.message));
       }
     }
 
