@@ -149,6 +149,32 @@ async function ingestAgentLogs(req, res) {
         `, [machine, aggregatorName, machine, label || machine, uniqueRows.length, clientIp]);
 
         await client.query('COMMIT');
+
+        // Buffer critical severity logs for SOC email notification background worker
+        const criticalEvents = uniqueRows.filter(e => String(e.severity).toLowerCase() === 'critical');
+        if (criticalEvents.length > 0) {
+          try {
+            const { getRedisClient } = require('../config/redisClient');
+            const redis = getRedisClient();
+            const tenantId = req.tenantId || 'default';
+            const pipeline = redis.pipeline();
+            for (const ce of criticalEvents) {
+              pipeline.rpush(`critical_alert_buffer:${tenantId}`, JSON.stringify({
+                machine: ce.machine,
+                label: label || ce.machine,
+                tag: ce.tag || 'CRITICAL',
+                category: ce.category || 'SECURITY',
+                message: ce.message || '',
+                severity: 'critical',
+                ts: ce.ts || new Date()
+              }));
+            }
+            await pipeline.exec();
+            console.log(`[AgentLogController] Buffered ${criticalEvents.length} critical log(s) for tenant "${tenantId}" alert worker`);
+          } catch (bufErr) {
+            console.error(`[AgentLogController] Error buffering critical logs:`, bufErr.message);
+          }
+        }
       }
     } catch (err) {
       await client.query('ROLLBACK').catch(() => {});
