@@ -256,9 +256,8 @@ export default function AllLogs() {
             
             <select value={branchFilter} onChange={(e) => { setBranchFilter(e.target.value); setPage(1); setMachine(''); }} style={{ background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 12px', fontSize: '12px', fontFamily: 'var(--sans)', cursor: 'pointer', outline: 'none', transition: 'border 0.2s' }}>
                <option value="">All Branches</option>
-               <option value="direct">HQ Direct Infrastructure</option>
-               {aggregators.filter(a => a.name !== 'direct').map(a => (
-                 <option key={a.name} value={a.name}>{a.name}</option>
+               {aggregators.map(a => (
+                 <option key={a.name || a.id} value={a.name}>{a.display_name || a.name}</option>
                ))}
             </select>
             
