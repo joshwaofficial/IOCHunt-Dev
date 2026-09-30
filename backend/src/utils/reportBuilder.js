@@ -89,11 +89,11 @@ function getSimulatedReportData(period = 'daily') {
         goldenCert: 3,
         totalAd: 5820,
         topUsers: [
-          { user: 'svc_backup', count: 88, risk: 'HIGH TARGET' },
-          { user: 'administrator', count: 64, risk: 'HIGH TARGET' },
-          { user: 'j.smith', count: 32, risk: 'HIGH TARGET' },
-          { user: 'm.chen', count: 19, risk: 'MODERATE' },
-          { user: 'd.ross', count: 14, risk: 'MODERATE' }
+          { user: 'svc_backup', count: 88, role: 'SYSTEM SERVICE', risk: 'SYSTEM SERVICE' },
+          { user: 'administrator', count: 64, role: 'LOCAL ADMIN', risk: 'LOCAL ADMIN' },
+          { user: 'j.smith', count: 32, role: 'STANDARD USER', risk: 'STANDARD USER' },
+          { user: 'm.chen', count: 19, role: 'STANDARD USER', risk: 'STANDARD USER' },
+          { user: 'd.ross', count: 14, role: 'STANDARD USER', risk: 'STANDARD USER' }
         ]
       },
       firewall: {
@@ -107,11 +107,11 @@ function getSimulatedReportData(period = 'daily') {
           { label: 'Port 80 (HTTP)', count: 1840 },
           { label: 'Port 53 (DNS)', count: 950 }
         ],
-        topCountries: [
-          { country: 'Russian Federation (RU)', count: 7850 },
-          { country: 'China (CN)', count: 5420 },
-          { country: 'United States (US)', count: 3890 },
-          { country: 'Netherlands (NL)', count: 2150 }
+        topSourceIps: [
+          { ip: '192.168.1.105 (GIRI)', count: 7850 },
+          { ip: '10.0.0.12 (DEFSECONE)', count: 5420 },
+          { ip: '192.168.1.50 (LOQ)', count: 3890 },
+          { ip: '10.0.0.24 (JOSHWA)', count: 2150 }
         ]
       },
       usbDlp: {
@@ -472,9 +472,9 @@ function getSimulatedReportData(period = 'daily') {
       goldenCert: 1,
       totalAd: 820,
       topUsers: [
-        { user: 'svc_backup', count: 24, risk: 'HIGH TARGET' },
-        { user: 'administrator', count: 18, risk: 'HIGH TARGET' },
-        { user: 'j.smith', count: 7, risk: 'MODERATE' }
+        { user: 'svc_backup', count: 24, role: 'SYSTEM SERVICE', risk: 'SYSTEM SERVICE' },
+        { user: 'administrator', count: 18, role: 'LOCAL ADMIN', risk: 'LOCAL ADMIN' },
+        { user: 'j.smith', count: 7, role: 'STANDARD USER', risk: 'STANDARD USER' }
       ]
     },
     firewall: {
@@ -488,11 +488,11 @@ function getSimulatedReportData(period = 'daily') {
         { label: 'Port 80 (HTTP)', count: 180 },
         { label: 'Port 53 (DNS)', count: 90 }
       ],
-      topCountries: [
-        { country: 'Russian Federation (RU)', count: 1240 },
-        { country: 'China (CN)', count: 890 },
-        { country: 'United States (US)', count: 540 },
-        { country: 'Netherlands (NL)', count: 310 }
+      topSourceIps: [
+        { ip: '192.168.1.105 (GIRI)', count: 1240 },
+        { ip: '10.0.0.12 (DEFSECONE)', count: 890 },
+        { ip: '192.168.1.50 (LOQ)', count: 540 },
+        { ip: '10.0.0.24 (JOSHWA)', count: 310 }
       ]
     },
     usbDlp: {
@@ -1144,17 +1144,24 @@ async function buildReportDataAndPdf(options, queryFn = null) {
        LIMIT 5`,
       evParams
     );
-    adAudit.topUsers = (topUsersRes.rows || []).map(u => ({
-      user: u.user,
-      count: parseInt(u.count || 0, 10),
-      risk: parseInt(u.count || 0, 10) > 10 ? 'HIGH TARGET' : 'MODERATE'
-    }));
+    adAudit.topUsers = (topUsersRes.rows || []).map(u => {
+      const uLower = (u.user || '').toLowerCase();
+      let role = 'STANDARD USER';
+      if (uLower.includes('admin') || uLower.includes('root')) role = 'LOCAL ADMIN';
+      else if (uLower.includes('svc') || uLower.includes('service') || uLower.includes('system')) role = 'SYSTEM SERVICE';
+      return {
+        user: u.user,
+        count: parseInt(u.count || 0, 10),
+        role: role,
+        risk: role
+      };
+    });
   } catch (adErr) {
     console.warn('[REPORT BUILDER] AD Audit query error:', adErr.message);
   }
 
-  // ── Query Perimeter Defense (Firewall GeoIP & Ports) ───────────────────────
-  let firewall = { total: 0, blocked: 0, allowed: 0, usbBlocked: 0, dlpEvents: 0, topPorts: [], topCountries: [] };
+  // ── Query Perimeter Defense (Firewall Inbound Attacks & Ports) ──────────────
+  let firewall = { total: 0, blocked: 0, allowed: 0, usbBlocked: 0, dlpEvents: 0, topPorts: [], topSourceIps: [] };
   try {
     const fwRes = await q(
       `SELECT 
@@ -1184,20 +1191,38 @@ async function buildReportDataAndPdf(options, queryFn = null) {
       count: parseInt(p.count || 0, 10)
     }));
 
-    // Top 5 Source Countries
-    const geoRes = await q(
-      `SELECT src_country, COUNT(*) as count
+    // Top 5 Source IPs (Attacking Inbound IPs)
+    const srcIpRes = await q(
+      `SELECT src_ip, COUNT(*) as count
        FROM fw_events
-       WHERE ts >= $1 AND ts <= $2 AND src_country IS NOT NULL AND src_country != ''
-       GROUP BY src_country
+       WHERE ts >= $1 AND ts <= $2 AND src_ip IS NOT NULL AND src_ip != ''
+       GROUP BY src_ip
        ORDER BY count DESC
        LIMIT 5`,
       [from, to]
     );
-    firewall.topCountries = (geoRes.rows || []).map(g => ({
-      country: g.src_country,
-      count: parseInt(g.count || 0, 10)
+    firewall.topSourceIps = (srcIpRes.rows || []).map(s => ({
+      ip: s.src_ip,
+      count: parseInt(s.count || 0, 10)
     }));
+
+    // If fw_events had no source IPs, check events table network logs
+    if (firewall.topSourceIps.length === 0) {
+      try {
+        const evSrcRes = await q(
+          `SELECT src_ip, COUNT(*) as count
+           FROM events ${evWhere} AND src_ip IS NOT NULL AND src_ip != ''
+           GROUP BY src_ip
+           ORDER BY count DESC
+           LIMIT 5`,
+          evParams
+        );
+        firewall.topSourceIps = (evSrcRes.rows || []).map(s => ({
+          ip: s.src_ip,
+          count: parseInt(s.count || 0, 10)
+        }));
+      } catch (_) { }
+    }
   } catch (fwErr) { }
 
   // ── Query Hardware / USB & DLP Log ─────────────────────────────────────────
@@ -1553,17 +1578,6 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
     html += `</tbody></table></div>`;
   }
 
-  if (recommendations.length > 0) {
-    html += `<div class="section">
-      <h2>Priority SOC Remediation Actions</h2>
-      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 18px;">`;
-    recommendations.forEach((rec, idx) => {
-      html += `<div style="font-size:11.5px;color:#1e3a5f;margin-bottom:6px;line-height:1.4;">
-        <b style="color:#2563eb;">• [ACTION ${idx + 1}]</b> ${rec}
-      </div>`;
-    });
-    html += `</div></div>`;
-  }
 
   html += `<div class="footer">IOCHunt Enterprise • Automated Executive Intelligence • ${durLabel}</div>`;
   html += `</div></body></html>`;

@@ -13,10 +13,9 @@ const {
  * - Fluid continuous page flow (no artificial large blank spaces).
  * - High-DPI Chart.js Visualizations (Multi-Severity Velocity Timeline, Category Donut, MITRE Kill-Chain, Ports, OS).
  * - Active Directory & Identity Threat Matrix.
- * - Perimeter Defense & Firewall GeoIP.
+ * - Perimeter Defense & Firewall Inbound Attacks & Ports.
  * - Hardware / USB & DLP Policy Log.
  * - Incident Forensics Case Cards (Top 3-5 Ranked Threats + Register + MTTR).
- * - Executive Remediation Action Checklist.
  *
  * @param {Object} data
  * @returns {Promise<Buffer>}
@@ -327,7 +326,7 @@ async function generatePdfReport(data) {
 
       const targetUsers = (data.adAudit?.topUsers && data.adAudit.topUsers.length)
         ? data.adAudit.topUsers
-        : [{ user: 'No anomalous user account spikes detected', count: 0, risk: 'LOW RISK' }];
+        : [{ user: 'No anomalous user account spikes detected', count: 0, role: '-' }];
 
       targetUsers.slice(0, 3).forEach((u, idx) => {
         const uRowY = userTableY + 18 + (idx * 16);
@@ -336,14 +335,22 @@ async function generatePdfReport(data) {
         doc.fillColor(C_MUTED).font('Helvetica').fontSize(7)
           .text(String(u.count), margin + 240, uRowY);
 
-        const isHigh = u.risk.includes('HIGH');
-        doc.fillColor(isHigh ? C_CRIT : C_LOW).font('Helvetica-Bold').fontSize(6.5)
-          .text(u.risk, margin + contentWidth - 140, uRowY, { width: 120, align: 'right' });
+        let roleText = u.role || (u.risk && !u.risk.includes('RISK') && !u.risk.includes('TARGET') ? u.risk : null);
+        if (!roleText) {
+          const uLower = (u.user || '').toLowerCase();
+          if (uLower.includes('admin') || uLower.includes('root')) roleText = 'LOCAL ADMIN';
+          else if (uLower.includes('svc') || uLower.includes('service') || uLower.includes('system')) roleText = 'SYSTEM SERVICE';
+          else if (u.count === 0 || uLower.includes('no anomalous')) roleText = '-';
+          else roleText = 'STANDARD USER';
+        }
+        const isElevated = roleText.includes('ADMIN') || roleText.includes('SYSTEM');
+        doc.fillColor(isElevated ? '#b45309' : (roleText === '-' ? C_MUTED : C_LOW)).font('Helvetica-Bold').fontSize(6.5)
+          .text(roleText, margin + contentWidth - 140, uRowY, { width: 120, align: 'right' });
       });
 
       doc.y = adBoxY + adBoxH + 16;
 
-      // ── 8. Perimeter Defense: Firewall GeoIP & Top Targeted Ports ──────────
+      // ── 8. Perimeter Defense: Firewall Inbound Attacks & Ports ─────────────
       const fwBoxH = 125;
       renderSectionHeading('Perimeter Defense: Firewall Inbound Attacks & Ports', 'Network boundary traffic filtering, targeted ports, and top attacking source IPs', 30 + fwBoxH);
       const fwBoxY = doc.y;
@@ -374,14 +381,12 @@ async function generatePdfReport(data) {
 
       const topIps = (data.firewall?.topSourceIps && data.firewall.topSourceIps.length)
         ? data.firewall.topSourceIps
-        : (data.firewall?.topCountries && data.firewall.topCountries.length)
-          ? data.firewall.topCountries.map(c => ({ ip: c.country, count: c.count }))
-          : [{ ip: 'Internal Network Traffic Only', count: data.firewall?.total || 0 }];
+        : [{ ip: 'Internal / Localhost Only', count: data.firewall?.total || 0 }];
 
       topIps.slice(0, 4).forEach((c, idx) => {
         const cRowY = geoTableY + 17 + (idx * 15.5);
         doc.fillColor(C_TEXT).font('Helvetica').fontSize(7)
-          .text(c.ip || c.country || 'Unknown', geoX + 6, cRowY);
+          .text(c.ip || '127.0.0.1 (Internal)', geoX + 6, cRowY);
         doc.fillColor(C_CRIT).font('Helvetica-Bold').fontSize(7)
           .text((c.count || 0).toLocaleString(), geoX + geoW - 75, cRowY, { width: 70, align: 'right' });
       });
@@ -581,22 +586,6 @@ async function generatePdfReport(data) {
         });
         doc.y = regY + 16 + (register.length * 14) + 10;
       }
-
-      // ── 12. Recommended SOC Remediation Action Checklist ───────────────────
-      renderSectionHeading('Prioritized SOC & IT Remediation Checklist', 'Actionable remediation checklist derived from period telemetry observations');
-      const recs = data.recommendations || ['Maintain Continuous Surveillance: All security baseline thresholds operating normally.'];
-      ensureSpace(20 + (recs.length * 18));
-      const recBoxH = Math.max(36, 12 + (recs.length * 18));
-      const recBoxY = doc.y;
-      doc.roundedRect(margin, recBoxY, contentWidth, recBoxH, 4).fillAndStroke('#eff6ff', '#bfdbfe');
-
-      recs.forEach((rec, idx) => {
-        const ry = recBoxY + 8 + (idx * 18);
-        doc.fillColor(C_BLUE).font('Helvetica-Bold').fontSize(7.5).text('[ ]', margin + 12, ry);
-        doc.fillColor(C_TEXT).font('Helvetica').fontSize(7).text(rec, margin + 28, ry + 0.5, { width: contentWidth - 42 });
-      });
-      doc.y = recBoxY + recBoxH + 16;
-
       // ── Running Footers on All Pages ───────────────────────────────────────
       const range = doc.bufferedPageRange();
       const totalPages = range.count;
