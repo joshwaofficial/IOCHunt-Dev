@@ -51,13 +51,21 @@ export default function AllEventsModal({ isOpen, onClose, filterType, filterHour
       setLoading(true);
       
       try {
-        const d = new Date(Date.now() - Number(range) * 3600000);
-        const fromStr = d.getUTCFullYear() + '-' +
-          String(d.getUTCMonth() + 1).padStart(2, '0') + '-' +
-          String(d.getUTCDate()).padStart(2, '0') + ' ' +
-          String(d.getUTCHours()).padStart(2, '0') + ':' +
-          String(d.getUTCMinutes()).padStart(2, '0') + ':' +
-          String(d.getUTCSeconds()).padStart(2, '0');
+        let fromStr = '';
+        if (range === 'today') {
+          const now = new Date();
+          const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          fromStr = startToday.toISOString().replace('T', ' ').slice(0, 19);
+        } else {
+          const hoursNum = Number(range) || 24;
+          const d = new Date(Date.now() - hoursNum * 3600000);
+          fromStr = d.getUTCFullYear() + '-' +
+            String(d.getUTCMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getUTCDate()).padStart(2, '0') + ' ' +
+            String(d.getUTCHours()).padStart(2, '0') + ':' +
+            String(d.getUTCMinutes()).padStart(2, '0') + ':' +
+            String(d.getUTCSeconds()).padStart(2, '0');
+        }
 
         let url = `/api/events?include_total=true&limit=${perPage}&offset=${(currentPage - 1) * perPage}&from=${encodeURIComponent(fromStr)}&machine=${encodeURIComponent(machine || '')}`;
         if (filterHour) {
@@ -142,7 +150,7 @@ export default function AllEventsModal({ isOpen, onClose, filterType, filterHour
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
           <div style={{ fontFamily: 'var(--mono)', fontSize: '12px', fontWeight: 700, color: 'var(--accent, #2563eb)', letterSpacing: '1.5px', textTransform: 'uppercase' }}>
-            ALL EVENTS
+            {filterHour ? `EVENTS (${filterHour}:00 - ${filterHour}:59)` : filterType ? `${filterType.toUpperCase()} EVENTS` : 'ALL EVENTS'}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontFamily: 'var(--mono)', fontSize: '10px', color: 'var(--muted)' }}>

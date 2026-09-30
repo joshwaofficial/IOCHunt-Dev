@@ -618,6 +618,9 @@ export default function IncidentDetail() {
                     style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '4px 8px', fontSize: '11px', borderRadius: '4px', outline: 'none', width: '100%', fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)' }}
                   >
                     <option value="">Unassigned</option>
+                    {incident.assigned_to && !allowedAssignees.some(u => u.username === incident.assigned_to) && (
+                      <option value={incident.assigned_to}>{incident.assigned_to}</option>
+                    )}
                     {allowedAssignees.map(u => (
                       <option key={u.username} value={u.username}>{u.username}</option>
                     ))}

@@ -63,10 +63,9 @@ async function getAssignableUsers(req, res) {
     
     const role = req.session.role;
     const allowedAssignees = users.filter(u => {
-      if (role === 'ADMIN' || role === 'AGGREGATOR_ADMIN') return ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST'].includes(u.role);
-      if (role === 'L3_ANALYST') return ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST'].includes(u.role);
-      if (role === 'L2_ANALYST') return ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST'].includes(u.role);
-      if (role === 'L1_ANALYST') return u.role === 'L2_ANALYST';
+      if (['ADMIN', 'AGGREGATOR_ADMIN', 'L3_ANALYST', 'L2_ANALYST', 'L1_ANALYST'].includes(role)) {
+        return ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST', 'ADMIN'].includes(u.role);
+      }
       return false;
     });
 

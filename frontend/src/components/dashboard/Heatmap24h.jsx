@@ -8,8 +8,13 @@ const Heatmap24h = ({ data }) => {
   const [modalFilterHour, setModalFilterHour] = useState('');
 
   const handleChartClick = (e) => {
-    if (e.name) {
-      const hourStr = e.name.split(':')[0].padStart(2, '0');
+    let hourStr = '';
+    if (e && e.name) {
+      hourStr = e.name.split(':')[0].padStart(2, '0');
+    } else if (e && typeof e.dataIndex === 'number') {
+      hourStr = String(e.dataIndex).padStart(2, '0');
+    }
+    if (hourStr) {
       setModalFilterHour(hourStr);
       setModalOpen(true);
     }

@@ -104,8 +104,14 @@ const getEvents = async (req, res) => {
     }
     
     if (hourOfDay) {
-      params.push(hourOfDay);
-      whereClauses.push(`TO_CHAR(ts::timestamp, 'YYYY-MM-DD HH24:00') = $${params.length}`);
+      if (hourOfDay.includes('-') || hourOfDay.includes(' ')) {
+        params.push(hourOfDay);
+        whereClauses.push(`TO_CHAR(ts::timestamp, 'YYYY-MM-DD HH24:00') = $${params.length}`);
+      } else {
+        const cleanHour = String(hourOfDay).split(':')[0].padStart(2, '0');
+        params.push(cleanHour);
+        whereClauses.push(`TO_CHAR(ts::timestamp, 'HH24') = $${params.length}`);
+      }
     }
     
     const whereString = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
