@@ -294,6 +294,7 @@ const { startSyncService } = require('./modules/aggregator/services/syncService'
 const { startRetentionService } = require('./modules/aggregator/services/retentionService');
 const { ensureCertificates } = require('./utils/certManager');
 const { startWorker } = require('./workers/bulkWorker');
+const { startCriticalAlertWorker } = require('./workers/criticalAlertWorker');
 
 const https = require('https');
 const http = require('http');
@@ -320,9 +321,10 @@ db.initDB().then(async () => {
   console.log(`  Port:            ${PORT}`);
   console.log('══════════════════════════════════════════════════════');
 
-  // Initialize Email Reporting Schedules (Central Server only)
+  // Initialize Email Reporting Schedules & Critical Log Alert Worker (Central Server only)
   if (!appMode.isAggregator()) {
     initSchedules().catch(console.error);
+    startCriticalAlertWorker();
   }
 
   // If running in Aggregator mode, start local syslog, watchers, and central sync

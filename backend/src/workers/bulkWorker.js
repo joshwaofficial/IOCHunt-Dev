@@ -183,6 +183,38 @@ async function processBatch(streamKey, messages) {
       }
 
       await client.query('COMMIT');
+
+      // Buffer critical severity logs for SOC email notification background worker
+      const criticalEvents = data.events.filter(e => {
+        const rawTag = (e.tag || '').toUpperCase();
+        const rawMsg = (e.message || '').toUpperCase();
+        let sev = e.severity || 'info';
+        if (rawTag.includes('BEHAVIORAL-IOC') || rawMsg.includes('BEHAVIORAL-IOC') || rawTag.includes('BEHAVIORAL')) {
+          sev = 'medium';
+        }
+        return sev === 'critical' || String(e.severity).toLowerCase() === 'critical';
+      });
+
+      if (criticalEvents.length > 0) {
+        try {
+          const pipeline = redis.pipeline();
+          for (const ce of criticalEvents) {
+            pipeline.rpush(`critical_alert_buffer:${tenantId}`, JSON.stringify({
+              machine: ce.machine || ce.label || 'unknown',
+              label: ce.label || ce.machine || 'unknown',
+              tag: ce.tag || 'CRITICAL',
+              category: ce.category || 'SECURITY',
+              message: ce.message || '',
+              severity: 'critical',
+              ts: ce.ts || new Date()
+            }));
+          }
+          await pipeline.exec();
+          console.log(`[BulkWorker] Buffered ${criticalEvents.length} critical log(s) for tenant "${tenantId}" alert worker`);
+        } catch (bufErr) {
+          console.error(`[BulkWorker] Error buffering critical logs for tenant "${tenantId}":`, bufErr.message);
+        }
+      }
     } catch (err) {
       await client.query('ROLLBACK');
       console.error(`[BulkWorker] Transaction error for tenant ${tenantId}:`, err.message);
