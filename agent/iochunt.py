@@ -1211,7 +1211,7 @@ def classify_process(pid, name, cmdline, ppid, parent_name, exe,
         suspicious, reason = is_chain_suspicious(chain)
         if suspicious:
             return {
-                "tag": "[BEHAVIORAL-IOC][CHAIN]", "severity": "high",
+                "tag": "[BEHAVIORAL-IOC][CHAIN]", "severity": "medium",
                 "category": "PROCESSES",
                 "message": (f"[BEHAVIORAL-IOC][CHAIN] Suspicious process chain: "
                             f"{format_chain(chain)} | {reason}"),

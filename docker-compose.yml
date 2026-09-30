@@ -59,6 +59,7 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://iochunt-redis-${TENANT_ID:-default}:6379}
       FRONTEND_URL: ${FRONTEND_URL:-}
       DISPLAY_TZ: ${DISPLAY_TZ:-Asia/Kolkata}
+      TZ: ${TZ:-Asia/Kolkata}
       APP_VERSION: ${APP_VERSION:-2.0.0}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}

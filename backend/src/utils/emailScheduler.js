@@ -29,6 +29,8 @@ function startSchedule(s, tenantId = null) {
 
   const q = getQueryFn(tId);
 
+  const timezone = process.env.DISPLAY_TZ || process.env.TIMEZONE || process.env.TZ || 'Asia/Kolkata';
+
   try {
     activeCrons[cronKey] = cron.schedule(s.cron_expr, async () => {
       try {
@@ -46,8 +48,10 @@ function startSchedule(s, tenantId = null) {
         await q('UPDATE email_schedules SET last_run=$1,last_status=$2 WHERE id=$3',
           [Math.floor(Date.now() / 1000), 'ERROR: ' + e.message.slice(0, 120), s.id]);
       }
+    }, {
+      timezone
     });
-    console.log(`[EMAIL] Scheduled "${s.name}" (Tenant: ${tId || 'default'}) → ${s.cron_expr}`);
+    console.log(`[EMAIL] Scheduled "${s.name}" (Tenant: ${tId || 'default'}) → ${s.cron_expr} (${timezone})`);
   } catch (e) {
     console.error(`[EMAIL] Invalid cron "${s.cron_expr}" for schedule ${s.id}:`, e.message);
   }

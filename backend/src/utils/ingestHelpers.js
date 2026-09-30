@@ -218,7 +218,12 @@ function classifySeverity(tag, message) {
     return 'medium';
   }
 
-  if (t.includes('SENSITIVE') || t.includes('BEHAVIORAL-IOC') ||
+  if (t.includes('BEHAVIORAL-IOC') || m.includes('BEHAVIORAL-IOC') ||
+    t.includes('BEHAVIORAL') || t.includes('BEHAVIOR')) {
+    return 'medium';
+  }
+
+  if (t.includes('SENSITIVE') ||
     t.includes('SUSPICIOUS-TOOL') || t.includes('HIGH-RISK-PARENT') ||
     t.includes('MALWARE') || t.includes('AUTO-BLOCKED'))
     return 'critical';

@@ -93,11 +93,20 @@ const batchIngest = async (req, res) => {
 
     // 3. Bulk insert events
     if (data.events.length > 0) {
-      await publishToStream('ingest:agent', req.tenantId, data.events.map(e => ({
-        ...e,
-        aggregator_name: isAggregatorClient ? aggregatorName : (e.aggregator_name || 'direct'),
-        ts: normalizeToUTC(e.ts) || new Date()
-      })));
+      await publishToStream('ingest:agent', req.tenantId, data.events.map(e => {
+        let sev = e.severity;
+        const tag = (e.tag || '').toUpperCase();
+        const msg = (e.message || '').toUpperCase();
+        if (tag.includes('BEHAVIORAL-IOC') || msg.includes('BEHAVIORAL-IOC') || tag.includes('BEHAVIORAL')) {
+          sev = 'medium';
+        }
+        return {
+          ...e,
+          severity: sev,
+          aggregator_name: isAggregatorClient ? aggregatorName : (e.aggregator_name || 'direct'),
+          ts: normalizeToUTC(e.ts) || new Date()
+        };
+      }));
     }
 
     // 4. Ingest firewall events
@@ -222,13 +231,22 @@ const ingestEvents = async (req, res) => {
     const safeLabel = typeof label === 'string' ? label.slice(0, 128) : machine;
 
     if (events.length > 0) {
-      await publishToStream('ingest:agent', tenant.tenant_id, events.map(e => ({
-        ...e,
-        machine,
-        label: safeLabel,
-        aggregator_name: 'direct',
-        ts: normalizeToUTC(e.ts) || new Date()
-      })));
+      await publishToStream('ingest:agent', tenant.tenant_id, events.map(e => {
+        let sev = e.severity;
+        const tag = (e.tag || '').toUpperCase();
+        const msg = (e.message || '').toUpperCase();
+        if (tag.includes('BEHAVIORAL-IOC') || msg.includes('BEHAVIORAL-IOC') || tag.includes('BEHAVIORAL')) {
+          sev = 'medium';
+        }
+        return {
+          ...e,
+          severity: sev,
+          machine,
+          label: safeLabel,
+          aggregator_name: 'direct',
+          ts: normalizeToUTC(e.ts) || new Date()
+        };
+      }));
     }
 
     events.forEach(e => {

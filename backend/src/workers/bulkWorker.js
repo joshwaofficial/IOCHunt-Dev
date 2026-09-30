@@ -89,13 +89,19 @@ async function processBatch(streamKey, messages) {
         const eventParams = [];
         let pIdx = 1;
         for (const event of data.events) {
+          const rawTag = (event.tag || '').toUpperCase();
+          const rawMsg = (event.message || '').toUpperCase();
+          let sev = event.severity || 'info';
+          if (rawTag.includes('BEHAVIORAL-IOC') || rawMsg.includes('BEHAVIORAL-IOC') || rawTag.includes('BEHAVIORAL')) {
+            sev = 'medium';
+          }
           eventValues.push(`($${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++})`);
           eventParams.push(
             event.aggregator_name || 'syslog',
             event.machine || 'unknown',
             event.label || event.machine || 'unknown',
             event.tag || '',
-            event.severity || 'info',
+            sev,
             event.category || '',
             event.message || '',
             event.ts || new Date(),

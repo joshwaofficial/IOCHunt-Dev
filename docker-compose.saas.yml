@@ -74,7 +74,8 @@ services:
       # App Config
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855}
       FRONTEND_URL: ${FRONTEND_URL:-}
-      DISPLAY_TZ: ${DISPLAY_TZ:-UTC}
+      DISPLAY_TZ: ${DISPLAY_TZ:-Asia/Kolkata}
+      TZ: ${TZ:-Asia/Kolkata}
       APP_VERSION: ${APP_VERSION:-2.0.0}
     ports:
       - "${APP_PORT:-4001}:4001"

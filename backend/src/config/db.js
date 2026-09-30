@@ -398,6 +398,7 @@ const initDB = async (retries = 10, delay = 3000) => {
           CREATE INDEX IF NOT EXISTS idx_events_severity ON events (severity);
           CREATE INDEX IF NOT EXISTS idx_events_aggregator ON events (aggregator_name);
           CREATE INDEX IF NOT EXISTS idx_events_category ON events (category);
+          UPDATE events SET severity = 'medium' WHERE (tag ILIKE '%BEHAVIORAL-IOC%' OR tag ILIKE '%BEHAVIORAL%' OR message ILIKE '%BEHAVIORAL-IOC%') AND LOWER(severity) != 'medium';
           CREATE TABLE IF NOT EXISTS audit_log (
             id BIGSERIAL PRIMARY KEY,
             tenant_id VARCHAR(64) DEFAULT '',
@@ -467,6 +468,7 @@ const initDB = async (retries = 10, delay = 3000) => {
                 ALTER TABLE settings ADD COLUMN IF NOT EXISTS idle_timeout_mins INTEGER DEFAULT 0;
                 ALTER TABLE fw_events ALTER COLUMN src_country TYPE VARCHAR(100);
                 ALTER TABLE fw_events ALTER COLUMN dst_country TYPE VARCHAR(100);
+                UPDATE events SET severity = 'medium' WHERE (tag ILIKE '%BEHAVIORAL-IOC%' OR tag ILIKE '%BEHAVIORAL%' OR message ILIKE '%BEHAVIORAL-IOC%') AND LOWER(severity) != 'medium';
                 GRANT ALL ON ALL TABLES IN SCHEMA public TO "${t.db_user}";
                 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "${t.db_user}";
               `);
