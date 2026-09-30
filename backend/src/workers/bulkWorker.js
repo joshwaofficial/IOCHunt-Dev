@@ -1,5 +1,6 @@
 const { getRedisClient } = require('../config/redisClient');
 const tenantDbManager = require('../config/tenantDbManager');
+const { classifySeverity } = require('../utils/ingestHelpers');
 
 // Dedicated Redis connection for bulkWorker to ensure blocking stream operations (XREADGROUP ... BLOCK)
 // do not freeze the shared Redis TCP socket used by auth, rate limiting, and HTTP handlers.
@@ -91,17 +92,21 @@ async function processBatch(streamKey, messages) {
         for (const event of data.events) {
           const rawTag = (event.tag || '').toUpperCase();
           const rawMsg = (event.message || '').toUpperCase();
-          let sev = event.severity || 'info';
+          let sev = event.severity;
+          if (!sev || sev === 'info') {
+            sev = classifySeverity(event.tag, event.message);
+          }
           if (rawTag.includes('BEHAVIORAL-IOC') || rawMsg.includes('BEHAVIORAL-IOC') || rawTag.includes('BEHAVIORAL')) {
             sev = 'medium';
           }
+          event.severity = sev; // Store computed severity back on event object
           eventValues.push(`($${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++})`);
           eventParams.push(
             event.aggregator_name || 'syslog',
             event.machine || 'unknown',
             event.label || event.machine || 'unknown',
             event.tag || '',
-            sev,
+            sev || 'info',
             event.category || '',
             event.message || '',
             event.ts || new Date(),
@@ -185,15 +190,7 @@ async function processBatch(streamKey, messages) {
       await client.query('COMMIT');
 
       // Buffer critical severity logs for SOC email notification background worker
-      const criticalEvents = data.events.filter(e => {
-        const rawTag = (e.tag || '').toUpperCase();
-        const rawMsg = (e.message || '').toUpperCase();
-        let sev = e.severity || 'info';
-        if (rawTag.includes('BEHAVIORAL-IOC') || rawMsg.includes('BEHAVIORAL-IOC') || rawTag.includes('BEHAVIORAL')) {
-          sev = 'medium';
-        }
-        return sev === 'critical' || String(e.severity).toLowerCase() === 'critical';
-      });
+      const criticalEvents = data.events.filter(e => String(e.severity).toLowerCase() === 'critical');
 
       if (criticalEvents.length > 0) {
         try {

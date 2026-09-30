@@ -20,8 +20,18 @@ async function sendCriticalAlertEmail({ events, recipients, queryFn, tenantId = 
     return;
   }
 
-  // Fetch tenant SMTP configuration
-  const cfg = await getSmtpConfig(queryFn);
+  // Fetch tenant SMTP configuration with fallback to central control plane
+  let cfg = await getSmtpConfig(queryFn);
+  if ((!cfg || !cfg.enabled || !cfg.host) && tenantId !== 'default') {
+    try {
+      const db = require('../config/db');
+      const cpCfg = await getSmtpConfig(db.query.bind(db));
+      if (cpCfg && cpCfg.enabled && cpCfg.host) {
+        cfg = cpCfg;
+      }
+    } catch (_) {}
+  }
+
   if (!cfg || !cfg.enabled || !cfg.host) {
     console.warn(`[CriticalAlertEmail] SMTP not enabled or configured for tenant "${tenantId}". Critical log alert email skipped.`);
     return;

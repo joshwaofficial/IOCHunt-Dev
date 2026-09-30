@@ -45,17 +45,43 @@ async function processTenantBuffer(redis, tenantId) {
 
     console.log(`[CriticalAlertWorker] Processing ${events.length} critical event(s) for tenant "${tenantId}"`);
 
-    // Fetch SOC team recipients (Admin, L1, L2, L3)
+    // Fetch SOC team recipients (Admin, L1, L2, L3 analysts)
     const queryFn = getQueryFn(tenantId);
-    const usersRes = await queryFn(`
+    let usersRes = await queryFn(`
       SELECT username, email, role FROM users 
-      WHERE UPPER(role) IN ('ADMIN', 'L1', 'L2', 'L3')
+      WHERE UPPER(role) LIKE '%ADMIN%' 
+         OR UPPER(role) LIKE '%L1%' 
+         OR UPPER(role) LIKE '%L2%' 
+         OR UPPER(role) LIKE '%L3%'
+         OR UPPER(role) LIKE '%SOC%'
+         OR UPPER(role) LIKE '%ANALYST%'
     `);
 
     const recipientEmails = new Set();
     for (const u of usersRes.rows || []) {
       const email = (u.email && u.email.trim()) || (u.username && u.username.includes('@') ? u.username.trim() : null);
       if (email) recipientEmails.add(email);
+    }
+
+    // Fallback: If tenant DB users table has no email configured, query control plane DB
+    if (recipientEmails.size === 0 && tenantId !== 'default' && tenantId !== 'iochunt-default') {
+      try {
+        const cpUsersRes = await db.query(`
+          SELECT username, email, role FROM users 
+          WHERE UPPER(role) LIKE '%ADMIN%' 
+             OR UPPER(role) LIKE '%L1%' 
+             OR UPPER(role) LIKE '%L2%' 
+             OR UPPER(role) LIKE '%L3%'
+             OR UPPER(role) LIKE '%SOC%'
+             OR UPPER(role) LIKE '%ANALYST%'
+        `);
+        for (const u of cpUsersRes.rows || []) {
+          const email = (u.email && u.email.trim()) || (u.username && u.username.includes('@') ? u.username.trim() : null);
+          if (email) recipientEmails.add(email);
+        }
+      } catch (cpErr) {
+        console.warn(`[CriticalAlertWorker] Control plane fallback user query error:`, cpErr.message);
+      }
     }
 
     const recipients = Array.from(recipientEmails);
