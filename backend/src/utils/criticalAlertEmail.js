@@ -10,16 +10,13 @@ const { getSmtpConfig, createTransporter } = require('./emailHelper');
  */
 function formatLogTimestamp(ts) {
   if (!ts) return 'N/A';
-  if (ts instanceof Date) {
-    return DateTime.fromJSDate(ts).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd HH:mm:ss');
-  }
   const str = String(ts).trim();
-  let dt = DateTime.fromISO(str.replace(' ', 'T'), { setZone: true });
-  if (!dt.isValid) {
-    dt = DateTime.fromSQL(str, { zone: 'system' });
-  }
-  if (dt.isValid) {
-    return dt.setZone('Asia/Kolkata').toFormat('yyyy-MM-dd HH:mm:ss');
+  const utc = (str.endsWith('Z') || str.endsWith('z') || str.includes('+'))
+    ? str
+    : (str.includes('T') ? `${str}Z` : `${str.replace(' ', 'T')}Z`);
+  const d = new Date(utc);
+  if (!isNaN(d.getTime())) {
+    return DateTime.fromJSDate(d).setZone('Asia/Kolkata').toFormat('yyyy-MM-dd HH:mm:ss');
   }
   return str.slice(0, 19);
 }

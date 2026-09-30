@@ -296,15 +296,14 @@ export default function AllLogs() {
                <option value="Defender">Defender</option>
             </select>
             
-            <div className="tb-search-wrap" style={{ flex: 1, minWidth: '160px', position: 'relative' }}>
-                <span className="material-symbols-outlined tb-search-icon">search</span>
+            <div style={{ flex: '1 1 200px', minWidth: '160px', maxWidth: '320px', position: 'relative', display: 'flex', alignItems: 'center', height: '34px' }}>
+                <span className="material-symbols-outlined" style={{ position: 'absolute', left: '10px', fontSize: '16px', color: 'var(--muted)', pointerEvents: 'none', zIndex: 2 }}>search</span>
                 <input 
                   type="text" 
                   value={searchTerm}
-                  className="tb-search" 
                   onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }} 
                   placeholder="Search logs..." 
-                  style={{ width: '100%' }}
+                  style={{ width: '100%', height: '34px', lineHeight: '34px', boxSizing: 'border-box', padding: '0 10px 0 32px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px', fontFamily: 'var(--sans)', outline: 'none' }}
                 />
             </div>
             

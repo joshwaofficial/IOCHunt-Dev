@@ -520,14 +520,15 @@ export default function Reports() {
                     alignItems: 'center',
                     background: 'var(--surface2)',
                     border: '1px solid var(--border)',
-                    borderRadius: '8px',
-                    padding: '0 12px',
-                    height: '38px',
-                    width: '320px',
+                    borderRadius: '6px',
+                    padding: '0 10px',
+                    height: '34px',
+                    width: '300px',
+                    boxSizing: 'border-box',
                     boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.03)',
                     transition: 'border-color 0.2s'
                   }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)', marginRight: '8px' }}>search</span>
+                    <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'var(--muted)', marginRight: '6px', flexShrink: 0 }}>search</span>
                     <input
                       type="text"
                       placeholder="Filter by machine, tag, message..."
@@ -540,7 +541,12 @@ export default function Reports() {
                         fontSize: '12px',
                         outline: 'none',
                         width: '100%',
-                        fontFamily: 'var(--sans)'
+                        height: '100%',
+                        lineHeight: '34px',
+                        padding: 0,
+                        margin: 0,
+                        fontFamily: 'var(--sans)',
+                        boxSizing: 'border-box'
                       }}
                     />
                     {eventSearch && (
