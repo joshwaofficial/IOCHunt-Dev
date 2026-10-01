@@ -15,11 +15,12 @@ function isPrivateIp(ip) {
 export default function FirewallTopSources({ topSrc, topDst }) {
   if (!topSrc?.length && !topDst?.length) {
     return (
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <div style={{ padding: '16px', borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.02)' }}>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%', minHeight: '520px' }}>
+        <div style={{ padding: '16px', borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.02)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#06b6d4' }}>swap_horiz</span>
           <h3 style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text)', margin: 0 }}>Top Sources & Dests</h3>
         </div>
-        <div style={{ padding: '30px', textAlign: 'center', color: 'var(--muted)' }}>No data yet</div>
+        <div style={{ padding: '30px', textAlign: 'center', color: 'var(--muted)', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>No traffic telemetry data recorded</div>
       </div>
     );
   }
@@ -28,11 +29,12 @@ export default function FirewallTopSources({ topSrc, topDst }) {
   const maxDst = Math.max(...(topDst || []).map(d => d.n), 1);
 
   return (
-    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ padding: '16px', borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.02)' }}>
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%', minHeight: '520px' }}>
+      <div style={{ padding: '16px', borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.02)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#06b6d4' }}>swap_horiz</span>
         <h3 style={{ fontWeight: 700, fontSize: '14px', color: 'var(--text)', margin: 0 }}>Top Sources & Dests</h3>
       </div>
-      <div style={{ padding: '0', maxHeight: '460px', overflowY: 'auto', flex: 1 }}>
+      <div style={{ padding: '0', overflowY: 'auto', flex: 1 }}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {/* Top Sources */}
           {topSrc && topSrc.length > 0 && (

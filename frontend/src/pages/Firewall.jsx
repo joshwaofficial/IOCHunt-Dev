@@ -410,12 +410,19 @@ export default function Firewall() {
 
       {!liveMode && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px', marginBottom: '24px' }}>
-          <FirewallAlerts range={range} from={from} to={to} device={machine || device} severity={severity} aggregator={aggregator} />
+          <FirewallTopSources topSrc={data.topSrc} topDst={data.topDst} />
           <FirewallTopology 
             range={range}
             from={from} to={to} action={action} service={service} ip={ip} device={machine || device} severity={severity} aggregator={aggregator} 
             onFlowSelect={setFlowFilter} 
           />
+        </div>
+      )}
+
+      {/* Full-width Security Alerts table */}
+      {!liveMode && (
+        <div style={{ marginBottom: '24px' }}>
+          <FirewallAlerts range={range} from={from} to={to} device={machine || device} severity={severity} aggregator={aggregator} />
         </div>
       )}
 
@@ -469,11 +476,9 @@ export default function Firewall() {
         </div>
       )}
 
-      {/* Bottom Section: Connection Log and Top Sources */}
+      {/* Bottom Section: Connection Log (Full Width) */}
       {!liveMode && (
-        <div style={{ display: 'grid', gridTemplateColumns: '7fr 3fr', gap: '16px', marginBottom: '24px' }}>
-          
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', display: 'flex', flexDirection: 'column', marginBottom: '24px' }}>
             <div style={{ padding: '16px', borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.02)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ fontWeight: 800, fontSize: '15px', color: 'var(--text)', margin: 0, letterSpacing: '-0.3px' }}>Connection Log</h3>
               <span style={{ fontSize: '10px', color: '#9aa5c0', fontFamily: 'var(--mono)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px' }}>Showing {data.events.length} of {data.total}</span>
@@ -675,10 +680,6 @@ export default function Firewall() {
               </div>
             </div>
           </div>
-
-          <FirewallTopSources topSrc={data.topSrc} topDst={data.topDst} />
-          
-        </div>
       )}
 
     </div>

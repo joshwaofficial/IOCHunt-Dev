@@ -63,7 +63,7 @@ export default function FirewallAlerts({ range: parentRange, from, to, device, s
   const pagedEvents = (data.events || []).slice((page - 1) * perPage, page * perPage);
 
   return (
-    <div style={{ background: 'var(--surface)', border: '1px solid rgba(249,115,22,.4)', borderRadius: '8px', overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ background: 'var(--surface)', border: '1px solid rgba(249,115,22,.4)', borderRadius: '8px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       
       {/* Header */}
       <div style={{ padding: '16px', borderBottom: '1px solid rgba(249,115,22,.2)', display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(249,115,22,.06)', gap: '8px' }}>
@@ -113,15 +113,15 @@ export default function FirewallAlerts({ range: parentRange, from, to, device, s
 
             {/* Table */}
             <div style={{ overflowX: 'auto' }}>
-              <table className="mt">
+              <table className="mt" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                 <thead>
                   <tr>
-                    <th>Time</th>
-                    <th>Machine</th>
-                    <th>Alert Type</th>
-                    <th>Source IP</th>
-                    <th>Severity</th>
-                    <th>Detail</th>
+                    <th style={{ width: '150px', whiteSpace: 'nowrap' }}>TIME</th>
+                    <th style={{ width: '160px', whiteSpace: 'nowrap' }}>MACHINE</th>
+                    <th style={{ width: '140px', whiteSpace: 'nowrap' }}>ALERT TYPE</th>
+                    <th style={{ width: '160px', whiteSpace: 'nowrap' }}>SOURCE IP</th>
+                    <th style={{ width: '100px', whiteSpace: 'nowrap' }}>SEVERITY</th>
+                    <th>DETAIL</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -134,16 +134,16 @@ export default function FirewallAlerts({ range: parentRange, from, to, device, s
                                     : 'sev-info';
                     return (
                       <tr key={i}>
-                        <td style={{ fontFamily: 'var(--mono)', color: 'var(--muted2)' }}>{e.ts ? new Date(e.ts).toLocaleString('sv-SE').slice(0, 16).replace('T', ' ') : ''}</td>
-                        <td style={{ color: '#2563eb', fontWeight: 600 }}>{e.machine || '-'}</td>
-                        <td>
-                          <span style={{ background: `${alertColor}18`, border: `1px solid ${alertColor}44`, color: alertColor, padding: '2px 6px', borderRadius: '4px', fontSize: '10px', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                        <td style={{ fontFamily: 'var(--mono)', color: 'var(--muted2)', whiteSpace: 'nowrap' }}>{e.ts ? new Date(e.ts).toLocaleString('sv-SE').slice(0, 16).replace('T', ' ') : ''}</td>
+                        <td style={{ color: '#2563eb', fontWeight: 600, whiteSpace: 'nowrap' }}>{e.machine || '-'}</td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <span style={{ background: `${alertColor}18`, border: `1px solid ${alertColor}44`, color: alertColor, padding: '2px 8px', borderRadius: '4px', fontSize: '10px', whiteSpace: 'nowrap', fontWeight: 600 }}>
                             {e.alertType}
                           </span>
                         </td>
-                        <td style={{ color: '#f97316', fontWeight: 600, fontFamily: 'var(--mono)' }}>{e.src_ip || 'GUI(192.168.1.x)'}</td>
-                        <td><span className={`badge ${sevClass}`}>{e.severity || 'info'}</span></td>
-                        <td className="msg-cell" style={{ maxWidth: '260px', wordBreak: 'break-all' }} title={e.displayMsg || e.message || e.msg || ''}>
+                        <td style={{ color: '#f97316', fontWeight: 600, fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>{e.src_ip || 'GUI(192.168.1.x)'}</td>
+                        <td style={{ whiteSpace: 'nowrap' }}><span className={`badge ${sevClass}`}>{e.severity || 'info'}</span></td>
+                        <td className="msg-cell" style={{ wordBreak: 'break-word', whiteSpace: 'normal', lineHeight: '1.4', color: 'var(--text)' }} title={e.displayMsg || e.message || e.msg || ''}>
                           {e.displayMsg || e.message || e.msg || ''}
                         </td>
                       </tr>
