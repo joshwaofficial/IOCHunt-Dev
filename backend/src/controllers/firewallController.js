@@ -488,14 +488,48 @@ exports.getSecurityAlerts = async (req, res) => {
 
       if (isAdminLogin && show_logins !== '1') return;
 
+      // Clean formatted attributes for diff viewing:
+      let formattedAttr = '';
+      if (cfgattr) {
+        formattedAttr = cfgattr
+          .replace(/(\w+)\[([^\]]*)\]/g, '$1: $2, ')
+          .replace(/->/g, ' → ')
+          .replace(/,\s*$/, '');
+      }
+
+      // Parse clean IP and UI interface:
+      let cleanIp = srcip;
+      let uiType = 'GUI';
+      if (ui) {
+        const m = ui.match(/([A-Za-z0-9_-]+)\(([^)]+)\)/);
+        if (m) {
+          uiType = m[1].toUpperCase();
+          if (!cleanIp || cleanIp.includes('GUI') || cleanIp.includes('(')) cleanIp = m[2];
+        } else {
+          uiType = ui;
+        }
+      }
+
+      const actionVal = action || (alertType.includes('Added') ? 'Add' : alertType.includes('Deleted') ? 'Delete' : alertType.includes('Modified') || alertType.includes('Changed') ? 'Edit' : alertType.includes('Login') ? 'Login' : '-');
+
       outEvents.push({
         id: e.id,
         ts: displayTs(e.ts),
         machine: e.machine,
         severity: e.severity,
-        src_ip: srcip,
+        src_ip: cleanIp || srcip || '-',
+        ui: ui || '-',
+        uiType: uiType || 'GUI',
+        user: user || '-',
+        action: actionVal,
+        cfgpath: cfgpath || '-',
+        cfgobj: cfgobj || '-',
+        cfgattr: formattedAttr || cfgattr || '',
+        rawAttr: cfgattr || '',
+        logdesc: logdesc || '',
         alertType,
         msg: displayMsg,
+        raw: raw,
         isAdminLogin,
         isLoginFail
       });
