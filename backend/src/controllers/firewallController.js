@@ -404,6 +404,7 @@ exports.getSecurityAlerts = async (req, res) => {
       const ui = (rawO.match(/ui="([^"]+)"/) || [])[1] || '';
       const reason = (rawO.match(/reason="([^"]+)"/) || [])[1] || '';
       const logdesc = (rawO.match(/logdesc="([^"]+)"/) || [])[1] || '';
+      const logid = (rawO.match(/logid="?([0-9a-zA-Z]+)"?/) || [])[1] || e.session_id || '';
 
       let alertType = null;
       let isLoginFail = false;
@@ -514,6 +515,7 @@ exports.getSecurityAlerts = async (req, res) => {
 
       outEvents.push({
         id: e.id,
+        logid: logid || '-',
         ts: displayTs(e.ts),
         machine: e.machine,
         severity: e.severity,

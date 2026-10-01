@@ -135,7 +135,7 @@ export default function FirewallAlerts({ range: parentRange, from, to, device, s
                     Security Alert Details
                   </h3>
                   <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px', fontFamily: 'var(--mono)' }}>
-                    ID: #{selectedAlert.id || '-'} &nbsp;|&nbsp; {selectedAlert.machine}
+                    ID: #{selectedAlert.id || '-'} &nbsp;|&nbsp; Log ID: <span style={{ color: '#f59e0b', fontWeight: 700 }}>{selectedAlert.logid || '-'}</span> &nbsp;|&nbsp; {selectedAlert.machine}
                   </div>
                 </div>
               </div>
@@ -182,7 +182,7 @@ export default function FirewallAlerts({ range: parentRange, from, to, device, s
               {/* Structured Key-Value Grid */}
               <div style={{ 
                 display: 'grid', 
-                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', 
                 gap: '14px',
                 background: 'var(--surface2)',
                 padding: '16px',
@@ -192,6 +192,13 @@ export default function FirewallAlerts({ range: parentRange, from, to, device, s
                 <div>
                   <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '0.8px' }}>Timestamp</div>
                   <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginTop: '4px', fontFamily: 'var(--mono)' }}>{selectedAlert.ts || '-'}</div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '0.8px' }}>Log ID (FortiGate)</div>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#f59e0b', marginTop: '4px', fontFamily: 'var(--mono)' }}>
+                    {selectedAlert.logid && selectedAlert.logid !== '-' ? selectedAlert.logid : '-'}
+                  </div>
                 </div>
 
                 <div>
@@ -396,19 +403,20 @@ export default function FirewallAlerts({ range: parentRange, from, to, device, s
 
             {/* Table */}
             <div style={{ overflowX: 'auto' }}>
-              <table className="mt" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '1100px' }}>
+              <table className="mt" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '1200px' }}>
                 <thead>
                   <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                    <th style={{ width: '135px', whiteSpace: 'nowrap' }}>TIME</th>
-                    <th style={{ width: '150px', whiteSpace: 'nowrap' }}>DEVICE</th>
-                    <th style={{ width: '110px', whiteSpace: 'nowrap' }}>USER</th>
-                    <th style={{ width: '155px', whiteSpace: 'nowrap' }}>INTERFACE / IP</th>
-                    <th style={{ width: '130px', whiteSpace: 'nowrap' }}>ALERT TYPE</th>
-                    <th style={{ width: '85px', whiteSpace: 'nowrap' }}>ACTION</th>
-                    <th style={{ width: '155px', whiteSpace: 'nowrap' }}>TARGET / PATH</th>
-                    <th style={{ width: '220px', whiteSpace: 'nowrap' }}>CHANGES / DIFF</th>
-                    <th style={{ width: '90px', whiteSpace: 'nowrap' }}>SEVERITY</th>
-                    <th>DETAIL</th>
+                    <th style={{ width: '125px', whiteSpace: 'nowrap' }}>TIME</th>
+                    <th style={{ width: '110px', whiteSpace: 'nowrap' }}>LOG ID</th>
+                    <th style={{ width: '135px', whiteSpace: 'nowrap' }}>DEVICE</th>
+                    <th style={{ width: '100px', whiteSpace: 'nowrap' }}>USER</th>
+                    <th style={{ width: '135px', whiteSpace: 'nowrap' }}>INTERFACE / IP</th>
+                    <th style={{ width: '115px', whiteSpace: 'nowrap' }}>ALERT TYPE</th>
+                    <th style={{ width: '75px', whiteSpace: 'nowrap' }}>ACTION</th>
+                    <th style={{ width: '140px', whiteSpace: 'nowrap' }}>TARGET / PATH</th>
+                    <th style={{ width: '200px', whiteSpace: 'nowrap' }}>CHANGES / DIFF</th>
+                    <th style={{ width: '80px', whiteSpace: 'nowrap' }}>SEVERITY</th>
+                    <th style={{ minWidth: '180px' }}>DETAIL</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -438,12 +446,33 @@ export default function FirewallAlerts({ range: parentRange, from, to, device, s
                         title="Click to view full alert details"
                       >
                         {/* TIME */}
-                        <td style={{ fontFamily: 'var(--mono)', color: 'var(--muted2)', whiteSpace: 'nowrap' }}>
+                        <td style={{ fontFamily: 'var(--mono)', color: 'var(--muted2)', whiteSpace: 'nowrap', fontSize: '11px' }}>
                           {e.ts ? new Date(e.ts).toLocaleString('sv-SE').slice(0, 16).replace('T', ' ') : ''}
                         </td>
 
+                        {/* LOG ID */}
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          {e.logid && e.logid !== '-' ? (
+                            <span style={{ 
+                              fontFamily: 'var(--mono)', 
+                              fontSize: '11px', 
+                              color: '#f59e0b', 
+                              background: 'rgba(245,158,11,0.08)', 
+                              border: '1px solid rgba(245,158,11,0.25)', 
+                              padding: '2px 6px', 
+                              borderRadius: '4px',
+                              letterSpacing: '0.3px',
+                              fontWeight: 600
+                            }}>
+                              {e.logid}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--muted)', fontFamily: 'var(--mono)', fontSize: '11px' }}>-</span>
+                          )}
+                        </td>
+
                         {/* DEVICE */}
-                        <td style={{ color: '#2563eb', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                        <td style={{ color: '#2563eb', fontWeight: 700, whiteSpace: 'nowrap', maxWidth: '135px', overflow: 'hidden', textOverflow: 'ellipsis' }} title={e.machine || '-'}>
                           {e.machine || '-'}
                         </td>
 
@@ -499,7 +528,7 @@ export default function FirewallAlerts({ range: parentRange, from, to, device, s
                         </td>
 
                         {/* CHANGES / DIFF */}
-                        <td style={{ fontSize: '11px', color: 'var(--muted2)', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={e.cfgattr || '-'}>
+                        <td style={{ fontSize: '11px', color: 'var(--muted2)', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={e.cfgattr || '-'}>
                           {e.cfgattr ? (
                             <span style={{ color: '#38bdf8', fontFamily: 'var(--mono)' }}>{e.cfgattr}</span>
                           ) : (
@@ -513,7 +542,7 @@ export default function FirewallAlerts({ range: parentRange, from, to, device, s
                         </td>
 
                         {/* DETAIL */}
-                        <td className="msg-cell" style={{ wordBreak: 'break-word', whiteSpace: 'normal', lineHeight: '1.4', color: 'var(--text)' }} title={e.displayMsg || e.msg || ''}>
+                        <td className="msg-cell" style={{ maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '1.4', color: 'var(--text)' }} title={e.displayMsg || e.msg || ''}>
                           {e.msg || e.displayMsg || '-'}
                         </td>
                       </tr>
