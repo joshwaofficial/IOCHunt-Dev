@@ -869,11 +869,11 @@ export default function BloodHoundNodeDiagram({
       const nodeMargin = Math.round(Math.min(14, Math.max(5, 7 / Math.pow(z, 0.5))));
 
       cyRef.current.batch(() => {
-        cyRef.current.nodes(':not(:hover):not(.selected):not(.hide-node-labels)').style({
+        cyRef.current.nodes(':not(:selected):not(.hide-node-labels)').style({
           'font-size': `${nodeFont}px`,
           'text-margin-y': nodeMargin
         });
-        cyRef.current.edges(':not(:hover):not(.selected):not(.hide-edge-labels)').style({
+        cyRef.current.edges(':not(:selected):not(.hide-edge-labels)').style({
           'font-size': `${edgeFont}px`
         });
       });

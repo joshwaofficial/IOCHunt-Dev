@@ -110,6 +110,8 @@ export default function Reports() {
   const [alertSearch, setAlertSearch] = useState('');
   const [alertPage, setAlertPage] = useState(1);
   const [alertPerPage, setAlertPerPage] = useState(10);
+  const [selectedReportAlert, setSelectedReportAlert] = useState(null);
+  const [copiedReportRaw, setCopiedReportRaw] = useState(false);
 
   // Connections table pagination & search
   const [connSearch, setConnSearch] = useState('');
@@ -274,11 +276,12 @@ export default function Reports() {
 
     const alerts = d.alerts?.items || [];
     if (alerts.length > 0) {
-      html += `<h2>Security Alerts (${alerts.length} alerts)</h2><table><thead><tr><th>Time</th><th>Device</th><th>Alert Type</th><th>User / Source</th><th>Severity</th><th>Details</th></tr></thead><tbody>`;
+      html += `<h2>Security Alerts (${alerts.length} alerts)</h2><table><thead><tr><th>Time</th><th>Log ID</th><th>Device</th><th>Alert Type</th><th>User / Source</th><th>Severity</th><th>Details</th></tr></thead><tbody>`;
       alerts.forEach(a => {
         const sc = a.severity === 'critical' ? 'c' : a.severity === 'high' ? 'h' : a.severity === 'medium' ? 'm' : 'l';
         html += `<tr>
           <td style="font-family:monospace">${a.ts ? new Date(a.ts).toLocaleString() : ''}</td>
+          <td style="font-family:monospace;color:#d97706"><b>${a.logid || '-'}</b></td>
           <td><b>${a.machine || '-'}</b></td>
           <td><span class="badge ${sc}">${a.alertType || 'Alert'}</span></td>
           <td>${a.user !== '-' ? a.user + ' / ' : ''}${a.src_ip || '-'}</td>
@@ -1859,6 +1862,167 @@ export default function Reports() {
           ))}
         </div>
 
+        {/* Security Alert Details Modal */}
+        {selectedReportAlert && (
+          <div 
+            onClick={() => setSelectedReportAlert(null)} 
+            style={{ 
+              position: 'fixed', 
+              top: 0, 
+              left: 0, 
+              right: 0, 
+              bottom: 0, 
+              background: 'rgba(0,0,0,0.65)', 
+              zIndex: 9999, 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              backdropFilter: 'blur(5px)',
+              padding: '20px'
+            }}
+          >
+            <div 
+              onClick={(e) => e.stopPropagation()} 
+              style={{ 
+                background: 'var(--surface)', 
+                border: '1px solid var(--border)', 
+                borderRadius: '12px', 
+                width: '100%', 
+                maxWidth: '820px', 
+                maxHeight: '90vh', 
+                display: 'flex', 
+                flexDirection: 'column', 
+                boxShadow: '0 25px 50px rgba(0,0,0,0.35)',
+                overflow: 'hidden'
+              }}
+            >
+              {/* Modal Header */}
+              <div style={{ 
+                padding: '18px 24px', 
+                borderBottom: '1px solid var(--border)', 
+                background: 'linear-gradient(90deg, rgba(249,115,22,0.08) 0%, transparent 100%)', 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                flexShrink: 0
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '22px', color: '#f97316' }}>gpp_maybe</span>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.2px' }}>
+                      Security Alert Details
+                    </h3>
+                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px', fontFamily: 'var(--mono)' }}>
+                      ID: #{selectedReportAlert.id || '-'} &nbsp;|&nbsp; Log ID: <span style={{ color: '#f59e0b', fontWeight: 700 }}>{selectedReportAlert.logid || '-'}</span> &nbsp;|&nbsp; {selectedReportAlert.machine}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ 
+                    background: 'rgba(249,115,22,0.15)', 
+                    border: '1px solid rgba(249,115,22,0.3)', 
+                    color: '#f97316', 
+                    padding: '3px 10px', 
+                    borderRadius: '5px', 
+                    fontSize: '11px', 
+                    fontWeight: 700 
+                  }}>
+                    {selectedReportAlert.alertType}
+                  </span>
+                  <span className={`badge sev-${(selectedReportAlert.severity || 'info').toLowerCase()}`}>
+                    {(selectedReportAlert.severity || 'info').toUpperCase()}
+                  </span>
+                  <button 
+                    onClick={() => setSelectedReportAlert(null)} 
+                    style={{ 
+                      background: 'var(--surface2)', 
+                      border: '1px solid var(--border)', 
+                      color: 'var(--muted)', 
+                      borderRadius: '6px', 
+                      cursor: 'pointer', 
+                      width: '30px', 
+                      height: '30px', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      marginLeft: '4px'
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>close</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal Body */}
+              <div style={{ padding: '24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', 
+                  gap: '14px',
+                  background: 'var(--surface2)',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border)'
+                }}>
+                  <div>
+                    <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '0.8px' }}>Timestamp</div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginTop: '4px', fontFamily: 'var(--mono)' }}>{selectedReportAlert.ts || '-'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '0.8px' }}>Log ID (FortiGate)</div>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#f59e0b', marginTop: '4px', fontFamily: 'var(--mono)' }}>{selectedReportAlert.logid || '-'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '0.8px' }}>Firewall Device</div>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#2563eb', marginTop: '4px' }}>{selectedReportAlert.machine || '-'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '0.8px' }}>User / Admin</div>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#a855f7', marginTop: '4px' }}>{selectedReportAlert.user || 'System / Unknown'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '0.8px' }}>Source IP</div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#f97316', marginTop: '4px', fontFamily: 'var(--mono)' }}>{selectedReportAlert.src_ip || '-'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '0.8px' }}>Config Target</div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#06b6d4', marginTop: '4px', fontFamily: 'var(--mono)' }}>{selectedReportAlert.cfgpath ? `${selectedReportAlert.cfgpath} ${selectedReportAlert.cfgobj ? `[#${selectedReportAlert.cfgobj}]` : ''}` : '-'}</div>
+                  </div>
+                </div>
+
+                {selectedReportAlert.cfgattr && (
+                  <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '14px 16px', background: 'var(--surface)' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: '8px' }}>
+                      Configuration Diff / Attributes Changed
+                    </div>
+                    <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px', padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: '11px', lineHeight: '1.6', color: '#38bdf8', wordBreak: 'break-word' }}>
+                      {selectedReportAlert.cfgattr}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '0.8px', marginBottom: '6px' }}>Detail Description</div>
+                  <div style={{ background: 'var(--surface2)', padding: '12px 14px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '12px', color: 'var(--text)', lineHeight: '1.5' }}>
+                    {selectedReportAlert.displayMsg || '-'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', background: 'var(--surface2)', display: 'flex', justifyContent: 'flex-end' }}>
+                <button 
+                  onClick={() => setSelectedReportAlert(null)}
+                  style={{ background: 'var(--border)', border: 'none', color: 'var(--text)', padding: '6px 16px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── SECURITY ALERTS TABLE ── */}
         <div style={{ background: 'var(--surface)', border: '1px solid rgba(249,115,22,.4)', borderRadius: '8px', overflow: 'hidden', marginBottom: '28px' }}>
           <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(249,115,22,.2)', background: 'rgba(249,115,22,.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
@@ -1926,21 +2090,22 @@ export default function Reports() {
           </div>
 
           <div style={{ overflowX: 'auto' }}>
-            <table className="mt" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+            <table className="mt" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '1100px' }}>
               <thead>
                 <tr>
-                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Time</th>
-                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Machine</th>
-                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Alert Type</th>
-                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>User / Source IP</th>
-                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Severity</th>
-                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Detail</th>
+                  <th style={{ padding: '10px 14px', width: '125px', whiteSpace: 'nowrap', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Time</th>
+                  <th style={{ padding: '10px 14px', width: '110px', whiteSpace: 'nowrap', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Log ID</th>
+                  <th style={{ padding: '10px 14px', width: '135px', whiteSpace: 'nowrap', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Machine</th>
+                  <th style={{ padding: '10px 14px', width: '120px', whiteSpace: 'nowrap', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Alert Type</th>
+                  <th style={{ padding: '10px 14px', width: '140px', whiteSpace: 'nowrap', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>User / Source IP</th>
+                  <th style={{ padding: '10px 14px', width: '85px', whiteSpace: 'nowrap', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Severity</th>
+                  <th style={{ padding: '10px 14px', minWidth: '220px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Detail</th>
                 </tr>
               </thead>
               <tbody>
                 {pagedAlerts.length === 0 ? (
                   <tr>
-                    <td colSpan="6" style={{ padding: '32px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
+                    <td colSpan="7" style={{ padding: '32px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
                       No security alerts match the selected criteria.
                     </td>
                   </tr>
@@ -1951,11 +2116,27 @@ export default function Reports() {
                     const badgeColor = isFailed ? '#ef4444' : isAdded ? '#3b82f6' : a.alertType.includes('Admin') ? '#a855f7' : '#f97316';
                     const sevClass = a.severity === 'critical' ? 'sev-critical' : a.severity === 'high' ? 'sev-high' : a.severity === 'medium' ? 'sev-medium' : 'sev-low';
                     return (
-                      <tr key={idx} style={{ borderBottom: '1px solid var(--border)', fontSize: '11px' }}>
+                      <tr 
+                        key={idx} 
+                        onClick={() => setSelectedReportAlert(a)}
+                        style={{ borderBottom: '1px solid var(--border)', fontSize: '11px', cursor: 'pointer', transition: 'background 0.15s ease' }}
+                        onMouseEnter={ev => ev.currentTarget.style.background = 'rgba(37,99,235,0.04)'}
+                        onMouseLeave={ev => ev.currentTarget.style.background = ''}
+                        title="Click to view alert details"
+                      >
                         <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                           {a.ts ? new Date(a.ts).toLocaleString('sv-SE').slice(0, 16).replace('T', ' ') : '-'}
                         </td>
-                        <td style={{ padding: '10px 14px', color: '#2563eb', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                        <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                          {a.logid && a.logid !== '-' ? (
+                            <span style={{ fontFamily: 'var(--mono)', fontSize: '11px', color: '#f59e0b', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                              {a.logid}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--muted)', fontFamily: 'var(--mono)', fontSize: '11px' }}>-</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 14px', color: '#2563eb', fontWeight: 700, whiteSpace: 'nowrap', maxWidth: '135px', overflow: 'hidden', textOverflow: 'ellipsis' }} title={a.machine || '-'}>
                           {a.machine || '-'}
                         </td>
                         <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
@@ -1970,7 +2151,7 @@ export default function Reports() {
                         <td style={{ padding: '10px 14px' }}>
                           <span className={`badge ${sevClass}`}>{a.severity || 'medium'}</span>
                         </td>
-                        <td style={{ padding: '10px 14px', maxWidth: '380px', wordBreak: 'break-word', color: 'var(--text)' }} title={a.displayMsg}>
+                        <td style={{ padding: '10px 14px', maxWidth: '360px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--text)' }} title={a.displayMsg}>
                           {a.displayMsg || '-'}
                         </td>
                       </tr>

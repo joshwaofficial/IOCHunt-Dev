@@ -594,16 +594,12 @@ const generateFirewallReport = async (req, res) => {
 
     if (search) {
       const searchTerms = search.split(',').map(s => s.trim()).filter(Boolean);
-      if (searchTerms.length === 1) {
-        conds.push(`(msg ILIKE $${idx} OR raw ILIKE $${idx+1} OR cfgpath ILIKE $${idx+2} OR fw_user ILIKE $${idx+3} OR devname ILIKE $${idx+4} OR src_ip ILIKE $${idx+5} OR dst_ip ILIKE $${idx+6} OR policy ILIKE $${idx+7})`);
-        params.push('%' + searchTerms[0] + '%', '%' + searchTerms[0] + '%', '%' + searchTerms[0] + '%', '%' + searchTerms[0] + '%', '%' + searchTerms[0] + '%', '%' + searchTerms[0] + '%', '%' + searchTerms[0] + '%', '%' + searchTerms[0] + '%');
-        idx += 8;
-      } else if (searchTerms.length > 1) {
+      if (searchTerms.length > 0) {
         const termConds = [];
         searchTerms.forEach(term => {
-          termConds.push(`(msg ILIKE $${idx} OR raw ILIKE $${idx+1} OR cfgpath ILIKE $${idx+2} OR fw_user ILIKE $${idx+3} OR devname ILIKE $${idx+4} OR src_ip ILIKE $${idx+5} OR dst_ip ILIKE $${idx+6} OR policy ILIKE $${idx+7})`);
-          params.push('%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%');
-          idx += 8;
+          termConds.push(`(raw ILIKE $${idx} OR service ILIKE $${idx+1} OR devname ILIKE $${idx+2} OR src_ip ILIKE $${idx+3} OR dst_ip ILIKE $${idx+4} OR policy ILIKE $${idx+5})`);
+          params.push('%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%');
+          idx += 6;
         });
         conds.push(`(${termConds.join(' OR ')})`);
       }
@@ -639,6 +635,7 @@ const generateFirewallReport = async (req, res) => {
 
     const connRows = rawConnRows.map(r => ({
       id: r.id,
+      logid: (r.raw && (r.raw.match(/logid="?([0-9a-zA-Z]+)"?/) || [])[1]) || r.session_id || '-',
       ts: r.ts,
       machine: r.devname || r.machine || '-',
       aggregator_name: r.aggregator_name || '',
@@ -702,9 +699,9 @@ const generateFirewallReport = async (req, res) => {
       if (searchTerms.length > 0) {
         const sConds = [];
         searchTerms.forEach(term => {
-          sConds.push(`(msg ILIKE $${aIdx} OR raw ILIKE $${aIdx+1} OR cfgpath ILIKE $${aIdx+2} OR fw_user ILIKE $${aIdx+3} OR devname ILIKE $${aIdx+4})`);
-          alertParams.push('%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%');
-          aIdx += 5;
+          sConds.push(`(raw ILIKE $${aIdx} OR service ILIKE $${aIdx+1} OR devname ILIKE $${aIdx+2} OR src_ip ILIKE $${aIdx+3} OR dst_ip ILIKE $${aIdx+4} OR policy ILIKE $${aIdx+5})`);
+          alertParams.push('%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%');
+          aIdx += 6;
         });
         alertConds.push(`(${sConds.join(' OR ')})`);
       }
@@ -803,6 +800,7 @@ const generateFirewallReport = async (req, res) => {
       const srcip = e.src_ip || (rawO.match(/srcip=([\d.]+)/) || [])[1] || '';
       const ui = e.fw_ui || (rawO.match(/ui="([^"]+)"/) || [])[1] || '';
       const logdesc = e.logdesc || (rawO.match(/logdesc="([^"]+)"/) || [])[1] || '';
+      const logid = (rawO.match(/logid="?([0-9a-zA-Z]+)"?/) || [])[1] || e.session_id || '';
 
       let alertType = null;
 
@@ -872,6 +870,7 @@ const generateFirewallReport = async (req, res) => {
 
       parsedAlerts.push({
         id: e.id,
+        logid: logid || '-',
         ts: e.ts,
         machine: e.machine,
         aggregator_name: e.aggregator_name,
