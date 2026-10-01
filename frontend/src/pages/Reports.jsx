@@ -59,6 +59,34 @@ function getPageNumbers(current, total) {
   return [1, '...', current - 1, current, current + 1, '...', total];
 }
 
+function getFormattedReportPeriod(f) {
+  if (!f) return '1 Day Report';
+  if (f.durationLabel) return f.durationLabel;
+
+  const extractDate = (val) => {
+    if (!val) return '';
+    if (typeof val === 'string' && val.length >= 10) return val.slice(0, 10);
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+  };
+
+  const fromDate = extractDate(f.from_date_only || f.from_date || f.from);
+  const toDate = extractDate(f.to_date_only || f.to_date || f.to) || new Date().toISOString().slice(0, 10);
+  const dateRange = fromDate ? `(${fromDate} to ${toDate})` : `(${toDate})`;
+
+  const dur = String(f.duration || '').toLowerCase();
+  if (dur === '24' || dur === '1d' || dur === 'daily') return `1 Day Report ${dateRange}`;
+  if (dur === '168' || dur === '7d' || dur === 'weekly') return `Weekly Report ${dateRange}`;
+  if (dur === '720' || dur === '30d' || dur === 'monthly') return `Monthly Report ${dateRange}`;
+  if (dur === 'today') return `Today's Report (${toDate})`;
+  if (dur === '72') return `3 Days Report ${dateRange}`;
+  if (dur === '4') return `4 Hours Report ${dateRange}`;
+  if (dur === '1') return `1 Hour Report ${dateRange}`;
+  if (dur === 'custom') return `Custom Report ${dateRange}`;
+  if (fromDate && toDate) return `Report ${dateRange}`;
+  return '1 Day Report';
+}
+
 export default function Reports() {
   const [filters, setFilters] = useState({
     duration: '24',
@@ -244,8 +272,9 @@ export default function Reports() {
       @media print{body{padding:10px}h2{page-break-after:avoid}table{page-break-inside:auto}tr{page-break-inside:avoid}}
       </style></head><body>`;
 
+    const periodLabel = getFormattedReportPeriod(f);
     html += `<h1>IOC HUNT FIREWALL SECURITY REPORT</h1>
-      <div class="meta">Period: <b>${f.duration} (${f.from} to ${f.to})</b> &nbsp;|&nbsp; Device: <b>${f.device}</b>
+      <div class="meta">Period: <b>${periodLabel}</b> &nbsp;|&nbsp; Device: <b>${f.device}</b>
       &nbsp;|&nbsp; Branch: <b>${f.aggregator}</b> &nbsp;|&nbsp; Action: <b>${f.action}</b>
       &nbsp;|&nbsp; Generated: <b>${new Date(d.generated).toLocaleString()}</b></div>`;
 
@@ -384,14 +413,7 @@ export default function Reports() {
     const sevMap = {};
     (ev.bySeverity || []).forEach(r => { sevMap[r.severity] = r.n; });
 
-    let durLabel = 'Last 24 hours';
-    if (f.duration === 'today') durLabel = 'Today (00:00 to now)';
-    if (f.duration == 1) durLabel = 'Last 1 hour';
-    if (f.duration == 4) durLabel = 'Last 4 hours';
-    if (f.duration == 72) durLabel = 'Last 3 days';
-    if (f.duration == 168) durLabel = 'Last 7 days';
-    if (f.duration == 720) durLabel = 'Last 30 days';
-    if (f.duration === 'custom') durLabel = `${f.from_date ? new Date(f.from_date).toLocaleString() : 'Any'} to ${f.to_date ? new Date(f.to_date).toLocaleString() : 'Now'}`;
+    const durLabel = getFormattedReportPeriod(f);
 
     const critCount = sevMap.critical || 0;
     const highCount = sevMap.high || 0;
@@ -656,14 +678,7 @@ export default function Reports() {
     const threatLevel = critCount > 5 || adCrit > 2 ? 'CRITICAL' : critCount > 0 || highCount > 5 ? 'HIGH' : highCount > 0 ? 'ELEVATED' : 'NORMAL';
     const tlColor = threatLevel === 'CRITICAL' ? 'var(--critical)' : threatLevel === 'HIGH' ? 'var(--high)' : threatLevel === 'ELEVATED' ? 'var(--medium)' : 'var(--low)';
 
-    let durLabel = 'Last 24 hours';
-    if (f.duration === 'today') durLabel = 'Today (00:00 to now)';
-    if (f.duration == 1) durLabel = 'Last 1 hour';
-    if (f.duration == 4) durLabel = 'Last 4 hours';
-    if (f.duration == 72) durLabel = 'Last 3 days';
-    if (f.duration == 168) durLabel = 'Last 7 days';
-    if (f.duration == 720) durLabel = 'Last 30 days';
-    if (f.duration === 'custom') durLabel = `${f.from_date ? new Date(f.from_date).toLocaleString() : 'Any'} to ${f.to_date ? new Date(f.to_date).toLocaleString() : 'Now'}`;
+    const durLabel = getFormattedReportPeriod(f);
 
     const maxCat = Math.max(...(ev.byCategory || []).map(r => r.n)) || 1;
 
@@ -1833,7 +1848,7 @@ export default function Reports() {
               </div>
             </div>
             <div style={{ textAlign: 'right', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-              Period: <b style={{ color: 'var(--text)' }}>{f.duration === 'custom' ? `${f.from} to ${f.to}` : f.duration + 'h'}</b> &nbsp;|&nbsp;
+              Period: <b style={{ color: 'var(--text)' }}>{getFormattedReportPeriod(f)}</b> &nbsp;|&nbsp;
               Device: <b style={{ color: 'var(--text)' }}>{f.device}</b><br />
               Generated: <span style={{ color: 'var(--text)' }}>{new Date(d.generated).toLocaleString()}</span>
             </div>
@@ -2415,14 +2430,14 @@ export default function Reports() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '100px' }}>
                 <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Duration</label>
                 <select value={filters.duration} onChange={e => setFilters({ ...filters, duration: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px' }}>
-                  <option value="today">Today (00:00 to now)</option>
-                  <option value="1">Last 1 hour</option>
-                  <option value="4">Last 4 hours</option>
-                  <option value="24">Last 24 hours</option>
-                  <option value="72">Last 3 days</option>
-                  <option value="168">Last 7 days</option>
-                  <option value="720">Last 30 days</option>
-                  <option value="custom">Custom Range</option>
+                  <option value="24">1 Day Report (24 Hours)</option>
+                  <option value="168">Weekly Report (7 Days)</option>
+                  <option value="720">Monthly Report (30 Days)</option>
+                  <option value="today">Today's Report</option>
+                  <option value="72">3 Days Report</option>
+                  <option value="4">4 Hours Report</option>
+                  <option value="1">1 Hour Report</option>
+                  <option value="custom">Custom Date Range</option>
                 </select>
               </div>
 
@@ -2735,14 +2750,14 @@ export default function Reports() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '120px' }}>
                 <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Duration</label>
                 <select value={fwFilters.duration} onChange={e => setFwFilters({ ...fwFilters, duration: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px' }}>
-                  <option value="today">Today (00:00 to now)</option>
-                  <option value="1">Last 1 hour</option>
-                  <option value="4">Last 4 hours</option>
-                  <option value="24">Last 24 hours</option>
-                  <option value="72">Last 3 days</option>
-                  <option value="168">Last 7 days</option>
-                  <option value="720">Last 30 days</option>
-                  <option value="custom">Custom Range</option>
+                  <option value="24">1 Day Report (24 Hours)</option>
+                  <option value="168">Weekly Report (7 Days)</option>
+                  <option value="720">Monthly Report (30 Days)</option>
+                  <option value="today">Today's Report</option>
+                  <option value="72">3 Days Report</option>
+                  <option value="4">4 Hours Report</option>
+                  <option value="1">1 Hour Report</option>
+                  <option value="custom">Custom Date Range</option>
                 </select>
               </div>
 

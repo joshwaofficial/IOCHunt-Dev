@@ -510,9 +510,9 @@ export default function EmailReports() {
                   onChange={handleFrequencyChange}
                   style={{ width: '100%', height: '36px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', outline: 'none', cursor: 'pointer' }}
                 >
-                  <option value="daily">Daily (Every Day)</option>
-                  <option value="weekly">Weekly (Every Monday)</option>
-                  <option value="monthly">Monthly (1st of Every Month)</option>
+                  <option value="daily">Daily Report (Every Day)</option>
+                  <option value="weekly">Weekly Report (Every Monday)</option>
+                  <option value="monthly">Monthly Report (1st of Every Month)</option>
                   <option value="custom">Custom Cron Expression...</option>
                 </select>
               </div>
@@ -629,10 +629,24 @@ export default function EmailReports() {
                   <select id="sched-severity" className="input-field" value={formData.severity} onChange={handleFormChange}
                     style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', outline: 'none' }}>
                     <option value="">All Severities</option>
-                    <option value="critical">Critical</option>
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
+                    <option value="critical">Critical Only</option>
+                    <option value="high">High & Above</option>
+                    <option value="medium">Medium & Above</option>
                   </select>
+                </div>
+
+                <div style={{ gridColumn: 'span 3', marginTop: '4px' }}>
+                  {formData.machine ? (
+                    <div style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: '6px', padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#38bdf8' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>dns</span>
+                      <span><b>Scoped to Single Endpoint ({formData.machine}):</b> Report will generate an endpoint-specific dossier strictly containing {formData.machine}'s alerts, host sensor status, and correlated incidents.</span>
+                    </div>
+                  ) : (
+                    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--muted)' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>hub</span>
+                      <span><b>Enterprise Fleet Scope:</b> Report will cover overall threat analytics, fleet health distribution, and enterprise incident cases across {formData.aggregator.length ? `${formData.aggregator.length} branch(es)` : 'all branches'}.</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -679,6 +693,7 @@ export default function EmailReports() {
                     <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Frequency</th>
                     <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Branch</th>
                     <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Machine</th>
+                    <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Scope & Severity</th>
                     <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Status</th>
                     <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Last Sent & Delivery</th>
                     <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'right' }}>Actions</th>
@@ -694,7 +709,36 @@ export default function EmailReports() {
                         <div style={{ color: 'var(--muted)', fontSize: '10px', fontFamily: 'var(--mono)', marginTop: '2px' }}>{s.cron_expr}</div>
                       </td>
                       <td style={{ padding: '14px 16px', color: '#728bb2', fontSize: '11px' }}>{s.aggregator ? (s.aggregator.split(',').length > 1 ? `${s.aggregator.split(',').length} selected` : s.aggregator) : 'All'}</td>
-                      <td style={{ padding: '14px 16px', color: '#728bb2', fontSize: '11px' }}>{s.machine || 'All'}</td>
+                      <td style={{ padding: '14px 16px', fontSize: '11px' }}>
+                        {s.machine ? (
+                          <span style={{ color: '#38bdf8', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>desktop_windows</span>
+                            {s.machine}
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--muted)' }}>All Machines</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '14px 16px', fontSize: '11px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontSize: '9px',
+                            fontWeight: 700,
+                            background: s.severity === 'critical' ? 'rgba(239,68,68,0.15)' : s.severity === 'high' ? 'rgba(249,115,22,0.15)' : s.severity === 'medium' ? 'rgba(234,179,8,0.15)' : 'var(--surface2)',
+                            color: s.severity === 'critical' ? '#ef4444' : s.severity === 'high' ? '#f97316' : s.severity === 'medium' ? '#eab308' : 'var(--muted)',
+                            width: 'fit-content',
+                            textTransform: 'uppercase'
+                          }}>
+                            {s.severity ? `${s.severity}` : 'All Sev'}
+                          </span>
+                          <span style={{ fontSize: '9px', color: s.include_fw === 0 ? 'var(--muted)' : '#10b981', fontWeight: 600 }}>
+                            {s.include_fw === 0 ? 'FW Excluded' : 'FW Included'}
+                          </span>
+                        </div>
+                      </td>
                       <td style={{ padding: '14px 16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--sans)' }}>
                           <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: s.enabled ? '#22c55e' : 'var(--muted)' }}></div>
@@ -739,6 +783,18 @@ export default function EmailReports() {
                       </td>
                       <td style={{ padding: '14px 16px', whiteSpace: 'nowrap', textAlign: 'right' }}>
                         <div style={{ display: 'inline-flex', gap: '6px', justifyContent: 'flex-end', fontFamily: 'var(--sans)' }}>
+                          <button
+                            onClick={() => window.open(`/api/smtp/schedules/${s.id}/preview-pdf`, '_blank')}
+                            title="Preview / Download generated PDF report"
+                            style={{
+                              background: 'rgba(59,130,246,0.1)',
+                              color: '#3b82f6',
+                              border: '1px solid rgba(59,130,246,0.2)',
+                              padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 600,
+                              cursor: 'pointer'
+                            }}>
+                            Preview
+                          </button>
                           <button
                             onClick={() => isAdmin && runSchedule(s.id)}
                             disabled={!isAdmin}

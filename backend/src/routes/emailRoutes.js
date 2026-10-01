@@ -14,6 +14,7 @@ router.post('/test', requireAdmin, emailController.testSmtp);
 
 // Email Schedules (Admin only for modifications)
 router.get('/preview-pdf', emailController.previewPdf);
+router.get('/schedules/:id/preview-pdf', emailController.previewSchedulePdf);
 router.get('/schedules', emailController.getSchedules);
 router.post('/schedules', requireAdmin, emailController.createSchedule);
 router.patch('/schedules/:id', requireAdmin, emailController.updateSchedule);

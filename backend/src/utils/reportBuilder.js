@@ -29,12 +29,16 @@ function getSimulatedReportData(period = 'daily') {
   const p = (period || 'daily').toLowerCase();
   const now = new Date();
   const nowStr = now.toISOString().slice(0, 19).replace('T', ' ');
+  const todayDateStr = now.toISOString().slice(0, 10);
+  const weekAgoDateStr = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
+  const monthAgoDateStr = new Date(now.getTime() - 30 * 86400000).toISOString().slice(0, 10);
+  const yesterdayDateStr = new Date(now.getTime() - 24 * 3600000).toISOString().slice(0, 10);
 
   if (p === 'weekly') {
     return {
       scheduleName: 'Weekly Executive Threat Intelligence & SOC Briefing',
       generatedAt: nowStr + ' UTC',
-      periodLabel: 'Last 7 Days (Weekly Threat Analytics)',
+      periodLabel: `Weekly Report (${weekAgoDateStr} to ${todayDateStr})`,
       branch: 'All Branches (HQ + Remote)',
       machine: 'Fleet Overview',
       threatLevel: 'HIGH',
@@ -248,7 +252,7 @@ function getSimulatedReportData(period = 'daily') {
         return {
           scheduleName: 'Monthly Executive Threat Analytics & SOC Audit Dossier',
           generatedAt: nowStr + ' UTC',
-          periodLabel: 'Last 30 Days (Monthly Enterprise Audit)',
+          periodLabel: `Monthly Report (${monthAgoDateStr} to ${todayDateStr})`,
           branch: 'All Production Branches',
           machine: 'Enterprise Fleet (4 Endpoints)',
           threatLevel: (sevMap.critical > 0 || sevMap.high > 100) ? 'HIGH' : 'NORMAL',
@@ -412,7 +416,7 @@ function getSimulatedReportData(period = 'daily') {
   return {
     scheduleName: 'Daily Executive Threat Analytics & SOC Briefing',
     generatedAt: nowStr + ' UTC',
-    periodLabel: 'Last 24 Hours (Daily)',
+    periodLabel: `1 Day Report (${yesterdayDateStr} to ${todayDateStr})`,
     branch: 'Chennai HQ',
     machine: 'All Endpoints',
     threatLevel: 'HIGH',
@@ -608,29 +612,57 @@ async function buildReportDataAndPdf(options, queryFn = null) {
   }
 
   const q = queryFn || db.query.bind(db);
+  const includeFw = options.include_fw !== undefined
+    ? (Number(options.include_fw) === 1 || options.include_fw === true || options.include_fw === '1' || options.include_fw === 'true')
+    : true;
   const to = now.toISOString().slice(0, 19).replace('T', ' ');
   let from;
-  let durLabel = 'Last 24 hours';
+  let durLabel = '1 Day Report';
 
   const cronExpr = (options.cron_expr || '').trim();
 
   if (period === 'weekly' || cronExpr.endsWith('* * 1') || cronExpr.endsWith('1') || cronExpr.includes('* * 1')) {
     from = new Date(now.getTime() - 7 * 24 * 3600000).toISOString().slice(0, 19).replace('T', ' ');
-    durLabel = `Weekly (7 Days: ${from} to ${to})`;
+    const fromDateStr = from.slice(0, 10);
+    const toDateStr = to.slice(0, 10);
+    durLabel = `Weekly Report (${fromDateStr} to ${toDateStr})`;
   } else if (period === 'monthly' || cronExpr.includes(' 1 * *') || cronExpr.startsWith('0 8 1 * *')) {
     from = new Date(now.getTime() - 30 * 24 * 3600000).toISOString().slice(0, 19).replace('T', ' ');
-    durLabel = `Monthly (30 Days: ${from} to ${to})`;
+    const fromDateStr = from.slice(0, 10);
+    const toDateStr = to.slice(0, 10);
+    durLabel = `Monthly Report (${fromDateStr} to ${toDateStr})`;
   } else if (period === 'daily' || cronExpr.startsWith('0 8 * * *') || cronExpr.startsWith('0 08 * * *') || cronExpr.match(/^0 \d+ \* \* \*$/)) {
     from = new Date(now.getTime() - 24 * 3600000).toISOString().slice(0, 19).replace('T', ' ');
-    durLabel = `Daily (24 Hours: ${from} to ${to})`;
+    const fromDateStr = from.slice(0, 10);
+    const toDateStr = to.slice(0, 10);
+    durLabel = `1 Day Report (${fromDateStr} to ${toDateStr})`;
   } else if (options.last_run) {
     const lastRunMs = Number(options.last_run) * 1000;
     from = new Date(lastRunMs).toISOString().slice(0, 19).replace('T', ' ');
-    durLabel = `${from} to ${to}`;
+    const fromDateStr = from.slice(0, 10);
+    const toDateStr = to.slice(0, 10);
+    durLabel = fromDateStr === toDateStr ? `1 Day Report (${toDateStr})` : `Report (${fromDateStr} to ${toDateStr})`;
   } else {
     const hours = Number(options.duration) || 24;
     from = new Date(now.getTime() - hours * 3600000).toISOString().slice(0, 19).replace('T', ' ');
-    durLabel = `${from} to ${to}`;
+    const fromDateStr = from.slice(0, 10);
+    const toDateStr = to.slice(0, 10);
+    if (hours === 24) {
+      durLabel = `1 Day Report (${fromDateStr} to ${toDateStr})`;
+    } else if (hours === 168) {
+      durLabel = `Weekly Report (${fromDateStr} to ${toDateStr})`;
+    } else if (hours === 720) {
+      durLabel = `Monthly Report (${fromDateStr} to ${toDateStr})`;
+    } else if (hours === 72) {
+      durLabel = `3 Days Report (${fromDateStr} to ${toDateStr})`;
+    } else if (hours === 1) {
+      durLabel = `1 Hour Report (${fromDateStr} to ${toDateStr})`;
+    } else if (hours === 4) {
+      durLabel = `4 Hours Report (${fromDateStr} to ${toDateStr})`;
+    } else {
+      const days = Math.round(hours / 24);
+      durLabel = days > 1 ? `${days} Days Report (${fromDateStr} to ${toDateStr})` : `1 Day Report (${fromDateStr} to ${toDateStr})`;
+    }
   }
 
   const fromDate = new Date(from);
@@ -836,93 +868,182 @@ async function buildReportDataAndPdf(options, queryFn = null) {
   });
 
   // ── Query Machines Fleet & Inactivity ───────────────────────────────────────
-  let machQuery = `
-    SELECT 
-      id, name, label, ip, os, "user", last_seen, aggregator_name, event_count,
-      EXTRACT(EPOCH FROM (NOW() - last_seen)) as offline_seconds
-    FROM machines
-  `;
-  const machParams = [];
-  if (options.aggregator) {
-    const aggrs = options.aggregator.split(',').map(s => s.trim()).filter(Boolean);
-    if (aggrs.length > 0) {
-      const inClause = aggrs.map((_, i) => `$${i + 1}`).join(',');
-      machQuery += ` WHERE aggregator_name IN (${inClause})`;
-      aggrs.forEach(a => machParams.push(a));
-    }
-  }
-  machQuery += ' ORDER BY last_seen ASC';
-
-  const machinesRes = await q(machQuery, machParams);
-  const allMachines = machinesRes.rows || [];
+  const isSingleMachine = Boolean(options.machine);
+  let fleet;
+  let allMachines = [];
   const machinesMap = new Map();
-  allMachines.forEach(m => {
-    machinesMap.set(m.name, m);
-    machinesMap.set(m.id, m);
-  });
 
-  const totalFleet = allMachines.length;
-  const activeFleet = allMachines.filter(m => (Number(m.offline_seconds) || 0) <= 1800).length;
-  const inactiveFleet = totalFleet - activeFleet;
-
-  const staleList = allMachines
-    .filter(m => (Number(m.offline_seconds) || 0) > 1800)
-    .sort((a, b) => (Number(b.offline_seconds) || 0) - (Number(a.offline_seconds) || 0))
-    .slice(0, 6)
-    .map(m => {
-      const secs = Number(m.offline_seconds) || 0;
-      const days = secs / 86400;
-      const risk = days >= 7 ? 'HIGH RISK' : days >= 2 ? 'MODERATE' : 'LOW RISK';
-      return {
-        name: m.name || m.id,
-        ip: m.ip || '-',
-        os: m.os || 'Windows',
-        last_seen: formatTs(m.last_seen).slice(0, 16),
-        offlineStr: formatOfflineDuration(secs),
-        risk
-      };
-    });
-
-  const fleet = {
-    total: totalFleet,
-    active: activeFleet,
-    inactive: inactiveFleet,
-    staleList
-  };
-
-  // ── Query Top 5 Targeted Endpoints ──────────────────────────────────────────
-  const topMachinesRes = await q(
-    `SELECT 
-       machine,
-       COUNT(*) as total_events,
-       COUNT(*) FILTER (WHERE LOWER(severity) = 'critical') as crit_count,
-       COUNT(*) FILTER (WHERE LOWER(severity) = 'high') as high_count
-     FROM events ${evWhere}
-     GROUP BY machine
-     ORDER BY crit_count DESC, high_count DESC, total_events DESC
-     LIMIT 5`,
-    evParams
-  );
-
-  const topMachines = [];
-  for (const row of (topMachinesRes.rows || [])) {
-    const mMeta = machinesMap.get(row.machine) || {};
-    const tagRes = await q(
-      `SELECT tag, COUNT(*) as count FROM events ${evWhere} AND machine = $${pIdx} AND tag IS NOT NULL AND tag != '' GROUP BY tag ORDER BY count DESC LIMIT 1`,
-      [...evParams, row.machine]
+  if (isSingleMachine) {
+    const machRes = await q(
+      `SELECT 
+         id, name, label, ip, os, "user", last_seen, aggregator_name, event_count,
+         EXTRACT(EPOCH FROM (NOW() - last_seen)) as offline_seconds
+       FROM machines
+       WHERE name = $1 OR label = $1 OR id::text = $1
+       LIMIT 1`,
+      [options.machine]
     );
-    const topTag = tagRes.rows[0]?.tag || 'General Activity';
+    const targetMachine = machRes.rows[0] || {
+      name: options.machine,
+      label: options.machine,
+      ip: '-',
+      os: 'Windows',
+      user: 'system',
+      last_seen: new Date(),
+      offline_seconds: 0,
+      aggregator_name: options.aggregator || 'Direct'
+    };
+    allMachines = [targetMachine];
+    machinesMap.set(targetMachine.name, targetMachine);
+    machinesMap.set(targetMachine.id, targetMachine);
 
-    topMachines.push({
-      machine: row.machine,
-      ip: mMeta.ip || '-',
-      os: mMeta.os || '-',
-      user: mMeta.user || 'system',
-      crit_count: parseInt(row.crit_count || 0, 10),
-      high_count: parseInt(row.high_count || 0, 10),
-      total_events: parseInt(row.total_events || 0, 10),
-      top_tag: topTag
+    const isOnline = (Number(targetMachine.offline_seconds) || 0) <= 1800;
+    const totalFleet = 1;
+    const activeFleet = isOnline ? 1 : 0;
+    const inactiveFleet = isOnline ? 0 : 1;
+
+    const staleList = isOnline ? [] : [{
+      name: targetMachine.name || options.machine,
+      ip: targetMachine.ip || '-',
+      os: targetMachine.os || 'Windows',
+      last_seen: formatTs(targetMachine.last_seen).slice(0, 16),
+      offlineStr: formatOfflineDuration(Number(targetMachine.offline_seconds) || 0),
+      risk: 'OFFLINE'
+    }];
+
+    fleet = {
+      total: totalFleet,
+      active: activeFleet,
+      inactive: inactiveFleet,
+      staleList,
+      isSingleMachine: true,
+      machineInfo: {
+        name: targetMachine.name || options.machine,
+        label: targetMachine.label || targetMachine.name || options.machine,
+        ip: targetMachine.ip || '-',
+        os: targetMachine.os || 'Windows',
+        user: targetMachine.user || 'system',
+        aggregator_name: targetMachine.aggregator_name || 'Direct',
+        isOnline,
+        lastSeenStr: formatTs(targetMachine.last_seen).slice(0, 16),
+        offlineStr: formatOfflineDuration(Number(targetMachine.offline_seconds) || 0)
+      }
+    };
+  } else {
+    let machQuery = `
+      SELECT 
+        id, name, label, ip, os, "user", last_seen, aggregator_name, event_count,
+        EXTRACT(EPOCH FROM (NOW() - last_seen)) as offline_seconds
+      FROM machines
+    `;
+    const machParams = [];
+    if (options.aggregator) {
+      const aggrs = options.aggregator.split(',').map(s => s.trim()).filter(Boolean);
+      if (aggrs.length > 0) {
+        const inClause = aggrs.map((_, i) => `$${i + 1}`).join(',');
+        machQuery += ` WHERE aggregator_name IN (${inClause})`;
+        aggrs.forEach(a => machParams.push(a));
+      }
+    }
+    machQuery += ' ORDER BY last_seen ASC';
+
+    const machinesRes = await q(machQuery, machParams);
+    allMachines = machinesRes.rows || [];
+    allMachines.forEach(m => {
+      machinesMap.set(m.name, m);
+      machinesMap.set(m.id, m);
     });
+
+    const totalFleet = allMachines.length;
+    const activeFleet = allMachines.filter(m => (Number(m.offline_seconds) || 0) <= 1800).length;
+    const inactiveFleet = totalFleet - activeFleet;
+
+    const staleList = allMachines
+      .filter(m => (Number(m.offline_seconds) || 0) > 1800)
+      .sort((a, b) => (Number(b.offline_seconds) || 0) - (Number(a.offline_seconds) || 0))
+      .slice(0, 6)
+      .map(m => {
+        const secs = Number(m.offline_seconds) || 0;
+        const days = secs / 86400;
+        const risk = days >= 7 ? 'HIGH RISK' : days >= 2 ? 'MODERATE' : 'LOW RISK';
+        return {
+          name: m.name || m.id,
+          ip: m.ip || '-',
+          os: m.os || 'Windows',
+          last_seen: formatTs(m.last_seen).slice(0, 16),
+          offlineStr: formatOfflineDuration(secs),
+          risk
+        };
+      });
+
+    fleet = {
+      total: totalFleet,
+      active: activeFleet,
+      inactive: inactiveFleet,
+      staleList,
+      isSingleMachine: false
+    };
+  }
+
+  const totalFleet = fleet.total;
+  const staleList = fleet.staleList;
+
+  // ── Query Top Targeted Endpoints ──────────────────────────────────────────
+  let topMachines = [];
+  if (isSingleMachine) {
+    const tInfo = fleet.machineInfo;
+    let topTag = 'General Activity';
+    try {
+      const tagRes = await q(
+        `SELECT tag, COUNT(*) as count FROM events ${evWhere} AND tag IS NOT NULL AND tag != '' GROUP BY tag ORDER BY count DESC LIMIT 1`,
+        evParams
+      );
+      topTag = tagRes.rows[0]?.tag || 'General Activity';
+    } catch (_) { }
+
+    topMachines = [{
+      machine: tInfo.name,
+      ip: tInfo.ip,
+      os: tInfo.os,
+      user: tInfo.user,
+      crit_count: critCount,
+      high_count: highCount,
+      total_events: totalEvents,
+      top_tag: topTag
+    }];
+  } else {
+    const topMachinesRes = await q(
+      `SELECT 
+         machine,
+         COUNT(*) as total_events,
+         COUNT(*) FILTER (WHERE LOWER(severity) = 'critical') as crit_count,
+         COUNT(*) FILTER (WHERE LOWER(severity) = 'high') as high_count
+       FROM events ${evWhere}
+       GROUP BY machine
+       ORDER BY crit_count DESC, high_count DESC, total_events DESC
+       LIMIT 5`,
+      evParams
+    );
+
+    for (const row of (topMachinesRes.rows || [])) {
+      const mMeta = machinesMap.get(row.machine) || {};
+      const tagRes = await q(
+        `SELECT tag, COUNT(*) as count FROM events ${evWhere} AND machine = $${pIdx} AND tag IS NOT NULL AND tag != '' GROUP BY tag ORDER BY count DESC LIMIT 1`,
+        [...evParams, row.machine]
+      );
+      const topTag = tagRes.rows[0]?.tag || 'General Activity';
+
+      topMachines.push({
+        machine: row.machine,
+        ip: mMeta.ip || '-',
+        os: mMeta.os || '-',
+        user: mMeta.user || 'system',
+        crit_count: parseInt(row.crit_count || 0, 10),
+        high_count: parseInt(row.high_count || 0, 10),
+        total_events: parseInt(row.total_events || 0, 10),
+        top_tag: topTag
+      });
+    }
   }
 
   // ── Query Top Threat Signatures ─────────────────────────────────────────────
@@ -955,13 +1076,62 @@ async function buildReportDataAndPdf(options, queryFn = null) {
   // ── Query Incidents Briefing & Ranked Forensic Case Cards ───────────────────
   let incidentsData = { total: 0, open: 0, resolved: 0, avgResolutionMin: 0, topCriticalCards: [], register: [] };
   try {
+    const incConds = ['i.created_at >= $1', 'i.created_at <= $2'];
+    const incParams = [fromEpoch, toEpoch];
+    let incIdx = 3;
+
+    if (options.machine) {
+      incConds.push(`(
+        i.machine = $${incIdx} 
+        OR i.machine = (SELECT label FROM machines WHERE name = $${incIdx} LIMIT 1)
+        OR EXISTS (
+          SELECT 1 FROM incident_events ie 
+          JOIN events e ON ie.event_id = e.id 
+          WHERE ie.incident_id = i.id AND (e.machine = $${incIdx} OR e.label = $${incIdx})
+        )
+      )`);
+      incParams.push(options.machine);
+      incIdx++;
+    }
+
+    if (options.aggregator) {
+      const aggrs = options.aggregator.split(',').map(s => s.trim()).filter(Boolean);
+      if (aggrs.length > 0) {
+        const inClause = aggrs.map((_, i) => `$${incIdx + i}`).join(',');
+        incConds.push(`(
+          i.machine IN (SELECT name FROM machines WHERE aggregator_name IN (${inClause}))
+          OR i.machine IN (SELECT label FROM machines WHERE aggregator_name IN (${inClause}))
+          OR EXISTS (
+            SELECT 1 FROM incident_events ie 
+            JOIN events e ON ie.event_id = e.id 
+            WHERE ie.incident_id = i.id AND e.aggregator_name IN (${inClause})
+          )
+        )`);
+        aggrs.forEach(a => incParams.push(a));
+        incIdx += aggrs.length;
+      }
+    }
+
+    if (options.severity) {
+      const sevLower = options.severity.toLowerCase();
+      if (sevLower === 'critical') {
+        incConds.push(`i.priority = 'P1'`);
+      } else if (sevLower === 'high') {
+        incConds.push(`i.priority IN ('P1', 'P2')`);
+      } else if (sevLower === 'medium') {
+        incConds.push(`i.priority IN ('P1', 'P2', 'P3')`);
+      }
+    }
+
+    const incWhere = 'WHERE ' + incConds.join(' AND ');
+
     // 1. Get total stats & resolution metrics
     const allIncRes = await q(
-      `SELECT id, title, description, status, priority, assigned_to, machine, created_at, resolved_at
-       FROM incidents
-       WHERE created_at >= $1 AND created_at <= $2
-       ORDER BY created_at DESC`,
-      [fromEpoch, toEpoch]
+      `SELECT i.id, i.title, i.description, i.status, i.priority, i.assigned_to, i.machine, i.created_at, i.resolved_at
+       FROM incidents i
+       ${incWhere}
+       ORDER BY i.created_at DESC`,
+      incParams
     );
     const incRows = allIncRes.rows || [];
     const totalInc = incRows.length;
@@ -982,7 +1152,7 @@ async function buildReportDataAndPdf(options, queryFn = null) {
          COUNT(ie.event_id) AS linked_evidence_count
        FROM incidents i
        LEFT JOIN incident_events ie ON i.id = ie.incident_id
-       WHERE i.created_at >= $1 AND i.created_at <= $2
+       ${incWhere}
        GROUP BY i.id
        ORDER BY 
          CASE 
@@ -998,14 +1168,13 @@ async function buildReportDataAndPdf(options, queryFn = null) {
          COUNT(ie.event_id) DESC,
          i.created_at DESC
        LIMIT 5`,
-      [fromEpoch, toEpoch]
+      incParams
     );
 
     const topCards = [];
     const topCardIds = new Set();
     for (const r of (rankedRes.rows || [])) {
       topCardIds.add(r.id);
-      // Fetch primary forensic evidence / command line from linked event
       let evidenceMsg = '';
       try {
         const evRes = await q(
@@ -1161,69 +1330,94 @@ async function buildReportDataAndPdf(options, queryFn = null) {
   }
 
   // ── Query Perimeter Defense (Firewall Inbound Attacks & Ports) ──────────────
-  let firewall = { total: 0, blocked: 0, allowed: 0, usbBlocked: 0, dlpEvents: 0, topPorts: [], topSourceIps: [] };
-  try {
-    const fwRes = await q(
-      `SELECT 
-         COUNT(*) as total,
-         COUNT(*) FILTER (WHERE LOWER(action) IN ('blocked', 'deny', 'drop', 'block', 'reject')) as blocked,
-         COUNT(*) FILTER (WHERE LOWER(action) IN ('allow', 'accept', 'pass', 'permit')) as allowed
-       FROM fw_events
-       WHERE ts >= $1 AND ts <= $2`,
-      [from, to]
-    );
-    firewall.total = parseInt(fwRes.rows[0]?.total || 0, 10);
-    firewall.blocked = parseInt(fwRes.rows[0]?.blocked || 0, 10);
-    firewall.allowed = parseInt(fwRes.rows[0]?.allowed || 0, 10);
+  let firewall = { enabled: includeFw, total: 0, blocked: 0, allowed: 0, usbBlocked: 0, dlpEvents: 0, topPorts: [], topSourceIps: [] };
+  if (includeFw) {
+    try {
+      const fwConds = ['ts >= $1', 'ts <= $2'];
+      const fwParams = [from, to];
+      let fwIdx = 3;
 
-    // Top 5 Targeted Ports
-    const portsRes = await q(
-      `SELECT dst_port, COALESCE(NULLIF(service, ''), 'TCP/' || dst_port) as service, COUNT(*) as count
-       FROM fw_events
-       WHERE ts >= $1 AND ts <= $2 AND dst_port > 0
-       GROUP BY dst_port, service
-       ORDER BY count DESC
-       LIMIT 5`,
-      [from, to]
-    );
-    firewall.topPorts = (portsRes.rows || []).map(p => ({
-      label: `Port ${p.dst_port} (${p.service.toUpperCase()})`,
-      count: parseInt(p.count || 0, 10)
-    }));
+      const targetIp = isSingleMachine ? fleet.machineInfo?.ip : null;
+      if (isSingleMachine && targetIp && targetIp !== '-') {
+        fwConds.push(`(src_ip = $${fwIdx} OR dst_ip = $${fwIdx})`);
+        fwParams.push(targetIp);
+        fwIdx++;
+      } else if (options.aggregator) {
+        const aggrs = options.aggregator.split(',').map(s => s.trim()).filter(Boolean);
+        if (aggrs.length > 0) {
+          const inClause = aggrs.map((_, i) => `$${fwIdx + i}`).join(',');
+          fwConds.push(`aggregator_name IN (${inClause})`);
+          aggrs.forEach(a => fwParams.push(a));
+          fwIdx += aggrs.length;
+        }
+      }
 
-    // Top 5 Source IPs (Attacking Inbound IPs)
-    const srcIpRes = await q(
-      `SELECT src_ip, COUNT(*) as count
-       FROM fw_events
-       WHERE ts >= $1 AND ts <= $2 AND src_ip IS NOT NULL AND src_ip != ''
-       GROUP BY src_ip
-       ORDER BY count DESC
-       LIMIT 5`,
-      [from, to]
-    );
-    firewall.topSourceIps = (srcIpRes.rows || []).map(s => ({
-      ip: s.src_ip,
-      count: parseInt(s.count || 0, 10)
-    }));
+      const fwWhere = 'WHERE ' + fwConds.join(' AND ');
 
-    // If fw_events had no source IPs, check events table network logs
-    if (firewall.topSourceIps.length === 0) {
-      try {
-        const evSrcRes = await q(
-          `SELECT src_ip, COUNT(*) as count
-           FROM events ${evWhere} AND src_ip IS NOT NULL AND src_ip != ''
-           GROUP BY src_ip
-           ORDER BY count DESC
-           LIMIT 5`,
-          evParams
-        );
-        firewall.topSourceIps = (evSrcRes.rows || []).map(s => ({
-          ip: s.src_ip,
-          count: parseInt(s.count || 0, 10)
-        }));
-      } catch (_) { }
+      const fwRes = await q(
+        `SELECT 
+           COUNT(*) as total,
+           COUNT(*) FILTER (WHERE LOWER(action) IN ('blocked', 'deny', 'drop', 'block', 'reject')) as blocked,
+           COUNT(*) FILTER (WHERE LOWER(action) IN ('allow', 'accept', 'pass', 'permit')) as allowed
+         FROM fw_events
+         ${fwWhere}`,
+        fwParams
+      );
+      firewall.total = parseInt(fwRes.rows[0]?.total || 0, 10);
+      firewall.blocked = parseInt(fwRes.rows[0]?.blocked || 0, 10);
+      firewall.allowed = parseInt(fwRes.rows[0]?.allowed || 0, 10);
+
+      // Top 5 Targeted Ports
+      const portsRes = await q(
+        `SELECT dst_port, COALESCE(NULLIF(service, ''), 'TCP/' || dst_port) as service, COUNT(*) as count
+         FROM fw_events
+         ${fwWhere} AND dst_port > 0
+         GROUP BY dst_port, service
+         ORDER BY count DESC
+         LIMIT 5`,
+        fwParams
+      );
+      firewall.topPorts = (portsRes.rows || []).map(p => ({
+        label: `Port ${p.dst_port} (${p.service.toUpperCase()})`,
+        count: parseInt(p.count || 0, 10)
+      }));
+
+      // Top 5 Source IPs (Attacking Inbound IPs)
+      const srcIpRes = await q(
+        `SELECT src_ip, COUNT(*) as count
+         FROM fw_events
+         ${fwWhere} AND src_ip IS NOT NULL AND src_ip != ''
+         GROUP BY src_ip
+         ORDER BY count DESC
+         LIMIT 5`,
+        fwParams
+      );
+      firewall.topSourceIps = (srcIpRes.rows || []).map(s => ({
+        ip: s.src_ip,
+        count: parseInt(s.count || 0, 10)
+      }));
+
+      // If fw_events had no source IPs, check events table network logs
+      if (firewall.topSourceIps.length === 0) {
+        try {
+          const evSrcRes = await q(
+            `SELECT src_ip, COUNT(*) as count
+             FROM events ${evWhere} AND src_ip IS NOT NULL AND src_ip != ''
+             GROUP BY src_ip
+             ORDER BY count DESC
+             LIMIT 5`,
+            evParams
+          );
+          firewall.topSourceIps = (evSrcRes.rows || []).map(s => ({
+            ip: s.src_ip,
+            count: parseInt(s.count || 0, 10)
+          }));
+        } catch (_) { }
+      }
+    } catch (fwErr) {
+      console.warn('[REPORT BUILDER] Firewall query error:', fwErr.message);
     }
-  } catch (fwErr) { }
+  }
 
   // ── Query Hardware / USB & DLP Log ─────────────────────────────────────────
   let usbDlp = { usbCount: 0, dlpCount: 0, recentList: [] };
@@ -1253,39 +1447,68 @@ async function buildReportDataAndPdf(options, queryFn = null) {
   } catch (usbErr) { }
 
   // ── Query Fleet OS & Branch Distribution ───────────────────────────────────
-  let fleetDistribution = { osList: [], branchList: [] };
-  try {
-    const osRes = await q(
-      `SELECT COALESCE(NULLIF(os, ''), 'Windows') as os, COUNT(*) as count
-       FROM machines
-       GROUP BY os
-       ORDER BY count DESC`
-    );
-    const osColorPalette = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#06b6d4', '#64748b'];
-    fleetDistribution.osList = (osRes.rows || []).map((o, idx) => ({
-      os: o.os,
-      count: parseInt(o.count || 0, 10),
-      color: osColorPalette[idx % osColorPalette.length]
-    }));
+  let fleetDistribution = { isSingleMachine, osList: [], branchList: [] };
+  if (isSingleMachine) {
+    const tInfo = fleet.machineInfo;
+    fleetDistribution.osList = [{
+      os: tInfo.os || 'Windows',
+      count: 1,
+      color: '#3b82f6'
+    }];
+    fleetDistribution.branchList = [{
+      branch: tInfo.aggregator_name || 'Production',
+      count: 1
+    }];
+  } else {
+    try {
+      let osWhere = '';
+      const osParams = [];
+      if (options.aggregator) {
+        const aggrs = options.aggregator.split(',').map(s => s.trim()).filter(Boolean);
+        if (aggrs.length > 0) {
+          const inClause = aggrs.map((_, i) => `$${i + 1}`).join(',');
+          osWhere = `WHERE aggregator_name IN (${inClause})`;
+          aggrs.forEach(a => osParams.push(a));
+        }
+      }
+      const osRes = await q(
+        `SELECT COALESCE(NULLIF(os, ''), 'Windows') as os, COUNT(*) as count
+         FROM machines ${osWhere}
+         GROUP BY os
+         ORDER BY count DESC`,
+        osParams
+      );
+      const osColorPalette = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#06b6d4', '#64748b'];
+      fleetDistribution.osList = (osRes.rows || []).map((o, idx) => ({
+        os: o.os,
+        count: parseInt(o.count || 0, 10),
+        color: osColorPalette[idx % osColorPalette.length]
+      }));
 
-    const branchRes = await q(
-      `SELECT COALESCE(NULLIF(aggregator_name, ''), 'Headquarters') as branch, COUNT(*) as count
-       FROM machines
-       GROUP BY aggregator_name
-       ORDER BY count DESC`
-    );
-    fleetDistribution.branchList = (branchRes.rows || []).map(b => ({
-      branch: b.branch,
-      count: parseInt(b.count || 0, 10)
-    }));
-  } catch (fleetDistErr) { }
+      const branchRes = await q(
+        `SELECT COALESCE(NULLIF(aggregator_name, ''), 'Headquarters') as branch, COUNT(*) as count
+         FROM machines ${osWhere}
+         GROUP BY aggregator_name
+         ORDER BY count DESC`,
+        osParams
+      );
+      fleetDistribution.branchList = (branchRes.rows || []).map(b => ({
+        branch: b.branch,
+        count: parseInt(b.count || 0, 10)
+      }));
+    } catch (fleetDistErr) { }
+  }
 
   // ── Posture Score & Threat Level ───────────────────────────────────────────
   let score = 100;
   score -= Math.min(35, critCount * 5);
   score -= Math.min(20, highCount * 2);
-  score -= Math.min(20, incidentsData.open * 8);
-  score -= Math.min(15, staleList.filter(s => s.risk.includes('HIGH')).length * 5);
+  score -= Math.min(25, incidentsData.open * 10);
+  if (!isSingleMachine) {
+    score -= Math.min(15, staleList.filter(s => s.risk.includes('HIGH')).length * 5);
+  } else if (fleet.inactive > 0) {
+    score -= 20; // 20 point deduction if this single machine is offline
+  }
 
   const postureScore = Math.max(10, Math.min(100, Math.round(score)));
 
@@ -1302,37 +1525,73 @@ async function buildReportDataAndPdf(options, queryFn = null) {
   }[threatLevel];
 
   // ── Formulate Narrative & Recommendations ──────────────────────────────────
-  let narrative = `During this reporting window (${durLabel}), IOCHunt monitored ${totalFleet} endpoints and analyzed ${totalEvents.toLocaleString()} security events across ${fleetDistribution.branchList.length} network branches. `;
-  if (critCount > 0 || incidentsData.open > 0) {
-    narrative += `${critCount} Critical alerts and ${incidentsData.open} active incidents were identified requiring immediate SOC investigation. `;
+  let narrative = '';
+  if (isSingleMachine) {
+    const tInfo = fleet.machineInfo;
+    const mIpStr = tInfo.ip && tInfo.ip !== '-' ? `(IP: ${tInfo.ip})` : '';
+    narrative = `During this reporting window (${durLabel}), IOCHunt conducted deep security surveillance on endpoint ${tInfo.name} ${mIpStr}. Analyzed ${totalEvents.toLocaleString()} security events. `;
+    if (critCount > 0 || incidentsData.open > 0) {
+      narrative += `${critCount} Critical alerts and ${incidentsData.open} active incident investigations were identified on this host requiring SOC triage. `;
+    } else {
+      narrative += `Zero critical threats were observed and host telemetry operated within baseline tolerances. `;
+    }
+    if (fleet.inactive > 0) {
+      narrative += `Sensor is currently offline (${tInfo.offlineStr || 'disconnected'}), representing a potential telemetry blind spot.`;
+    } else {
+      narrative += `Sensor is active with healthy real-time telemetry heartbeats.`;
+    }
   } else {
-    narrative += `Zero critical threats were observed and fleet telemetry operated within normal security baselines. `;
-  }
-  if (staleList.length > 0) {
-    narrative += `${staleList.length} endpoint(s) are currently inactive, presenting potential monitoring blind spots.`;
+    narrative = `During this reporting window (${durLabel}), IOCHunt monitored ${totalFleet} endpoints and analyzed ${totalEvents.toLocaleString()} security events across ${fleetDistribution.branchList.length} network branches. `;
+    if (critCount > 0 || incidentsData.open > 0) {
+      narrative += `${critCount} Critical alerts and ${incidentsData.open} active incidents were identified requiring immediate SOC investigation. `;
+    } else {
+      narrative += `Zero critical threats were observed and fleet telemetry operated within normal security baselines. `;
+    }
+    if (staleList.length > 0) {
+      narrative += `${staleList.length} endpoint(s) are currently inactive, presenting potential monitoring blind spots.`;
+    }
   }
 
   const recommendations = [];
-  if (critCount > 0 && topMachines.length > 0) {
-    recommendations.push(`Immediate Threat Mitigation: Triage ${critCount} critical alerts detected on host ${topMachines[0].machine}.`);
-  }
-  if (incidentsData.open > 0) {
-    recommendations.push(`Incident Escalation: Assign SOC analysts to investigate ${incidentsData.open} unresolved incident ticket(s).`);
-  }
-  if (adAudit.dcsync > 0 || adAudit.kerberoast > 0) {
-    recommendations.push(`Active Directory Hardening: Investigate ${adAudit.dcsync} DCSync replication and ${adAudit.kerberoast} Kerberoasting attempts immediately.`);
-  }
-  if (staleList.length > 0) {
-    recommendations.push(`Sensor Coverage: Re-establish telemetry with ${staleList[0].name} (${staleList[0].offlineStr}) to eliminate coverage blind spots.`);
-  }
-  if (firewall.blocked > 0) {
-    recommendations.push(`Perimeter Review: Audit ${firewall.blocked.toLocaleString()} blocked network connections from external hosts.`);
-  }
-  if (usbDlp.usbCount > 0) {
-    recommendations.push(`Hardware Compliance: Review ${usbDlp.usbCount} physical USB storage insertions against corporate DLP policy.`);
-  }
-  if (recommendations.length === 0) {
-    recommendations.push('Maintain Continuous Surveillance: All security baseline thresholds and telemetry are operating normally.');
+  if (isSingleMachine) {
+    const tInfo = fleet.machineInfo;
+    if (critCount > 0) {
+      recommendations.push(`Immediate Threat Mitigation: Triage ${critCount} critical alerts detected on host ${tInfo.name}.`);
+    }
+    if (incidentsData.open > 0) {
+      recommendations.push(`Incident Escalation: Resolve ${incidentsData.open} open incident investigation(s) associated with ${tInfo.name}.`);
+    }
+    if (fleet.inactive > 0) {
+      recommendations.push(`Sensor Recovery: Restore agent connectivity on ${tInfo.name} (${tInfo.offlineStr || 'offline'}) to resume monitoring.`);
+    }
+    if (usbDlp.usbCount > 0) {
+      recommendations.push(`Hardware Compliance: Verify ${usbDlp.usbCount} USB peripheral insertions on ${tInfo.name} against corporate DLP policy.`);
+    }
+    if (recommendations.length === 0) {
+      recommendations.push(`Endpoint Secure: Telemetry and behavior on ${tInfo.name} are operating within normal security parameters.`);
+    }
+  } else {
+    if (critCount > 0 && topMachines.length > 0) {
+      recommendations.push(`Immediate Threat Mitigation: Triage ${critCount} critical alerts detected on host ${topMachines[0].machine}.`);
+    }
+    if (incidentsData.open > 0) {
+      recommendations.push(`Incident Escalation: Assign SOC analysts to investigate ${incidentsData.open} unresolved incident ticket(s).`);
+    }
+    if (adAudit.dcsync > 0 || adAudit.kerberoast > 0) {
+      recommendations.push(`Active Directory Hardening: Investigate ${adAudit.dcsync} DCSync replication and ${adAudit.kerberoast} Kerberoasting attempts immediately.`);
+    }
+    if (staleList.length > 0) {
+      recommendations.push(`Sensor Coverage: Re-establish telemetry with ${staleList[0].name} (${staleList[0].offlineStr}) to eliminate coverage blind spots.`);
+    }
+    if (firewall.blocked > 0) {
+      recommendations.push(`Perimeter Review: Audit ${firewall.blocked.toLocaleString()} blocked network connections from external hosts.`);
+    }
+    if (usbDlp.usbCount > 0) {
+      recommendations.push(`Hardware Compliance: Review ${usbDlp.usbCount} physical USB storage insertions against corporate DLP policy.`);
+    }
+    if (recommendations.length === 0) {
+      recommendations.push('Maintain Continuous Surveillance: All security baseline thresholds and telemetry are operating normally.');
+    }
   }
 
   const nowStr = now.toISOString().slice(0, 19).replace('T', ' ');
@@ -1343,6 +1602,7 @@ async function buildReportDataAndPdf(options, queryFn = null) {
     periodLabel: durLabel,
     branch: options.aggregator || 'All',
     machine: options.machine || 'All',
+    isSingleMachine,
     threatLevel,
     tlColor,
     postureScore,
@@ -1475,7 +1735,7 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
     <h1>IOC HUNT EXECUTIVE REPORT</h1>
     <div class="meta">
       <b>Schedule:</b> ${schedule.name}<br>
-      <b>Time Window:</b> ${durLabel}<br>
+      <b>Period:</b> ${durLabel}<br>
       <b>Filters:</b> Branch: ${schedule.aggregator || 'All'} | Machine: ${schedule.machine || 'All'}
     </div>
   </div>
@@ -1519,16 +1779,16 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
         <div class="stat-trend" style="color:${incidentsData.open > 0 ? '#ef4444' : '#10b981'}">${incidentsData.open > 0 ? 'Active Triage' : 'Zero Open'}</div>
       </div>
       <div class="stat">
-        <div class="stat-n" style="color:${fleet.inactive > 0 ? '#f97316' : '#10b981'}">${fleet.active}/${fleet.total}</div>
-        <div class="stat-l">Fleet Online</div>
-        <div class="stat-trend" style="color:${fleet.inactive > 0 ? '#f97316' : '#10b981'}">${fleet.inactive > 0 ? `${fleet.inactive} Offline` : '100% Online'}</div>
+        <div class="stat-n" style="color:${fleet.inactive > 0 ? '#f97316' : '#10b981'}">${fleet.isSingleMachine ? (fleet.active > 0 ? 'ONLINE' : 'OFFLINE') : `${fleet.active}/${fleet.total}`}</div>
+        <div class="stat-l">${fleet.isSingleMachine ? 'Sensor Status' : 'Fleet Online'}</div>
+        <div class="stat-trend" style="color:${fleet.inactive > 0 ? '#ef4444' : '#10b981'}">${fleet.isSingleMachine ? (fleet.active > 0 ? 'Active Heartbeat' : 'Sensor Offline') : (fleet.inactive > 0 ? `${fleet.inactive} Offline` : '100% Online')}</div>
       </div>
     </div>
   </div>`;
 
   if (topMachines.length > 0) {
     html += `<div class="section">
-      <h2>Top Targeted Endpoints & Compromised Accounts</h2>
+      <h2>${fleet.isSingleMachine ? 'Endpoint Profile & Host Security' : 'Top Targeted Endpoints & Compromised Accounts'}</h2>
       <table>
         <thead>
           <tr>
@@ -1596,10 +1856,11 @@ async function generateAndSendReport(schedule, queryFn = null, isManual = false)
 
   const recipients = schedule.recipients.split(',').map(r => r.trim()).filter(Boolean);
   const t = createTransporter(cfg);
+  const subjectPrefix = schedule.machine ? `[${schedule.machine}] ` : (schedule.aggregator ? `[${schedule.aggregator}] ` : '');
   await t.sendMail({
     from: `"${cfg.from_name}" <${cfg.from_addr}>`,
     to: recipients.join(', '),
-    subject: `[IOC Hunt] ${schedule.name} — ${threatLevel} Threat Level (${postureScore}/100) — ${dateStr}`,
+    subject: `[IOC Hunt] ${subjectPrefix}${schedule.name} — ${threatLevel} Threat Level (${postureScore}/100) — ${dateStr}`,
     html,
     attachments
   });

@@ -39,6 +39,33 @@ const generateReport = async (req, res) => {
     // SQLite format: YYYY-MM-DD HH:MM:SS (UTC) -> We can still use it for PG
     const to = toDate.toISOString().slice(0, 19).replace('T', ' ');
     const from = fromDate.toISOString().slice(0, 19).replace('T', ' ');
+    const fromDateOnly = fromDate.toISOString().slice(0, 10);
+    const toDateOnly = toDate.toISOString().slice(0, 10);
+
+    let durationLabel = '1 Day Report';
+    if (from_date && to_date) {
+      durationLabel = `Custom Report (${fromDateOnly} to ${toDateOnly})`;
+    } else if (duration === 'today') {
+      durationLabel = `Today's Report (${toDateOnly})`;
+    } else {
+      const h = parseFloat(duration);
+      if (h === 24 || duration === '24') {
+        durationLabel = `1 Day Report (${fromDateOnly} to ${toDateOnly})`;
+      } else if (h === 168 || duration === '168') {
+        durationLabel = `Weekly Report (${fromDateOnly} to ${toDateOnly})`;
+      } else if (h === 720 || duration === '720') {
+        durationLabel = `Monthly Report (${fromDateOnly} to ${toDateOnly})`;
+      } else if (h === 72 || duration === '72') {
+        durationLabel = `3 Days Report (${fromDateOnly} to ${toDateOnly})`;
+      } else if (h === 1) {
+        durationLabel = `1 Hour Report (${fromDateOnly} to ${toDateOnly})`;
+      } else if (h === 4) {
+        durationLabel = `4 Hours Report (${fromDateOnly} to ${toDateOnly})`;
+      } else {
+        const days = Math.round(h / 24);
+        durationLabel = days > 1 ? `${days} Days Report (${fromDateOnly} to ${toDateOnly})` : `1 Day Report (${fromDateOnly} to ${toDateOnly})`;
+      }
+    }
 
     // ── Base event query builder ──────────────────────────────────────────────
     const evConds = ['ts>=$1', 'ts<=$2', 'is_noise=false'];
@@ -375,7 +402,7 @@ const generateReport = async (req, res) => {
 
     res.json({
       generated: new Date().toISOString(),
-      filters: { from, to, duration, machine, severity: selectedSevs.length > 0 ? selectedSevs.map(s => s.toUpperCase()).join(', ') : '', category: selectedCats.length > 0 ? selectedCats.join(', ') : '', src_ip, dst_ip, action },
+      filters: { from, to, from_date_only: fromDateOnly, to_date_only: toDateOnly, duration, durationLabel, machine, severity: selectedSevs.length > 0 ? selectedSevs.map(s => s.toUpperCase()).join(', ') : '', category: selectedCats.length > 0 ? selectedCats.join(', ') : '', src_ip, dst_ip, action },
       events: { total: totalEvents, bySeverity, byCategory, byMachine, hourly, topTags, critical: reportEvents, items: reportEvents },
       ad_attacks: adEvents,
       user_events: userEvents,
@@ -513,6 +540,33 @@ const generateFirewallReport = async (req, res) => {
 
     const to = toDate.toISOString().slice(0, 19).replace('T', ' ');
     const from = fromDate.toISOString().slice(0, 19).replace('T', ' ');
+    const fromDateOnly = fromDate.toISOString().slice(0, 10);
+    const toDateOnly = toDate.toISOString().slice(0, 10);
+
+    let durationLabel = '1 Day Report';
+    if (from_date && to_date) {
+      durationLabel = `Custom Report (${fromDateOnly} to ${toDateOnly})`;
+    } else if (duration === 'today') {
+      durationLabel = `Today's Report (${toDateOnly})`;
+    } else {
+      const h = parseFloat(duration);
+      if (h === 24 || duration === '24') {
+        durationLabel = `1 Day Report (${fromDateOnly} to ${toDateOnly})`;
+      } else if (h === 168 || duration === '168') {
+        durationLabel = `Weekly Report (${fromDateOnly} to ${toDateOnly})`;
+      } else if (h === 720 || duration === '720') {
+        durationLabel = `Monthly Report (${fromDateOnly} to ${toDateOnly})`;
+      } else if (h === 72 || duration === '72') {
+        durationLabel = `3 Days Report (${fromDateOnly} to ${toDateOnly})`;
+      } else if (h === 1) {
+        durationLabel = `1 Hour Report (${fromDateOnly} to ${toDateOnly})`;
+      } else if (h === 4) {
+        durationLabel = `4 Hours Report (${fromDateOnly} to ${toDateOnly})`;
+      } else {
+        const days = Math.round(h / 24);
+        durationLabel = days > 1 ? `${days} Days Report (${fromDateOnly} to ${toDateOnly})` : `1 Day Report (${fromDateOnly} to ${toDateOnly})`;
+      }
+    }
 
     // ── Build Filter Conditions ─────────────────────────────────────────────
     const conds = ['ts>=$1', 'ts<=$2'];
@@ -904,7 +958,12 @@ const generateFirewallReport = async (req, res) => {
       generated: new Date().toISOString(),
       threat_level: threatLevel,
       filters: {
-        duration, from, to,
+        duration,
+        durationLabel,
+        from_date_only: fromDateOnly,
+        to_date_only: toDateOnly,
+        from,
+        to,
         device: device || 'All Firewalls',
         aggregator: aggrs.length > 0 ? aggrs.join(', ') : 'All Branches',
         action: action || 'All Actions',

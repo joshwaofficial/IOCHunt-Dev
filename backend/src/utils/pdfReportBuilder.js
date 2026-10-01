@@ -116,7 +116,7 @@ async function generatePdfReport(data) {
       doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(14).text('IOC HUNT', margin + 14, margin + 12);
       doc.fillColor('#94a3b8').font('Helvetica-Bold').fontSize(8.5).text('ENTERPRISE SECURITY INTELLIGENCE REPORT', margin + 84, margin + 14);
       doc.fillColor('#cbd5e1').font('Helvetica').fontSize(8).text(
-        `Window: ${data.periodLabel}   |   Branch: ${data.branch || 'All'}   |   Machine: ${data.machine || 'All'}`,
+        `Period: ${data.periodLabel}   |   Branch: ${data.branch || 'All'}   |   Machine: ${data.machine || 'All'}`,
         margin + 14, margin + 34
       );
 
@@ -152,13 +152,28 @@ async function generatePdfReport(data) {
       const totalTrend = data.trends?.totalTrend || 'Baseline';
       const critTrend = data.trends?.critTrend || 'Baseline';
 
+      const isSingleMachine = Boolean(data.isSingleMachine || fleetData.isSingleMachine);
+      const machInfo = fleetData.machineInfo || {};
+
       const kpis = [
         { label: 'TOTAL EVENTS', val: (data.totalEvents || 0).toLocaleString(), trend: totalTrend, col: C_DARK },
         { label: 'CRITICAL', val: (data.critCount || 0).toLocaleString(), trend: critTrend, col: C_CRIT },
         { label: 'HIGH ALERTS', val: (data.highCount || 0).toLocaleString(), trend: (data.highCount > 0 ? `${data.highCount} Alerts` : 'Clear'), col: C_HIGH },
         { label: 'MEDIUM', val: (data.medCount || 0).toLocaleString(), trend: (data.medCount > 0 ? `${data.medCount} Warnings` : 'Clear'), col: C_MED },
         { label: 'OPEN INCIDENTS', val: String(data.incidents?.open || 0), trend: (data.incidents?.open > 0 ? 'Active Triage' : 'Zero Open'), col: C_PURPLE },
-        { label: 'FLEET HEALTH', val: `${fleetData.active}/${fleetData.total}`, trend: (fleetData.inactive > 0 ? `${fleetData.inactive} Offline` : '100% Online'), col: fleetData.inactive > 0 ? C_HIGH : C_LOW }
+        isSingleMachine
+          ? {
+              label: 'SENSOR STATUS',
+              val: machInfo.isOnline ? 'ONLINE' : 'OFFLINE',
+              trend: machInfo.isOnline ? 'Active Sensor' : (machInfo.offlineStr || 'Disconnected'),
+              col: machInfo.isOnline ? C_LOW : C_CRIT
+            }
+          : {
+              label: 'FLEET HEALTH',
+              val: `${fleetData.active}/${fleetData.total}`,
+              trend: (fleetData.inactive > 0 ? `${fleetData.inactive} Offline` : '100% Online'),
+              col: fleetData.inactive > 0 ? C_HIGH : C_LOW
+            }
       ];
 
       kpis.forEach((kpi, idx) => {
@@ -351,47 +366,50 @@ async function generatePdfReport(data) {
       doc.y = adBoxY + adBoxH + 16;
 
       // ── 8. Perimeter Defense: Firewall Inbound Attacks & Ports ─────────────
-      const fwBoxH = 125;
-      renderSectionHeading('Perimeter Defense: Firewall Inbound Attacks & Ports', 'Network boundary traffic filtering, targeted ports, and top attacking source IPs', 30 + fwBoxH);
-      const fwBoxY = doc.y;
-      doc.roundedRect(margin, fwBoxY, contentWidth, fwBoxH, 6).fillAndStroke(C_BG_LIGHT, C_BORDER);
+      const fwEnabled = data.firewall?.enabled !== false;
+      if (fwEnabled) {
+        const fwBoxH = 125;
+        renderSectionHeading('Perimeter Defense: Firewall Inbound Attacks & Ports', 'Network boundary traffic filtering, targeted ports, and top attacking source IPs', 30 + fwBoxH);
+        const fwBoxY = doc.y;
+        doc.roundedRect(margin, fwBoxY, contentWidth, fwBoxH, 6).fillAndStroke(C_BG_LIGHT, C_BORDER);
 
-      // Left Column: Chart.js Top Targeted Ports Bar Chart
-      doc.image(portsChartBuf, margin + 8, fwBoxY + 6, {
-        width: 240,
-        height: fwBoxH - 12
-      });
+        // Left Column: Chart.js Top Targeted Ports Bar Chart
+        doc.image(portsChartBuf, margin + 8, fwBoxY + 6, {
+          width: 240,
+          height: fwBoxH - 12
+        });
 
-      // Right Column: Top Inbound Attacking Source IPs & Filter Stats
-      const geoX = margin + 255;
-      const geoW = contentWidth - 265;
-      const geoY = fwBoxY + 10;
+        // Right Column: Top Inbound Attacking Source IPs & Filter Stats
+        const geoX = margin + 255;
+        const geoW = contentWidth - 265;
+        const geoY = fwBoxY + 10;
 
-      // Filter summary pill
-      doc.roundedRect(geoX, geoY, geoW, 20, 3).fill('#1e293b');
-      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(7)
-        .text(`BLOCKED: ${(data.firewall?.blocked || 0).toLocaleString()}   |   ALLOWED: ${(data.firewall?.allowed || 0).toLocaleString()}   |   TOTAL: ${(data.firewall?.total || 0).toLocaleString()}`, geoX, geoY + 6, { width: geoW, align: 'center' });
+        // Filter summary pill
+        doc.roundedRect(geoX, geoY, geoW, 20, 3).fill('#1e293b');
+        doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(7)
+          .text(`BLOCKED: ${(data.firewall?.blocked || 0).toLocaleString()}   |   ALLOWED: ${(data.firewall?.allowed || 0).toLocaleString()}   |   TOTAL: ${(data.firewall?.total || 0).toLocaleString()}`, geoX, geoY + 6, { width: geoW, align: 'center' });
 
-      // Top Source IPs Table
-      const geoTableY = geoY + 26;
-      doc.rect(geoX, geoTableY, geoW, 15).fill('#f1f5f9');
-      doc.fillColor(C_MUTED).font('Helvetica-Bold').fontSize(6.5);
-      doc.text('TOP INBOUND SOURCE IP', geoX + 6, geoTableY + 4);
-      doc.text('ATTEMPTS', geoX + geoW - 75, geoTableY + 4, { width: 70, align: 'right' });
+        // Top Source IPs Table
+        const geoTableY = geoY + 26;
+        doc.rect(geoX, geoTableY, geoW, 15).fill('#f1f5f9');
+        doc.fillColor(C_MUTED).font('Helvetica-Bold').fontSize(6.5);
+        doc.text('TOP INBOUND SOURCE IP', geoX + 6, geoTableY + 4);
+        doc.text('ATTEMPTS', geoX + geoW - 75, geoTableY + 4, { width: 70, align: 'right' });
 
-      const topIps = (data.firewall?.topSourceIps && data.firewall.topSourceIps.length)
-        ? data.firewall.topSourceIps
-        : [{ ip: 'Internal / Localhost Only', count: data.firewall?.total || 0 }];
+        const topIps = (data.firewall?.topSourceIps && data.firewall.topSourceIps.length)
+          ? data.firewall.topSourceIps
+          : [{ ip: 'Internal / Localhost Only', count: data.firewall?.total || 0 }];
 
-      topIps.slice(0, 4).forEach((c, idx) => {
-        const cRowY = geoTableY + 17 + (idx * 15.5);
-        doc.fillColor(C_TEXT).font('Helvetica').fontSize(7)
-          .text(c.ip || '127.0.0.1 (Internal)', geoX + 6, cRowY);
-        doc.fillColor(C_CRIT).font('Helvetica-Bold').fontSize(7)
-          .text((c.count || 0).toLocaleString(), geoX + geoW - 75, cRowY, { width: 70, align: 'right' });
-      });
+        topIps.slice(0, 4).forEach((c, idx) => {
+          const cRowY = geoTableY + 17 + (idx * 15.5);
+          doc.fillColor(C_TEXT).font('Helvetica').fontSize(7)
+            .text(c.ip || '127.0.0.1 (Internal)', geoX + 6, cRowY);
+          doc.fillColor(C_CRIT).font('Helvetica-Bold').fontSize(7)
+            .text((c.count || 0).toLocaleString(), geoX + geoW - 75, cRowY, { width: 70, align: 'right' });
+        });
 
-      doc.y = fwBoxY + fwBoxH + 16;
+        doc.y = fwBoxY + fwBoxH + 16;
+      }
 
       // ── 9. Hardware / USB & DLP Policy Log ─────────────────────────────────
       const usbBoxH = 80;
@@ -440,52 +458,84 @@ async function generatePdfReport(data) {
 
       doc.y = usbBoxY + usbBoxH + 16;
 
-      // ── 10. Fleet OS & Branch Distribution + Inactivity Tracker ────────────
-      const fleetBoxH = 125;
-      renderSectionHeading('Fleet OS & Branch Health Distribution', 'Endpoint platform breakdown and inactive sensor blind spot detection', 30 + fleetBoxH);
-      const fleetBoxY = doc.y;
-      doc.roundedRect(margin, fleetBoxY, contentWidth, fleetBoxH, 6).fillAndStroke(C_BG_LIGHT, C_BORDER);
+      // ── 10. Fleet OS & Branch Distribution vs Endpoint Identity Card ────────
+      if (isSingleMachine) {
+        const idBoxH = 68;
+        renderSectionHeading('Endpoint Identity & Sensor Baseline', 'Host profile, network configuration, and agent operational state', 30 + idBoxH);
+        const idBoxY = doc.y;
+        doc.roundedRect(margin, idBoxY, contentWidth, idBoxH, 6).fillAndStroke(C_BG_LIGHT, C_BORDER);
 
-      // Left Column: Chart.js OS Doughnut
-      doc.image(osChartBuf, margin + 10, fleetBoxY + 8, {
-        width: 110,
-        height: 110
-      });
+        const mInfo = data.fleet?.machineInfo || {};
+        const colW = (contentWidth - 24) / 4;
 
-      // Right Column: Inactive Stale Fleet Monitor Table
-      const staleX = margin + 135;
-      const staleW = contentWidth - 145;
-      const staleY = fleetBoxY + 10;
+        const idFields = [
+          { label: 'HOSTNAME', val: mInfo.name || data.machine || '-' },
+          { label: 'IP ADDRESS', val: mInfo.ip || '-' },
+          { label: 'OPERATING SYSTEM', val: mInfo.os || 'Windows' },
+          { label: 'PRIMARY USER', val: mInfo.user || 'system' },
+          { label: 'NETWORK BRANCH', val: mInfo.aggregator_name || 'Production HQ' },
+          { label: 'AGENT HEARTBEAT', val: mInfo.isOnline ? 'Online (Active)' : mInfo.offlineStr || 'Offline' },
+          { label: 'LAST SEEN AUDIT', val: mInfo.lastSeenStr || '-' },
+          { label: 'RISK PROFILE', val: data.threatLevel || 'NORMAL' }
+        ];
 
-
-      doc.rect(staleX, staleY, staleW, 15).fill('#f1f5f9');
-      doc.fillColor(C_MUTED).font('Helvetica-Bold').fontSize(6.5);
-      doc.text('OFFLINE ENDPOINT', staleX + 6, staleY + 4);
-      doc.text('OS PLATFORM', staleX + 110, staleY + 4);
-      doc.text('OFFLINE DURATION', staleX + 195, staleY + 4);
-      doc.text('RISK STATUS', staleX + staleW - 65, staleY + 4, { width: 60, align: 'right' });
-
-      const staleList = data.fleet?.staleList || [];
-      if (staleList.length === 0) {
-        doc.fillColor(C_LOW).font('Helvetica-Bold').fontSize(7.5)
-          .text('✓ 100% of endpoint fleet active with continuous telemetry heartbeat.', staleX + 6, staleY + 30);
-      } else {
-        staleList.slice(0, 4).forEach((m, idx) => {
-          const sRowY = staleY + 19 + (idx * 17);
-          doc.fillColor(C_TEXT).font('Helvetica-Bold').fontSize(6.5)
-            .text(m.name || m.ip, staleX + 6, sRowY, { width: 100 });
-          doc.fillColor(C_MUTED).font('Helvetica').fontSize(6.5)
-            .text(m.os || 'Windows', staleX + 110, sRowY);
-          doc.fillColor(C_HIGH).font('Helvetica-Bold').fontSize(6.5)
-            .text(m.offlineStr || 'Unknown', staleX + 195, sRowY);
-
-          const isHigh = m.risk.includes('HIGH');
-          doc.fillColor(isHigh ? C_CRIT : C_MED).font('Helvetica-Bold').fontSize(6)
-            .text(m.risk, staleX + staleW - 65, sRowY, { width: 60, align: 'right' });
+        idFields.forEach((f, idx) => {
+          const row = Math.floor(idx / 4);
+          const col = idx % 4;
+          const fx = margin + 12 + (col * colW);
+          const fy = idBoxY + 10 + (row * 28);
+          doc.fillColor(C_MUTED).font('Helvetica-Bold').fontSize(6).text(f.label, fx, fy);
+          doc.fillColor(f.label === 'AGENT HEARTBEAT' && !mInfo.isOnline ? C_CRIT : C_TEXT)
+            .font('Helvetica-Bold').fontSize(7.5).text(f.val, fx, fy + 9, { width: colW - 10, lineBreak: false });
         });
-      }
 
-      doc.y = fleetBoxY + fleetBoxH + 16;
+        doc.y = idBoxY + idBoxH + 16;
+      } else {
+        const fleetBoxH = 125;
+        renderSectionHeading('Fleet OS & Branch Health Distribution', 'Endpoint platform breakdown and inactive sensor blind spot detection', 30 + fleetBoxH);
+        const fleetBoxY = doc.y;
+        doc.roundedRect(margin, fleetBoxY, contentWidth, fleetBoxH, 6).fillAndStroke(C_BG_LIGHT, C_BORDER);
+
+        // Left Column: Chart.js OS Doughnut
+        doc.image(osChartBuf, margin + 10, fleetBoxY + 8, {
+          width: 110,
+          height: 110
+        });
+
+        // Right Column: Inactive Stale Fleet Monitor Table
+        const staleX = margin + 135;
+        const staleW = contentWidth - 145;
+        const staleY = fleetBoxY + 10;
+
+        doc.rect(staleX, staleY, staleW, 15).fill('#f1f5f9');
+        doc.fillColor(C_MUTED).font('Helvetica-Bold').fontSize(6.5);
+        doc.text('OFFLINE ENDPOINT', staleX + 6, staleY + 4);
+        doc.text('OS PLATFORM', staleX + 110, staleY + 4);
+        doc.text('OFFLINE DURATION', staleX + 195, staleY + 4);
+        doc.text('RISK STATUS', staleX + staleW - 65, staleY + 4, { width: 60, align: 'right' });
+
+        const staleList = data.fleet?.staleList || [];
+        if (staleList.length === 0) {
+          doc.fillColor(C_LOW).font('Helvetica-Bold').fontSize(7.5)
+            .text('✓ 100% of endpoint fleet active with continuous telemetry heartbeat.', staleX + 6, staleY + 30);
+        } else {
+          staleList.slice(0, 4).forEach((m, idx) => {
+            const sRowY = staleY + 19 + (idx * 17);
+            doc.fillColor(C_TEXT).font('Helvetica-Bold').fontSize(6.5)
+              .text(m.name || m.ip, staleX + 6, sRowY, { width: 100 });
+            doc.fillColor(C_MUTED).font('Helvetica').fontSize(6.5)
+              .text(m.os || 'Windows', staleX + 110, sRowY);
+            doc.fillColor(C_HIGH).font('Helvetica-Bold').fontSize(6.5)
+              .text(m.offlineStr || 'Unknown', staleX + 195, sRowY);
+
+            const isHigh = m.risk.includes('HIGH');
+            doc.fillColor(isHigh ? C_CRIT : C_MED).font('Helvetica-Bold').fontSize(6)
+              .text(m.risk, staleX + staleW - 65, sRowY, { width: 60, align: 'right' });
+          });
+        }
+
+        doc.y = fleetBoxY + fleetBoxH + 16;
+      }
 
       // ── 11. Incident Forensics Case Cards (Top 3-5 Ranked Threats + Register) ──
       renderSectionHeading('Incident Management Briefing & Forensics Case Cards', 'Prioritized forensic investigation briefs with blast-radius telemetry evidence', 120);

@@ -340,3 +340,33 @@ exports.previewPdf = async (req, res) => {
     res.status(500).json({ error: 'Failed to generate PDF preview: ' + err.message });
   }
 };
+
+// Generates and streams PDF report for a specific saved schedule
+exports.previewSchedulePdf = async (req, res) => {
+  if (appMode.isAggregator()) {
+    return res.status(403).json({ error: 'Email reporting is only available on Central Server' });
+  }
+  try {
+    if (!isPositiveInteger(req.params.id)) {
+      return res.status(400).json({ error: 'Invalid schedule ID' });
+    }
+    const scheduleId = parseInt(req.params.id, 10);
+    const q = req.queryTenant || req.queryControlPlane;
+
+    const sRes = await q('SELECT * FROM email_schedules WHERE id=$1', [scheduleId]);
+    const s = sRes.rows[0];
+    if (!s) return res.status(404).json({ error: 'Schedule not found' });
+
+    const { pdfBuffer } = await buildReportDataAndPdf(s, q);
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const safeName = (s.name || 'Report').replace(/[^a-zA-Z0-9_-]/g, '_');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="IOCHunt_${safeName}_${dateStr}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('[Schedule PDF Preview Error]:', err);
+    res.status(500).json({ error: 'Failed to generate PDF preview: ' + err.message });
+  }
+};
+
