@@ -5,8 +5,10 @@ const { DateTime } = require('luxon');
 const insertFwEventSql = `
   INSERT INTO fw_events (
     ts, devname, src_ip, src_port, dst_ip, dst_port, action, service, policy,
-    proto, src_country, dst_country, sent_bytes, rcv_bytes, duration, session_id, severity, raw
-  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+    proto, src_country, dst_country, sent_bytes, rcv_bytes, duration, session_id, severity, raw,
+    fw_user, fw_ui, msg, subtype, log_type, cfgpath, cfgobj, cfgattr, logdesc
+  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+    $19, $20, $21, $22, $23, $24, $25, $26, $27)
 `;
 
 const updateSourceSql = `
@@ -20,7 +22,9 @@ async function batchIngestFw(rows) {
     for (const r of rows) {
       await client.query(insertFwEventSql, [
         r.ts, r.devname, r.src_ip, r.src_port, r.dst_ip, r.dst_port, r.action, r.service, r.policy,
-        r.proto, r.src_country, r.dst_country, r.sent_bytes, r.rcv_bytes, r.duration, r.session_id, r.severity, r.raw
+        r.proto, r.src_country, r.dst_country, r.sent_bytes, r.rcv_bytes, r.duration, r.session_id, r.severity, r.raw,
+        r.fw_user || '', r.fw_ui || '', r.msg || '', r.subtype || '', r.log_type || '',
+        r.cfgpath || '', r.cfgobj || '', r.cfgattr || '', r.logdesc || ''
       ]);
     }
     await client.query('COMMIT');
@@ -112,6 +116,13 @@ function parseFwLog(raw, remoteIp = '', sourceTZ = 'UTC') {
   if (proto === '6') proto = 'TCP';
   if (proto === '17') proto = 'UDP';
 
+  // Extract clean IP from ui field (e.g., "GUI(192.168.0.206)" → "192.168.0.206")
+  let uiCleanIp = '';
+  if (fields.ui) {
+    const uiIpMatch = fields.ui.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+    uiCleanIp = uiIpMatch ? uiIpMatch[1] : '';
+  }
+
   let severity;
   if (isEventLog) {
     if (action === 'login' && fields.status === 'failed') severity = 'high';
@@ -121,15 +132,23 @@ function parseFwLog(raw, remoteIp = '', sourceTZ = 'UTC') {
     severity = classifyFwSeverity(action, dstPort, srcIp);
   }
 
+  // For event logs, use a meaningful service name instead of TCP:0
+  let service = fields.service || '';
+  if (!service && isEventLog) {
+    service = fields.subtype ? `EVENT:${fields.subtype}` : 'EVENT';
+  } else if (!service) {
+    service = guessProto(dstPort);
+  }
+
   return {
     ts,
     devname: fields.devname || remoteIp || '',
-    src_ip: srcIp || fields.ui || '',
+    src_ip: srcIp || uiCleanIp || '',
     src_port: parseInt(fields.srcport) || 0,
-    dst_ip: fields.dstip || fields.dstip || '',
+    dst_ip: fields.dstip || '',
     dst_port: dstPort,
     action,
-    service: fields.service || guessProto(dstPort),
+    service,
     policy: fields.policyname || fields.cfgpath || '',
     proto,
     src_country: (fields.srccountry || '').slice(0, 100),
@@ -139,7 +158,17 @@ function parseFwLog(raw, remoteIp = '', sourceTZ = 'UTC') {
     duration: parseInt(fields.duration) || 0,
     session_id: fields.sessionid || fields.logid || '',
     severity,
-    raw: raw.slice(0, 4000), 
+    raw: raw.slice(0, 4000),
+    // ── FortiGate Event Log Fields ──
+    fw_user: (fields.user || '').slice(0, 255),
+    fw_ui: (fields.ui || '').slice(0, 255),
+    msg: (fields.msg || '').slice(0, 1000),
+    subtype: (fields.subtype || '').slice(0, 100),
+    log_type: (fields.type || '').slice(0, 100),
+    cfgpath: (fields.cfgpath || '').slice(0, 500),
+    cfgobj: (fields.cfgobj || '').slice(0, 255),
+    cfgattr: (fields.cfgattr || '').slice(0, 2000),
+    logdesc: (fields.logdesc || '').slice(0, 500),
   };
 }
 

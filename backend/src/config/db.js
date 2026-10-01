@@ -182,7 +182,16 @@ function getTableSchemaSQL() {
       session_id VARCHAR(255) DEFAULT '',
       severity VARCHAR(50) DEFAULT 'info',
       raw TEXT DEFAULT '',
-      is_forwarded BOOLEAN DEFAULT FALSE
+      is_forwarded BOOLEAN DEFAULT FALSE,
+      fw_user VARCHAR(255) DEFAULT '',
+      fw_ui VARCHAR(255) DEFAULT '',
+      msg TEXT DEFAULT '',
+      subtype VARCHAR(100) DEFAULT '',
+      log_type VARCHAR(100) DEFAULT '',
+      cfgpath VARCHAR(500) DEFAULT '',
+      cfgobj VARCHAR(255) DEFAULT '',
+      cfgattr TEXT DEFAULT '',
+      logdesc VARCHAR(500) DEFAULT ''
     );
     CREATE INDEX IF NOT EXISTS idx_fw_events_unforwarded ON fw_events (id) WHERE is_forwarded = FALSE;
 
@@ -393,6 +402,15 @@ const initDB = async (retries = 10, delay = 3000) => {
           ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_idle_mins INTEGER DEFAULT NULL;
           ALTER TABLE users ADD COLUMN IF NOT EXISTS last_idle_signout BIGINT DEFAULT NULL;
           ALTER TABLE mfa_pending ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT '';
+          ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS fw_user VARCHAR(255) DEFAULT '';
+          ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS fw_ui VARCHAR(255) DEFAULT '';
+          ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS msg TEXT DEFAULT '';
+          ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS subtype VARCHAR(100) DEFAULT '';
+          ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS log_type VARCHAR(100) DEFAULT '';
+          ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS cfgpath VARCHAR(500) DEFAULT '';
+          ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS cfgobj VARCHAR(255) DEFAULT '';
+          ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS cfgattr TEXT DEFAULT '';
+          ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS logdesc VARCHAR(500) DEFAULT '';
           CREATE INDEX IF NOT EXISTS idx_events_ts_noise ON events (ts DESC, is_noise);
           CREATE INDEX IF NOT EXISTS idx_events_machine_ts ON events (machine, ts DESC);
           CREATE INDEX IF NOT EXISTS idx_events_severity ON events (severity);
@@ -468,6 +486,15 @@ const initDB = async (retries = 10, delay = 3000) => {
                 ALTER TABLE settings ADD COLUMN IF NOT EXISTS idle_timeout_mins INTEGER DEFAULT 0;
                 ALTER TABLE fw_events ALTER COLUMN src_country TYPE VARCHAR(100);
                 ALTER TABLE fw_events ALTER COLUMN dst_country TYPE VARCHAR(100);
+                ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS fw_user VARCHAR(255) DEFAULT '';
+                ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS fw_ui VARCHAR(255) DEFAULT '';
+                ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS msg TEXT DEFAULT '';
+                ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS subtype VARCHAR(100) DEFAULT '';
+                ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS log_type VARCHAR(100) DEFAULT '';
+                ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS cfgpath VARCHAR(500) DEFAULT '';
+                ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS cfgobj VARCHAR(255) DEFAULT '';
+                ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS cfgattr TEXT DEFAULT '';
+                ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS logdesc VARCHAR(500) DEFAULT '';
                 UPDATE events SET severity = 'medium' WHERE (tag ILIKE '%BEHAVIORAL-IOC%' OR tag ILIKE '%BEHAVIORAL%' OR message ILIKE '%BEHAVIORAL-IOC%') AND LOWER(severity) != 'medium';
                 GRANT ALL ON ALL TABLES IN SCHEMA public TO "${t.db_user}";
                 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "${t.db_user}";

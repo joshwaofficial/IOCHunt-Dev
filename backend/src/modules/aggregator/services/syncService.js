@@ -106,7 +106,16 @@ async function syncQueueToCentral() {
           duration: e.duration,
           session_id: e.session_id,
           severity: e.severity,
-          raw: e.raw
+          raw: e.raw,
+          fw_user: e.fw_user || '',
+          fw_ui: e.fw_ui || '',
+          msg: e.msg || '',
+          subtype: e.subtype || '',
+          log_type: e.log_type || '',
+          cfgpath: e.cfgpath || '',
+          cfgobj: e.cfgobj || '',
+          cfgattr: e.cfgattr || '',
+          logdesc: e.logdesc || ''
         })),
         machines,
         policies,

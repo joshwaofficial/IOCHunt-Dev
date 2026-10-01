@@ -59,7 +59,29 @@ const generateReport = async (req, res) => {
     }
 
     if (severity) { evConds.push(`severity=$${evIdx++}`); evParams.push(severity); }
-    if (category) { evConds.push(`category=$${evIdx++}`); evParams.push(category); }
+
+    let selectedCats = [];
+    if (category && category !== 'All Categories') {
+      selectedCats = (Array.isArray(category) ? category : category.split(','))
+        .map(c => c.trim().toUpperCase())
+        .filter(Boolean);
+    }
+
+    const nonFwCats = selectedCats.filter(c => c !== 'FIREWALL');
+    const hasFwSelected = selectedCats.includes('FIREWALL');
+
+    if (selectedCats.length > 0) {
+      if (nonFwCats.length > 0) {
+        const catPlaceholders = nonFwCats.map(c => {
+          evParams.push(c);
+          return `$${evIdx++}`;
+        }).join(',');
+        evConds.push(`category IN (${catPlaceholders})`);
+      } else {
+        // User selected ONLY 'FIREWALL' category
+        evConds.push('1=0');
+      }
+    }
     const evWhere = 'WHERE ' + evConds.join(' AND ');
 
     // ── Event stats ───────────────────────────────────────────────────────────
@@ -115,8 +137,13 @@ const generateReport = async (req, res) => {
     }
 
     // ── Firewall stats ────────────────────────────────────────────────────────
+    let shouldIncludeFw = include_fw === '1';
+    if (selectedCats.length > 0) {
+      shouldIncludeFw = hasFwSelected;
+    }
+
     let fwStats = null;
-    if (include_fw === '1') {
+    if (shouldIncludeFw) {
       const fwConds = ['ts>=$1', 'ts<=$2'];
       const fwParams = [from, to];
       let fwIdx = 3;
@@ -141,12 +168,20 @@ const generateReport = async (req, res) => {
       const fwBlocked = (await req.queryTenant(`SELECT * FROM fw_events ${fwWhere} AND (action='deny' OR action='drop') ORDER BY ts DESC LIMIT 50`, fwParams)).rows;
       const fwHourly = (await req.queryTenant(`SELECT TO_CHAR(ts::timestamp, 'YYYY-MM-DD HH24:00') AS hour, action, COUNT(*) AS n FROM fw_events ${fwWhere} GROUP BY hour, action ORDER BY hour ASC`, fwParams)).rows;
 
-      fwStats = { total: fwTotal, bySev: fwBySev, byAction: fwByAct, topSrc: fwTopSrc, topDst: fwTopDst, topService: fwTopSvc, blocked: fwBlocked, hourly: fwHourly };
+      // Detailed firewall event log entries (config changes, logins, system events)
+      const fwDetailedEvents = (await req.queryTenant(`
+        SELECT id, ts, devname, src_ip, dst_ip, dst_port, action, service, severity, policy,
+               fw_user, fw_ui, msg, subtype, log_type, cfgpath, cfgobj, cfgattr, logdesc, session_id
+        FROM fw_events ${fwWhere}
+        ORDER BY ts DESC LIMIT 200
+      `, fwParams)).rows;
+
+      fwStats = { total: fwTotal, bySev: fwBySev, byAction: fwByAct, topSrc: fwTopSrc, topDst: fwTopDst, topService: fwTopSvc, blocked: fwBlocked, hourly: fwHourly, events: fwDetailedEvents };
     }
 
     res.json({
       generated: new Date().toISOString(),
-      filters: { from, to, duration, machine, severity, category, src_ip, dst_ip, action },
+      filters: { from, to, duration, machine, severity, category: selectedCats.length > 0 ? selectedCats.join(', ') : '', src_ip, dst_ip, action },
       events: { total: totalEvents, bySeverity, byCategory, byMachine, hourly, topTags, critical: reportEvents, items: reportEvents },
       ad_attacks: adEvents,
       user_events: userEvents,
@@ -246,7 +281,377 @@ const generateBaseline = async (req, res) => {
   }
 };
 
+const generateFirewallReport = async (req, res) => {
+  try {
+    const {
+      duration = '24',
+      from_date = '',
+      to_date = '',
+      device = '',
+      aggregator = '',
+      action = '',
+      severity = '',
+      service = '',
+      ip = '',
+      search = '',
+      alert_type = '',
+      limit = 1000,
+    } = req.query || {};
+
+    let fromDate, toDate;
+    if (from_date && to_date) {
+      fromDate = new Date(from_date);
+      toDate = new Date(to_date);
+      if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+        toDate = new Date();
+        fromDate = new Date(toDate.getTime() - 24 * 3600000);
+      }
+    } else if (duration === 'today') {
+      toDate = new Date();
+      fromDate = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate(), 0, 0, 0, 0);
+    } else {
+      const rawHours = parseFloat(duration);
+      const hours = (!isNaN(rawHours) && rawHours > 0 && rawHours <= 8760) ? rawHours : 24;
+      toDate = new Date();
+      fromDate = new Date(toDate.getTime() - hours * 3600000);
+    }
+
+    const to = toDate.toISOString().slice(0, 19).replace('T', ' ');
+    const from = fromDate.toISOString().slice(0, 19).replace('T', ' ');
+
+    // ── Build Filter Conditions ─────────────────────────────────────────────
+    const conds = ['ts>=$1', 'ts<=$2'];
+    const params = [from, to];
+    let idx = 3;
+
+    if (device && device !== 'All Firewalls' && device !== 'All Machines') {
+      conds.push(`devname=$${idx++}`);
+      params.push(device);
+    }
+
+    let aggrs = [];
+    if (aggregator && aggregator !== 'All Aggregators' && aggregator !== 'All Branches') {
+      aggrs = aggregator.split(',').map(a => a.trim()).filter(a => isIdentifier(a, 1, 64));
+      if (aggrs.length > 0) {
+        const placeholders = aggrs.map(a => {
+          params.push(a);
+          return `$${idx++}`;
+        }).join(',');
+        conds.push(`aggregator_name IN (${placeholders})`);
+      }
+    }
+
+    if (action && action !== 'All Actions') {
+      if (action === 'block' || action === 'deny' || action === 'drop') {
+        conds.push(`(action='deny' OR action='drop' OR action='block')`);
+      } else if (action === 'accept' || action === 'allow') {
+        conds.push(`(action='accept' OR action='allow' OR action='permit')`);
+      } else {
+        conds.push(`action=$${idx++}`);
+        params.push(action);
+      }
+    }
+
+    if (severity && severity !== 'All Severities') {
+      conds.push(`severity=$${idx++}`);
+      params.push(severity.toLowerCase());
+    }
+
+    if (service && service !== 'All Services') {
+      conds.push(`service ILIKE $${idx++}`);
+      params.push('%' + service + '%');
+    }
+
+    if (ip) {
+      conds.push(`(src_ip LIKE $${idx} OR dst_ip LIKE $${idx+1})`);
+      params.push('%' + ip + '%', '%' + ip + '%');
+      idx += 2;
+    }
+
+    if (search) {
+      conds.push(`(msg ILIKE $${idx} OR raw ILIKE $${idx+1} OR cfgpath ILIKE $${idx+2} OR fw_user ILIKE $${idx+3} OR devname ILIKE $${idx+4})`);
+      params.push('%' + search + '%', '%' + search + '%', '%' + search + '%', '%' + search + '%', '%' + search + '%');
+      idx += 5;
+    }
+
+    const whereClause = 'WHERE ' + conds.join(' AND ');
+
+    // ── Metrics & Aggregations ──────────────────────────────────────────────
+    const totalRow = (await req.queryTenant(`SELECT COUNT(*) AS n FROM fw_events ${whereClause}`, params)).rows[0];
+    const totalConnections = parseInt(totalRow?.n || 0, 10);
+
+    const byActionRows = (await req.queryTenant(`SELECT action, COUNT(*) AS n FROM fw_events ${whereClause} GROUP BY action ORDER BY n DESC`, params)).rows;
+    const bySevRows = (await req.queryTenant(`SELECT severity, COUNT(*) AS n FROM fw_events ${whereClause} GROUP BY severity ORDER BY n DESC`, params)).rows;
+    const topSrcRows = (await req.queryTenant(`SELECT src_ip, COUNT(*) AS n FROM fw_events ${whereClause} GROUP BY src_ip ORDER BY n DESC LIMIT 10`, params)).rows;
+    const topDstRows = (await req.queryTenant(`SELECT dst_ip, dst_port, service, COUNT(*) AS n FROM fw_events ${whereClause} GROUP BY dst_ip, dst_port, service ORDER BY n DESC LIMIT 10`, params)).rows;
+    const topSvcRows = (await req.queryTenant(`SELECT service, COUNT(*) AS n FROM fw_events ${whereClause} GROUP BY service ORDER BY n DESC LIMIT 10`, params)).rows;
+    const hourlyRows = (await req.queryTenant(`SELECT TO_CHAR(ts::timestamp, 'YYYY-MM-DD HH24:00') AS hour, action, COUNT(*) AS n FROM fw_events ${whereClause} GROUP BY hour, action ORDER BY hour ASC`, params)).rows;
+
+    const actMap = {};
+    byActionRows.forEach(r => { actMap[(r.action || '').toLowerCase()] = parseInt(r.n, 10); });
+    const sevMap = {};
+    bySevRows.forEach(r => { sevMap[(r.severity || '').toLowerCase()] = parseInt(r.n, 10); });
+
+    // ── Connection Logs ─────────────────────────────────────────────────────
+    const connRows = (await req.queryTenant(`
+      SELECT id, ts, devname AS machine, aggregator_name, src_ip, src_port, dst_ip, dst_port,
+             action, proto, service, sent_byte, rcvd_byte, duration, country, policy, severity,
+             fw_user, fw_ui, msg, subtype, log_type, cfgpath, cfgobj, cfgattr, logdesc
+      FROM fw_events ${whereClause}
+      ORDER BY ts DESC
+      LIMIT ${Math.min(parseInt(limit, 10) || 1000, 2000)}
+    `, params)).rows;
+
+    // ── Security Alerts Query & Parsing ─────────────────────────────────────
+    const alertConds = ['ts>=$1', 'ts<=$2'];
+    const alertParams = [from, to];
+    let aIdx = 3;
+
+    if (device && device !== 'All Firewalls' && device !== 'All Machines') {
+      alertConds.push(`devname=$${aIdx++}`);
+      alertParams.push(device);
+    }
+    if (aggrs.length > 0) {
+      const placeholders = aggrs.map(a => {
+        alertParams.push(a);
+        return `$${aIdx++}`;
+      }).join(',');
+      alertConds.push(`aggregator_name IN (${placeholders})`);
+    }
+
+    alertConds.push(`(
+      raw LIKE '%subtype="user"%'
+      OR raw LIKE '%subtype="system"%'
+      OR raw LIKE '%status="failed"%'
+      OR raw LIKE '%reason="passwd_invalid"%'
+      OR raw LIKE '%reason="two_factor"%'
+      OR raw LIKE '%reason="sslvpn_login_fail"%'
+      OR raw LIKE '%logfail%'
+      OR raw LIKE '%login failed%'
+      OR raw LIKE '%authentication fail%'
+      OR raw LIKE '%logid="0100032001"%'
+      OR raw LIKE '%logid="0100032002"%'
+      OR raw LIKE '%logid="0100044547"%'
+      OR raw LIKE '%logid="0100044546"%'
+      OR raw LIKE '%logid="0100044548"%'
+      OR raw LIKE '%cfgpath=%'
+      OR raw LIKE '%policy-add%'
+      OR raw LIKE '%policy-delete%'
+      OR raw LIKE '%policy-modify%'
+      OR raw LIKE '%cfg_change%'
+      OR raw LIKE '%user-add%'
+      OR raw LIKE '%user-delete%'
+      OR raw LIKE '%user-passwd%'
+      OR raw LIKE '%mfa%'
+      OR raw LIKE '%two-factor%'
+      OR raw LIKE '%two_factor%'
+      OR raw LIKE '%authenticator%'
+      OR raw LIKE '%totp%'
+      OR (raw LIKE '%otp%' AND raw NOT LIKE '%smtp%')
+    )`);
+
+    const alertWhere = 'WHERE ' + alertConds.join(' AND ');
+    const rawAlertRows = (await req.queryTenant(`
+      SELECT id, ts, devname AS machine, aggregator_name, severity, src_ip,
+             fw_user, fw_ui, msg, subtype, log_type, cfgpath, cfgobj, cfgattr, logdesc,
+             raw AS message
+      FROM fw_events ${alertWhere}
+      ORDER BY ts DESC
+      LIMIT 500
+    `, alertParams)).rows;
+
+    const NOISE_PATTERNS = [
+      'type="traffic"', 'subtype="forward"', 'subtype="local"', 'subtype="multicast"',
+      'subtype="sniffer"', 'dhcp statistics', 'performance statistics', 'average cpu',
+      'concurrent sessions', 'setup-rate', 'ntp sync', 'ha heartbeat', 'link monitor',
+      'interface monitor', 'av update', 'ips update', 'app-ctrl update', 'license update',
+      'conserve mode', 'logid="0100022922"', 'logid="0100022923"', 'logid="0104048001"',
+      'logid="0100022906"', 'logid="0100020001"', 'logid="0100026001"', 'logid="0100026002"',
+    ];
+
+    const counts = {
+      all: 0,
+      bruteForce: 0,
+      loginFailed: 0,
+      configChange: 0,
+      mfa: 0,
+      adminLogin: 0,
+    };
+
+    const parsedAlerts = [];
+
+    rawAlertRows.forEach(e => {
+      const raw = e.message || '';
+      const low = raw.toLowerCase();
+      if (NOISE_PATTERNS.some(p => low.includes(p))) return;
+
+      const rawO = raw.replace(/^[\d\-T:+.]+\s+[\d.]+\s+/, '');
+      const rawLow = rawO.toLowerCase();
+
+      const cfgpath = e.cfgpath || (rawO.match(/cfgpath="([^"]+)"/) || [])[1] || '';
+      const actionVal = (rawO.match(/action="([^"]+)"/) || [])[1] || '';
+      const subtype = e.subtype || (rawO.match(/subtype="([^"]+)"/) || [])[1] || '';
+      const msgM = e.msg ? [null, e.msg] : rawO.match(/msg="([^"]+)"/);
+      const cfgobj = e.cfgobj || (rawO.match(/cfgobj="([^"]+)"/) || [])[1] || '';
+      const cfgattr = e.cfgattr || (rawO.match(/cfgattr="([^"]+)"/) || [])[1] || '';
+      const user = e.fw_user || (rawO.match(/user="([^"]+)"/) || [])[1] || '';
+      const srcip = e.src_ip || (rawO.match(/srcip=([\d.]+)/) || [])[1] || '';
+      const ui = e.fw_ui || (rawO.match(/ui="([^"]+)"/) || [])[1] || '';
+      const logdesc = e.logdesc || (rawO.match(/logdesc="([^"]+)"/) || [])[1] || '';
+
+      let alertType = null;
+
+      if (rawLow.includes('mfa') || rawLow.includes('two-factor') ||
+        rawLow.includes('two_factor') || rawLow.includes('authenticator') ||
+        rawLow.includes('totp') ||
+        (rawLow.includes('otp') && !rawLow.includes('smtp'))) {
+        if (rawLow.includes('fail') || rawLow.includes('invalid') || rawLow.includes('wrong')) {
+          alertType = 'MFA Failed';
+        } else if (rawLow.includes('enabled') || rawLow.includes('activated') || rawLow.includes('enrolled')) {
+          alertType = 'MFA Enabled';
+        } else if (rawLow.includes('disabled') || rawLow.includes('removed') || rawLow.includes('deactivated')) {
+          alertType = 'MFA Disabled';
+        } else {
+          alertType = 'MFA Event';
+        }
+        counts.mfa++;
+      }
+      else if (rawLow.includes('status="failed"') || rawLow.includes('passwd_invalid') ||
+        rawLow.includes('login failed') || rawLow.includes('logfail') ||
+        rawLow.includes('authentication fail') || rawLow.includes('sslvpn_login_fail')) {
+        alertType = 'Login Failed';
+        counts.loginFailed++;
+      }
+      else if (cfgpath.includes('firewall.policy') || rawLow.includes('policy-add') ||
+        rawLow.includes('policy-delete') || rawLow.includes('policy-modify')) {
+        if (actionVal === 'Add' || rawLow.includes('policy-add')) { alertType = 'Policy Added'; }
+        else if (actionVal === 'Delete' || rawLow.includes('policy-delete')) { alertType = 'Policy Deleted'; }
+        else { alertType = 'Policy Modified'; }
+        counts.configChange++;
+      }
+      else if (cfgpath || rawLow.includes('cfg_change')) {
+        if (actionVal === 'Add') { alertType = 'Config Added'; }
+        else if (actionVal === 'Delete') { alertType = 'Config Deleted'; }
+        else { alertType = 'Config Changed'; }
+        counts.configChange++;
+      }
+      else if (rawLow.includes('user-add') || (cfgpath.includes('user') && actionVal === 'Add')) {
+        alertType = 'User Added'; counts.configChange++;
+      }
+      else if (rawLow.includes('user-delete') || (cfgpath.includes('user') && actionVal === 'Delete')) {
+        alertType = 'User Deleted'; counts.configChange++;
+      }
+      else if (rawLow.includes('user-passwd')) {
+        alertType = 'Password Changed'; counts.configChange++;
+      }
+      else if ((subtype === 'user' && actionVal.toLowerCase() === 'login') ||
+        (rawLow.includes('admin') && rawLow.includes('login'))) {
+        alertType = 'Admin Login';
+        counts.adminLogin++;
+      }
+
+      if (!alertType) return;
+      counts.all++;
+
+      let displayMsg = rawO;
+      if (msgM && msgM[1]) {
+        displayMsg = msgM[1];
+        if (user && !displayMsg.includes(user)) displayMsg += ' by ' + user;
+        if (ui && !displayMsg.includes(ui)) displayMsg += ' from ' + ui;
+      } else if (cfgpath) {
+        displayMsg = `${actionVal || 'Config'} ${cfgpath}`;
+        if (cfgobj) displayMsg += ` ${cfgobj}`;
+        if (user) displayMsg += ` by ${user}`;
+        if (ui) displayMsg += ` from ${ui}`;
+      }
+
+      parsedAlerts.push({
+        id: e.id,
+        ts: e.ts,
+        machine: e.machine,
+        aggregator_name: e.aggregator_name,
+        alertType,
+        user: user || '-',
+        src_ip: ui || srcip || '-',
+        severity: e.severity || (alertType.includes('Failed') || alertType.includes('Deleted') ? 'high' : 'medium'),
+        displayMsg,
+        cfgpath,
+        cfgobj,
+        cfgattr,
+        logdesc
+      });
+    });
+
+    const critCount = sevMap['critical'] || 0;
+    const highCount = sevMap['high'] || 0;
+    const deniedCount = (actMap['deny'] || 0) + (actMap['drop'] || 0) + (actMap['block'] || 0);
+
+    let threatLevel = 'NORMAL';
+    if (critCount > 0 || counts.loginFailed >= 5 || counts.bruteForce > 0) {
+      threatLevel = 'CRITICAL';
+    } else if (highCount > 0 || counts.loginFailed > 0 || counts.configChange >= 5) {
+      threatLevel = 'HIGH';
+    } else if (counts.configChange > 0 || deniedCount > 10 || counts.adminLogin > 0) {
+      threatLevel = 'ELEVATED';
+    }
+
+    res.json({
+      report_type: 'firewall',
+      generated: new Date().toISOString(),
+      threat_level: threatLevel,
+      filters: {
+        duration, from, to,
+        device: device || 'All Firewalls',
+        aggregator: aggrs.length > 0 ? aggrs.join(', ') : 'All Branches',
+        action: action || 'All Actions',
+        severity: severity || 'All Severities',
+        service: service || 'All Services',
+        ip: ip || '',
+        search: search || '',
+        alert_type: alert_type || 'All'
+      },
+      summary: {
+        total: totalConnections,
+        accepted: actMap['accept'] || actMap['allow'] || actMap['permit'] || 0,
+        denied: deniedCount,
+        rstTimeout: (actMap['rst'] || 0) + (actMap['timeout'] || 0) + (actMap['close'] || 0),
+        critical: critCount,
+        high: highCount,
+        medium: sevMap['medium'] || 0,
+        low: sevMap['low'] || 0,
+        totalAlerts: parsedAlerts.length,
+        loginFailed: counts.loginFailed,
+        configChange: counts.configChange,
+        adminLogin: counts.adminLogin,
+        mfa: counts.mfa,
+        bruteForce: counts.bruteForce,
+      },
+      alerts: {
+        counts,
+        items: parsedAlerts,
+      },
+      connections: {
+        total: totalConnections,
+        items: connRows,
+      },
+      analytics: {
+        byAction: byActionRows,
+        bySeverity: bySevRows,
+        topSrc: topSrcRows,
+        topDst: topDstRows,
+        topServices: topSvcRows,
+        hourly: hourlyRows,
+      }
+    });
+
+  } catch (err) {
+    console.error('[Firewall Report Error]', err.message);
+    res.status(500).json({ error: 'Failed to generate firewall report' });
+  }
+};
+
 module.exports = {
   generateReport,
-  generateBaseline
+  generateBaseline,
+  generateFirewallReport
 };

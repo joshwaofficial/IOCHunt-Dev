@@ -1,7 +1,42 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
-const catColors = { DOMAIN: '#a855f7', ADCS: '#8b5cf6', NETWORK: '#3b82f6', SENSITIVE: '#ef4444', ENUM: '#f97316', PROCESSES: '#ec4899', CONFIG: '#eab308', REGISTRY: '#22c55e', LOGON: '#06b6d4', SERVICES: '#fb923c', TASKS: '#a3e635', USB: '#f43f5e', DEFENDER: '#ef4444', OTHER: '#6b7280' };
+const catColors = { 
+  FIREWALL: '#06b6d4',
+  DOMAIN: '#a855f7', 
+  ADCS: '#8b5cf6', 
+  NETWORK: '#3b82f6', 
+  SENSITIVE: '#ef4444', 
+  ENUM: '#f97316', 
+  PROCESSES: '#ec4899', 
+  CONFIG: '#eab308', 
+  REGISTRY: '#22c55e', 
+  LOGON: '#06b6d4', 
+  SERVICES: '#fb923c', 
+  TASKS: '#a3e635', 
+  USB: '#f43f5e', 
+  DEFENDER: '#ef4444', 
+  STARTUP: '#ec4899',
+  OTHER: '#6b7280' 
+};
+
+const REPORT_CATEGORIES = [
+  { id: 'FIREWALL', label: 'Firewall', color: '#06b6d4' },
+  { id: 'DOMAIN', label: 'Domain', color: '#a855f7' },
+  { id: 'ADCS', label: 'ADCS', color: '#8b5cf6' },
+  { id: 'NETWORK', label: 'Network', color: '#3b82f6' },
+  { id: 'LOGON', label: 'Logon', color: '#06b6d4' },
+  { id: 'PROCESSES', label: 'Processes', color: '#ec4899' },
+  { id: 'SERVICES', label: 'Services', color: '#fb923c' },
+  { id: 'TASKS', label: 'Tasks', color: '#a3e635' },
+  { id: 'REGISTRY', label: 'Registry', color: '#22c55e' },
+  { id: 'DEFENDER', label: 'Defender', color: '#ef4444' },
+  { id: 'USB', label: 'USB', color: '#f43f5e' },
+  { id: 'SENSITIVE', label: 'Sensitive', color: '#ef4444' },
+  { id: 'CONFIG', label: 'Config', color: '#eab308' },
+  { id: 'STARTUP', label: 'Startup', color: '#ec4899' },
+  { id: 'ENUM', label: 'Enum', color: '#f97316' },
+];
 
 function getPageNumbers(current, total) {
   if (total <= 7) {
@@ -23,24 +58,238 @@ export default function Reports() {
     to_date: new Date().toISOString().slice(0, 10),
     machine: '',
     severity: '',
-    category: '',
+    category: [],
     aggregator: [],
     include_fw: true
   });
+  const [reportMode, setReportMode] = useState('general'); // 'general' | 'firewall'
   const [machines, setMachines] = useState([]);
   const [aggregators, setAggregators] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [reportData, setReportData] = useState(null);
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  const branchDropdownRef = useRef(null);
+  const categoryDropdownRef = useRef(null);
   const [eventPage, setEventPage] = useState(1);
   const [eventPageSize, setEventPageSize] = useState(100);
   const [eventSearch, setEventSearch] = useState('');
 
+  // ── Firewall Report Specific State ──────────────────────────────────────────
+  const [fwFilters, setFwFilters] = useState({
+    duration: '24',
+    from_date: '',
+    to_date: new Date().toISOString().slice(0, 10),
+    device: '',
+    aggregator: [],
+    action: '',
+    severity: '',
+    alert_type: '',
+    service: '',
+    ip: '',
+    search: ''
+  });
+  const [fwDevices, setFwDevices] = useState([]);
+  const [fwReportData, setFwReportData] = useState(null);
+  const [fwShowBranchDropdown, setFwShowBranchDropdown] = useState(false);
+  const fwBranchDropdownRef = useRef(null);
+
+  // Security alerts table pagination & tab
+  const [alertTab, setAlertTab] = useState('all');
+  const [alertSearch, setAlertSearch] = useState('');
+  const [alertPage, setAlertPage] = useState(1);
+  const [alertPerPage, setAlertPerPage] = useState(10);
+
+  // Connections table pagination & search
+  const [connSearch, setConnSearch] = useState('');
+  const [connPage, setConnPage] = useState(1);
+  const [connPerPage, setConnPerPage] = useState(25);
+
   useEffect(() => {
     axios.get('/api/machines').then(res => setMachines(res.data.data || res.data)).catch(console.error);
     axios.get('/api/aggregators').then(res => setAggregators(res.data.data || res.data)).catch(console.error);
+    axios.get('/api/firewall/devices').then(res => setFwDevices(res.data || [])).catch(console.error);
   }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (branchDropdownRef.current && !branchDropdownRef.current.contains(e.target)) {
+        setShowBranchDropdown(false);
+      }
+      if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(e.target)) {
+        setShowCategoryDropdown(false);
+      }
+      if (fwBranchDropdownRef.current && !fwBranchDropdownRef.current.contains(e.target)) {
+        setFwShowBranchDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const getCategoryLabel = () => {
+    if (!filters.category || filters.category.length === 0) return 'All Categories';
+    if (filters.category.length === 1) {
+      const match = REPORT_CATEGORIES.find(c => c.id === filters.category[0]);
+      return match ? match.label : filters.category[0];
+    }
+    return `${filters.category.length} selected`;
+  };
+
+  const handleGenerateFirewall = async () => {
+    setLoading(true);
+    setError('');
+    setAlertPage(1);
+    setConnPage(1);
+    setAlertSearch('');
+    setConnSearch('');
+    try {
+      let qs = `duration=${fwFilters.duration}`;
+      if (fwFilters.duration === 'custom') {
+        if (fwFilters.from_date) qs += `&from_date=${encodeURIComponent(fwFilters.from_date)}`;
+        if (fwFilters.to_date) qs += `&to_date=${encodeURIComponent(fwFilters.to_date)}`;
+      }
+      if (fwFilters.device) qs += `&device=${encodeURIComponent(fwFilters.device)}`;
+      if (fwFilters.aggregator && fwFilters.aggregator.length > 0) qs += `&aggregator=${encodeURIComponent(fwFilters.aggregator.join(','))}`;
+      if (fwFilters.action) qs += `&action=${encodeURIComponent(fwFilters.action)}`;
+      if (fwFilters.severity) qs += `&severity=${encodeURIComponent(fwFilters.severity)}`;
+      if (fwFilters.service) qs += `&service=${encodeURIComponent(fwFilters.service)}`;
+      if (fwFilters.ip) qs += `&ip=${encodeURIComponent(fwFilters.ip)}`;
+      if (fwFilters.search) qs += `&search=${encodeURIComponent(fwFilters.search)}`;
+      if (fwFilters.alert_type) qs += `&alert_type=${encodeURIComponent(fwFilters.alert_type)}`;
+
+      const res = await axios.get(`/api/reports/firewall?${qs}`);
+      setFwReportData(res.data);
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.error || err.message || 'Failed to generate firewall report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const exportFwJson = () => {
+    if (!fwReportData) return;
+    const blob = new Blob([JSON.stringify(fwReportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `firewall-security-report-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportFwPdf = () => {
+    if (!fwReportData) return;
+    const d = fwReportData;
+    const f = d.filters || {};
+    const sum = d.summary || {};
+    const tlColor = { CRITICAL: '#ef4444', HIGH: '#f97316', ELEVATED: '#eab308', NORMAL: '#22c55e' }[d.threat_level || 'NORMAL'];
+
+    let html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+      <title>Firewall Security Report</title>
+      <style>
+      body{font-family:Arial,sans-serif;font-size:11px;color:#1a2540;margin:0;padding:24px;background:#fff}
+      h1{font-size:20px;font-weight:700;color:#0e7490;letter-spacing:1px;margin:0 0 4px}
+      h2{font-size:13px;font-weight:700;color:#1e3a5f;border-bottom:2px solid #e2e8f0;padding-bottom:5px;margin:20px 0 10px}
+      .meta{font-size:10px;color:#6b82a0;margin-bottom:20px}
+      .threat-box{background:#f8faff;border:2px solid ${tlColor};border-radius:8px;padding:12px 16px;margin-bottom:18px;display:flex;align-items:center;gap:20px}
+      .threat-level{font-size:22px;font-weight:700;color:${tlColor};letter-spacing:1px}
+      .threat-desc{font-size:11px;color:#4a5578;line-height:1.6}
+      .stats{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px}
+      .stat{background:#f0f4fc;border-radius:6px;padding:10px 14px;min-width:90px;text-align:center}
+      .stat-n{font-size:22px;font-weight:700}
+      .stat-l{font-size:9px;color:#6b82a0;text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+      table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:10px}
+      th{background:#f0f4fc;padding:6px 8px;text-align:left;font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#4a5578;border-bottom:2px solid #d0daf0}
+      td{padding:5px 8px;border-bottom:1px solid #e8eef8;vertical-align:middle}
+      tr:nth-child(even) td{background:#f8faff}
+      .badge{display:inline-block;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700}
+      .c{background:#fef2f2;color:#ef4444}.h{background:#fff7ed;color:#f97316}
+      .m{background:#fefce8;color:#ca8a04}.l{background:#f0fdf4;color:#16a34a}
+      @media print{body{padding:10px}h2{page-break-after:avoid}table{page-break-inside:auto}tr{page-break-inside:avoid}}
+      </style></head><body>`;
+
+    html += `<h1>IOC HUNT FIREWALL SECURITY REPORT</h1>
+      <div class="meta">Period: <b>${f.duration} (${f.from} to ${f.to})</b> &nbsp;|&nbsp; Device: <b>${f.device}</b>
+      &nbsp;|&nbsp; Branch: <b>${f.aggregator}</b> &nbsp;|&nbsp; Action: <b>${f.action}</b>
+      &nbsp;|&nbsp; Generated: <b>${new Date(d.generated).toLocaleString()}</b></div>`;
+
+    html += `<div class="threat-box">
+      <div><div style="font-size:9px;color:#6b82a0;letter-spacing:1px;margin-bottom:3px">THREAT LEVEL</div>
+      <div class="threat-level">${d.threat_level}</div></div>
+      <div class="threat-desc"><b>${(sum.total || 0).toLocaleString()}</b> total connections recorded.
+      <b>${(sum.denied || 0).toLocaleString()}</b> denied/dropped connections.
+      <b>${(sum.totalAlerts || 0).toLocaleString()}</b> security alerts detected 
+      (${sum.configChange || 0} config changes, ${sum.adminLogin || 0} admin logins, ${sum.loginFailed || 0} login failures).
+      </div></div>`;
+
+    html += `<h2>Summary Statistics</h2><div class="stats">`;
+    const statsList = [
+      { n: sum.total || 0, l: 'Total Connections', c: '#0891b2' },
+      { n: sum.accepted || 0, l: 'Accepted / Allowed', c: '#16a34a' },
+      { n: sum.denied || 0, l: 'Denied / Dropped', c: '#ef4444' },
+      { n: sum.totalAlerts || 0, l: 'Security Alerts', c: '#f97316' },
+      { n: sum.configChange || 0, l: 'Config Changes', c: '#3b82f6' },
+      { n: sum.loginFailed || 0, l: 'Login Failures', c: '#dc2626' },
+      { n: sum.critical || 0, l: 'Critical Events', c: '#ef4444' },
+      { n: sum.high || 0, l: 'High Events', c: '#ea580c' },
+    ];
+    statsList.forEach(s => {
+      html += `<div class="stat"><div class="stat-n" style="color:${s.c}">${s.n.toLocaleString()}</div><div class="stat-l">${s.l}</div></div>`;
+    });
+    html += `</div>`;
+
+    const alerts = d.alerts?.items || [];
+    if (alerts.length > 0) {
+      html += `<h2>Security Alerts (${alerts.length} alerts)</h2><table><thead><tr><th>Time</th><th>Device</th><th>Alert Type</th><th>User / Source</th><th>Severity</th><th>Details</th></tr></thead><tbody>`;
+      alerts.forEach(a => {
+        const sc = a.severity === 'critical' ? 'c' : a.severity === 'high' ? 'h' : a.severity === 'medium' ? 'm' : 'l';
+        html += `<tr>
+          <td style="font-family:monospace">${a.ts ? new Date(a.ts).toLocaleString() : ''}</td>
+          <td><b>${a.machine || '-'}</b></td>
+          <td><span class="badge ${sc}">${a.alertType || 'Alert'}</span></td>
+          <td>${a.user !== '-' ? a.user + ' / ' : ''}${a.src_ip || '-'}</td>
+          <td><span class="badge ${sc}">${(a.severity || 'info').toUpperCase()}</span></td>
+          <td>${a.displayMsg || ''}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+    }
+
+    const conns = d.connections?.items || [];
+    if (conns.length > 0) {
+      html += `<h2>Connection Logs (${Math.min(conns.length, 500)} logs)</h2><table><thead><tr><th>Time</th><th>Device</th><th>Source</th><th>Dest</th><th>Service</th><th>Action</th><th>Proto</th><th>Bytes</th><th>Country</th><th>Severity</th></tr></thead><tbody>`;
+      conns.slice(0, 500).forEach(c => {
+        const actClass = c.action === 'deny' || c.action === 'drop' ? 'c' : 'l';
+        const totalB = (c.sent_byte || 0) + (c.rcvd_byte || 0);
+        const bStr = totalB > 1048576 ? (totalB / 1048576).toFixed(1) + 'MB' : totalB > 1024 ? (totalB / 1024).toFixed(0) + 'KB' : totalB + 'B';
+        html += `<tr>
+          <td style="font-family:monospace">${c.ts ? new Date(c.ts).toLocaleString() : ''}</td>
+          <td>${c.machine || '-'}</td>
+          <td style="font-family:monospace">${c.src_ip || ''}:${c.src_port || ''}</td>
+          <td style="font-family:monospace">${c.dst_ip || ''}:${c.dst_port || ''}</td>
+          <td>${c.service || '-'}</td>
+          <td><span class="badge ${actClass}">${(c.action || 'accept').toUpperCase()}</span></td>
+          <td>${c.proto || '-'}</td>
+          <td>${bStr}</td>
+          <td>${c.country || '-'}</td>
+          <td>${c.severity || 'low'}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+    }
+
+    html += `</body></html>`;
+    const w = window.open('', '_blank');
+    if (w) {
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      setTimeout(() => w.print(), 250);
+    }
+  };
 
   const handleGenerate = async () => {
     setLoading(true);
@@ -48,7 +297,11 @@ export default function Reports() {
     setEventPage(1);
     setEventSearch('');
     try {
-      let qs = `duration=${filters.duration}&include_fw=${filters.include_fw ? '1' : '0'}`;
+      let sendIncludeFw = filters.include_fw;
+      if (Array.isArray(filters.category) && filters.category.length > 0) {
+        sendIncludeFw = filters.category.includes('FIREWALL');
+      }
+      let qs = `duration=${filters.duration}&include_fw=${sendIncludeFw ? '1' : '0'}`;
       if (filters.duration === 'custom') {
         if (filters.from_date) qs += `&from_date=${encodeURIComponent(filters.from_date)}`;
         if (filters.to_date) qs += `&to_date=${encodeURIComponent(filters.to_date)}`;
@@ -56,7 +309,11 @@ export default function Reports() {
       if (filters.machine) qs += `&machine=${encodeURIComponent(filters.machine)}`;
       if (filters.aggregator && filters.aggregator.length > 0) qs += `&aggregator=${encodeURIComponent(filters.aggregator.join(','))}`;
       if (filters.severity) qs += `&severity=${encodeURIComponent(filters.severity)}`;
-      if (filters.category) qs += `&category=${encodeURIComponent(filters.category)}`;
+      if (Array.isArray(filters.category) && filters.category.length > 0) {
+        qs += `&category=${encodeURIComponent(filters.category.join(','))}`;
+      } else if (typeof filters.category === 'string' && filters.category) {
+        qs += `&category=${encodeURIComponent(filters.category)}`;
+      }
 
       const res = await axios.get(`/api/reports/generate?${qs}`);
       setReportData(res.data);
@@ -137,7 +394,7 @@ export default function Reports() {
     html += `<h1>IOC HUNT SECURITY REPORT</h1>
       <div class="meta">Period: <b>${durLabel}</b> &nbsp;|&nbsp; Machine: <b>${f.machine || 'All Machines'}</b>
       ${f.severity ? ` &nbsp;|&nbsp; Severity: <b>${f.severity}</b>` : ''}
-      ${f.category ? ` &nbsp;|&nbsp; Category: <b>${f.category}</b>` : ''}
+      ${f.category ? ` &nbsp;|&nbsp; Category: <b>${Array.isArray(f.category) ? f.category.join(', ') : f.category}</b>` : ''}
       &nbsp;|&nbsp; Generated: <b>${new Date(d.generated).toLocaleString()}</b></div>`;
 
     html += `<div class="threat-box">
@@ -254,6 +511,32 @@ export default function Reports() {
       html += `</tbody></table>
         </div>
       </div>`;
+
+      // Firewall Event Logs Detail Table
+      if (d.firewall.events && d.firewall.events.length > 0) {
+        html += `<h2>Firewall Event Logs</h2>
+          <table><thead><tr>
+            <th>Time</th><th>Device</th><th>User</th><th>From (UI)</th><th>Action</th>
+            <th>Config Path</th><th>Object</th><th>Details</th><th>Message</th><th>Severity</th>
+          </tr></thead><tbody>`;
+        d.firewall.events.forEach(e => {
+          const attr = (e.cfgattr || '').replace(/(\w+)\[([^\]]*)\]/g, '$1=$2').replace(/\]\s*/g, ', ').replace(/,\s*$/, '');
+          const actCol = e.action === 'add' ? '#16a34a' : e.action === 'delete' ? '#dc2626' : e.action === 'edit' ? '#d97706' : '#2563eb';
+          html += `<tr>
+            <td style="white-space:nowrap;font-size:9px">${e.ts ? new Date(e.ts).toLocaleString('sv-SE').slice(0,16).replace('T',' ') : ''}</td>
+            <td style="color:#2563eb;font-weight:700;font-size:9px">${e.devname || '-'}</td>
+            <td style="color:#a855f7;font-weight:600;font-size:9px">${e.fw_user || '-'}</td>
+            <td style="font-size:9px">${e.fw_ui || e.src_ip || '-'}</td>
+            <td><span style="color:${actCol};font-weight:700;text-transform:uppercase;font-size:9px">${e.action || '-'}</span></td>
+            <td style="color:#0891b2;font-size:9px">${e.cfgpath || e.policy || '-'}</td>
+            <td style="font-size:9px">${e.cfgobj || '-'}</td>
+            <td style="font-size:8px;max-width:200px;word-break:break-word">${(attr || '-').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>
+            <td style="font-size:9px">${(e.msg || e.logdesc || '-').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>
+            <td><span class="badge ${e.severity === 'critical' ? 'c' : e.severity === 'high' ? 'h' : 'l'}">${e.severity || 'info'}</span></td>
+          </tr>`;
+        });
+        html += `</tbody></table>`;
+      }
     }
 
     html += `<div class="footer">IOC Hunt Security Report &nbsp;|&nbsp; ${f.machine || 'All Machines'} &nbsp;|&nbsp; ${durLabel} &nbsp;|&nbsp; Generated ${new Date(d.generated).toLocaleString()}</div></body></html>`;
@@ -308,7 +591,7 @@ export default function Reports() {
                 Period: <b style={{ color: 'var(--text)' }}>{durLabel}</b>
                 &nbsp;|&nbsp; Machine: <b style={{ color: 'var(--text)' }}>{f.machine || 'All Machines'}</b>
                 {f.severity && <>&nbsp;|&nbsp; Severity: <b style={{ color: 'var(--text)' }}>{f.severity}</b></>}
-                {f.category && <>&nbsp;|&nbsp; Category: <b style={{ color: 'var(--text)' }}>{f.category}</b></>}
+                {f.category && <>&nbsp;|&nbsp; Category: <b style={{ color: 'var(--text)' }}>{Array.isArray(f.category) ? f.category.join(', ') : f.category}</b></>}
               </div>
             </div>
             <div style={{ fontFamily: 'var(--mono)', fontSize: '10px', color: 'var(--muted)', textAlign: 'right' }}>
@@ -914,188 +1197,1020 @@ export default function Reports() {
           </div>
         )}
 
+        {/* ── Firewall Event Logs Detail Table ── */}
+        {fw && fw.events && fw.events.length > 0 && (
+          <div style={{ marginBottom: '32px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', paddingLeft: '4px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#f59e0b' }}>local_fire_department</span>
+                <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', margin: 0, color: 'var(--text)' }}>Firewall Event Logs</div>
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>{fw.events.length} events</div>
+            </div>
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--mono)', minWidth: '1100px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)', background: 'linear-gradient(90deg, rgba(245,158,11,0.06) 0%, rgba(245,158,11,0) 100%)' }}>
+                      <th style={{ padding: '12px 14px', fontSize: '9px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', whiteSpace: 'nowrap' }}>Time</th>
+                      <th style={{ padding: '12px 14px', fontSize: '9px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', whiteSpace: 'nowrap' }}>Device</th>
+                      <th style={{ padding: '12px 14px', fontSize: '9px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', whiteSpace: 'nowrap' }}>User</th>
+                      <th style={{ padding: '12px 14px', fontSize: '9px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', whiteSpace: 'nowrap' }}>From (UI)</th>
+                      <th style={{ padding: '12px 14px', fontSize: '9px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', whiteSpace: 'nowrap' }}>Action</th>
+                      <th style={{ padding: '12px 14px', fontSize: '9px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', whiteSpace: 'nowrap' }}>Config Path</th>
+                      <th style={{ padding: '12px 14px', fontSize: '9px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', whiteSpace: 'nowrap' }}>Object</th>
+                      <th style={{ padding: '12px 14px', fontSize: '9px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Details / Attributes</th>
+                      <th style={{ padding: '12px 14px', fontSize: '9px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Message</th>
+                      <th style={{ padding: '12px 14px', fontSize: '9px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left', whiteSpace: 'nowrap' }}>Severity</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fw.events.map((e, i) => {
+                      // Parse cfgattr for readable display: "name[checking]srcintf[port1]" → "name=checking, srcintf=port1"
+                      const attrDisplay = (e.cfgattr || '').replace(/(\w+)\[([^\]]*)\]/g, '$1=$2').replace(/\]\s*/g, ', ').replace(/,\s*$/, '');
+                      const actionColor = e.action === 'add' ? '#22c55e' : e.action === 'delete' ? '#ef4444' : e.action === 'edit' ? '#f59e0b' : e.action === 'login' ? '#3b82f6' : 'var(--muted2)';
+                      const actionBg = e.action === 'add' ? 'rgba(34,197,94,0.1)' : e.action === 'delete' ? 'rgba(239,68,68,0.1)' : e.action === 'edit' ? 'rgba(245,158,11,0.1)' : e.action === 'login' ? 'rgba(59,130,246,0.1)' : 'rgba(107,130,160,0.1)';
+                      const sevClass = e.severity === 'critical' ? 'sev-critical' : e.severity === 'high' ? 'sev-high' : e.severity === 'medium' ? 'sev-medium' : 'sev-low';
+
+                      return (
+                        <tr key={i} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.15s' }}
+                          onMouseEnter={ev => ev.currentTarget.style.background = 'rgba(37,99,235,0.03)'}
+                          onMouseLeave={ev => ev.currentTarget.style.background = ''}
+                        >
+                          <td style={{ padding: '10px 14px', whiteSpace: 'nowrap', color: 'var(--muted2)', fontSize: '10px' }}>
+                            {e.ts ? new Date(e.ts).toLocaleString('sv-SE').slice(0, 16).replace('T', ' ') : ''}
+                          </td>
+                          <td style={{ padding: '10px 14px', color: 'var(--accent)', fontWeight: 700, fontSize: '10px', whiteSpace: 'nowrap' }}>
+                            {e.devname || '-'}
+                          </td>
+                          <td style={{ padding: '10px 14px', fontSize: '10px', whiteSpace: 'nowrap' }}>
+                            {e.fw_user ? (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: '13px', color: '#a855f7' }}>person</span>
+                                <span style={{ color: '#a855f7', fontWeight: 600 }}>{e.fw_user}</span>
+                              </span>
+                            ) : <span style={{ color: 'var(--muted)' }}>-</span>}
+                          </td>
+                          <td style={{ padding: '10px 14px', fontSize: '10px', color: 'var(--muted2)', whiteSpace: 'nowrap' }}>
+                            {e.fw_ui || e.src_ip || '-'}
+                          </td>
+                          <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '2px 10px',
+                              borderRadius: '4px',
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              color: actionColor,
+                              background: actionBg,
+                              border: `1px solid ${actionColor}30`,
+                              letterSpacing: '0.5px'
+                            }}>
+                              {e.action || '-'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 14px', fontSize: '10px', color: '#06b6d4', fontWeight: 600 }}>
+                            {e.cfgpath || e.policy || '-'}
+                          </td>
+                          <td style={{ padding: '10px 14px', fontSize: '10px', color: 'var(--text)' }}>
+                            {e.cfgobj || '-'}
+                          </td>
+                          <td style={{ padding: '10px 14px', fontSize: '10px', color: 'var(--muted2)', maxWidth: '280px', wordBreak: 'break-word', lineHeight: '1.5' }}>
+                            {attrDisplay || '-'}
+                          </td>
+                          <td style={{ padding: '10px 14px', fontSize: '10px', color: 'var(--text)', maxWidth: '220px', wordBreak: 'break-word', lineHeight: '1.5' }}>
+                            {e.msg || e.logdesc || '-'}
+                          </td>
+                          <td style={{ padding: '10px 14px' }}>
+                            <span className={`badge ${sevClass}`}>{e.severity || 'info'}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+      </div>
+    );
+  };
+
+  const renderFirewallReportUI = () => {
+    if (!fwReportData) {
+      return (
+        <div style={{ padding: '64px 24px', textAlign: 'center', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', marginTop: '16px' }}>
+          <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(6,182,212,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', border: '1px solid rgba(6,182,212,0.3)' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: '32px', color: '#06b6d4' }}>local_fire_department</span>
+          </div>
+          <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text)', margin: '0 0 8px' }}>Firewall Threat & Traffic Report</h3>
+          <p style={{ fontSize: '12px', color: 'var(--muted)', maxWidth: '520px', margin: '0 auto 24px', lineHeight: 1.6 }}>
+            Select your firewall telemetry and audit filters above and click <b style={{ color: '#06b6d4' }}>Generate Firewall Report</b> to analyze security alerts, policy alterations, admin logins, and connection logs.
+          </p>
+          <button onClick={handleGenerateFirewall} style={{ background: '#06b6d4', color: '#fff', border: 'none', padding: '10px 24px', borderRadius: '6px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 12px rgba(6,182,212,0.3)' }}>
+            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>play_arrow</span> Generate Firewall Report
+          </button>
+        </div>
+      );
+    }
+
+    const d = fwReportData;
+    const f = d.filters || {};
+    const sum = d.summary || {};
+    const alerts = d.alerts?.items || [];
+    const conns = d.connections?.items || [];
+    const tlColor = { CRITICAL: '#ef4444', HIGH: '#f97316', ELEVATED: '#eab308', NORMAL: '#22c55e' }[d.threat_level || 'NORMAL'];
+
+    // Filter alerts by tab and search
+    let filteredAlerts = alerts.filter(a => {
+      if (alertTab === 'loginFailed' && !a.alertType.includes('Failed')) return false;
+      if (alertTab === 'configChange' && !a.alertType.includes('Config') && !a.alertType.includes('Policy') && !a.alertType.includes('User') && !a.alertType.includes('Password')) return false;
+      if (alertTab === 'adminLogin' && !a.alertType.includes('Admin Login')) return false;
+      if (alertTab === 'mfa' && !a.alertType.includes('MFA')) return false;
+      if (alertTab === 'bruteForce' && !a.alertType.includes('Brute')) return false;
+
+      if (alertSearch) {
+        const s = alertSearch.toLowerCase();
+        return (
+          (a.machine && a.machine.toLowerCase().includes(s)) ||
+          (a.alertType && a.alertType.toLowerCase().includes(s)) ||
+          (a.user && a.user.toLowerCase().includes(s)) ||
+          (a.src_ip && a.src_ip.toLowerCase().includes(s)) ||
+          (a.displayMsg && a.displayMsg.toLowerCase().includes(s)) ||
+          (a.severity && a.severity.toLowerCase().includes(s))
+        );
+      }
+      return true;
+    });
+
+    const totalAlertPages = Math.max(1, Math.ceil(filteredAlerts.length / alertPerPage));
+    const pagedAlerts = filteredAlerts.slice((alertPage - 1) * alertPerPage, alertPage * alertPerPage);
+
+    // Filter connection logs by search
+    let filteredConns = conns.filter(c => {
+      if (!connSearch) return true;
+      const s = connSearch.toLowerCase();
+      return (
+        (c.src_ip && c.src_ip.toLowerCase().includes(s)) ||
+        (c.dst_ip && c.dst_ip.toLowerCase().includes(s)) ||
+        (c.service && c.service.toLowerCase().includes(s)) ||
+        (c.action && c.action.toLowerCase().includes(s)) ||
+        (c.proto && c.proto.toLowerCase().includes(s)) ||
+        (c.machine && c.machine.toLowerCase().includes(s)) ||
+        (c.country && c.country.toLowerCase().includes(s)) ||
+        (c.policy && String(c.policy).toLowerCase().includes(s))
+      );
+    });
+
+    const totalConnPages = Math.max(1, Math.ceil(filteredConns.length / connPerPage));
+    const pagedConns = filteredConns.slice((connPage - 1) * connPerPage, connPage * connPerPage);
+
+    return (
+      <div style={{ marginTop: '20px' }}>
+        {/* Threat Level Banner */}
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderLeft: `4px solid ${tlColor}`, borderRadius: '10px', padding: '16px 20px', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div>
+                <div style={{ fontFamily: 'var(--mono)', fontSize: '9px', color: 'var(--muted)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: '4px' }}>Threat Level</div>
+                <div style={{ fontFamily: 'var(--mono)', fontSize: '22px', fontWeight: 700, color: tlColor }}>{d.threat_level}</div>
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--muted2)', lineHeight: 1.6, maxWidth: '650px' }}>
+                <b style={{ color: 'var(--text)' }}>{(sum.total || 0).toLocaleString()}</b> firewall connection records analyzed.{' '}
+                <b style={{ color: '#ef4444' }}>{(sum.denied || 0).toLocaleString()} denied/dropped</b> connections.{' '}
+                <b style={{ color: '#f59e0b' }}>{(sum.totalAlerts || 0).toLocaleString()} security alerts</b> detected 
+                ({sum.configChange || 0} config changes, {sum.adminLogin || 0} admin logins, {sum.loginFailed || 0} login failures).
+              </div>
+            </div>
+            <div style={{ textAlign: 'right', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+              Period: <b style={{ color: 'var(--text)' }}>{f.duration === 'custom' ? `${f.from} to ${f.to}` : f.duration + 'h'}</b> &nbsp;|&nbsp;
+              Device: <b style={{ color: 'var(--text)' }}>{f.device}</b><br />
+              Generated: <span style={{ color: 'var(--text)' }}>{new Date(d.generated).toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Summary KPI Cards Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '24px' }}>
+          {[
+            { n: sum.total || 0, l: 'Total Connections', c: '#06b6d4', icon: 'hub' },
+            { n: sum.accepted || 0, l: 'Accepted / Allowed', c: '#22c55e', icon: 'check_circle' },
+            { n: sum.denied || 0, l: 'Denied / Dropped', c: '#ef4444', icon: 'block' },
+            { n: sum.totalAlerts || 0, l: 'Security Alerts', c: '#f59e0b', icon: 'gpp_maybe' },
+            { n: sum.configChange || 0, l: 'Config Changes', c: '#3b82f6', icon: 'edit_note' },
+            { n: sum.loginFailed || 0, l: 'Login Failures', c: '#dc2626', icon: 'no_accounts' },
+            { n: sum.adminLogin || 0, l: 'Admin Logins', c: '#a855f7', icon: 'admin_panel_settings' },
+            { n: (sum.critical || 0) + (sum.high || 0), l: 'Critical / High', c: '#ef4444', icon: 'warning' },
+          ].map((item, idx) => (
+            <div key={idx} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>{item.l}</span>
+                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: item.c, opacity: 0.8 }}>{item.icon}</span>
+              </div>
+              <div style={{ fontSize: '24px', fontWeight: 800, fontFamily: 'var(--mono)', color: item.c }}>{item.n.toLocaleString()}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── SECURITY ALERTS TABLE ── */}
+        <div style={{ background: 'var(--surface)', border: '1px solid rgba(249,115,22,.4)', borderRadius: '8px', overflow: 'hidden', marginBottom: '28px' }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(249,115,22,.2)', background: 'rgba(249,115,22,.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#f97316' }}>gpp_maybe</span>
+              <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 800, color: '#f97316', letterSpacing: '-0.2px' }}>SECURITY ALERTS</h3>
+              <span style={{ fontSize: '10px', fontFamily: 'var(--mono)', background: 'rgba(249,115,22,0.15)', color: '#f97316', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
+                {filteredAlerts.length}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                placeholder="Filter alerts..."
+                value={alertSearch}
+                onChange={e => { setAlertSearch(e.target.value); setAlertPage(1); }}
+                style={{ height: '30px', padding: '0 10px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px', outline: 'none', width: '180px' }}
+              />
+              <select
+                value={alertPerPage}
+                onChange={e => { setAlertPerPage(Number(e.target.value)); setAlertPage(1); }}
+                style={{ height: '30px', padding: '0 8px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+              >
+                <option value="10">10 / page</option>
+                <option value="25">25 / page</option>
+                <option value="50">50 / page</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Alert Filter Tabs / Chips */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '10px 18px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+            {[
+              { id: 'all', label: 'All Alerts', count: d.alerts?.counts?.all || alerts.length, col: '#f97316' },
+              { id: 'loginFailed', label: 'Login Failed', count: d.alerts?.counts?.loginFailed || 0, col: '#ef4444' },
+              { id: 'configChange', label: 'Config Changes', count: d.alerts?.counts?.configChange || 0, col: '#3b82f6' },
+              { id: 'adminLogin', label: 'Admin Logins', count: d.alerts?.counts?.adminLogin || 0, col: '#a855f7' },
+              { id: 'mfa', label: 'MFA Events', count: d.alerts?.counts?.mfa || 0, col: '#06b6d4' },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => { setAlertTab(tab.id); setAlertPage(1); }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '4px 10px',
+                  borderRadius: '5px',
+                  border: alertTab === tab.id ? `1px solid ${tab.col}` : '1px solid var(--border)',
+                  background: alertTab === tab.id ? `${tab.col}20` : 'var(--surface)',
+                  color: alertTab === tab.id ? tab.col : 'var(--muted)',
+                  fontSize: '11px',
+                  fontWeight: alertTab === tab.id ? 700 : 500,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                <span>{tab.label}</span>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: '10px', fontWeight: 800, background: alertTab === tab.id ? tab.col : 'var(--border)', color: alertTab === tab.id ? '#fff' : 'var(--text)', padding: '1px 5px', borderRadius: '4px' }}>
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table className="mt" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+              <thead>
+                <tr>
+                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Time</th>
+                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Machine</th>
+                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Alert Type</th>
+                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>User / Source IP</th>
+                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Severity</th>
+                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedAlerts.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" style={{ padding: '32px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
+                      No security alerts match the selected criteria.
+                    </td>
+                  </tr>
+                ) : (
+                  pagedAlerts.map((a, idx) => {
+                    const isFailed = a.alertType.includes('Failed') || a.alertType.includes('Deleted');
+                    const isAdded = a.alertType.includes('Added');
+                    const badgeColor = isFailed ? '#ef4444' : isAdded ? '#3b82f6' : a.alertType.includes('Admin') ? '#a855f7' : '#f97316';
+                    const sevClass = a.severity === 'critical' ? 'sev-critical' : a.severity === 'high' ? 'sev-high' : a.severity === 'medium' ? 'sev-medium' : 'sev-low';
+                    return (
+                      <tr key={idx} style={{ borderBottom: '1px solid var(--border)', fontSize: '11px' }}>
+                        <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                          {a.ts ? new Date(a.ts).toLocaleString('sv-SE').slice(0, 16).replace('T', ' ') : '-'}
+                        </td>
+                        <td style={{ padding: '10px 14px', color: '#2563eb', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                          {a.machine || '-'}
+                        </td>
+                        <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                          <span style={{ background: `${badgeColor}18`, border: `1px solid ${badgeColor}40`, color: badgeColor, padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 700 }}>
+                            {a.alertType}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 14px', whiteSpace: 'nowrap', fontFamily: 'var(--mono)', fontSize: '11px' }}>
+                          {a.user && a.user !== '-' ? <b style={{ color: '#a855f7' }}>{a.user} </b> : null}
+                          <span style={{ color: '#f97316' }}>{a.src_ip}</span>
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span className={`badge ${sevClass}`}>{a.severity || 'medium'}</span>
+                        </td>
+                        <td style={{ padding: '10px 14px', maxWidth: '380px', wordBreak: 'break-word', color: 'var(--text)' }} title={a.displayMsg}>
+                          {a.displayMsg || '-'}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Alert Pagination */}
+          {totalAlertPages > 1 && (
+            <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+              <div>SHOWING {(alertPage - 1) * alertPerPage + 1} TO {Math.min(alertPage * alertPerPage, filteredAlerts.length)} OF {filteredAlerts.length} ALERTS</div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button disabled={alertPage === 1} onClick={() => setAlertPage(p => Math.max(1, p - 1))} style={{ padding: '4px 10px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '4px', color: alertPage === 1 ? 'var(--muted)' : 'var(--text)', cursor: alertPage === 1 ? 'not-allowed' : 'pointer' }}>Prev</button>
+                {getPageNumbers(alertPage, totalAlertPages).map((p, i) => (
+                  <button key={i} disabled={p === '...'} onClick={() => typeof p === 'number' && setAlertPage(p)} style={{ padding: '4px 10px', background: p === alertPage ? '#f97316' : 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '4px', color: p === alertPage ? '#fff' : 'var(--text)', cursor: p === '...' ? 'default' : 'pointer', fontWeight: p === alertPage ? 700 : 500 }}>
+                    {p}
+                  </button>
+                ))}
+                <button disabled={alertPage === totalAlertPages} onClick={() => setAlertPage(p => Math.min(totalAlertPages, p + 1))} style={{ padding: '4px 10px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '4px', color: alertPage === totalAlertPages ? 'var(--muted)' : 'var(--text)', cursor: alertPage === totalAlertPages ? 'not-allowed' : 'pointer' }}>Next</button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── CONNECTION LOG TABLE ── */}
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', marginBottom: '28px' }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#06b6d4' }}>sync_alt</span>
+              <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.2px' }}>CONNECTION LOGS</h3>
+              <span style={{ fontSize: '10px', fontFamily: 'var(--mono)', background: 'rgba(6,182,212,0.15)', color: '#06b6d4', padding: '2px 8px', borderRadius: '10px', fontWeight: 700 }}>
+                {filteredConns.length}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <input
+                type="text"
+                placeholder="Search connections (IP, port, action, proto)..."
+                value={connSearch}
+                onChange={e => { setConnSearch(e.target.value); setConnPage(1); }}
+                style={{ height: '30px', padding: '0 10px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px', outline: 'none', width: '240px' }}
+              />
+              <select
+                value={connPerPage}
+                onChange={e => { setConnPerPage(Number(e.target.value)); setConnPage(1); }}
+                style={{ height: '30px', padding: '0 8px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+              >
+                <option value="25">25 / page</option>
+                <option value="50">50 / page</option>
+                <option value="100">100 / page</option>
+                <option value="200">200 / page</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table className="mt" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+              <thead>
+                <tr>
+                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Time</th>
+                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Machine</th>
+                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Source IP:Port</th>
+                  <th style={{ padding: '10px 6px', textAlign: 'center', fontSize: '10px', fontWeight: 800, color: 'var(--muted)' }}>→</th>
+                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Dest IP:Port</th>
+                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Service</th>
+                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Action</th>
+                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Proto</th>
+                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Bytes</th>
+                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Country</th>
+                  <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Severity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedConns.length === 0 ? (
+                  <tr>
+                    <td colSpan="11" style={{ padding: '32px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
+                      No connection logs match the search query.
+                    </td>
+                  </tr>
+                ) : (
+                  pagedConns.map((c, idx) => {
+                    const actName = (c.action || '').toLowerCase();
+                    const isDenied = actName === 'deny' || actName === 'drop' || actName === 'block';
+                    const actColor = isDenied ? '#ef4444' : '#22c55e';
+                    const actBg = isDenied ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)';
+                    const totalBytes = (c.sent_byte || 0) + (c.rcvd_byte || 0);
+                    const bStr = totalBytes > 1048576 ? (totalBytes / 1048576).toFixed(1) + 'MB' : totalBytes > 1024 ? (totalBytes / 1024).toFixed(0) + 'KB' : totalBytes + 'B';
+                    return (
+                      <tr key={idx} style={{ borderBottom: '1px solid var(--border)', fontSize: '11px' }}>
+                        <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                          {c.ts ? new Date(c.ts).toLocaleString('sv-SE').slice(0, 16).replace('T', ' ') : '-'}
+                        </td>
+                        <td style={{ padding: '10px 14px', color: 'var(--accent)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                          {c.machine || '-'}
+                        </td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', color: '#f97316', whiteSpace: 'nowrap' }}>
+                          {c.src_ip || '-'}{c.src_port ? `:${c.src_port}` : ''}
+                        </td>
+                        <td style={{ padding: '10px 6px', textAlign: 'center', color: 'var(--muted)' }}>→</td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', color: '#06b6d4', whiteSpace: 'nowrap' }}>
+                          {c.dst_ip || '-'}{c.dst_port ? `:${c.dst_port}` : ''}
+                        </td>
+                        <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                          <span style={{ background: 'rgba(59,130,246,0.1)', color: '#3b82f6', border: '1px solid rgba(59,130,246,0.3)', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 600 }}>
+                            {c.service || 'OTHER'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                          <span style={{ background: actBg, color: actColor, border: `1px solid ${actColor}40`, padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' }}>
+                            {c.action || 'ACCEPT'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 14px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>{c.proto || 'TCP'}</td>
+                        <td style={{ padding: '10px 14px', color: 'var(--text)', fontFamily: 'var(--mono)' }}>{bStr}</td>
+                        <td style={{ padding: '10px 14px', color: 'var(--muted2)' }}>{c.country || '-'}</td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span className={`badge ${c.severity === 'critical' ? 'sev-critical' : c.severity === 'high' ? 'sev-high' : 'sev-low'}`}>{c.severity || 'info'}</span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Connection Pagination */}
+          {totalConnPages > 1 && (
+            <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+              <div>SHOWING {(connPage - 1) * connPerPage + 1} TO {Math.min(connPage * connPerPage, filteredConns.length)} OF {filteredConns.length} CONNECTIONS</div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button disabled={connPage === 1} onClick={() => setConnPage(p => Math.max(1, p - 1))} style={{ padding: '4px 10px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '4px', color: connPage === 1 ? 'var(--muted)' : 'var(--text)', cursor: connPage === 1 ? 'not-allowed' : 'pointer' }}>Prev</button>
+                {getPageNumbers(connPage, totalConnPages).map((p, i) => (
+                  <button key={i} disabled={p === '...'} onClick={() => typeof p === 'number' && setConnPage(p)} style={{ padding: '4px 10px', background: p === connPage ? 'var(--accent)' : 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '4px', color: p === connPage ? '#fff' : 'var(--text)', cursor: p === '...' ? 'default' : 'pointer', fontWeight: p === connPage ? 700 : 500 }}>
+                    {p}
+                  </button>
+                ))}
+                <button disabled={connPage === totalConnPages} onClick={() => setConnPage(p => Math.min(totalConnPages, p + 1))} style={{ padding: '4px 10px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '4px', color: connPage === totalConnPages ? 'var(--muted)' : 'var(--text)', cursor: connPage === totalConnPages ? 'not-allowed' : 'pointer' }}>Next</button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── TRAFFIC & ANALYTICS BREAKDOWN ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '32px' }}>
+          {/* Top Source IPs */}
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'linear-gradient(90deg, rgba(6,182,212,0.08) 0%, transparent 100%)', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.8px', color: '#06b6d4', fontFamily: 'var(--mono)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>dns</span> TOP SOURCE IPS
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--mono)' }}>
+              <tbody>
+                {(d.analytics?.topSrc || []).map((r, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid var(--border)', height: '40px' }}>
+                    <td style={{ padding: '0 16px', color: '#f97316', fontWeight: 700, fontSize: '11px' }}>{r.src_ip || 'Unknown'}</td>
+                    <td style={{ padding: '0 16px', textAlign: 'right', fontSize: '11px', color: 'var(--text)' }}>{r.n.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Top Destination Services */}
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'linear-gradient(90deg, rgba(59,130,246,0.08) 0%, transparent 100%)', fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.8px', color: '#3b82f6', fontFamily: 'var(--mono)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>hub</span> TOP DESTINATION SERVICES
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--mono)' }}>
+              <tbody>
+                {(d.analytics?.topServices || []).map((r, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid var(--border)', height: '40px' }}>
+                    <td style={{ padding: '0 16px', color: '#3b82f6', fontWeight: 700, fontSize: '11px' }}>{r.service || 'Unknown'}</td>
+                    <td style={{ padding: '0 16px', textAlign: 'right', fontSize: '11px', color: 'var(--text)' }}>{r.n.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     );
   };
 
   return (
     <div className="page-container">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
+      {/* Page Title & Dedicated Mode Switcher */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
         <div>
-          <h2 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.5px', color: 'var(--text)', margin: 0 }}>Security Report</h2>
-          <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '6px 0 0', fontFamily: 'var(--mono)' }}>Generate, view, and export compliance and threat intelligence reports.</p>
+          <h2 style={{ fontSize: '26px', fontWeight: 800, letterSpacing: '-0.5px', color: 'var(--text)', margin: 0 }}>
+            {reportMode === 'firewall' ? 'Firewall Security Report' : 'Security Report'}
+          </h2>
+          <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '6px 0 0', fontFamily: 'var(--mono)' }}>
+            {reportMode === 'firewall'
+              ? 'Comprehensive firewall traffic telemetry, policy change audits, security alerts, and connection logs.'
+              : 'Generate, view, and export compliance and threat intelligence reports.'}
+          </p>
+        </div>
+
+        {/* Dedicated Mode Switcher Buttons */}
+        <div style={{ display: 'flex', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '4px', gap: '4px' }}>
+          <button
+            onClick={() => setReportMode('general')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 16px',
+              borderRadius: '6px',
+              border: 'none',
+              cursor: 'pointer',
+              fontWeight: 700,
+              fontSize: '12px',
+              fontFamily: 'var(--sans)',
+              background: reportMode === 'general' ? 'var(--accent)' : 'transparent',
+              color: reportMode === 'general' ? '#fff' : 'var(--muted)',
+              transition: 'all 0.2s',
+              boxShadow: reportMode === 'general' ? '0 2px 8px rgba(37,99,235,0.3)' : 'none'
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>shield</span>
+            General Security Report
+          </button>
+
+          <button
+            onClick={() => setReportMode('firewall')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 16px',
+              borderRadius: '6px',
+              border: 'none',
+              cursor: 'pointer',
+              fontWeight: 700,
+              fontSize: '12px',
+              fontFamily: 'var(--sans)',
+              background: reportMode === 'firewall' ? '#06b6d4' : 'transparent',
+              color: reportMode === 'firewall' ? '#fff' : 'var(--muted)',
+              transition: 'all 0.2s',
+              boxShadow: reportMode === 'firewall' ? '0 2px 8px rgba(6,182,212,0.35)' : 'none'
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>local_fire_department</span>
+            Firewall Report
+          </button>
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '48px', justifyContent: 'space-between', alignItems: 'flex-start', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '18px 24px', marginBottom: '16px', flexWrap: 'wrap' }}>
-        
-        {/* Left Section */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flex: 1 }}>
-          
-          {/* Top Row: Duration, From, To */}
-          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '100px' }}>
-              <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Duration</label>
-              <select value={filters.duration} onChange={e => setFilters({ ...filters, duration: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px' }}>
-                <option value="today">Today (00:00 to now)</option>
-                <option value="1">Last 1 hour</option>
-                <option value="4">Last 4 hours</option>
-                <option value="24">Last 24 hours</option>
-                <option value="72">Last 3 days</option>
-                <option value="168">Last 7 days</option>
-                <option value="720">Last 30 days</option>
-                <option value="custom">Custom Range</option>
-              </select>
-            </div>
-
-            {filters.duration === 'custom' && (
-              <>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '130px' }}>
-                  <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>From</label>
-                  <input type="date" value={filters.from_date} onChange={e => setFilters({ ...filters, from_date: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '130px' }}>
-                  <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>To</label>
-                  <input type="date" value={filters.to_date} onChange={e => setFilters({ ...filters, to_date: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} />
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Bottom Row: Branch, Machine, Severity, Category */}
-          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '150px', position: 'relative' }}>
-              <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Branch</label>
-              
-              <div 
-                onClick={() => setShowBranchDropdown(!showBranchDropdown)}
-                style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
-              >
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {filters.aggregator.length === 0 ? 'All Branches' : `${filters.aggregator.length} selected`}
-                </span>
-                <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'var(--muted)' }}>expand_more</span>
+      {/* ── FILTER TOOLBAR ── */}
+      {reportMode === 'general' ? (
+        /* GENERAL FILTER BAR */
+        <div style={{ display: 'flex', gap: '48px', justifyContent: 'space-between', alignItems: 'flex-start', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '18px 24px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flex: 1 }}>
+            
+            {/* Top Row: Duration, From, To */}
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '100px' }}>
+                <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Duration</label>
+                <select value={filters.duration} onChange={e => setFilters({ ...filters, duration: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px' }}>
+                  <option value="today">Today (00:00 to now)</option>
+                  <option value="1">Last 1 hour</option>
+                  <option value="4">Last 4 hours</option>
+                  <option value="24">Last 24 hours</option>
+                  <option value="72">Last 3 days</option>
+                  <option value="168">Last 7 days</option>
+                  <option value="720">Last 30 days</option>
+                  <option value="custom">Custom Range</option>
+                </select>
               </div>
-              
-              {showBranchDropdown && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', marginTop: '4px', zIndex: 10, padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-                  {aggregators.map(a => (
-                    <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', color: 'var(--text)' }}>
-                      <input 
-                        type="checkbox"
-                        checked={filters.aggregator.includes(a.name)}
-                        onChange={(e) => {
-                          const isChecked = e.target.checked;
-                          let newAggrs = [...filters.aggregator];
-                          if (isChecked) {
-                            newAggrs.push(a.name);
-                          } else {
-                            newAggrs = newAggrs.filter(name => name !== a.name);
-                          }
-                          setFilters({ ...filters, aggregator: newAggrs });
-                        }}
-                      />
-                      {a.name}
-                    </label>
-                  ))}
-                  {aggregators.length === 0 && <div style={{ fontSize: '11px', color: 'var(--muted)' }}>No branches available</div>}
-                </div>
+
+              {filters.duration === 'custom' && (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '130px' }}>
+                    <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>From</label>
+                    <input type="date" value={filters.from_date} onChange={e => setFilters({ ...filters, from_date: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '130px' }}>
+                    <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>To</label>
+                    <input type="date" value={filters.to_date} onChange={e => setFilters({ ...filters, to_date: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} />
+                  </div>
+                </>
               )}
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '100px' }}>
-              <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Machine</label>
-              <select value={filters.machine} onChange={e => setFilters({ ...filters, machine: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px' }}>
-                <option value="">All Machines</option>
-                {filteredMachines.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '100px' }}>
-              <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Severity</label>
-              <select value={filters.severity} onChange={e => setFilters({ ...filters, severity: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px' }}>
-                <option value="">All Severities</option>
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '100px' }}>
-              <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Category</label>
-              <select value={filters.category} onChange={e => setFilters({ ...filters, category: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px' }}>
-                <option value="">All Categories</option>
-                <option value="DOMAIN">Domain</option>
-                <option value="ADCS">ADCS</option>
-                <option value="NETWORK">Network</option>
-                <option value="LOGON">Logon</option>
-                <option value="PROCESSES">Processes</option>
-                <option value="SERVICES">Services</option>
-                <option value="TASKS">Tasks</option>
-                <option value="REGISTRY">Registry</option>
-                <option value="DEFENDER">Defender</option>
-                <option value="USB">USB</option>
-                <option value="SENSITIVE">Sensitive</option>
-                <option value="CONFIG">Config</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Section */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center', flex: '0 0 auto', paddingBottom: '4px' }}>
-          
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)' }}>Include Firewall</span>
-              <div style={{ position: 'relative', width: '36px', height: '20px' }}>
-                <input 
-                  type="checkbox" 
-                  checked={filters.include_fw} 
-                  onChange={(e) => setFilters({ ...filters, include_fw: e.target.checked })} 
-                  style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }}
-                />
-                <span style={{
-                  position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
-                  backgroundColor: filters.include_fw ? '#2563eb' : 'var(--border2)',
-                  transition: '.3s', borderRadius: '20px'
-                }}>
-                  <span style={{
-                    position: 'absolute', height: '14px', width: '14px', left: filters.include_fw ? '19px' : '3px', bottom: '3px',
-                    backgroundColor: 'white', transition: '.3s', borderRadius: '50%'
-                  }}></span>
-                </span>
+            {/* Bottom Row: Branch, Machine, Severity, Category */}
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div ref={branchDropdownRef} style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '150px', position: 'relative' }}>
+                <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Branch</label>
+                
+                <div 
+                  onClick={() => {
+                    setShowBranchDropdown(!showBranchDropdown);
+                    setShowCategoryDropdown(false);
+                  }}
+                  style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none' }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {filters.aggregator.length === 0 ? 'All Branches' : `${filters.aggregator.length} selected`}
+                  </span>
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'var(--muted)', transform: showBranchDropdown ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>expand_more</span>
+                </div>
+                
+                {showBranchDropdown && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', marginTop: '4px', zIndex: 30, padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px', borderBottom: '1px solid var(--border)', fontSize: '10px', fontFamily: 'var(--mono)' }}>
+                      <span 
+                        onClick={() => setFilters({ ...filters, aggregator: [] })}
+                        style={{ color: 'var(--accent)', cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        {filters.aggregator.length === 0 ? '✓ All Branches' : 'Reset to All'}
+                      </span>
+                      {filters.aggregator.length > 0 && (
+                        <span 
+                          onClick={() => setFilters({ ...filters, aggregator: [] })}
+                          style={{ color: 'var(--muted)', cursor: 'pointer' }}
+                        >
+                          Clear
+                        </span>
+                      )}
+                    </div>
+                    {aggregators.map(a => (
+                      <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', color: 'var(--text)', padding: '2px 4px', borderRadius: '4px' }}>
+                        <input 
+                          type="checkbox"
+                          checked={filters.aggregator.includes(a.name)}
+                          onChange={(e) => {
+                            const isChecked = e.target.checked;
+                            let newAggrs = [...filters.aggregator];
+                            if (isChecked) {
+                              newAggrs.push(a.name);
+                            } else {
+                              newAggrs = newAggrs.filter(name => name !== a.name);
+                            }
+                            setFilters({ ...filters, aggregator: newAggrs });
+                          }}
+                        />
+                        {a.name}
+                      </label>
+                    ))}
+                    {aggregators.length === 0 && <div style={{ fontSize: '11px', color: 'var(--muted)' }}>No branches available</div>}
+                  </div>
+                )}
               </div>
-            </label>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '100px' }}>
+                <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Machine</label>
+                <select value={filters.machine} onChange={e => setFilters({ ...filters, machine: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px' }}>
+                  <option value="">All Machines</option>
+                  {filteredMachines.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '100px' }}>
+                <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Severity</label>
+                <select value={filters.severity} onChange={e => setFilters({ ...filters, severity: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px' }}>
+                  <option value="">All Severities</option>
+                  <option value="critical">Critical</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </div>
+
+              <div ref={categoryDropdownRef} style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '150px', position: 'relative' }}>
+                <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Category</label>
+                
+                <div 
+                  onClick={() => {
+                    setShowCategoryDropdown(!showCategoryDropdown);
+                    setShowBranchDropdown(false);
+                  }}
+                  style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none' }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {getCategoryLabel()}
+                  </span>
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'var(--muted)', transform: showCategoryDropdown ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>expand_more</span>
+                </div>
+                
+                {showCategoryDropdown && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', minWidth: '220px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', marginTop: '4px', zIndex: 30, padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '280px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px', borderBottom: '1px solid var(--border)', fontSize: '10px', fontFamily: 'var(--mono)' }}>
+                      <span 
+                        onClick={() => setFilters({ ...filters, category: [], include_fw: true })}
+                        style={{ color: 'var(--accent)', cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        {(!filters.category || filters.category.length === 0) ? '✓ All Categories' : 'Reset to All'}
+                      </span>
+                      {filters.category && filters.category.length > 0 && (
+                        <span 
+                          onClick={() => setFilters({ ...filters, category: [], include_fw: true })}
+                          style={{ color: 'var(--muted)', cursor: 'pointer' }}
+                        >
+                          Clear
+                        </span>
+                      )}
+                    </div>
+
+                    {REPORT_CATEGORIES.map(cat => {
+                      const isSelected = filters.category && filters.category.includes(cat.id);
+                      return (
+                        <label 
+                          key={cat.id} 
+                          style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '8px', 
+                            cursor: 'pointer', 
+                            fontSize: '12px', 
+                            color: 'var(--text)', 
+                            padding: '3px 6px',
+                            borderRadius: '4px',
+                            background: isSelected ? 'rgba(37,99,235,0.08)' : 'transparent',
+                            transition: 'background 0.15s'
+                          }}
+                        >
+                          <input 
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              const isChecked = e.target.checked;
+                              let current = Array.isArray(filters.category) ? [...filters.category] : [];
+                              if (isChecked) {
+                                current.push(cat.id);
+                              } else {
+                                current = current.filter(c => c !== cat.id);
+                              }
+                              const willIncludeFw = current.length > 0 ? current.includes('FIREWALL') : filters.include_fw;
+                              setFilters({ 
+                                ...filters, 
+                                category: current,
+                                include_fw: willIncludeFw
+                              });
+                            }}
+                          />
+                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: cat.color, flexShrink: 0 }} />
+                          <span style={{ flex: 1 }}>{cat.label}</span>
+                          {cat.id === 'FIREWALL' && (
+                            <span style={{ fontSize: '9px', fontFamily: 'var(--mono)', padding: '1px 5px', borderRadius: '3px', background: 'rgba(6,182,212,0.15)', color: '#06b6d4', textTransform: 'uppercase' }}>
+                              Syslog
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
-          <button onClick={handleGenerate} className="rbtn" style={{ width: '100%', padding: '8px 24px', fontSize: '13px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', opacity: loading ? 0.7 : 1, whiteSpace: 'nowrap' }} disabled={loading}>
-            {loading ? 'Generating...' : 'Generate Report'}
-          </button>
+          {/* Right Section */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center', flex: '0 0 auto', paddingBottom: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)' }}>Include Firewall</span>
+                <div style={{ position: 'relative', width: '36px', height: '20px' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={filters.include_fw} 
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      let currentCats = Array.isArray(filters.category) ? [...filters.category] : [];
+                      if (!checked) {
+                        currentCats = currentCats.filter(c => c !== 'FIREWALL');
+                      } else if (currentCats.length > 0 && !currentCats.includes('FIREWALL')) {
+                        currentCats.push('FIREWALL');
+                      }
+                      setFilters({ ...filters, include_fw: checked, category: currentCats });
+                    }} 
+                    style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }}
+                  />
+                  <span style={{
+                    position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: filters.include_fw ? '#2563eb' : 'var(--border2)',
+                    transition: '.3s', borderRadius: '20px'
+                  }}>
+                    <span style={{
+                      position: 'absolute', height: '14px', width: '14px', left: filters.include_fw ? '19px' : '3px', bottom: '3px',
+                      backgroundColor: 'white', transition: '.3s', borderRadius: '50%'
+                    }}></span>
+                  </span>
+                </div>
+              </label>
+            </div>
 
-          {/* Bottom Row: JSON, PDF */}
-          <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
-            <button className="ctl" style={{ flex: 1, padding: '8px 12px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px', fontWeight: 600, color: 'var(--text)', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px', cursor: !reportData ? 'not-allowed' : 'pointer', opacity: !reportData ? 0.4 : 1, whiteSpace: 'nowrap' }} onClick={exportJson} disabled={!reportData}>
-              JSON
+            <button onClick={handleGenerate} className="rbtn" style={{ width: '100%', padding: '8px 24px', fontSize: '13px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', opacity: loading ? 0.7 : 1, whiteSpace: 'nowrap' }} disabled={loading}>
+              {loading ? 'Generating...' : 'Generate Report'}
             </button>
-            <button className="ctl" style={{ flex: 1, padding: '8px 12px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px', fontWeight: 600, color: '#f97316', background: 'var(--surface2)', border: '1px solid rgba(249,115,22,.4)', borderRadius: '6px', cursor: !reportData ? 'not-allowed' : 'pointer', opacity: !reportData ? 0.4 : 1, whiteSpace: 'nowrap' }} onClick={exportPdf} disabled={!reportData}>
-              PDF
-            </button>
+
+            <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+              <button className="ctl" style={{ flex: 1, padding: '8px 12px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px', fontWeight: 600, color: 'var(--text)', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px', cursor: !reportData ? 'not-allowed' : 'pointer', opacity: !reportData ? 0.4 : 1, whiteSpace: 'nowrap' }} onClick={exportJson} disabled={!reportData}>
+                JSON
+              </button>
+              <button className="ctl" style={{ flex: 1, padding: '8px 12px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px', fontWeight: 600, color: '#f97316', background: 'var(--surface2)', border: '1px solid rgba(249,115,22,.4)', borderRadius: '6px', cursor: !reportData ? 'not-allowed' : 'pointer', opacity: !reportData ? 0.4 : 1, whiteSpace: 'nowrap' }} onClick={exportPdf} disabled={!reportData}>
+                PDF
+              </button>
+            </div>
           </div>
-
         </div>
-      </div>
+      ) : (
+        /* ── DEDICATED FIREWALL FILTER BAR ── */
+        <div style={{ display: 'flex', gap: '32px', justifyContent: 'space-between', alignItems: 'flex-start', background: 'var(--surface)', border: '1px solid rgba(6,182,212,0.3)', borderRadius: '8px', padding: '18px 24px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
+            
+            {/* Top Row: Duration, Branch, Device, Action */}
+            <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '120px' }}>
+                <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Duration</label>
+                <select value={fwFilters.duration} onChange={e => setFwFilters({ ...fwFilters, duration: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px' }}>
+                  <option value="today">Today (00:00 to now)</option>
+                  <option value="1">Last 1 hour</option>
+                  <option value="4">Last 4 hours</option>
+                  <option value="24">Last 24 hours</option>
+                  <option value="72">Last 3 days</option>
+                  <option value="168">Last 7 days</option>
+                  <option value="720">Last 30 days</option>
+                  <option value="custom">Custom Range</option>
+                </select>
+              </div>
+
+              {fwFilters.duration === 'custom' && (
+                <>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '120px' }}>
+                    <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>From</label>
+                    <input type="date" value={fwFilters.from_date} onChange={e => setFwFilters({ ...fwFilters, from_date: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '120px' }}>
+                    <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>To</label>
+                    <input type="date" value={fwFilters.to_date} onChange={e => setFwFilters({ ...fwFilters, to_date: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} />
+                  </div>
+                </>
+              )}
+
+              <div ref={fwBranchDropdownRef} style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '140px', position: 'relative' }}>
+                <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Branch</label>
+                <div 
+                  onClick={() => setFwShowBranchDropdown(!fwShowBranchDropdown)}
+                  style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none' }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {fwFilters.aggregator.length === 0 ? 'All Branches' : `${fwFilters.aggregator.length} selected`}
+                  </span>
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'var(--muted)', transform: fwShowBranchDropdown ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>expand_more</span>
+                </div>
+                
+                {fwShowBranchDropdown && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', marginTop: '4px', zIndex: 30, padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px', borderBottom: '1px solid var(--border)', fontSize: '10px', fontFamily: 'var(--mono)' }}>
+                      <span onClick={() => setFwFilters({ ...fwFilters, aggregator: [] })} style={{ color: '#06b6d4', cursor: 'pointer', fontWeight: 600 }}>
+                        {fwFilters.aggregator.length === 0 ? '✓ All Branches' : 'Reset to All'}
+                      </span>
+                      {fwFilters.aggregator.length > 0 && (
+                        <span onClick={() => setFwFilters({ ...fwFilters, aggregator: [] })} style={{ color: 'var(--muted)', cursor: 'pointer' }}>Clear</span>
+                      )}
+                    </div>
+                    {aggregators.map(a => (
+                      <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', color: 'var(--text)', padding: '2px 4px' }}>
+                        <input 
+                          type="checkbox"
+                          checked={fwFilters.aggregator.includes(a.name)}
+                          onChange={(e) => {
+                            const isChecked = e.target.checked;
+                            let newAggrs = [...fwFilters.aggregator];
+                            if (isChecked) newAggrs.push(a.name);
+                            else newAggrs = newAggrs.filter(name => name !== a.name);
+                            setFwFilters({ ...fwFilters, aggregator: newAggrs });
+                          }}
+                        />
+                        {a.name}
+                      </label>
+                    ))}
+                    {aggregators.length === 0 && <div style={{ fontSize: '11px', color: 'var(--muted)' }}>No branches available</div>}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '130px' }}>
+                <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Firewall Device</label>
+                <select value={fwFilters.device} onChange={e => setFwFilters({ ...fwFilters, device: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px' }}>
+                  <option value="">All Firewalls</option>
+                  {fwDevices.map((dName, i) => (
+                    <option key={i} value={dName}>{dName}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '110px' }}>
+                <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Action</label>
+                <select value={fwFilters.action} onChange={e => setFwFilters({ ...fwFilters, action: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px' }}>
+                  <option value="">All Actions</option>
+                  <option value="accept">Accept / Allow</option>
+                  <option value="deny">Deny / Drop</option>
+                  <option value="close">Close / Timeout</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Bottom Row: Severity, Alert Type, Service, IP/Search */}
+            <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '110px' }}>
+                <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Severity</label>
+                <select value={fwFilters.severity} onChange={e => setFwFilters({ ...fwFilters, severity: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px' }}>
+                  <option value="">All Severities</option>
+                  <option value="critical">Critical</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                  <option value="information">Information</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '130px' }}>
+                <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Alert Type</label>
+                <select value={fwFilters.alert_type} onChange={e => setFwFilters({ ...fwFilters, alert_type: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px' }}>
+                  <option value="">All Alert Types</option>
+                  <option value="loginFailed">Login Failed</option>
+                  <option value="configChange">Config Changes</option>
+                  <option value="adminLogin">Admin Logins</option>
+                  <option value="mfa">MFA Events</option>
+                  <option value="bruteForce">Brute Force</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '120px' }}>
+                <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Service</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. HTTPS, 443..." 
+                  value={fwFilters.service} 
+                  onChange={e => setFwFilters({ ...fwFilters, service: e.target.value })} 
+                  style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} 
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 2, minWidth: '160px' }}>
+                <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Filter IP / Keyword</label>
+                <input 
+                  type="text" 
+                  placeholder="Source IP, Dest IP, user, policy..." 
+                  value={fwFilters.search} 
+                  onChange={e => setFwFilters({ ...fwFilters, search: e.target.value })} 
+                  style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} 
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Right Action Section */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center', flex: '0 0 auto', alignSelf: 'center' }}>
+            <button onClick={handleGenerateFirewall} className="rbtn" style={{ width: '100%', padding: '9px 24px', fontSize: '13px', background: '#06b6d4', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', opacity: loading ? 0.7 : 1, whiteSpace: 'nowrap', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(6,182,212,0.3)' }} disabled={loading}>
+              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>analytics</span>
+              {loading ? 'Generating...' : 'Generate Report'}
+            </button>
+
+            <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+              <button className="ctl" style={{ flex: 1, padding: '7px 10px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '5px', fontWeight: 600, color: 'var(--text)', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px', cursor: !fwReportData ? 'not-allowed' : 'pointer', opacity: !fwReportData ? 0.4 : 1, fontSize: '11px' }} onClick={exportFwJson} disabled={!fwReportData}>
+                JSON
+              </button>
+              <button className="ctl" style={{ flex: 1, padding: '7px 10px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '5px', fontWeight: 600, color: '#06b6d4', background: 'var(--surface2)', border: '1px solid rgba(6,182,212,.4)', borderRadius: '6px', cursor: !fwReportData ? 'not-allowed' : 'pointer', opacity: !fwReportData ? 0.4 : 1, fontSize: '11px' }} onClick={exportFwPdf} disabled={!fwReportData}>
+                PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && <div style={{ color: 'var(--critical)', padding: '10px', background: 'rgba(239,68,68,0.1)', borderRadius: '6px', marginBottom: '16px' }}>{error}</div>}
 
       <div id="rpt-content" style={{ minHeight: '400px' }}>
         {loading ? (
           <div style={{ padding: '48px', textAlign: 'center' }}>
-            <div className="spinner" style={{ margin: '0 auto 10px', width: '24px', height: '24px', border: '3px solid var(--border)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-            <div style={{ fontFamily: 'var(--mono)', fontSize: '11px', color: 'var(--muted)', letterSpacing: '1px' }}>GENERATING REPORT</div>
+            <div className="spinner" style={{ margin: '0 auto 10px', width: '24px', height: '24px', border: '3px solid var(--border)', borderTopColor: reportMode === 'firewall' ? '#06b6d4' : 'var(--accent)', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+            <div style={{ fontFamily: 'var(--mono)', fontSize: '11px', color: 'var(--muted)', letterSpacing: '1px' }}>
+              {reportMode === 'firewall' ? 'GENERATING FIREWALL REPORT' : 'GENERATING REPORT'}
+            </div>
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
+        ) : reportMode === 'firewall' ? (
+          renderFirewallReportUI()
         ) : (
           renderReportUI()
         )}

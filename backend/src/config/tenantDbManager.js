@@ -243,6 +243,15 @@ async function getTenantPool(tenantId) {
       pool.query(`
         ALTER TABLE fw_events ALTER COLUMN src_country TYPE VARCHAR(100);
         ALTER TABLE fw_events ALTER COLUMN dst_country TYPE VARCHAR(100);
+        ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS fw_user VARCHAR(255) DEFAULT '';
+        ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS fw_ui VARCHAR(255) DEFAULT '';
+        ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS msg TEXT DEFAULT '';
+        ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS subtype VARCHAR(100) DEFAULT '';
+        ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS log_type VARCHAR(100) DEFAULT '';
+        ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS cfgpath VARCHAR(500) DEFAULT '';
+        ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS cfgobj VARCHAR(255) DEFAULT '';
+        ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS cfgattr TEXT DEFAULT '';
+        ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS logdesc VARCHAR(500) DEFAULT '';
         UPDATE events SET ts = ts - INTERVAL '5 hours 30 minutes'
         WHERE ts > NOW() + INTERVAL '2 minutes' AND ts <= NOW() + INTERVAL '8 hours';
         UPDATE events SET is_noise = true WHERE tag ILIKE '%PERSISTENCE%' AND tag ILIKE '%SERVICE%' AND is_noise = false;
