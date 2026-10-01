@@ -112,24 +112,30 @@ async function generatePdfReport(data) {
       }
 
       // ── 1. Cover Header Banner (First page only) ───────────────────────────
-      doc.rect(margin, margin, contentWidth, 54).fill(C_DARK);
-      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(14).text('IOC HUNT', margin + 14, margin + 12);
-      doc.fillColor('#94a3b8').font('Helvetica-Bold').fontSize(8.5).text('ENTERPRISE SECURITY INTELLIGENCE REPORT', margin + 84, margin + 14);
-      doc.fillColor('#cbd5e1').font('Helvetica').fontSize(8).text(
-        `Period: ${data.periodLabel}   |   Branch: ${data.branch || 'All'}   |   Machine: ${data.machine || 'All'}`,
-        margin + 14, margin + 34
-      );
+      // ── 1. Top Enterprise Header Bar ─────────────────────────────────────
+      const headerH = 58;
+      doc.rect(margin, margin, contentWidth, headerH).fill(C_DARK);
+      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(13.5).text('IOC HUNT', margin + 14, margin + 11);
+      doc.fillColor('#94a3b8').font('Helvetica-Bold').fontSize(8).text('ENTERPRISE SECURITY INTELLIGENCE REPORT', margin + 82, margin + 13);
 
       // Posture Score Badge
-      const scoreBoxW = 95;
+      const scoreBoxW = 92;
       const scoreBoxX = margin + contentWidth - scoreBoxW - 10;
       const scoreBoxY = margin + 9;
-      doc.roundedRect(scoreBoxX, scoreBoxY, scoreBoxW, 36, 4).fill(C_NAVY);
-      doc.fillColor('#94a3b8').font('Helvetica-Bold').fontSize(6.5).text('POSTURE SCORE', scoreBoxX, scoreBoxY + 5, { width: scoreBoxW, align: 'center' });
-      doc.fillColor(tlColor).font('Helvetica-Bold').fontSize(14).text(`${data.postureScore || 100}/100`, scoreBoxX, scoreBoxY + 16, { width: scoreBoxW, align: 'center' });
+      doc.roundedRect(scoreBoxX, scoreBoxY, scoreBoxW, 40, 4).fill(C_NAVY);
+      doc.fillColor('#94a3b8').font('Helvetica-Bold').fontSize(6.5).text('POSTURE SCORE', scoreBoxX, scoreBoxY + 6, { width: scoreBoxW, align: 'center' });
+      doc.fillColor(tlColor).font('Helvetica-Bold').fontSize(14).text(`${data.postureScore || 100}/100`, scoreBoxX, scoreBoxY + 18, { width: scoreBoxW, align: 'center' });
+
+      // Multi-line Header Metadata constrained safely to the left of the Posture Score box
+      const metaMaxW = scoreBoxX - (margin + 14) - 12;
+      doc.fillColor('#94a3b8').font('Helvetica-Bold').fontSize(7.5).text('PERIOD: ', margin + 14, margin + 28, { continued: true });
+      doc.fillColor('#f1f5f9').font('Helvetica').fontSize(7.5).text(String(data.periodLabel || ''), { width: metaMaxW, lineBreak: false });
+
+      doc.fillColor('#94a3b8').font('Helvetica-Bold').fontSize(7.5).text('SCOPE: ', margin + 14, margin + 41, { continued: true });
+      doc.fillColor('#cbd5e1').font('Helvetica').fontSize(7.5).text(`Branch: ${data.branch || 'All'}   |   Target: ${data.machine || 'All'}`, { width: metaMaxW, lineBreak: false });
 
       // ── 2. Posture & Executive Narrative Banner ────────────────────────────
-      const bannerY = margin + 64;
+      const bannerY = margin + headerH + 10;
       const bannerH = 44;
       doc.roundedRect(margin, bannerY, contentWidth, bannerH, 4).fill(C_BG_LIGHT);
       doc.rect(margin, bannerY, 4, bannerH).fill(tlColor);
@@ -517,7 +523,7 @@ async function generatePdfReport(data) {
         const staleList = data.fleet?.staleList || [];
         if (staleList.length === 0) {
           doc.fillColor(C_LOW).font('Helvetica-Bold').fontSize(7.5)
-            .text('✓ 100% of endpoint fleet active with continuous telemetry heartbeat.', staleX + 6, staleY + 30);
+            .text('[OK] 100% of endpoint fleet active with continuous telemetry heartbeat.', staleX + 6, staleY + 30);
         } else {
           staleList.slice(0, 4).forEach((m, idx) => {
             const sRowY = staleY + 19 + (idx * 17);
@@ -535,6 +541,52 @@ async function generatePdfReport(data) {
         }
 
         doc.y = fleetBoxY + fleetBoxH + 16;
+
+        // ── 10B. Top Targeted Endpoints & Threat Exposure Leaderboard ───────────
+        const topMachs = (data.topMachines && data.topMachines.length > 0)
+          ? data.topMachines
+          : [];
+        if (topMachs.length > 0) {
+          const topMachH = 22 + (Math.min(topMachs.length, 5) * 17) + 6;
+          renderSectionHeading('Top Targeted Endpoints & Threat Exposure Leaderboard', 'Ranked endpoint liability by critical attack volume and primary threat indicators', 30 + topMachH);
+          const topMachY = doc.y;
+          doc.roundedRect(margin, topMachY, contentWidth, topMachH, 6).fillAndStroke(C_BG_LIGHT, C_BORDER);
+
+          // Table Header
+          doc.rect(margin + 8, topMachY + 6, contentWidth - 16, 15).fill('#f1f5f9');
+          doc.fillColor(C_MUTED).font('Helvetica-Bold').fontSize(6.5);
+          doc.text('ENDPOINT HOST', margin + 14, topMachY + 10);
+          doc.text('IP ADDRESS', margin + 130, topMachY + 10);
+          doc.text('PRIMARY VECTOR', margin + 220, topMachY + 10);
+          doc.text('CRITICAL', margin + 330, topMachY + 10, { width: 45, align: 'center' });
+          doc.text('HIGH', margin + 380, topMachY + 10, { width: 35, align: 'center' });
+          doc.text('RISK POSTURE', margin + contentWidth - 85, topMachY + 10, { width: 75, align: 'right' });
+
+          topMachs.slice(0, 5).forEach((m, idx) => {
+            const mRowY = topMachY + 24 + (idx * 17);
+            const isCrit = (m.crit_count || 0) > 0;
+            const isHigh = (m.high_count || 0) > 0;
+            const riskText = m.risk || (isCrit ? 'CRITICAL RISK' : isHigh ? 'HIGH RISK' : 'NORMAL');
+            const riskCol = riskText.includes('CRIT') ? C_CRIT : riskText.includes('HIGH') ? C_HIGH : C_LOW;
+
+            doc.fillColor(C_TEXT).font('Helvetica-Bold').fontSize(7)
+              .text(m.machine, margin + 14, mRowY, { width: 110 });
+            doc.fillColor(C_MUTED).font('Helvetica').fontSize(6.5)
+              .text(m.ip || '-', margin + 130, mRowY);
+            doc.fillColor('#2563eb').font('Helvetica-Bold').fontSize(6.5)
+              .text(m.top_tag || 'General Activity', margin + 220, mRowY, { width: 105 });
+
+            doc.fillColor((m.crit_count || 0) > 0 ? C_CRIT : C_MUTED).font('Helvetica-Bold').fontSize(7)
+              .text(String(m.crit_count || 0), margin + 330, mRowY, { width: 45, align: 'center' });
+            doc.fillColor((m.high_count || 0) > 0 ? C_HIGH : C_MUTED).font('Helvetica-Bold').fontSize(7)
+              .text(String(m.high_count || 0), margin + 380, mRowY, { width: 35, align: 'center' });
+
+            doc.fillColor(riskCol).font('Helvetica-Bold').fontSize(6.5)
+              .text(riskText, margin + contentWidth - 85, mRowY, { width: 75, align: 'right' });
+          });
+
+          doc.y = topMachY + topMachH + 16;
+        }
       }
 
       // ── 11. Incident Forensics Case Cards (Top 3-5 Ranked Threats + Register) ──
@@ -558,7 +610,7 @@ async function generatePdfReport(data) {
         ensureSpace(32);
         doc.roundedRect(margin, doc.y, contentWidth, 26, 4).fillAndStroke(C_BG_LIGHT, C_BORDER);
         doc.fillColor(C_LOW).font('Helvetica-Bold').fontSize(7.5)
-          .text('✓ Zero critical security incidents active during this operational window.', margin, doc.y + 9, { width: contentWidth, align: 'center' });
+          .text('[OK] Zero critical security incidents active during this operational window.', margin, doc.y + 9, { width: contentWidth, align: 'center' });
         doc.y += 34;
       } else {
         topCards.slice(0, 4).forEach(card => {
@@ -636,6 +688,9 @@ async function generatePdfReport(data) {
         });
         doc.y = regY + 16 + (register.length * 14) + 10;
       }
+
+
+
       // ── Running Footers on All Pages ───────────────────────────────────────
       const range = doc.bufferedPageRange();
       const totalPages = range.count;

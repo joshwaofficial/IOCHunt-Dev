@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const db = require('../config/db');
 const { getSmtpConfig, createTransporter } = require('./emailHelper');
 const { generatePdfReport } = require('./pdfReportBuilder');
@@ -150,6 +152,11 @@ function getSimulatedReportData(period = 'daily') {
           { name: 'FIN-WS-03', os: 'Windows 11', offlineStr: '2d 14h offline', risk: 'MODERATE' }
         ]
       },
+      topMachines: [
+        { machine: 'DC-SRV-01', ip: '192.168.1.10', os: 'Windows Server 2022', user: 'SYSTEM', crit_count: 6, high_count: 18, total_events: 5420, top_tag: 'DCSYNC', risk: 'CRITICAL RISK' },
+        { machine: 'DEV-WS-09', ip: '192.168.1.45', os: 'Windows 11 Pro', user: 'dev_user', crit_count: 4, high_count: 22, total_events: 3120, top_tag: 'MIMIKATZ', risk: 'HIGH RISK' },
+        { machine: 'HR-LAP-04', ip: '192.168.2.14', os: 'Windows 10', user: 'hr_lead', crit_count: 2, high_count: 6, total_events: 940, top_tag: 'USB', risk: 'HIGH RISK' }
+      ],
       incidents: {
         total: 12,
         open: 3,
@@ -341,6 +348,12 @@ function getSimulatedReportData(period = 'daily') {
             inactive: 0,
             staleList: []
           },
+          topMachines: [
+            { machine: 'DEFSECONE-PC01', ip: '106.51.233.42', os: 'Windows 11 Pro', user: 'system', crit_count: 264, high_count: 113, total_events: 3561, top_tag: 'CMD-EXEC', risk: 'CRITICAL RISK' },
+            { machine: 'GIRI', ip: '192.168.1.105', os: 'Windows 10 Enterprise', user: 'admin', crit_count: 14, high_count: 18, total_events: 2480, top_tag: 'TAMPER', risk: 'HIGH RISK' },
+            { machine: 'LOQ', ip: '192.168.1.50', os: 'Windows 11 Pro', user: 'user', crit_count: 0, high_count: 2, total_events: 1240, top_tag: 'BEHAVIOR', risk: 'LOW RISK' },
+            { machine: 'JOSHWA', ip: '10.0.0.24', os: 'Ubuntu Linux 22.04', user: 'dev', crit_count: 0, high_count: 0, total_events: 4248, top_tag: 'LOGON', risk: 'NORMAL' }
+          ],
           incidents: {
             total: 6,
             open: 2,

@@ -578,7 +578,7 @@ export default function EmailReports() {
                 </div>
               )}
 
-              <div style={{ gridColumn: 'span 2', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+              <div style={{ gridColumn: 'span 2', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                 <div style={{ position: 'relative' }}>
                   <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>Branch (optional)</label>
                   <div
@@ -624,18 +624,8 @@ export default function EmailReports() {
                     {filteredMachines.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
                   </select>
                 </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase', marginBottom: '6px' }}>Severity Filter</label>
-                  <select id="sched-severity" className="input-field" value={formData.severity} onChange={handleFormChange}
-                    style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', borderRadius: '6px', outline: 'none' }}>
-                    <option value="">All Severities</option>
-                    <option value="critical">Critical Only</option>
-                    <option value="high">High & Above</option>
-                    <option value="medium">Medium & Above</option>
-                  </select>
-                </div>
 
-                <div style={{ gridColumn: 'span 3', marginTop: '4px' }}>
+                <div style={{ gridColumn: 'span 2', marginTop: '4px' }}>
                   {formData.machine ? (
                     <div style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: '6px', padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#38bdf8' }}>
                       <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>dns</span>
@@ -693,7 +683,7 @@ export default function EmailReports() {
                     <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Frequency</th>
                     <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Branch</th>
                     <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Machine</th>
-                    <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Scope & Severity</th>
+                    <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Coverage & Firewall</th>
                     <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Status</th>
                     <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Last Sent & Delivery</th>
                     <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'right' }}>Actions</th>
@@ -727,12 +717,11 @@ export default function EmailReports() {
                             borderRadius: '4px',
                             fontSize: '9px',
                             fontWeight: 700,
-                            background: s.severity === 'critical' ? 'rgba(239,68,68,0.15)' : s.severity === 'high' ? 'rgba(249,115,22,0.15)' : s.severity === 'medium' ? 'rgba(234,179,8,0.15)' : 'var(--surface2)',
-                            color: s.severity === 'critical' ? '#ef4444' : s.severity === 'high' ? '#f97316' : s.severity === 'medium' ? '#eab308' : 'var(--muted)',
-                            width: 'fit-content',
-                            textTransform: 'uppercase'
+                            background: 'rgba(56,189,248,0.12)',
+                            color: '#0284c7',
+                            width: 'fit-content'
                           }}>
-                            {s.severity ? `${s.severity}` : 'All Sev'}
+                            ALL SEVERITIES
                           </span>
                           <span style={{ fontSize: '9px', color: s.include_fw === 0 ? 'var(--muted)' : '#10b981', fontWeight: 600 }}>
                             {s.include_fw === 0 ? 'FW Excluded' : 'FW Included'}
