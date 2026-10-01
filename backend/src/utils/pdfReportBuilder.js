@@ -372,7 +372,7 @@ async function generatePdfReport(data) {
       doc.y = adBoxY + adBoxH + 16;
 
       // ── 8. Perimeter Defense: Firewall Inbound Attacks & Ports ─────────────
-      const fwEnabled = data.firewall?.enabled !== false;
+      const fwEnabled = Boolean(data.firewall && data.firewall.enabled === true && (data.firewall.total > 0 || (data.firewall.topPorts && data.firewall.topPorts.length > 0)));
       if (fwEnabled) {
         const fwBoxH = 125;
         renderSectionHeading('Perimeter Defense: Firewall Inbound Attacks & Ports', 'Network boundary traffic filtering, targeted ports, and top attacking source IPs', 30 + fwBoxH);

@@ -27,7 +27,7 @@ function formatOfflineDuration(seconds) {
 /**
  * Returns a high-fidelity, completely simulated intelligence dataset tailored to period.
  */
-function getSimulatedReportData(period = 'daily') {
+function getSimulatedReportData(period = 'daily', includeFw = false) {
   const p = (period || 'daily').toLowerCase();
   const now = new Date();
   const nowStr = now.toISOString().slice(0, 19).replace('T', ' ');
@@ -102,7 +102,8 @@ function getSimulatedReportData(period = 'daily') {
           { user: 'd.ross', count: 14, role: 'STANDARD USER', risk: 'STANDARD USER' }
         ]
       },
-      firewall: {
+      firewall: includeFw ? {
+        enabled: true,
         total: 84500,
         blocked: 21400,
         allowed: 63100,
@@ -119,7 +120,7 @@ function getSimulatedReportData(period = 'daily') {
           { ip: '192.168.1.50 (LOQ)', count: 3890 },
           { ip: '10.0.0.24 (JOSHWA)', count: 2150 }
         ]
-      },
+      } : { enabled: false, total: 0, blocked: 0, allowed: 0, topPorts: [], topSourceIps: [] },
       usbDlp: {
         usbCount: 28,
         dlpCount: 14,
@@ -304,7 +305,8 @@ function getSimulatedReportData(period = 'daily') {
               { user: 'JOSHWA\\dev', count: 12, risk: 'STANDARD USER' }
             ]
           },
-          firewall: {
+          firewall: includeFw ? {
+            enabled: true,
             total: 32,
             blocked: 8,
             allowed: 24,
@@ -321,7 +323,7 @@ function getSimulatedReportData(period = 'daily') {
               { ip: '192.168.1.50 (LOQ)', count: 5 },
               { ip: '10.0.0.24 (JOSHWA)', count: 3 }
             ]
-          },
+          } : { enabled: false, total: 0, blocked: 0, allowed: 0, topPorts: [], topSourceIps: [] },
           usbDlp: {
             usbCount: 79,
             dlpCount: 1017,
@@ -494,7 +496,8 @@ function getSimulatedReportData(period = 'daily') {
         { user: 'j.smith', count: 7, role: 'STANDARD USER', risk: 'STANDARD USER' }
       ]
     },
-    firewall: {
+    firewall: includeFw ? {
+      enabled: true,
       total: 12450,
       blocked: 3120,
       allowed: 9330,
@@ -511,7 +514,7 @@ function getSimulatedReportData(period = 'daily') {
         { ip: '192.168.1.50 (LOQ)', count: 540 },
         { ip: '10.0.0.24 (JOSHWA)', count: 310 }
       ]
-    },
+    } : { enabled: false, total: 0, blocked: 0, allowed: 0, topPorts: [], topSourceIps: [] },
     usbDlp: {
       usbCount: 6,
       dlpCount: 2,
@@ -594,7 +597,7 @@ async function buildReportDataAndPdf(options, queryFn = null) {
 
   // If simulation is explicitly requested, generate rich period-specific simulation dataset
   if (options.simulated) {
-    const reportData = getSimulatedReportData(period);
+    const reportData = getSimulatedReportData(period, Boolean(options.include_fw));
     if (options.name) reportData.scheduleName = options.name;
     const pdfBuffer = await generatePdfReport(reportData);
     return {
@@ -627,7 +630,7 @@ async function buildReportDataAndPdf(options, queryFn = null) {
   const q = queryFn || db.query.bind(db);
   const includeFw = options.include_fw !== undefined
     ? (Number(options.include_fw) === 1 || options.include_fw === true || options.include_fw === '1' || options.include_fw === 'true')
-    : true;
+    : false;
   const to = now.toISOString().slice(0, 19).replace('T', ' ');
   let from;
   let durLabel = '1 Day Report';

@@ -21,7 +21,6 @@ const catColors = {
 };
 
 const REPORT_CATEGORIES = [
-  { id: 'FIREWALL', label: 'Firewall', color: '#06b6d4' },
   { id: 'DOMAIN', label: 'Domain', color: '#a855f7' },
   { id: 'ADCS', label: 'ADCS', color: '#8b5cf6' },
   { id: 'NETWORK', label: 'Network', color: '#3b82f6' },
@@ -96,7 +95,7 @@ export default function Reports() {
     severity: [],
     category: [],
     aggregator: [],
-    include_fw: true
+    include_fw: false
   });
   const [reportMode, setReportMode] = useState('general'); // 'general' | 'firewall'
   const [machines, setMachines] = useState([]);
@@ -360,11 +359,7 @@ export default function Reports() {
     setEventPage(1);
     setEventSearch('');
     try {
-      let sendIncludeFw = filters.include_fw;
-      if (Array.isArray(filters.category) && filters.category.length > 0) {
-        sendIncludeFw = filters.category.includes('FIREWALL');
-      }
-      let qs = `duration=${filters.duration}&include_fw=${sendIncludeFw ? '1' : '0'}`;
+      let qs = `duration=${filters.duration}&include_fw=0`;
       if (filters.duration === 'custom') {
         if (filters.from_date) qs += `&from_date=${encodeURIComponent(filters.from_date)}`;
         if (filters.to_date) qs += `&to_date=${encodeURIComponent(filters.to_date)}`;
@@ -2623,14 +2618,14 @@ export default function Reports() {
                   <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', minWidth: '220px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', marginTop: '4px', zIndex: 30, padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '280px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px', borderBottom: '1px solid var(--border)', fontSize: '10px', fontFamily: 'var(--mono)' }}>
                       <span 
-                        onClick={() => setFilters({ ...filters, category: [], include_fw: true })}
+                        onClick={() => setFilters({ ...filters, category: [], include_fw: false })}
                         style={{ color: 'var(--accent)', cursor: 'pointer', fontWeight: 600 }}
                       >
                         {(!filters.category || filters.category.length === 0) ? '✓ All Categories' : 'Reset to All'}
                       </span>
                       {filters.category && filters.category.length > 0 && (
                         <span 
-                          onClick={() => setFilters({ ...filters, category: [], include_fw: true })}
+                          onClick={() => setFilters({ ...filters, category: [], include_fw: false })}
                           style={{ color: 'var(--muted)', cursor: 'pointer' }}
                         >
                           Clear
@@ -2667,21 +2662,14 @@ export default function Reports() {
                               } else {
                                 current = current.filter(c => c !== cat.id);
                               }
-                              const willIncludeFw = current.length > 0 ? current.includes('FIREWALL') : filters.include_fw;
                               setFilters({ 
                                 ...filters, 
-                                category: current,
-                                include_fw: willIncludeFw
+                                category: current
                               });
                             }}
                           />
                           <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: cat.color, flexShrink: 0 }} />
                           <span style={{ flex: 1 }}>{cat.label}</span>
-                          {cat.id === 'FIREWALL' && (
-                            <span style={{ fontSize: '9px', fontFamily: 'var(--mono)', padding: '1px 5px', borderRadius: '3px', background: 'rgba(6,182,212,0.15)', color: '#06b6d4', textTransform: 'uppercase' }}>
-                              Syslog
-                            </span>
-                          )}
                         </label>
                       );
                     })}
@@ -2692,40 +2680,7 @@ export default function Reports() {
           </div>
 
           {/* Right Section */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center', flex: '0 0 auto', paddingBottom: '4px' }}>
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)' }}>Include Firewall</span>
-                <div style={{ position: 'relative', width: '36px', height: '20px' }}>
-                  <input 
-                    type="checkbox" 
-                    checked={filters.include_fw} 
-                    onChange={(e) => {
-                      const checked = e.target.checked;
-                      let currentCats = Array.isArray(filters.category) ? [...filters.category] : [];
-                      if (!checked) {
-                        currentCats = currentCats.filter(c => c !== 'FIREWALL');
-                      } else if (currentCats.length > 0 && !currentCats.includes('FIREWALL')) {
-                        currentCats.push('FIREWALL');
-                      }
-                      setFilters({ ...filters, include_fw: checked, category: currentCats });
-                    }} 
-                    style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }}
-                  />
-                  <span style={{
-                    position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
-                    backgroundColor: filters.include_fw ? '#2563eb' : 'var(--border2)',
-                    transition: '.3s', borderRadius: '20px'
-                  }}>
-                    <span style={{
-                      position: 'absolute', height: '14px', width: '14px', left: filters.include_fw ? '19px' : '3px', bottom: '3px',
-                      backgroundColor: 'white', transition: '.3s', borderRadius: '50%'
-                    }}></span>
-                  </span>
-                </div>
-              </label>
-            </div>
-
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto', paddingBottom: '4px', alignSelf: 'center' }}>
             <button onClick={handleGenerate} className="rbtn" style={{ width: '100%', padding: '8px 24px', fontSize: '13px', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', opacity: loading ? 0.7 : 1, whiteSpace: 'nowrap' }} disabled={loading}>
               {loading ? 'Generating...' : 'Generate Report'}
             </button>

@@ -14,7 +14,7 @@ const generateReport = async (req, res) => {
       src_ip = '',
       dst_ip = '',
       action = '',
-      include_fw = '1',
+      include_fw = '0',
       aggregator = '',
     } = req.query || {};
 
