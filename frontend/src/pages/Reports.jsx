@@ -38,6 +38,14 @@ const REPORT_CATEGORIES = [
   { id: 'ENUM', label: 'Enum', color: '#f97316' },
 ];
 
+const REPORT_SEVERITIES = [
+  { id: 'critical', label: 'Critical', color: '#ef4444' },
+  { id: 'high', label: 'High', color: '#f97316' },
+  { id: 'medium', label: 'Medium', color: '#eab308' },
+  { id: 'low', label: 'Low', color: '#3b82f6' },
+  { id: 'info', label: 'Info', color: '#06b6d4' },
+];
+
 function getPageNumbers(current, total) {
   if (total <= 7) {
     return Array.from({ length: total }, (_, i) => i + 1);
@@ -57,7 +65,7 @@ export default function Reports() {
     from_date: '',
     to_date: new Date().toISOString().slice(0, 10),
     machine: '',
-    severity: '',
+    severity: [],
     category: [],
     aggregator: [],
     include_fw: true
@@ -70,8 +78,10 @@ export default function Reports() {
   const [reportData, setReportData] = useState(null);
   const [showBranchDropdown, setShowBranchDropdown] = useState(false);
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  const [showSeverityDropdown, setShowSeverityDropdown] = useState(false);
   const branchDropdownRef = useRef(null);
   const categoryDropdownRef = useRef(null);
+  const severityDropdownRef = useRef(null);
   const [eventPage, setEventPage] = useState(1);
   const [eventPageSize, setEventPageSize] = useState(100);
   const [eventSearch, setEventSearch] = useState('');
@@ -126,6 +136,9 @@ export default function Reports() {
       if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(e.target)) {
         setShowCategoryDropdown(false);
       }
+      if (severityDropdownRef.current && !severityDropdownRef.current.contains(e.target)) {
+        setShowSeverityDropdown(false);
+      }
       if (fwBranchDropdownRef.current && !fwBranchDropdownRef.current.contains(e.target)) {
         setFwShowBranchDropdown(false);
       }
@@ -141,6 +154,18 @@ export default function Reports() {
       return match ? match.label : filters.category[0];
     }
     return `${filters.category.length} selected`;
+  };
+
+  const getSeverityLabel = () => {
+    if (!filters.severity || filters.severity.length === 0) return 'All Severities';
+    if (Array.isArray(filters.severity)) {
+      if (filters.severity.length === 1) {
+        const match = REPORT_SEVERITIES.find(s => s.id === filters.severity[0]);
+        return match ? match.label : filters.severity[0];
+      }
+      return `${filters.severity.length} selected`;
+    }
+    return filters.severity;
   };
 
   const handleGenerateFirewall = async () => {
@@ -314,7 +339,11 @@ export default function Reports() {
       }
       if (filters.machine) qs += `&machine=${encodeURIComponent(filters.machine)}`;
       if (filters.aggregator && filters.aggregator.length > 0) qs += `&aggregator=${encodeURIComponent(filters.aggregator.join(','))}`;
-      if (filters.severity) qs += `&severity=${encodeURIComponent(filters.severity)}`;
+      if (Array.isArray(filters.severity) && filters.severity.length > 0) {
+        qs += `&severity=${encodeURIComponent(filters.severity.join(','))}`;
+      } else if (typeof filters.severity === 'string' && filters.severity) {
+        qs += `&severity=${encodeURIComponent(filters.severity)}`;
+      }
       if (Array.isArray(filters.category) && filters.category.length > 0) {
         qs += `&category=${encodeURIComponent(filters.category.join(','))}`;
       } else if (typeof filters.category === 'string' && filters.category) {
@@ -429,6 +458,52 @@ export default function Reports() {
       html += `<div class="stat"><div class="stat-n" style="color:${s.c}">${s.n.toLocaleString()}</div><div class="stat-l">${s.l}</div></div>`;
     });
     html += `</div>`;
+
+    const pdfCats = Array.isArray(f.category)
+      ? f.category.map(c => String(c).trim().toUpperCase())
+      : (typeof f.category === 'string' && f.category ? f.category.split(',').map(c => c.trim().toUpperCase()) : []);
+    const showUsbPdf = pdfCats.length === 0 || pdfCats.includes('ALL CATEGORIES') || pdfCats.includes('ALL') || pdfCats.includes('USB');
+
+    if (showUsbPdf && d.usb_compliance && d.usb_compliance.machines && d.usb_compliance.machines.length > 0) {
+      const uSum = d.usb_compliance.summary || {};
+      html += `<h2>USB Policy & Device Compliance (${d.usb_compliance.machines.length} machines)</h2>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+          <div style="background:#f0f4fc;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#2563eb">${uSum.total_machines || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">Total Machines</div></div>
+          <div style="background:#fef2f2;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#dc2626">${uSum.total_locked || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">USB Disabled</div></div>
+          <div style="background:#f0fdf4;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#16a34a">${uSum.total_unlocked || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">USB Enabled</div></div>
+          <div style="background:#fef2f2;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#dc2626">${uSum.compliant || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">Compliant (Locked)</div></div>
+          <div style="background:#f0fdf4;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#16a34a">${uSum.non_compliant || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">Non-Compliant / Allowed</div></div>
+          <div style="background:#fef2f2;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#dc2626">${uSum.total_violations || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">USB Events</div></div>
+        </div>
+        <table><thead><tr>
+          <th>Machine</th><th>Branch / IP</th><th>Group</th><th>Configured Policy</th><th>Current State</th><th>Compliance</th><th>USB Events</th><th>Last Sync</th>
+        </tr></thead><tbody>`;
+      d.usb_compliance.machines.forEach(u => {
+        const isLocked = u.configured_lock === 'locked';
+        const compClass = (u.status === 'Compliant' || (isLocked && u.is_compliant))
+          ? 'c' // red
+          : (u.status === 'Non Compliant' || u.status === 'Non-Compliant' || (!isLocked && u.is_compliant))
+          ? 'l' // green
+          : 'h';
+        const compText = (u.status === 'Compliant' || (isLocked && u.is_compliant))
+          ? 'Compliant'
+          : (u.status === 'Non Compliant' || u.status === 'Non-Compliant' || (!isLocked && u.is_compliant))
+          ? 'Non Compliant'
+          : u.status;
+        const confBadge = isLocked ? 'c' : 'l';
+        html += `<tr>
+          <td><b style="color:#2563eb">${u.machine}</b></td>
+          <td>${u.aggregator_name || 'direct'} &nbsp;(${u.ip || '-'})</td>
+          <td>${u.group_name || 'Ungrouped'}</td>
+          <td><span class="badge ${confBadge}">${u.configured_usb}</span></td>
+          <td>${u.current_usb}</td>
+          <td><span class="badge ${compClass}">${compText}</span></td>
+          <td style="font-weight:700;color:${u.usb_events_count > 0 ? (isLocked ? '#dc2626' : '#2563eb') : '#4a5578'}">${u.usb_events_count > 0 ? `${u.usb_events_count} events${isLocked ? ' (Violation)' : ''}` : '0'}</td>
+          <td style="font-size:9px">${u.applied_at ? new Date(u.applied_at).toLocaleString('sv-SE').slice(0,16).replace('T',' ') : 'Never'}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+    }
 
     if ((ev.byCategory || []).length) {
       html += `<h2>Events by Category</h2><table><thead><tr><th>Category</th><th>Count</th><th style="width:200px">Distribution</th><th>%</th></tr></thead><tbody>`;
@@ -545,40 +620,7 @@ export default function Reports() {
       }
     }
 
-    const pdfCats = Array.isArray(f.category)
-      ? f.category
-      : (typeof f.category === 'string' && f.category ? f.category.split(',').map(c => c.trim().toUpperCase()) : []);
-    const showUsbPdf = pdfCats.length === 0 || pdfCats.includes('ALL CATEGORIES') || pdfCats.includes('ALL') || pdfCats.includes('USB');
 
-    if (showUsbPdf && d.usb_compliance && d.usb_compliance.machines && d.usb_compliance.machines.length > 0) {
-      const uSum = d.usb_compliance.summary || {};
-      html += `<h2>USB Policy & Device Compliance (${d.usb_compliance.machines.length} machines)</h2>
-        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">
-          <div style="background:#f0f4fc;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#2563eb">${uSum.total_machines || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">Total Machines</div></div>
-          <div style="background:#fef2f2;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#dc2626">${uSum.total_locked || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">USB Disabled</div></div>
-          <div style="background:#f0fdf4;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#16a34a">${uSum.total_unlocked || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">USB Enabled</div></div>
-          <div style="background:#f0fdf4;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#16a34a">${uSum.compliant || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">Compliant</div></div>
-          <div style="background:#fff7ed;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#ea580c">${uSum.non_compliant || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">Non-Compliant / Pending</div></div>
-        </div>
-        <table><thead><tr>
-          <th>Machine</th><th>Branch / IP</th><th>Group</th><th>Configured Policy</th><th>Current State</th><th>Compliance</th><th>USB Events</th><th>Last Sync</th>
-        </tr></thead><tbody>`;
-      d.usb_compliance.machines.forEach(u => {
-        const compClass = u.status === 'Compliant' ? 'l' : u.status === 'Policy Mismatch' ? 'c' : 'h';
-        const confBadge = u.configured_lock === 'locked' ? 'c' : 'l';
-        html += `<tr>
-          <td><b style="color:#2563eb">${u.machine}</b></td>
-          <td>${u.aggregator_name || 'direct'} &nbsp;(${u.ip || '-'})</td>
-          <td>${u.group_name || 'Ungrouped'}</td>
-          <td><span class="badge ${confBadge}">${u.configured_usb}</span></td>
-          <td>${u.current_usb}</td>
-          <td><span class="badge ${compClass}">${u.status}</span></td>
-          <td style="font-weight:700;color:${u.usb_events_count > 0 ? '#ef4444' : '#4a5578'}">${u.usb_events_count || 0}</td>
-          <td style="font-size:9px">${u.applied_at ? new Date(u.applied_at).toLocaleString() : 'Never'}</td>
-        </tr>`;
-      });
-      html += `</tbody></table>`;
-    }
 
     html += `<div class="footer">IOC Hunt Security Report &nbsp;|&nbsp; ${f.machine || 'All Machines'} &nbsp;|&nbsp; ${durLabel} &nbsp;|&nbsp; Generated ${new Date(d.generated).toLocaleString()}</div></body></html>`;
 
@@ -657,6 +699,360 @@ export default function Reports() {
             </div>
           </div>
         </div>
+
+        {/* ── TOP FIRST SECTION: USB Policy & Device Compliance ── */}
+        {(() => {
+          const catList = Array.isArray(f.category)
+            ? f.category.map(c => String(c).trim().toUpperCase())
+            : (typeof f.category === 'string' && f.category ? f.category.split(',').map(c => c.trim().toUpperCase()) : []);
+          const isAllCats = catList.length === 0 || catList.includes('ALL CATEGORIES') || catList.includes('ALL');
+          const hasUsb = catList.includes('USB');
+          if (!isAllCats && !hasUsb) return null;
+          if (!d.usb_compliance || !d.usb_compliance.machines || d.usb_compliance.machines.length === 0) return null;
+
+          const uSum = d.usb_compliance.summary || {};
+          const allUsbMachines = d.usb_compliance.machines;
+
+          // Filter by tab
+          let filtered = allUsbMachines.filter(m => {
+            const isLocked = m.configured_lock === 'locked';
+            if (usbTab === 'non_compliant') {
+              return m.status === 'Non Compliant' || m.status === 'Non-Compliant' || !isLocked || m.status === 'Policy Mismatch' || m.status === 'Pending Sync' || m.status === 'Offline';
+            }
+            if (usbTab === 'locked') return isLocked;
+            if (usbTab === 'unlocked') return !isLocked;
+            return true;
+          });
+
+          // Filter by search (supports comma separation)
+          if (usbSearch.trim()) {
+            const searchTerms = usbSearch.toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
+            if (searchTerms.length > 0) {
+              filtered = filtered.filter(m => {
+                const rowText = [m.machine, m.label, m.ip, m.group_name, m.status, m.configured_usb, m.current_usb].filter(Boolean).join(' ').toLowerCase();
+                return searchTerms.some(term => rowText.includes(term));
+              });
+            }
+          }
+
+          const totalPages = Math.max(1, Math.ceil(filtered.length / usbPerPage));
+          const curPage = Math.min(usbPage, totalPages);
+          const pagedList = filtered.slice((curPage - 1) * usbPerPage, curPage * usbPerPage);
+
+          return (
+            <div style={{ marginBottom: '24px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', paddingLeft: '4px', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#2563eb' }}>usb</span>
+                  <div>
+                    <h3 style={{ fontSize: '13px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', margin: 0, color: 'var(--text)' }}>
+                      USB POLICY & DEVICE COMPLIANCE
+                    </h3>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {uSum.non_compliant > 0 ? (
+                    <span style={{ fontSize: '10px', fontFamily: 'var(--mono)', background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                      ⚠️ {uSum.non_compliant} Non-Compliant / Pending
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: '10px', fontFamily: 'var(--mono)', background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.3)', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                      ✓ 100% Policy Compliant
+                    </span>
+                  )}
+                  <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                    {allUsbMachines.length} machines audited
+                  </span>
+                </div>
+              </div>
+
+              {/* USB Summary Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+                {[
+                  { l: 'Total Machines', n: uSum.total_machines || 0, c: '#2563eb', icon: 'devices' },
+                  { l: 'USB Disabled (Locked)', n: uSum.total_locked || 0, c: '#ef4444', icon: 'lock' },
+                  { l: 'USB Enabled (Allowed)', n: uSum.total_unlocked || 0, c: '#22c55e', icon: 'lock_open' },
+                  { l: 'Compliant Enforced', n: uSum.compliant || 0, c: '#ef4444', icon: 'verified' },
+                  { l: 'Non-Compliant / Pending', n: uSum.non_compliant || 0, c: uSum.non_compliant > 0 ? '#16a34a' : 'var(--muted)', icon: 'warning' },
+                  { l: 'USB Activity Events', n: uSum.total_violations || 0, c: uSum.total_violations > 0 ? '#ef4444' : 'var(--muted)', icon: 'usb' }
+                ].map((s, idx) => (
+                  <div key={idx} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '0.5px', fontFamily: 'var(--mono)' }}>{s.l}</span>
+                      <span className="material-symbols-outlined" style={{ fontSize: '16px', color: s.c }}>{s.icon}</span>
+                    </div>
+                    <div style={{ fontSize: '20px', fontWeight: 800, fontFamily: 'var(--mono)', color: s.c, marginTop: '4px' }}>
+                      {s.n.toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Table Container */}
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
+                {/* Filter Tabs and Search Bar */}
+                <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', background: 'var(--surface2)' }}>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {[
+                      { id: 'all', label: 'All Machines', count: allUsbMachines.length, icon: 'devices' },
+                      { id: 'non_compliant', label: 'Non-Compliant / Pending', count: allUsbMachines.filter(m => m.configured_lock !== 'locked' || m.status !== 'Compliant').length, icon: 'warning' },
+                      { id: 'locked', label: 'USB Disabled', count: uSum.total_locked || 0, icon: 'lock' },
+                      { id: 'unlocked', label: 'USB Enabled', count: uSum.total_unlocked || 0, icon: 'lock_open' }
+                    ].map(tab => (
+                      <button
+                        key={tab.id}
+                        onClick={() => { setUsbTab(tab.id); setUsbPage(1); }}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '4px 10px',
+                          borderRadius: '5px',
+                          fontSize: '11px',
+                          fontFamily: 'var(--sans)',
+                          fontWeight: usbTab === tab.id ? 700 : 500,
+                          cursor: 'pointer',
+                          border: '1px solid',
+                          borderColor: usbTab === tab.id ? '#2563eb' : 'var(--border)',
+                          background: usbTab === tab.id ? 'rgba(37,99,235,0.12)' : 'transparent',
+                          color: usbTab === tab.id ? '#2563eb' : 'var(--text)',
+                          transition: 'all 0.15s'
+                        }}
+                      >
+                        <span>{tab.label}</span>
+                        <span style={{
+                          padding: '1px 5px',
+                          borderRadius: '10px',
+                          fontSize: '9px',
+                          fontFamily: 'var(--mono)',
+                          background: usbTab === tab.id ? '#2563eb' : 'var(--surface)',
+                          color: usbTab === tab.id ? '#fff' : 'var(--muted)',
+                          fontWeight: 700
+                        }}>
+                          {tab.count}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Search Bar & Per Page */}
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <div style={{ position: 'relative', width: '220px' }}>
+                      <input
+                        type="text"
+                        placeholder="Search machine, IP, group (comma-separated)..."
+                        value={usbSearch}
+                        onChange={e => { setUsbSearch(e.target.value); setUsbPage(1); }}
+                        style={{
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          padding: '5px 10px',
+                          borderRadius: '5px',
+                          background: 'var(--surface)',
+                          border: '1px solid var(--border)',
+                          color: 'var(--text)',
+                          fontSize: '11px',
+                          outline: 'none'
+                        }}
+                      />
+                      {usbSearch && (
+                        <button
+                          onClick={() => setUsbSearch('')}
+                          style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '12px' }}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+
+                    <select
+                      value={usbPerPage}
+                      onChange={e => { setUsbPerPage(Number(e.target.value)); setUsbPage(1); }}
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: '5px',
+                        background: 'var(--surface)',
+                        border: '1px solid var(--border)',
+                        color: 'var(--text)',
+                        fontSize: '11px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value={10}>10 / page</option>
+                      <option value={15}>15 / page</option>
+                      <option value={25}>25 / page</option>
+                      <option value={50}>50 / page</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '900px' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)', color: 'var(--muted)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.8px', fontFamily: 'var(--mono)' }}>
+                        <th style={{ padding: '10px 14px' }}>Machine</th>
+                        <th style={{ padding: '10px 14px' }}>Branch / IP</th>
+                        <th style={{ padding: '10px 14px' }}>Policy Group</th>
+                        <th style={{ padding: '10px 14px' }}>Policy Configured</th>
+                        <th style={{ padding: '10px 14px' }}>Agent State</th>
+                        <th style={{ padding: '10px 14px' }}>Compliance</th>
+                        <th style={{ padding: '10px 14px' }}>USB Events</th>
+                        <th style={{ padding: '10px 14px' }}>Last Sync</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pagedList.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} style={{ padding: '30px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
+                            No machines matched the USB compliance filters
+                          </td>
+                        </tr>
+                      ) : (
+                        pagedList.map((m, idx) => {
+                          const isLocked = m.configured_lock === 'locked';
+                          const confBg = isLocked ? 'rgba(239,68,68,0.12)' : 'rgba(34,197,94,0.12)';
+                          const confCol = isLocked ? '#ef4444' : '#16a34a';
+
+                          // Compliance badge: Disabled (Locked) => Compliant (RED)
+                          // Enabled (Allowed) => Non Compliant (GREEN)
+                          let statusLabel = m.status;
+                          let statusBg = 'rgba(107,130,160,0.12)';
+                          let statusCol = 'var(--muted)';
+                          let statusIcon = '⚠️ ';
+
+                          if (m.status === 'Compliant' || (isLocked && m.is_compliant)) {
+                            statusLabel = 'Compliant';
+                            statusBg = 'rgba(239,68,68,0.12)';
+                            statusCol = '#ef4444';
+                            statusIcon = '✓ ';
+                          } else if (m.status === 'Non Compliant' || m.status === 'Non-Compliant' || (!isLocked && m.is_compliant)) {
+                            statusLabel = 'Non Compliant';
+                            statusBg = 'rgba(34,197,94,0.12)';
+                            statusCol = '#16a34a';
+                            statusIcon = '';
+                          } else if (m.status === 'Policy Mismatch') {
+                            statusLabel = 'Policy Mismatch';
+                            statusBg = 'rgba(239,68,68,0.14)';
+                            statusCol = '#dc2626';
+                            statusIcon = '⚠️ ';
+                          } else if (m.status === 'Pending Sync') {
+                            statusLabel = 'Pending Sync';
+                            statusBg = 'rgba(245,158,11,0.14)';
+                            statusCol = '#d97706';
+                            statusIcon = '⚠️ ';
+                          } else if (m.status === 'Offline') {
+                            statusLabel = 'Offline';
+                            statusBg = 'rgba(107,130,160,0.12)';
+                            statusCol = 'var(--muted)';
+                            statusIcon = '⚠️ ';
+                          }
+
+                          return (
+                            <tr key={idx} style={{ borderBottom: '1px solid var(--border)', fontSize: '11px' }}>
+                              <td style={{ padding: '10px 14px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'var(--muted)' }}>desktop_windows</span>
+                                  <div>
+                                    <div style={{ fontWeight: 700, color: 'var(--accent)' }}>{m.label || m.machine}</div>
+                                    {m.label && m.label !== m.machine && (
+                                      <div style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>{m.machine}</div>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                              <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: '10px', color: 'var(--muted2)' }}>
+                                <span style={{ color: 'var(--text)', fontWeight: 600 }}>{m.aggregator_name || 'direct'}</span>
+                                {m.ip && <div>{m.ip}</div>}
+                              </td>
+                              <td style={{ padding: '10px 14px', fontSize: '11px', color: '#8b5cf6', fontWeight: 600 }}>
+                                {m.group_name || 'Ungrouped'}
+                              </td>
+                              <td style={{ padding: '10px 14px' }}>
+                                <span style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '2px 8px',
+                                  borderRadius: '4px',
+                                  fontSize: '10px',
+                                  fontWeight: 700,
+                                  background: confBg,
+                                  color: confCol,
+                                  border: `1px solid ${confCol}40`,
+                                  textTransform: 'uppercase'
+                                }}>
+                                  <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>
+                                    {isLocked ? 'lock' : 'lock_open'}
+                                  </span>
+                                  {m.configured_usb}
+                                </span>
+                              </td>
+                              <td style={{ padding: '10px 14px', fontSize: '11px', fontFamily: 'var(--mono)' }}>
+                                {m.current_usb === 'Disabled (Locked)' ? (
+                                  <span style={{ color: '#ef4444', fontWeight: 600 }}>Disabled (Locked)</span>
+                                ) : m.current_usb === 'Enabled (Allowed)' ? (
+                                  <span style={{ color: '#16a34a', fontWeight: 600 }}>Enabled (Allowed)</span>
+                                ) : (
+                                  <span style={{ color: 'var(--muted)' }}>Unknown</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 14px' }}>
+                                <span style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '3px 8px',
+                                  borderRadius: '4px',
+                                  fontSize: '10px',
+                                  fontWeight: 800,
+                                  background: statusBg,
+                                  color: statusCol,
+                                  border: `1px solid ${statusCol}40`
+                                }}>
+                                  {statusIcon}{statusLabel}
+                                </span>
+                              </td>
+                              <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: '11px' }}>
+                                {m.usb_events_count > 0 ? (
+                                  <span style={{ color: isLocked ? '#ef4444' : 'var(--text)', fontWeight: isLocked ? 800 : 500 }}>
+                                    {m.usb_events_count} event{m.usb_events_count !== 1 ? 's' : ''}
+                                    {isLocked && <span style={{ fontSize: '9px', marginLeft: '4px', color: '#ef4444' }}>(Violation Alert)</span>}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: 'var(--muted)' }}>0 events</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 14px', whiteSpace: 'nowrap', color: 'var(--muted2)', fontSize: '10px', fontFamily: 'var(--mono)' }}>
+                                {m.applied_at ? new Date(m.applied_at).toLocaleString('sv-SE').slice(0, 16).replace('T', ' ') : 'Never'}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* USB Pagination */}
+                {totalPages > 1 && (
+                  <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                    <div>SHOWING {(curPage - 1) * usbPerPage + 1} TO {Math.min(curPage * usbPerPage, filtered.length)} OF {filtered.length} MACHINES</div>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button disabled={curPage === 1} onClick={() => setUsbPage(p => Math.max(1, p - 1))} style={{ padding: '4px 10px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '4px', color: curPage === 1 ? 'var(--muted)' : 'var(--text)', cursor: curPage === 1 ? 'not-allowed' : 'pointer' }}>Prev</button>
+                      {getPageNumbers(curPage, totalPages).map((p, i) => (
+                        <button key={i} disabled={p === '...'} onClick={() => typeof p === 'number' && setUsbPage(p)} style={{ padding: '4px 10px', background: p === curPage ? '#2563eb' : 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '4px', color: p === curPage ? '#fff' : 'var(--text)', cursor: p === '...' ? 'default' : 'pointer', fontWeight: p === curPage ? 700 : 500 }}>
+                          {p}
+                        </button>
+                      ))}
+                      <button disabled={curPage === totalPages} onClick={() => setUsbPage(p => Math.min(totalPages, p + 1))} style={{ padding: '4px 10px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '4px', color: curPage === totalPages ? 'var(--muted)' : 'var(--text)', cursor: curPage === totalPages ? 'not-allowed' : 'pointer' }}>Next</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
           {[
@@ -767,11 +1163,12 @@ export default function Reports() {
             : sevLower === 'low' ? 'verified_user'
             : 'shield';
 
-          // Search filter within the loaded events
+          // Search filter within the loaded events (supports comma separation)
           const filteredEvents = eventSearch.trim()
             ? rawList.filter(e => {
-                const term = eventSearch.toLowerCase();
-                return (
+                const terms = eventSearch.toLowerCase().split(",").map(t => t.trim()).filter(Boolean);
+                if (terms.length === 0) return true;
+                return terms.some(term =>
                   (e.machine && e.machine.toLowerCase().includes(term)) ||
                   (e.tag && e.tag.toLowerCase().includes(term)) ||
                   (e.category && e.category.toLowerCase().includes(term)) ||
@@ -1336,302 +1733,7 @@ export default function Reports() {
           </div>
         )}
 
-        {/* ── USB Policy & Device Compliance Detail Table ── */}
-        {(() => {
-          const catList = Array.isArray(f.category)
-            ? f.category.map(c => String(c).trim().toUpperCase())
-            : (typeof f.category === 'string' && f.category ? f.category.split(',').map(c => c.trim().toUpperCase()) : []);
-          const isAllCats = catList.length === 0 || catList.includes('ALL CATEGORIES') || catList.includes('ALL');
-          const hasUsb = catList.includes('USB');
-          if (!isAllCats && !hasUsb) return null;
-          if (!d.usb_compliance || !d.usb_compliance.machines || d.usb_compliance.machines.length === 0) return null;
 
-          const uSum = d.usb_compliance.summary || {};
-          const allUsbMachines = d.usb_compliance.machines;
-
-          // Filter by tab
-          let filtered = allUsbMachines.filter(m => {
-            if (usbTab === 'non_compliant') return !m.is_compliant;
-            if (usbTab === 'locked') return m.configured_lock === 'locked';
-            if (usbTab === 'unlocked') return m.configured_lock === 'unlocked';
-            return true;
-          });
-
-          // Filter by search
-          if (usbSearch.trim()) {
-            const s = usbSearch.toLowerCase();
-            filtered = filtered.filter(m =>
-              (m.machine && m.machine.toLowerCase().includes(s)) ||
-              (m.label && m.label.toLowerCase().includes(s)) ||
-              (m.ip && m.ip.toLowerCase().includes(s)) ||
-              (m.group_name && m.group_name.toLowerCase().includes(s)) ||
-              (m.status && m.status.toLowerCase().includes(s)) ||
-              (m.configured_usb && m.configured_usb.toLowerCase().includes(s)) ||
-              (m.current_usb && m.current_usb.toLowerCase().includes(s))
-            );
-          }
-
-          const totalPages = Math.max(1, Math.ceil(filtered.length / usbPerPage));
-          const curPage = Math.min(usbPage, totalPages);
-          const pagedList = filtered.slice((curPage - 1) * usbPerPage, curPage * usbPerPage);
-
-          return (
-            <div style={{ marginBottom: '32px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', paddingLeft: '4px', flexWrap: 'wrap', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#2563eb' }}>usb</span>
-                  <div>
-                    <h3 style={{ fontSize: '13px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', margin: 0, color: 'var(--text)' }}>
-                      USB POLICY & DEVICE COMPLIANCE
-                    </h3>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {uSum.non_compliant > 0 ? (
-                    <span style={{ fontSize: '10px', fontFamily: 'var(--mono)', background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
-                      ⚠️ {uSum.non_compliant} Non-Compliant / Pending
-                    </span>
-                  ) : (
-                    <span style={{ fontSize: '10px', fontFamily: 'var(--mono)', background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.3)', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
-                      ✓ 100% Policy Compliant
-                    </span>
-                  )}
-                  <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-                    {allUsbMachines.length} machines audited
-                  </span>
-                </div>
-              </div>
-
-              {/* USB Summary Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '14px' }}>
-                {[
-                  { l: 'Total Machines', n: uSum.total_machines || 0, c: '#2563eb', icon: 'devices' },
-                  { l: 'USB Disabled (Locked)', n: uSum.total_locked || 0, c: '#ef4444', icon: 'lock' },
-                  { l: 'USB Enabled (Allowed)', n: uSum.total_unlocked || 0, c: '#22c55e', icon: 'lock_open' },
-                  { l: 'Compliant Enforced', n: uSum.compliant || 0, c: '#16a34a', icon: 'verified' },
-                  { l: 'Non-Compliant / Pending', n: uSum.non_compliant || 0, c: uSum.non_compliant > 0 ? '#ea580c' : 'var(--muted)', icon: 'warning' },
-                  { l: 'USB Activity Events', n: uSum.total_violations || 0, c: uSum.total_violations > 0 ? '#ef4444' : 'var(--muted)', icon: 'usb' }
-                ].map((s, idx) => (
-                  <div key={idx} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '0.5px', fontFamily: 'var(--mono)' }}>{s.l}</span>
-                      <span className="material-symbols-outlined" style={{ fontSize: '16px', color: s.c }}>{s.icon}</span>
-                    </div>
-                    <div style={{ fontSize: '20px', fontWeight: 800, fontFamily: 'var(--mono)', color: s.c, marginTop: '4px' }}>
-                      {s.n.toLocaleString()}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* USB Controls Toolbar */}
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
-                <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                  {/* Filter Tabs */}
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    {[
-                      { id: 'all', label: 'All Machines', count: allUsbMachines.length, col: '#2563eb' },
-                      { id: 'non_compliant', label: '⚠️ Non-Compliant / Pending', count: uSum.non_compliant || 0, col: '#ea580c' },
-                      { id: 'locked', label: '🔒 USB Disabled', count: uSum.total_locked || 0, col: '#ef4444' },
-                      { id: 'unlocked', label: '🔓 USB Enabled', count: uSum.total_unlocked || 0, col: '#22c55e' }
-                    ].map(tab => (
-                      <button
-                        key={tab.id}
-                        onClick={() => { setUsbTab(tab.id); setUsbPage(1); }}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          padding: '4px 10px',
-                          borderRadius: '5px',
-                          border: usbTab === tab.id ? `1px solid ${tab.col}` : '1px solid var(--border)',
-                          background: usbTab === tab.id ? `${tab.col}18` : 'var(--surface)',
-                          color: usbTab === tab.id ? tab.col : 'var(--muted)',
-                          fontSize: '11px',
-                          fontWeight: usbTab === tab.id ? 700 : 500,
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {tab.label}
-                        <span style={{ fontSize: '9px', fontFamily: 'var(--mono)', padding: '1px 5px', borderRadius: '4px', background: usbTab === tab.id ? tab.col : 'var(--border)', color: usbTab === tab.id ? '#fff' : 'var(--text)', fontWeight: 700 }}>
-                          {tab.count}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Search and page size */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <input
-                      type="text"
-                      placeholder="Search machine, IP, group..."
-                      value={usbSearch}
-                      onChange={e => { setUsbSearch(e.target.value); setUsbPage(1); }}
-                      style={{ height: '28px', padding: '0 10px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '5px', color: 'var(--text)', fontSize: '11px', outline: 'none', width: '200px' }}
-                    />
-                    <select
-                      value={usbPerPage}
-                      onChange={e => { setUsbPerPage(Number(e.target.value)); setUsbPage(1); }}
-                      style={{ height: '28px', padding: '0 6px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '5px', color: 'var(--text)', fontSize: '11px' }}
-                    >
-                      <option value="10">10 / page</option>
-                      <option value="15">15 / page</option>
-                      <option value="25">25 / page</option>
-                      <option value="50">50 / page</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Table */}
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--sans)' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid var(--border)', background: 'linear-gradient(90deg, rgba(37,99,235,0.06) 0%, rgba(37,99,235,0) 100%)' }}>
-                        <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>Machine</th>
-                        <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>Branch / IP</th>
-                        <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>Policy Group</th>
-                        <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>Policy Configured</th>
-                        <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>Agent State</th>
-                        <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>Compliance</th>
-                        <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>USB Events</th>
-                        <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>Last Sync</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pagedList.length === 0 ? (
-                        <tr>
-                          <td colSpan="8" style={{ padding: '32px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
-                            No machines match the selected USB filter criteria.
-                          </td>
-                        </tr>
-                      ) : (
-                        pagedList.map((m, idx) => {
-                          const isLocked = m.configured_lock === 'locked';
-                          const confBg = isLocked ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)';
-                          const confCol = isLocked ? '#ef4444' : '#16a34a';
-
-                          const statusBg = m.status === 'Compliant'
-                            ? 'rgba(34,197,94,0.12)'
-                            : m.status === 'Policy Mismatch'
-                            ? 'rgba(239,68,68,0.14)'
-                            : m.status === 'Pending Sync'
-                            ? 'rgba(245,158,11,0.14)'
-                            : 'rgba(107,130,160,0.12)';
-
-                          const statusCol = m.status === 'Compliant'
-                            ? '#16a34a'
-                            : m.status === 'Policy Mismatch'
-                            ? '#dc2626'
-                            : m.status === 'Pending Sync'
-                            ? '#d97706'
-                            : 'var(--muted)';
-
-                          return (
-                            <tr key={idx} style={{ borderBottom: '1px solid var(--border)', fontSize: '11px' }}>
-                              <td style={{ padding: '10px 14px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'var(--muted)' }}>desktop_windows</span>
-                                  <div>
-                                    <div style={{ fontWeight: 700, color: 'var(--accent)' }}>{m.label || m.machine}</div>
-                                    {m.label && m.label !== m.machine && (
-                                      <div style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>{m.machine}</div>
-                                    )}
-                                  </div>
-                                </div>
-                              </td>
-                              <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: '10px', color: 'var(--muted2)' }}>
-                                <span style={{ color: 'var(--text)', fontWeight: 600 }}>{m.aggregator_name || 'direct'}</span>
-                                {m.ip && <div>{m.ip}</div>}
-                              </td>
-                              <td style={{ padding: '10px 14px', fontSize: '11px', color: '#8b5cf6', fontWeight: 600 }}>
-                                {m.group_name || 'Ungrouped'}
-                              </td>
-                              <td style={{ padding: '10px 14px' }}>
-                                <span style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  padding: '2px 8px',
-                                  borderRadius: '4px',
-                                  fontSize: '10px',
-                                  fontWeight: 700,
-                                  background: confBg,
-                                  color: confCol,
-                                  border: `1px solid ${confCol}40`,
-                                  textTransform: 'uppercase'
-                                }}>
-                                  <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>
-                                    {isLocked ? 'lock' : 'lock_open'}
-                                  </span>
-                                  {m.configured_usb}
-                                </span>
-                              </td>
-                              <td style={{ padding: '10px 14px', fontSize: '11px', fontFamily: 'var(--mono)' }}>
-                                {m.current_usb === 'Disabled (Locked)' ? (
-                                  <span style={{ color: '#ef4444', fontWeight: 600 }}>Disabled (Locked)</span>
-                                ) : m.current_usb === 'Enabled (Allowed)' ? (
-                                  <span style={{ color: '#16a34a', fontWeight: 600 }}>Enabled (Allowed)</span>
-                                ) : (
-                                  <span style={{ color: 'var(--muted)' }}>Unknown</span>
-                                )}
-                              </td>
-                              <td style={{ padding: '10px 14px' }}>
-                                <span style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  padding: '3px 8px',
-                                  borderRadius: '4px',
-                                  fontSize: '10px',
-                                  fontWeight: 800,
-                                  background: statusBg,
-                                  color: statusCol,
-                                  border: `1px solid ${statusCol}40`
-                                }}>
-                                  {m.status === 'Compliant' ? '✓ ' : '⚠️ '}
-                                  {m.status}
-                                </span>
-                              </td>
-                              <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: '11px' }}>
-                                {m.usb_events_count > 0 ? (
-                                  <span style={{ color: isLocked ? '#ef4444' : 'var(--text)', fontWeight: isLocked ? 800 : 500 }}>
-                                    {m.usb_events_count} event{m.usb_events_count !== 1 ? 's' : ''}
-                                    {isLocked && <span style={{ fontSize: '9px', marginLeft: '4px', color: '#ef4444' }}>(Violation Alert)</span>}
-                                  </span>
-                                ) : (
-                                  <span style={{ color: 'var(--muted)' }}>0 events</span>
-                                )}
-                              </td>
-                              <td style={{ padding: '10px 14px', whiteSpace: 'nowrap', color: 'var(--muted2)', fontSize: '10px', fontFamily: 'var(--mono)' }}>
-                                {m.applied_at ? new Date(m.applied_at).toLocaleString('sv-SE').slice(0, 16).replace('T', ' ') : 'Never'}
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* USB Pagination */}
-                {totalPages > 1 && (
-                  <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-                    <div>SHOWING {(curPage - 1) * usbPerPage + 1} TO {Math.min(curPage * usbPerPage, filtered.length)} OF {filtered.length} MACHINES</div>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button disabled={curPage === 1} onClick={() => setUsbPage(p => Math.max(1, p - 1))} style={{ padding: '4px 10px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '4px', color: curPage === 1 ? 'var(--muted)' : 'var(--text)', cursor: curPage === 1 ? 'not-allowed' : 'pointer' }}>Prev</button>
-                      {getPageNumbers(curPage, totalPages).map((p, i) => (
-                        <button key={i} disabled={p === '...'} onClick={() => typeof p === 'number' && setUsbPage(p)} style={{ padding: '4px 10px', background: p === curPage ? '#2563eb' : 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '4px', color: p === curPage ? '#fff' : 'var(--text)', cursor: p === '...' ? 'default' : 'pointer', fontWeight: p === curPage ? 700 : 500 }}>
-                          {p}
-                        </button>
-                      ))}
-                      <button disabled={curPage === totalPages} onClick={() => setUsbPage(p => Math.min(totalPages, p + 1))} style={{ padding: '4px 10px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '4px', color: curPage === totalPages ? 'var(--muted)' : 'var(--text)', cursor: curPage === totalPages ? 'not-allowed' : 'pointer' }}>Next</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })()}
 
       </div>
     );
@@ -1670,16 +1772,19 @@ export default function Reports() {
       if (alertTab === 'mfa' && !a.alertType.includes('MFA')) return false;
       if (alertTab === 'bruteForce' && !a.alertType.includes('Brute')) return false;
 
-      if (alertSearch) {
-        const s = alertSearch.toLowerCase();
-        return (
-          (a.machine && a.machine.toLowerCase().includes(s)) ||
-          (a.alertType && a.alertType.toLowerCase().includes(s)) ||
-          (a.user && a.user.toLowerCase().includes(s)) ||
-          (a.src_ip && a.src_ip.toLowerCase().includes(s)) ||
-          (a.displayMsg && a.displayMsg.toLowerCase().includes(s)) ||
-          (a.severity && a.severity.toLowerCase().includes(s))
-        );
+      if (alertSearch.trim()) {
+        const terms = alertSearch.toLowerCase().split(",").map(t => t.trim()).filter(Boolean);
+        if (terms.length > 0) {
+          const match = terms.some(s =>
+            (a.machine && a.machine.toLowerCase().includes(s)) ||
+            (a.alertType && a.alertType.toLowerCase().includes(s)) ||
+            (a.user && a.user.toLowerCase().includes(s)) ||
+            (a.src_ip && a.src_ip.toLowerCase().includes(s)) ||
+            (a.displayMsg && a.displayMsg.toLowerCase().includes(s)) ||
+            (a.severity && a.severity.toLowerCase().includes(s))
+          );
+          if (!match) return false;
+        }
       }
       return true;
     });
@@ -1689,9 +1794,10 @@ export default function Reports() {
 
     // Filter connection logs by search
     let filteredConns = conns.filter(c => {
-      if (!connSearch) return true;
-      const s = connSearch.toLowerCase();
-      return (
+      if (!connSearch.trim()) return true;
+      const terms = connSearch.toLowerCase().split(",").map(t => t.trim()).filter(Boolean);
+      if (terms.length === 0) return true;
+      return terms.some(s =>
         (c.src_ip && c.src_ip.toLowerCase().includes(s)) ||
         (c.dst_ip && c.dst_ip.toLowerCase().includes(s)) ||
         (c.service && c.service.toLowerCase().includes(s)) ||
@@ -1767,7 +1873,7 @@ export default function Reports() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
               <input
                 type="text"
-                placeholder="Filter alerts..."
+                placeholder="Filter alerts (comma-separated)..."
                 value={alertSearch}
                 onChange={e => { setAlertSearch(e.target.value); setAlertPage(1); }}
                 style={{ height: '30px', padding: '0 10px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px', outline: 'none', width: '180px' }}
@@ -1906,7 +2012,7 @@ export default function Reports() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
               <input
                 type="text"
-                placeholder="Search connections (IP, port, action, proto)..."
+                placeholder="Search connections (comma-separated)..."
                 value={connSearch}
                 onChange={e => { setConnSearch(e.target.value); setConnPage(1); }}
                 style={{ height: '30px', padding: '0 10px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px', outline: 'none', width: '240px' }}
@@ -2221,15 +2327,84 @@ export default function Reports() {
                 </select>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '100px' }}>
+              <div ref={severityDropdownRef} style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '130px', position: 'relative' }}>
                 <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Severity</label>
-                <select value={filters.severity} onChange={e => setFilters({ ...filters, severity: e.target.value })} style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px' }}>
-                  <option value="">All Severities</option>
-                  <option value="critical">Critical</option>
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
-                </select>
+                
+                <div 
+                  onClick={() => {
+                    setShowSeverityDropdown(!showSeverityDropdown);
+                    setShowCategoryDropdown(false);
+                    setShowBranchDropdown(false);
+                  }}
+                  style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none' }}
+                >
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {getSeverityLabel()}
+                  </span>
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'var(--muted)', transform: showSeverityDropdown ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>expand_more</span>
+                </div>
+                
+                {showSeverityDropdown && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', minWidth: '180px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', marginTop: '4px', zIndex: 35, padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '280px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px', borderBottom: '1px solid var(--border)', fontSize: '10px', fontFamily: 'var(--mono)' }}>
+                      <span 
+                        onClick={() => setFilters({ ...filters, severity: [] })}
+                        style={{ color: 'var(--accent)', cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        {(!filters.severity || filters.severity.length === 0) ? '✓ All Severities' : 'Reset to All'}
+                      </span>
+                      {filters.severity && filters.severity.length > 0 && (
+                        <span 
+                          onClick={() => setFilters({ ...filters, severity: [] })}
+                          style={{ color: 'var(--muted)', cursor: 'pointer' }}
+                        >
+                          Clear
+                        </span>
+                      )}
+                    </div>
+
+                    {REPORT_SEVERITIES.map(sev => {
+                      const isSelected = Array.isArray(filters.severity) ? filters.severity.includes(sev.id) : filters.severity === sev.id;
+                      return (
+                        <label 
+                          key={sev.id} 
+                          style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '8px', 
+                            cursor: 'pointer', 
+                            fontSize: '12px', 
+                            color: 'var(--text)', 
+                            padding: '3px 6px',
+                            borderRadius: '4px',
+                            background: isSelected ? 'rgba(37,99,235,0.08)' : 'transparent',
+                            transition: 'background 0.15s'
+                          }}
+                        >
+                          <input 
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              const isChecked = e.target.checked;
+                              let current = Array.isArray(filters.severity) ? [...filters.severity] : (filters.severity ? [filters.severity] : []);
+                              if (isChecked) {
+                                current.push(sev.id);
+                              } else {
+                                current = current.filter(s => s !== sev.id);
+                              }
+                              setFilters({ 
+                                ...filters, 
+                                severity: current
+                              });
+                            }}
+                          />
+                          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: sev.color, flexShrink: 0 }} />
+                          <span style={{ flex: 1 }}>{sev.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div ref={categoryDropdownRef} style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: '150px', position: 'relative' }}>
@@ -2497,7 +2672,7 @@ export default function Reports() {
                 <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Service</label>
                 <input 
                   type="text" 
-                  placeholder="e.g. HTTPS, 443..." 
+                  placeholder="e.g. HTTPS, SSH (comma-separated)..." 
                   value={fwFilters.service} 
                   onChange={e => setFwFilters({ ...fwFilters, service: e.target.value })} 
                   style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} 
@@ -2508,7 +2683,7 @@ export default function Reports() {
                 <label style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '.8px', textTransform: 'uppercase' }}>Filter IP / Keyword</label>
                 <input 
                   type="text" 
-                  placeholder="Source IP, Dest IP, user, policy..." 
+                  placeholder="IP, port, user, policy (comma-separated)..." 
                   value={fwFilters.search} 
                   onChange={e => setFwFilters({ ...fwFilters, search: e.target.value })} 
                   style={{ width: '100%', height: '34px', boxSizing: 'border-box', padding: '0 12px', background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--sans)', fontSize: '12px', borderRadius: '6px', outline: 'none' }} 

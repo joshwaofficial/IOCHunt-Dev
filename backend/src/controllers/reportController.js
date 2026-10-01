@@ -58,7 +58,19 @@ const generateReport = async (req, res) => {
       }
     }
 
-    if (severity) { evConds.push(`severity=$${evIdx++}`); evParams.push(severity); }
+    let selectedSevs = [];
+    if (severity && severity !== 'All Severities' && severity !== 'ALL') {
+      selectedSevs = (Array.isArray(severity) ? severity : severity.split(','))
+        .map(s => s.trim().toLowerCase())
+        .filter(s => s && s !== 'all severities' && s !== 'all');
+    }
+    if (selectedSevs.length > 0) {
+      const sevPlaceholders = selectedSevs.map(s => {
+        evParams.push(s);
+        return `$${evIdx++}`;
+      }).join(',');
+      evConds.push(`severity IN (${sevPlaceholders})`);
+    }
 
     let selectedCats = [];
     if (category && category !== 'All Categories' && category !== 'ALL') {
@@ -232,9 +244,15 @@ const generateReport = async (req, res) => {
               totalNonCompliant++;
             }
           } else {
-            status = 'Compliant';
-            statusBadge = 'success';
-            totalCompliant++;
+            if (targetUsbLock === 'locked') {
+              status = 'Compliant';
+              statusBadge = 'danger';
+              totalCompliant++;
+            } else {
+              status = 'Non Compliant';
+              statusBadge = 'success';
+              totalNonCompliant++;
+            }
           }
 
           if (targetUsbLock === 'locked') totalLocked++;
@@ -357,7 +375,7 @@ const generateReport = async (req, res) => {
 
     res.json({
       generated: new Date().toISOString(),
-      filters: { from, to, duration, machine, severity, category: selectedCats.length > 0 ? selectedCats.join(', ') : '', src_ip, dst_ip, action },
+      filters: { from, to, duration, machine, severity: selectedSevs.length > 0 ? selectedSevs.map(s => s.toUpperCase()).join(', ') : '', category: selectedCats.length > 0 ? selectedCats.join(', ') : '', src_ip, dst_ip, action },
       events: { total: totalEvents, bySeverity, byCategory, byMachine, hourly, topTags, critical: reportEvents, items: reportEvents },
       ad_attacks: adEvents,
       user_events: userEvents,
@@ -529,26 +547,66 @@ const generateFirewallReport = async (req, res) => {
       }
     }
 
-    if (severity && severity !== 'All Severities') {
-      conds.push(`severity=$${idx++}`);
-      params.push(severity.toLowerCase());
+    let fwSelectedSevs = [];
+    if (severity && severity !== 'All Severities' && severity !== 'ALL') {
+      fwSelectedSevs = (Array.isArray(severity) ? severity : severity.split(','))
+        .map(s => s.trim().toLowerCase())
+        .filter(s => s && s !== 'all severities' && s !== 'all');
+    }
+    if (fwSelectedSevs.length > 0) {
+      const placeholders = fwSelectedSevs.map(s => {
+        params.push(s);
+        return `$${idx++}`;
+      }).join(',');
+      conds.push(`severity IN (${placeholders})`);
     }
 
     if (service && service !== 'All Services') {
-      conds.push(`service ILIKE $${idx++}`);
-      params.push('%' + service + '%');
+      const svcs = service.split(',').map(s => s.trim()).filter(Boolean);
+      if (svcs.length === 1) {
+        conds.push(`service ILIKE $${idx++}`);
+        params.push('%' + svcs[0] + '%');
+      } else if (svcs.length > 1) {
+        const svcConds = svcs.map(s => {
+          params.push('%' + s + '%');
+          return `service ILIKE $${idx++}`;
+        });
+        conds.push(`(${svcConds.join(' OR ')})`);
+      }
     }
 
     if (ip) {
-      conds.push(`(src_ip LIKE $${idx} OR dst_ip LIKE $${idx+1})`);
-      params.push('%' + ip + '%', '%' + ip + '%');
-      idx += 2;
+      const ips = ip.split(',').map(i => i.trim()).filter(Boolean);
+      if (ips.length === 1) {
+        conds.push(`(src_ip LIKE $${idx} OR dst_ip LIKE $${idx+1})`);
+        params.push('%' + ips[0] + '%', '%' + ips[0] + '%');
+        idx += 2;
+      } else if (ips.length > 1) {
+        const ipConds = [];
+        ips.forEach(singleIp => {
+          ipConds.push(`(src_ip LIKE $${idx} OR dst_ip LIKE $${idx+1})`);
+          params.push('%' + singleIp + '%', '%' + singleIp + '%');
+          idx += 2;
+        });
+        conds.push(`(${ipConds.join(' OR ')})`);
+      }
     }
 
     if (search) {
-      conds.push(`(msg ILIKE $${idx} OR raw ILIKE $${idx+1} OR cfgpath ILIKE $${idx+2} OR fw_user ILIKE $${idx+3} OR devname ILIKE $${idx+4})`);
-      params.push('%' + search + '%', '%' + search + '%', '%' + search + '%', '%' + search + '%', '%' + search + '%');
-      idx += 5;
+      const searchTerms = search.split(',').map(s => s.trim()).filter(Boolean);
+      if (searchTerms.length === 1) {
+        conds.push(`(msg ILIKE $${idx} OR raw ILIKE $${idx+1} OR cfgpath ILIKE $${idx+2} OR fw_user ILIKE $${idx+3} OR devname ILIKE $${idx+4} OR src_ip ILIKE $${idx+5} OR dst_ip ILIKE $${idx+6} OR policy ILIKE $${idx+7})`);
+        params.push('%' + searchTerms[0] + '%', '%' + searchTerms[0] + '%', '%' + searchTerms[0] + '%', '%' + searchTerms[0] + '%', '%' + searchTerms[0] + '%', '%' + searchTerms[0] + '%', '%' + searchTerms[0] + '%', '%' + searchTerms[0] + '%');
+        idx += 8;
+      } else if (searchTerms.length > 1) {
+        const termConds = [];
+        searchTerms.forEach(term => {
+          termConds.push(`(msg ILIKE $${idx} OR raw ILIKE $${idx+1} OR cfgpath ILIKE $${idx+2} OR fw_user ILIKE $${idx+3} OR devname ILIKE $${idx+4} OR src_ip ILIKE $${idx+5} OR dst_ip ILIKE $${idx+6} OR policy ILIKE $${idx+7})`);
+          params.push('%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%');
+          idx += 8;
+        });
+        conds.push(`(${termConds.join(' OR ')})`);
+      }
     }
 
     const whereClause = 'WHERE ' + conds.join(' AND ');
@@ -624,6 +682,32 @@ const generateFirewallReport = async (req, res) => {
         return `$${aIdx++}`;
       }).join(',');
       alertConds.push(`aggregator_name IN (${placeholders})`);
+    }
+
+    if (ip) {
+      const ips = ip.split(',').map(i => i.trim()).filter(Boolean);
+      if (ips.length > 0) {
+        const ipConds = [];
+        ips.forEach(singleIp => {
+          ipConds.push(`(src_ip LIKE $${aIdx} OR dst_ip LIKE $${aIdx+1} OR raw LIKE $${aIdx+2})`);
+          alertParams.push('%' + singleIp + '%', '%' + singleIp + '%', '%' + singleIp + '%');
+          aIdx += 3;
+        });
+        alertConds.push(`(${ipConds.join(' OR ')})`);
+      }
+    }
+
+    if (search) {
+      const searchTerms = search.split(',').map(s => s.trim()).filter(Boolean);
+      if (searchTerms.length > 0) {
+        const sConds = [];
+        searchTerms.forEach(term => {
+          sConds.push(`(msg ILIKE $${aIdx} OR raw ILIKE $${aIdx+1} OR cfgpath ILIKE $${aIdx+2} OR fw_user ILIKE $${aIdx+3} OR devname ILIKE $${aIdx+4})`);
+          alertParams.push('%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%', '%' + term + '%');
+          aIdx += 5;
+        });
+        alertConds.push(`(${sConds.join(' OR ')})`);
+      }
     }
 
     alertConds.push(`(
