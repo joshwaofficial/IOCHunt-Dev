@@ -104,12 +104,12 @@ exports.getFirewallStats = async (req, res) => {
     const w = 'WHERE ' + conds.join(' AND ');
 
     const totalRes = await req.queryTenant('SELECT COUNT(*) AS n FROM fw_events ' + w, p);
-    const total = parseInt(totalRes.rows[0].n, 10);
-    const bySev = (await req.queryTenant('SELECT severity,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY severity', p)).rows;
-    const byAction = (await req.queryTenant('SELECT action,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY action ORDER BY n DESC', p)).rows;
-    const byService = (await req.queryTenant('SELECT service,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY service ORDER BY n DESC LIMIT 10', p)).rows;
-    const topSrc = (await req.queryTenant('SELECT src_ip,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY src_ip ORDER BY n DESC LIMIT 10', p)).rows;
-    const topDst = (await req.queryTenant('SELECT dst_ip,dst_port,service,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY dst_ip,dst_port,service ORDER BY n DESC LIMIT 10', p)).rows;
+    const total = parseInt(totalRes.rows[0].n, 10) || 0;
+    const bySev = (await req.queryTenant('SELECT severity,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY severity', p)).rows.map(r => ({ severity: r.severity, n: parseInt(r.n, 10) || 0 }));
+    const byAction = (await req.queryTenant('SELECT action,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY action ORDER BY n DESC', p)).rows.map(r => ({ action: r.action, n: parseInt(r.n, 10) || 0 }));
+    const byService = (await req.queryTenant('SELECT service,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY service ORDER BY n DESC LIMIT 10', p)).rows.map(r => ({ service: r.service, n: parseInt(r.n, 10) || 0 }));
+    const topSrc = (await req.queryTenant('SELECT src_ip,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY src_ip ORDER BY n DESC LIMIT 10', p)).rows.map(r => ({ src_ip: r.src_ip, n: parseInt(r.n, 10) || 0 }));
+    const topDst = (await req.queryTenant('SELECT dst_ip,dst_port,service,COUNT(*) AS n FROM fw_events ' + w + ' GROUP BY dst_ip,dst_port,service ORDER BY n DESC LIMIT 10', p)).rows.map(r => ({ dst_ip: r.dst_ip, dst_port: r.dst_port, service: r.service, n: parseInt(r.n, 10) || 0 }));
     
     const safeLimit = parseSafeInt(limit, 200, 1, 1000);
     const safeOffset = parseSafeInt(offset, 0, 0);
