@@ -117,16 +117,26 @@ const generateReport = async (req, res) => {
       OR tag LIKE '%PASSWORD-RESET%' OR tag LIKE '%AUDIT-POLICY%')`;
     const userEvents = (await req.queryTenant(`SELECT machine, ts, tag, severity, message FROM events ${userWhere} ORDER BY ts DESC`, evParams)).rows;
 
-    // ── Machine summary ───────────────────────────────────────────────────────
+    // ── Machine summary (Optimized single-query group by) ──────────────────────
     const machines = (await req.queryTenant('SELECT * FROM machines ORDER BY last_seen DESC')).rows;
+    const machSevRows = (await req.queryTenant(`
+      SELECT machine, severity, COUNT(*) AS n 
+      FROM events ${evWhere} 
+      GROUP BY machine, severity
+    `, evParams)).rows;
+
+    const machSevMap = {};
+    machSevRows.forEach(r => {
+      if (!machSevMap[r.machine]) machSevMap[r.machine] = {};
+      machSevMap[r.machine][r.severity] = parseInt(r.n, 10);
+    });
+
     const machineSummary = [];
     for (const m of machines) {
       if (aggrs.length > 0 && !aggrs.includes(m.aggregator_name)) continue;
-      const p2 = [...evParams]; const c2 = [...evConds, `machine=$${evIdx}`]; p2.push(m.id);
-      const w2 = 'WHERE ' + c2.join(' AND ');
-      const stats = (await req.queryTenant(`SELECT severity, COUNT(*) AS n FROM events ${w2} GROUP BY severity`, p2)).rows;
-      const sv = {}; stats.forEach(r => { sv[r.severity] = r.n; });
-      const age = Math.floor(Date.now() / 1000) - (m.last_seen || 0);
+      const sv = machSevMap[m.id] || {};
+      const lastSeenEpoch = m.last_seen ? Math.floor(new Date(m.last_seen).getTime() / 1000) : 0;
+      const age = Math.floor(Date.now() / 1000) - lastSeenEpoch;
       machineSummary.push({
         id: m.id, label: m.label || m.id, ip: m.ip || '',
         last_seen: m.last_seen, event_count: m.event_count || 0,
@@ -134,6 +144,138 @@ const generateReport = async (req, res) => {
         age_seconds: age,
         status: age < 180 ? 'Online' : age < 600 ? 'Recent' : age < 3600 ? 'Away' : 'Offline',
       });
+    }
+
+    // ── USB Policy & Machine Compliance Summary ───────────────────────────────
+    let usbCompliance = null;
+    try {
+      const polRows = (await req.queryTenant('SELECT machine, policy_json, current_json, applied_at, updated_at FROM policies')).rows;
+      const grpRows = (await req.queryTenant('SELECT id, name, policy_json, updated_at FROM pol_groups')).rows;
+      const mgRows = (await req.queryTenant('SELECT machine, group_id FROM machine_groups')).rows;
+
+      // Count USB events in the report window per machine
+      const usbEventRows = (await req.queryTenant(`
+        SELECT machine, COUNT(*) AS n 
+        FROM events 
+        WHERE (category='USB' OR tag ILIKE '%USB%' OR message ILIKE '%USB%')
+          AND ts>=$1 AND ts<=$2
+        GROUP BY machine
+      `, [from, to])).rows;
+      const usbEventMap = {};
+      usbEventRows.forEach(r => { usbEventMap[r.machine] = parseInt(r.n, 10); });
+
+      const polMap = {};
+      polRows.forEach(p => { polMap[(p.machine || '').toLowerCase()] = p; });
+
+      const grpMap = {};
+      grpRows.forEach(g => { grpMap[g.id] = g; });
+
+      const mgMap = {};
+      mgRows.forEach(mg => { mgMap[(mg.machine || '').toLowerCase()] = mg.group_id; });
+
+      const complianceList = [];
+      let totalLocked = 0;
+      let totalUnlocked = 0;
+      let totalCompliant = 0;
+      let totalNonCompliant = 0;
+      let totalViolations = 0;
+
+      for (const m of machines) {
+        if (aggrs.length > 0 && !aggrs.includes(m.aggregator_name)) continue;
+
+        const mKey = (m.id || '').toLowerCase();
+        const p = polMap[mKey] || {};
+        const gId = mgMap[mKey];
+        const g = gId ? grpMap[gId] : null;
+
+        let pj = {};
+        let cj = {};
+        let gj = {};
+        try { pj = JSON.parse(p.policy_json || '{}'); } catch (_) {}
+        try { cj = JSON.parse(p.current_json || '{}'); } catch (_) {}
+        try { gj = JSON.parse(g?.policy_json || '{}'); } catch (_) {}
+
+        // Target configured USB lock: machine override > group setting > default ('unlocked')
+        const targetUsbLock = pj.usbLock !== undefined ? pj.usbLock : (gj.usbLock !== undefined ? gj.usbLock : 'unlocked');
+        const configuredState = targetUsbLock === 'locked' ? 'Disabled (Locked)' : 'Enabled (Allowed)';
+
+        // Current reported USB lock from agent:
+        const currentUsbLock = cj.usbLock !== undefined ? cj.usbLock : null;
+        const currentState = currentUsbLock ? (currentUsbLock === 'locked' ? 'Disabled (Locked)' : 'Enabled (Allowed)') : 'Unknown';
+
+        // Pickup / sync evaluation
+        const effectiveUpdatedAt = Math.max(g?.updated_at || 0, p.updated_at || 0);
+        const isTimeSynced = Boolean(p.applied_at && (!effectiveUpdatedAt || p.applied_at >= effectiveUpdatedAt));
+        const isStateSynced = currentUsbLock !== null ? (currentUsbLock === targetUsbLock) : isTimeSynced;
+
+        const lastSeenEpoch = m.last_seen ? Math.floor(new Date(m.last_seen).getTime() / 1000) : 0;
+        const age = Math.floor(Date.now() / 1000) - lastSeenEpoch;
+        const isOnline = age < 600;
+
+        let status = 'Compliant';
+        let statusBadge = 'success'; // 'success', 'warning', 'danger', 'offline'
+
+        if (!isOnline && age > 86400) {
+          status = 'Offline';
+          statusBadge = 'offline';
+          totalNonCompliant++;
+        } else if (!isStateSynced || !isTimeSynced) {
+          if (currentUsbLock && currentUsbLock !== targetUsbLock) {
+            status = 'Policy Mismatch';
+            statusBadge = 'danger';
+            totalNonCompliant++;
+          } else {
+            status = 'Pending Sync';
+            statusBadge = 'warning';
+            totalNonCompliant++;
+          }
+        } else {
+          status = 'Compliant';
+          statusBadge = 'success';
+          totalCompliant++;
+        }
+
+        if (targetUsbLock === 'locked') totalLocked++;
+        else totalUnlocked++;
+
+        const usbEventsCount = usbEventMap[m.id] || 0;
+        if (targetUsbLock === 'locked' && usbEventsCount > 0) {
+          totalViolations += usbEventsCount;
+        }
+
+        complianceList.push({
+          machine: m.id,
+          label: m.label || m.id,
+          ip: m.ip || '-',
+          aggregator_name: m.aggregator_name || 'direct',
+          group_name: g?.name || 'Ungrouped',
+          configured_usb: configuredState,
+          configured_lock: targetUsbLock,
+          current_usb: currentState,
+          current_lock: currentUsbLock,
+          status,
+          status_badge: statusBadge,
+          is_compliant: status === 'Compliant',
+          applied_at: p.applied_at ? new Date(p.applied_at * 1000).toISOString() : null,
+          usb_events_count: usbEventsCount,
+          last_seen: m.last_seen
+        });
+      }
+
+      usbCompliance = {
+        summary: {
+          total_machines: complianceList.length,
+          total_locked: totalLocked,
+          total_unlocked: totalUnlocked,
+          compliant: totalCompliant,
+          non_compliant: totalNonCompliant,
+          total_violations: totalViolations
+        },
+        machines: complianceList
+      };
+    } catch (usbErr) {
+      console.warn('[reports usb compliance error]', usbErr.message);
+      usbCompliance = null;
     }
 
     // ── Firewall stats ────────────────────────────────────────────────────────
@@ -144,39 +286,70 @@ const generateReport = async (req, res) => {
 
     let fwStats = null;
     if (shouldIncludeFw) {
-      const fwConds = ['ts>=$1', 'ts<=$2'];
-      const fwParams = [from, to];
-      let fwIdx = 3;
-      if (src_ip) { fwConds.push(`src_ip LIKE $${fwIdx++}`); fwParams.push('%' + src_ip + '%'); }
-      if (dst_ip) { fwConds.push(`dst_ip LIKE $${fwIdx++}`); fwParams.push('%' + dst_ip + '%'); }
-      if (action) { fwConds.push(`action=$${fwIdx++}`); fwParams.push(action); }
-      if (aggrs.length > 0) {
-        const fwPlaceholders = aggrs.map(a => {
-          fwParams.push(a);
-          return `$${fwIdx++}`;
-        }).join(',');
-        fwConds.push(`aggregator_name IN (${fwPlaceholders})`);
+      try {
+        const fwConds = ['ts>=$1', 'ts<=$2'];
+        const fwParams = [from, to];
+        let fwIdx = 3;
+        if (src_ip) { fwConds.push(`src_ip LIKE $${fwIdx++}`); fwParams.push('%' + src_ip + '%'); }
+        if (dst_ip) { fwConds.push(`dst_ip LIKE $${fwIdx++}`); fwParams.push('%' + dst_ip + '%'); }
+        if (action) { fwConds.push(`action=$${fwIdx++}`); fwParams.push(action); }
+        if (aggrs.length > 0) {
+          const fwPlaceholders = aggrs.map(a => {
+            fwParams.push(a);
+            return `$${fwIdx++}`;
+          }).join(',');
+          fwConds.push(`aggregator_name IN (${fwPlaceholders})`);
+        }
+        const fwWhere = 'WHERE ' + fwConds.join(' AND ');
+
+        const fwTotal = parseInt((await req.queryTenant(`SELECT COUNT(*) AS n FROM fw_events ${fwWhere}`, fwParams)).rows[0]?.n || 0, 10);
+        const fwBySev = (await req.queryTenant(`SELECT severity, COUNT(*) AS n FROM fw_events ${fwWhere} GROUP BY severity`, fwParams)).rows;
+        const fwByAct = (await req.queryTenant(`SELECT action, COUNT(*) AS n FROM fw_events ${fwWhere} GROUP BY action ORDER BY n DESC`, fwParams)).rows;
+        const fwTopSrc = (await req.queryTenant(`SELECT src_ip, COUNT(*) AS n FROM fw_events ${fwWhere} GROUP BY src_ip ORDER BY n DESC LIMIT 10`, fwParams)).rows;
+        const fwTopDst = (await req.queryTenant(`SELECT dst_ip, dst_port, service, COUNT(*) AS n FROM fw_events ${fwWhere} GROUP BY dst_ip, dst_port, service ORDER BY n DESC LIMIT 10`, fwParams)).rows;
+        const fwTopSvc = (await req.queryTenant(`SELECT service, COUNT(*) AS n FROM fw_events ${fwWhere} GROUP BY service ORDER BY n DESC LIMIT 10`, fwParams)).rows;
+        const fwBlocked = (await req.queryTenant(`SELECT * FROM fw_events ${fwWhere} AND (action='deny' OR action='drop') ORDER BY ts DESC LIMIT 50`, fwParams)).rows;
+        
+        let fwHourly = [];
+        try {
+          fwHourly = (await req.queryTenant(`SELECT TO_CHAR(ts::timestamp, 'YYYY-MM-DD HH24:00') AS hour, action, COUNT(*) AS n FROM fw_events ${fwWhere} GROUP BY hour, action ORDER BY hour ASC`, fwParams)).rows;
+        } catch (_) {}
+
+        // Detailed firewall event log entries (safe SELECT * avoids missing column errors)
+        const fwDetailedRows = (await req.queryTenant(`
+          SELECT *
+          FROM fw_events ${fwWhere}
+          ORDER BY ts DESC LIMIT 200
+        `, fwParams)).rows;
+
+        const fwDetailedEvents = fwDetailedRows.map(e => ({
+          id: e.id,
+          ts: e.ts,
+          devname: e.devname || e.machine || '',
+          src_ip: e.src_ip || '',
+          dst_ip: e.dst_ip || '',
+          dst_port: e.dst_port || 0,
+          action: e.action || '',
+          service: e.service || '',
+          severity: e.severity || 'info',
+          policy: e.policy || '',
+          fw_user: e.fw_user || '',
+          fw_ui: e.fw_ui || '',
+          msg: e.msg || e.raw || '',
+          subtype: e.subtype || '',
+          log_type: e.log_type || '',
+          cfgpath: e.cfgpath || '',
+          cfgobj: e.cfgobj || '',
+          cfgattr: e.cfgattr || '',
+          logdesc: e.logdesc || '',
+          session_id: e.session_id || ''
+        }));
+
+        fwStats = { total: fwTotal, bySev: fwBySev, byAction: fwByAct, topSrc: fwTopSrc, topDst: fwTopDst, topService: fwTopSvc, blocked: fwBlocked, hourly: fwHourly, events: fwDetailedEvents };
+      } catch (fwErr) {
+        console.warn('[reports firewall query note]', fwErr.message);
+        fwStats = null;
       }
-      const fwWhere = 'WHERE ' + fwConds.join(' AND ');
-
-      const fwTotal = parseInt((await req.queryTenant(`SELECT COUNT(*) AS n FROM fw_events ${fwWhere}`, fwParams)).rows[0].n, 10);
-      const fwBySev = (await req.queryTenant(`SELECT severity, COUNT(*) AS n FROM fw_events ${fwWhere} GROUP BY severity`, fwParams)).rows;
-      const fwByAct = (await req.queryTenant(`SELECT action, COUNT(*) AS n FROM fw_events ${fwWhere} GROUP BY action ORDER BY n DESC`, fwParams)).rows;
-      const fwTopSrc = (await req.queryTenant(`SELECT src_ip, COUNT(*) AS n FROM fw_events ${fwWhere} GROUP BY src_ip ORDER BY n DESC LIMIT 10`, fwParams)).rows;
-      const fwTopDst = (await req.queryTenant(`SELECT dst_ip, dst_port, service, COUNT(*) AS n FROM fw_events ${fwWhere} GROUP BY dst_ip, dst_port, service ORDER BY n DESC LIMIT 10`, fwParams)).rows;
-      const fwTopSvc = (await req.queryTenant(`SELECT service, COUNT(*) AS n FROM fw_events ${fwWhere} GROUP BY service ORDER BY n DESC LIMIT 10`, fwParams)).rows;
-      const fwBlocked = (await req.queryTenant(`SELECT * FROM fw_events ${fwWhere} AND (action='deny' OR action='drop') ORDER BY ts DESC LIMIT 50`, fwParams)).rows;
-      const fwHourly = (await req.queryTenant(`SELECT TO_CHAR(ts::timestamp, 'YYYY-MM-DD HH24:00') AS hour, action, COUNT(*) AS n FROM fw_events ${fwWhere} GROUP BY hour, action ORDER BY hour ASC`, fwParams)).rows;
-
-      // Detailed firewall event log entries (config changes, logins, system events)
-      const fwDetailedEvents = (await req.queryTenant(`
-        SELECT id, ts, devname, src_ip, dst_ip, dst_port, action, service, severity, policy,
-               fw_user, fw_ui, msg, subtype, log_type, cfgpath, cfgobj, cfgattr, logdesc, session_id
-        FROM fw_events ${fwWhere}
-        ORDER BY ts DESC LIMIT 200
-      `, fwParams)).rows;
-
-      fwStats = { total: fwTotal, bySev: fwBySev, byAction: fwByAct, topSrc: fwTopSrc, topDst: fwTopDst, topService: fwTopSvc, blocked: fwBlocked, hourly: fwHourly, events: fwDetailedEvents };
     }
 
     res.json({
@@ -187,6 +360,7 @@ const generateReport = async (req, res) => {
       user_events: userEvents,
       machines: machineSummary,
       firewall: fwStats,
+      usb_compliance: usbCompliance,
     });
   } catch (e) {
     console.error('[reports]', e.message);
@@ -385,22 +559,53 @@ const generateFirewallReport = async (req, res) => {
     const topSrcRows = (await req.queryTenant(`SELECT src_ip, COUNT(*) AS n FROM fw_events ${whereClause} GROUP BY src_ip ORDER BY n DESC LIMIT 10`, params)).rows;
     const topDstRows = (await req.queryTenant(`SELECT dst_ip, dst_port, service, COUNT(*) AS n FROM fw_events ${whereClause} GROUP BY dst_ip, dst_port, service ORDER BY n DESC LIMIT 10`, params)).rows;
     const topSvcRows = (await req.queryTenant(`SELECT service, COUNT(*) AS n FROM fw_events ${whereClause} GROUP BY service ORDER BY n DESC LIMIT 10`, params)).rows;
-    const hourlyRows = (await req.queryTenant(`SELECT TO_CHAR(ts::timestamp, 'YYYY-MM-DD HH24:00') AS hour, action, COUNT(*) AS n FROM fw_events ${whereClause} GROUP BY hour, action ORDER BY hour ASC`, params)).rows;
+    let hourlyRows = [];
+    try {
+      hourlyRows = (await req.queryTenant(`SELECT TO_CHAR(ts::timestamp, 'YYYY-MM-DD HH24:00') AS hour, action, COUNT(*) AS n FROM fw_events ${whereClause} GROUP BY hour, action ORDER BY hour ASC`, params)).rows;
+    } catch (_) {}
 
     const actMap = {};
     byActionRows.forEach(r => { actMap[(r.action || '').toLowerCase()] = parseInt(r.n, 10); });
     const sevMap = {};
     bySevRows.forEach(r => { sevMap[(r.severity || '').toLowerCase()] = parseInt(r.n, 10); });
 
-    // ── Connection Logs ─────────────────────────────────────────────────────
-    const connRows = (await req.queryTenant(`
-      SELECT id, ts, devname AS machine, aggregator_name, src_ip, src_port, dst_ip, dst_port,
-             action, proto, service, sent_byte, rcvd_byte, duration, country, policy, severity,
-             fw_user, fw_ui, msg, subtype, log_type, cfgpath, cfgobj, cfgattr, logdesc
+    // ── Connection Logs (Safe SELECT * handles schema variances) ────────────
+    const rawConnRows = (await req.queryTenant(`
+      SELECT *
       FROM fw_events ${whereClause}
       ORDER BY ts DESC
       LIMIT ${Math.min(parseInt(limit, 10) || 1000, 2000)}
     `, params)).rows;
+
+    const connRows = rawConnRows.map(r => ({
+      id: r.id,
+      ts: r.ts,
+      machine: r.devname || r.machine || '-',
+      aggregator_name: r.aggregator_name || '',
+      src_ip: r.src_ip || '',
+      src_port: r.src_port || 0,
+      dst_ip: r.dst_ip || '',
+      dst_port: r.dst_port || 0,
+      action: r.action || '',
+      proto: r.proto || '',
+      service: r.service || '',
+      sent_byte: Number(r.sent_bytes || r.sent_byte || 0),
+      rcvd_byte: Number(r.rcv_bytes || r.rcvd_byte || 0),
+      duration: r.duration || 0,
+      country: r.dst_country || r.src_country || r.country || '',
+      policy: r.policy || '',
+      severity: r.severity || 'info',
+      fw_user: r.fw_user || '',
+      fw_ui: r.fw_ui || '',
+      msg: r.msg || '',
+      subtype: r.subtype || '',
+      log_type: r.log_type || '',
+      cfgpath: r.cfgpath || '',
+      cfgobj: r.cfgobj || '',
+      cfgattr: r.cfgattr || '',
+      logdesc: r.logdesc || '',
+      message: r.raw || r.msg || ''
+    }));
 
     // ── Security Alerts Query & Parsing ─────────────────────────────────────
     const alertConds = ['ts>=$1', 'ts<=$2'];
@@ -452,13 +657,28 @@ const generateFirewallReport = async (req, res) => {
 
     const alertWhere = 'WHERE ' + alertConds.join(' AND ');
     const rawAlertRows = (await req.queryTenant(`
-      SELECT id, ts, devname AS machine, aggregator_name, severity, src_ip,
-             fw_user, fw_ui, msg, subtype, log_type, cfgpath, cfgobj, cfgattr, logdesc,
-             raw AS message
+      SELECT *
       FROM fw_events ${alertWhere}
       ORDER BY ts DESC
       LIMIT 500
-    `, alertParams)).rows;
+    `, alertParams)).rows.map(e => ({
+      id: e.id,
+      ts: e.ts,
+      machine: e.devname || e.machine || '-',
+      aggregator_name: e.aggregator_name || '',
+      severity: e.severity || 'medium',
+      src_ip: e.src_ip || '',
+      fw_user: e.fw_user || '',
+      fw_ui: e.fw_ui || '',
+      msg: e.msg || '',
+      subtype: e.subtype || '',
+      log_type: e.log_type || '',
+      cfgpath: e.cfgpath || '',
+      cfgobj: e.cfgobj || '',
+      cfgattr: e.cfgattr || '',
+      logdesc: e.logdesc || '',
+      message: e.raw || e.msg || ''
+    }));
 
     const NOISE_PATTERNS = [
       'type="traffic"', 'subtype="forward"', 'subtype="local"', 'subtype="multicast"',

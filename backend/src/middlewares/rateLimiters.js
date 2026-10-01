@@ -62,18 +62,8 @@ const setupLimiter = rateLimit({
 });
 
 // ── 3. Report Generation ───────────────────────────────────────
-// Applies to GET /api/reports/generate & /api/reports/baseline
-// Reports are CPU/query-heavy so keep the window generous.
-const reportGenerationLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,   // 15 minutes
-  max: 15,                     // 15 report requests per 15 min per user
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) =>
-    req.session?.user_id ? `report_${req.session.user_id}` : (req.ip || 'unknown'),
-  validate: { default: true, ip: false, keyGeneratorIpFallback: false },
-  handler: rateLimitHandler('Report generation limit reached'),
-});
+// No rate limit for report generation per user requirement
+const reportGenerationLimiter = (req, res, next) => next();
 
 // ── 4. AI / Heavy-Compute Generation ──────────────────────────
 // Placeholder for future AI endpoints (e.g. /api/ai/analyze).

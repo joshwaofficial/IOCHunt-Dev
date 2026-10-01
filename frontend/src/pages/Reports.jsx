@@ -106,6 +106,12 @@ export default function Reports() {
   const [connPage, setConnPage] = useState(1);
   const [connPerPage, setConnPerPage] = useState(25);
 
+  // USB Compliance table pagination & filter
+  const [usbTab, setUsbTab] = useState('all'); // 'all' | 'non_compliant' | 'locked' | 'unlocked'
+  const [usbSearch, setUsbSearch] = useState('');
+  const [usbPage, setUsbPage] = useState(1);
+  const [usbPerPage, setUsbPerPage] = useState(15);
+
   useEffect(() => {
     axios.get('/api/machines').then(res => setMachines(res.data.data || res.data)).catch(console.error);
     axios.get('/api/aggregators').then(res => setAggregators(res.data.data || res.data)).catch(console.error);
@@ -537,6 +543,36 @@ export default function Reports() {
         });
         html += `</tbody></table>`;
       }
+    }
+
+    if (d.usb_compliance && d.usb_compliance.machines && d.usb_compliance.machines.length > 0) {
+      const uSum = d.usb_compliance.summary || {};
+      html += `<h2>USB Policy & Device Compliance (${d.usb_compliance.machines.length} machines)</h2>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+          <div style="background:#f0f4fc;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#2563eb">${uSum.total_machines || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">Total Machines</div></div>
+          <div style="background:#fef2f2;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#dc2626">${uSum.total_locked || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">USB Disabled</div></div>
+          <div style="background:#f0fdf4;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#16a34a">${uSum.total_unlocked || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">USB Enabled</div></div>
+          <div style="background:#f0fdf4;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#16a34a">${uSum.compliant || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">Compliant</div></div>
+          <div style="background:#fff7ed;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#ea580c">${uSum.non_compliant || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">Non-Compliant / Pending</div></div>
+        </div>
+        <table><thead><tr>
+          <th>Machine</th><th>Branch / IP</th><th>Group</th><th>Configured Policy</th><th>Current State</th><th>Compliance</th><th>USB Events</th><th>Last Sync</th>
+        </tr></thead><tbody>`;
+      d.usb_compliance.machines.forEach(u => {
+        const compClass = u.status === 'Compliant' ? 'l' : u.status === 'Policy Mismatch' ? 'c' : 'h';
+        const confBadge = u.configured_lock === 'locked' ? 'c' : 'l';
+        html += `<tr>
+          <td><b style="color:#2563eb">${u.machine}</b></td>
+          <td>${u.aggregator_name || 'direct'} &nbsp;(${u.ip || '-'})</td>
+          <td>${u.group_name || 'Ungrouped'}</td>
+          <td><span class="badge ${confBadge}">${u.configured_usb}</span></td>
+          <td>${u.current_usb}</td>
+          <td><span class="badge ${compClass}">${u.status}</span></td>
+          <td style="font-weight:700;color:${u.usb_events_count > 0 ? '#ef4444' : '#4a5578'}">${u.usb_events_count || 0}</td>
+          <td style="font-size:9px">${u.applied_at ? new Date(u.applied_at).toLocaleString() : 'Never'}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
     }
 
     html += `<div class="footer">IOC Hunt Security Report &nbsp;|&nbsp; ${f.machine || 'All Machines'} &nbsp;|&nbsp; ${durLabel} &nbsp;|&nbsp; Generated ${new Date(d.generated).toLocaleString()}</div></body></html>`;
@@ -1294,6 +1330,295 @@ export default function Reports() {
             </div>
           </div>
         )}
+
+        {/* ── USB Policy & Device Compliance Detail Table ── */}
+        {d.usb_compliance && d.usb_compliance.machines && d.usb_compliance.machines.length > 0 && (() => {
+          const uSum = d.usb_compliance.summary || {};
+          const allUsbMachines = d.usb_compliance.machines;
+
+          // Filter by tab
+          let filtered = allUsbMachines.filter(m => {
+            if (usbTab === 'non_compliant') return !m.is_compliant;
+            if (usbTab === 'locked') return m.configured_lock === 'locked';
+            if (usbTab === 'unlocked') return m.configured_lock === 'unlocked';
+            return true;
+          });
+
+          // Filter by search
+          if (usbSearch.trim()) {
+            const s = usbSearch.toLowerCase();
+            filtered = filtered.filter(m =>
+              (m.machine && m.machine.toLowerCase().includes(s)) ||
+              (m.label && m.label.toLowerCase().includes(s)) ||
+              (m.ip && m.ip.toLowerCase().includes(s)) ||
+              (m.group_name && m.group_name.toLowerCase().includes(s)) ||
+              (m.status && m.status.toLowerCase().includes(s)) ||
+              (m.configured_usb && m.configured_usb.toLowerCase().includes(s)) ||
+              (m.current_usb && m.current_usb.toLowerCase().includes(s))
+            );
+          }
+
+          const totalPages = Math.max(1, Math.ceil(filtered.length / usbPerPage));
+          const curPage = Math.min(usbPage, totalPages);
+          const pagedList = filtered.slice((curPage - 1) * usbPerPage, curPage * usbPerPage);
+
+          return (
+            <div style={{ marginBottom: '32px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', paddingLeft: '4px', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: '20px', color: '#2563eb' }}>usb</span>
+                  <div>
+                    <h3 style={{ fontSize: '13px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', margin: 0, color: 'var(--text)' }}>
+                      USB POLICY & DEVICE COMPLIANCE
+                    </h3>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {uSum.non_compliant > 0 ? (
+                    <span style={{ fontSize: '10px', fontFamily: 'var(--mono)', background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                      ⚠️ {uSum.non_compliant} Non-Compliant / Pending
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: '10px', fontFamily: 'var(--mono)', background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.3)', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                      ✓ 100% Policy Compliant
+                    </span>
+                  )}
+                  <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                    {allUsbMachines.length} machines audited
+                  </span>
+                </div>
+              </div>
+
+              {/* USB Summary Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+                {[
+                  { l: 'Total Machines', n: uSum.total_machines || 0, c: '#2563eb', icon: 'devices' },
+                  { l: 'USB Disabled (Locked)', n: uSum.total_locked || 0, c: '#ef4444', icon: 'lock' },
+                  { l: 'USB Enabled (Allowed)', n: uSum.total_unlocked || 0, c: '#22c55e', icon: 'lock_open' },
+                  { l: 'Compliant Enforced', n: uSum.compliant || 0, c: '#16a34a', icon: 'verified' },
+                  { l: 'Non-Compliant / Pending', n: uSum.non_compliant || 0, c: uSum.non_compliant > 0 ? '#ea580c' : 'var(--muted)', icon: 'warning' },
+                  { l: 'USB Activity Events', n: uSum.total_violations || 0, c: uSum.total_violations > 0 ? '#ef4444' : 'var(--muted)', icon: 'usb' }
+                ].map((s, idx) => (
+                  <div key={idx} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '0.5px', fontFamily: 'var(--mono)' }}>{s.l}</span>
+                      <span className="material-symbols-outlined" style={{ fontSize: '16px', color: s.c }}>{s.icon}</span>
+                    </div>
+                    <div style={{ fontSize: '20px', fontWeight: 800, fontFamily: 'var(--mono)', color: s.c, marginTop: '4px' }}>
+                      {s.n.toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* USB Controls Toolbar */}
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden' }}>
+                <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  {/* Filter Tabs */}
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {[
+                      { id: 'all', label: 'All Machines', count: allUsbMachines.length, col: '#2563eb' },
+                      { id: 'non_compliant', label: '⚠️ Non-Compliant / Pending', count: uSum.non_compliant || 0, col: '#ea580c' },
+                      { id: 'locked', label: '🔒 USB Disabled', count: uSum.total_locked || 0, col: '#ef4444' },
+                      { id: 'unlocked', label: '🔓 USB Enabled', count: uSum.total_unlocked || 0, col: '#22c55e' }
+                    ].map(tab => (
+                      <button
+                        key={tab.id}
+                        onClick={() => { setUsbTab(tab.id); setUsbPage(1); }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '4px 10px',
+                          borderRadius: '5px',
+                          border: usbTab === tab.id ? `1px solid ${tab.col}` : '1px solid var(--border)',
+                          background: usbTab === tab.id ? `${tab.col}18` : 'var(--surface)',
+                          color: usbTab === tab.id ? tab.col : 'var(--muted)',
+                          fontSize: '11px',
+                          fontWeight: usbTab === tab.id ? 700 : 500,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {tab.label}
+                        <span style={{ fontSize: '9px', fontFamily: 'var(--mono)', padding: '1px 5px', borderRadius: '4px', background: usbTab === tab.id ? tab.col : 'var(--border)', color: usbTab === tab.id ? '#fff' : 'var(--text)', fontWeight: 700 }}>
+                          {tab.count}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Search and page size */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input
+                      type="text"
+                      placeholder="Search machine, IP, group..."
+                      value={usbSearch}
+                      onChange={e => { setUsbSearch(e.target.value); setUsbPage(1); }}
+                      style={{ height: '28px', padding: '0 10px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '5px', color: 'var(--text)', fontSize: '11px', outline: 'none', width: '200px' }}
+                    />
+                    <select
+                      value={usbPerPage}
+                      onChange={e => { setUsbPerPage(Number(e.target.value)); setUsbPage(1); }}
+                      style={{ height: '28px', padding: '0 6px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '5px', color: 'var(--text)', fontSize: '11px' }}
+                    >
+                      <option value="10">10 / page</option>
+                      <option value="15">15 / page</option>
+                      <option value="25">25 / page</option>
+                      <option value="50">50 / page</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--sans)' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border)', background: 'linear-gradient(90deg, rgba(37,99,235,0.06) 0%, rgba(37,99,235,0) 100%)' }}>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>Machine</th>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>Branch / IP</th>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>Policy Group</th>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>Policy Configured</th>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>Agent State</th>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>Compliance</th>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>USB Events</th>
+                        <th style={{ padding: '10px 14px', fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', textAlign: 'left' }}>Last Sync</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pagedList.length === 0 ? (
+                        <tr>
+                          <td colSpan="8" style={{ padding: '32px', textAlign: 'center', color: 'var(--muted)', fontSize: '12px' }}>
+                            No machines match the selected USB filter criteria.
+                          </td>
+                        </tr>
+                      ) : (
+                        pagedList.map((m, idx) => {
+                          const isLocked = m.configured_lock === 'locked';
+                          const confBg = isLocked ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)';
+                          const confCol = isLocked ? '#ef4444' : '#16a34a';
+
+                          const statusBg = m.status === 'Compliant'
+                            ? 'rgba(34,197,94,0.12)'
+                            : m.status === 'Policy Mismatch'
+                            ? 'rgba(239,68,68,0.14)'
+                            : m.status === 'Pending Sync'
+                            ? 'rgba(245,158,11,0.14)'
+                            : 'rgba(107,130,160,0.12)';
+
+                          const statusCol = m.status === 'Compliant'
+                            ? '#16a34a'
+                            : m.status === 'Policy Mismatch'
+                            ? '#dc2626'
+                            : m.status === 'Pending Sync'
+                            ? '#d97706'
+                            : 'var(--muted)';
+
+                          return (
+                            <tr key={idx} style={{ borderBottom: '1px solid var(--border)', fontSize: '11px' }}>
+                              <td style={{ padding: '10px 14px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: 'var(--muted)' }}>desktop_windows</span>
+                                  <div>
+                                    <div style={{ fontWeight: 700, color: 'var(--accent)' }}>{m.label || m.machine}</div>
+                                    {m.label && m.label !== m.machine && (
+                                      <div style={{ fontSize: '10px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>{m.machine}</div>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                              <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: '10px', color: 'var(--muted2)' }}>
+                                <span style={{ color: 'var(--text)', fontWeight: 600 }}>{m.aggregator_name || 'direct'}</span>
+                                {m.ip && <div>{m.ip}</div>}
+                              </td>
+                              <td style={{ padding: '10px 14px', fontSize: '11px', color: '#8b5cf6', fontWeight: 600 }}>
+                                {m.group_name || 'Ungrouped'}
+                              </td>
+                              <td style={{ padding: '10px 14px' }}>
+                                <span style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '2px 8px',
+                                  borderRadius: '4px',
+                                  fontSize: '10px',
+                                  fontWeight: 700,
+                                  background: confBg,
+                                  color: confCol,
+                                  border: `1px solid ${confCol}40`,
+                                  textTransform: 'uppercase'
+                                }}>
+                                  <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>
+                                    {isLocked ? 'lock' : 'lock_open'}
+                                  </span>
+                                  {m.configured_usb}
+                                </span>
+                              </td>
+                              <td style={{ padding: '10px 14px', fontSize: '11px', fontFamily: 'var(--mono)' }}>
+                                {m.current_usb === 'Disabled (Locked)' ? (
+                                  <span style={{ color: '#ef4444', fontWeight: 600 }}>Disabled (Locked)</span>
+                                ) : m.current_usb === 'Enabled (Allowed)' ? (
+                                  <span style={{ color: '#16a34a', fontWeight: 600 }}>Enabled (Allowed)</span>
+                                ) : (
+                                  <span style={{ color: 'var(--muted)' }}>Unknown</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 14px' }}>
+                                <span style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '3px 8px',
+                                  borderRadius: '4px',
+                                  fontSize: '10px',
+                                  fontWeight: 800,
+                                  background: statusBg,
+                                  color: statusCol,
+                                  border: `1px solid ${statusCol}40`
+                                }}>
+                                  {m.status === 'Compliant' ? '✓ ' : '⚠️ '}
+                                  {m.status}
+                                </span>
+                              </td>
+                              <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontSize: '11px' }}>
+                                {m.usb_events_count > 0 ? (
+                                  <span style={{ color: isLocked ? '#ef4444' : 'var(--text)', fontWeight: isLocked ? 800 : 500 }}>
+                                    {m.usb_events_count} event{m.usb_events_count !== 1 ? 's' : ''}
+                                    {isLocked && <span style={{ fontSize: '9px', marginLeft: '4px', color: '#ef4444' }}>(Violation Alert)</span>}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: 'var(--muted)' }}>0 events</span>
+                                )}
+                              </td>
+                              <td style={{ padding: '10px 14px', whiteSpace: 'nowrap', color: 'var(--muted2)', fontSize: '10px', fontFamily: 'var(--mono)' }}>
+                                {m.applied_at ? new Date(m.applied_at).toLocaleString('sv-SE').slice(0, 16).replace('T', ' ') : 'Never'}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* USB Pagination */}
+                {totalPages > 1 && (
+                  <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                    <div>SHOWING {(curPage - 1) * usbPerPage + 1} TO {Math.min(curPage * usbPerPage, filtered.length)} OF {filtered.length} MACHINES</div>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button disabled={curPage === 1} onClick={() => setUsbPage(p => Math.max(1, p - 1))} style={{ padding: '4px 10px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '4px', color: curPage === 1 ? 'var(--muted)' : 'var(--text)', cursor: curPage === 1 ? 'not-allowed' : 'pointer' }}>Prev</button>
+                      {getPageNumbers(curPage, totalPages).map((p, i) => (
+                        <button key={i} disabled={p === '...'} onClick={() => typeof p === 'number' && setUsbPage(p)} style={{ padding: '4px 10px', background: p === curPage ? '#2563eb' : 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '4px', color: p === curPage ? '#fff' : 'var(--text)', cursor: p === '...' ? 'default' : 'pointer', fontWeight: p === curPage ? 700 : 500 }}>
+                          {p}
+                        </button>
+                      ))}
+                      <button disabled={curPage === totalPages} onClick={() => setUsbPage(p => Math.min(totalPages, p + 1))} style={{ padding: '4px 10px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '4px', color: curPage === totalPages ? 'var(--muted)' : 'var(--text)', cursor: curPage === totalPages ? 'not-allowed' : 'pointer' }}>Next</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
       </div>
     );

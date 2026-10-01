@@ -243,6 +243,9 @@ async function getTenantPool(tenantId) {
       pool.query(`
         ALTER TABLE fw_events ALTER COLUMN src_country TYPE VARCHAR(100);
         ALTER TABLE fw_events ALTER COLUMN dst_country TYPE VARCHAR(100);
+        ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS sent_bytes BIGINT DEFAULT 0;
+        ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS rcv_bytes BIGINT DEFAULT 0;
+        ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS session_id VARCHAR(255) DEFAULT '';
         ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS fw_user VARCHAR(255) DEFAULT '';
         ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS fw_ui VARCHAR(255) DEFAULT '';
         ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS msg TEXT DEFAULT '';
