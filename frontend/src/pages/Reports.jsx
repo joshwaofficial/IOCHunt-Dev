@@ -266,8 +266,8 @@ export default function Reports() {
 
     const conns = d.connections?.items || [];
     if (conns.length > 0) {
-      html += `<h2>Connection Logs (${Math.min(conns.length, 500)} logs)</h2><table><thead><tr><th>Time</th><th>Device</th><th>Source</th><th>Dest</th><th>Service</th><th>Action</th><th>Proto</th><th>Bytes</th><th>Country</th><th>Severity</th></tr></thead><tbody>`;
-      conns.slice(0, 500).forEach(c => {
+      html += `<h2>Connection Logs (${conns.length} logs)</h2><table><thead><tr><th>Time</th><th>Device</th><th>Source</th><th>Dest</th><th>Service</th><th>Action</th><th>Proto</th><th>Bytes</th><th>Country</th><th>Severity</th></tr></thead><tbody>`;
+      conns.forEach(c => {
         const actClass = c.action === 'deny' || c.action === 'drop' ? 'c' : 'l';
         const totalB = (c.sent_byte || 0) + (c.rcvd_byte || 0);
         const bStr = totalB > 1048576 ? (totalB / 1048576).toFixed(1) + 'MB' : totalB > 1024 ? (totalB / 1024).toFixed(0) + 'KB' : totalB + 'B';
@@ -545,7 +545,12 @@ export default function Reports() {
       }
     }
 
-    if (d.usb_compliance && d.usb_compliance.machines && d.usb_compliance.machines.length > 0) {
+    const pdfCats = Array.isArray(f.category)
+      ? f.category
+      : (typeof f.category === 'string' && f.category ? f.category.split(',').map(c => c.trim().toUpperCase()) : []);
+    const showUsbPdf = pdfCats.length === 0 || pdfCats.includes('ALL CATEGORIES') || pdfCats.includes('ALL') || pdfCats.includes('USB');
+
+    if (showUsbPdf && d.usb_compliance && d.usb_compliance.machines && d.usb_compliance.machines.length > 0) {
       const uSum = d.usb_compliance.summary || {};
       html += `<h2>USB Policy & Device Compliance (${d.usb_compliance.machines.length} machines)</h2>
         <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">
@@ -1332,7 +1337,15 @@ export default function Reports() {
         )}
 
         {/* ── USB Policy & Device Compliance Detail Table ── */}
-        {d.usb_compliance && d.usb_compliance.machines && d.usb_compliance.machines.length > 0 && (() => {
+        {(() => {
+          const catList = Array.isArray(f.category)
+            ? f.category.map(c => String(c).trim().toUpperCase())
+            : (typeof f.category === 'string' && f.category ? f.category.split(',').map(c => c.trim().toUpperCase()) : []);
+          const isAllCats = catList.length === 0 || catList.includes('ALL CATEGORIES') || catList.includes('ALL');
+          const hasUsb = catList.includes('USB');
+          if (!isAllCats && !hasUsb) return null;
+          if (!d.usb_compliance || !d.usb_compliance.machines || d.usb_compliance.machines.length === 0) return null;
+
           const uSum = d.usb_compliance.summary || {};
           const allUsbMachines = d.usb_compliance.machines;
 

@@ -104,6 +104,7 @@ const AGENT_PATH_PREFIXES = [
   '/api/instance/info',
   '/api/auth/keep-alive',
   '/api/stream',
+  '/api/reports',
 ];
 
 const globalApiLimiter = rateLimit({

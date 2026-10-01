@@ -61,10 +61,10 @@ const generateReport = async (req, res) => {
     if (severity) { evConds.push(`severity=$${evIdx++}`); evParams.push(severity); }
 
     let selectedCats = [];
-    if (category && category !== 'All Categories') {
+    if (category && category !== 'All Categories' && category !== 'ALL') {
       selectedCats = (Array.isArray(category) ? category : category.split(','))
         .map(c => c.trim().toUpperCase())
-        .filter(Boolean);
+        .filter(c => c && c !== 'ALL' && c !== 'ALL CATEGORIES');
     }
 
     const nonFwCats = selectedCats.filter(c => c !== 'FIREWALL');
@@ -148,134 +148,137 @@ const generateReport = async (req, res) => {
 
     // ── USB Policy & Machine Compliance Summary ───────────────────────────────
     let usbCompliance = null;
-    try {
-      const polRows = (await req.queryTenant('SELECT machine, policy_json, current_json, applied_at, updated_at FROM policies')).rows;
-      const grpRows = (await req.queryTenant('SELECT id, name, policy_json, updated_at FROM pol_groups')).rows;
-      const mgRows = (await req.queryTenant('SELECT machine, group_id FROM machine_groups')).rows;
+    const shouldIncludeUsb = selectedCats.length === 0 || selectedCats.includes('USB');
+    if (shouldIncludeUsb) {
+      try {
+        const polRows = (await req.queryTenant('SELECT machine, policy_json, current_json, applied_at, updated_at FROM policies')).rows;
+        const grpRows = (await req.queryTenant('SELECT id, name, policy_json, updated_at FROM pol_groups')).rows;
+        const mgRows = (await req.queryTenant('SELECT machine, group_id FROM machine_groups')).rows;
 
-      // Count USB events in the report window per machine
-      const usbEventRows = (await req.queryTenant(`
-        SELECT machine, COUNT(*) AS n 
-        FROM events 
-        WHERE (category='USB' OR tag ILIKE '%USB%' OR message ILIKE '%USB%')
-          AND ts>=$1 AND ts<=$2
-        GROUP BY machine
-      `, [from, to])).rows;
-      const usbEventMap = {};
-      usbEventRows.forEach(r => { usbEventMap[r.machine] = parseInt(r.n, 10); });
+        // Count USB events in the report window per machine
+        const usbEventRows = (await req.queryTenant(`
+          SELECT machine, COUNT(*) AS n 
+          FROM events 
+          WHERE (category='USB' OR tag ILIKE '%USB%' OR message ILIKE '%USB%')
+            AND ts>=$1 AND ts<=$2
+          GROUP BY machine
+        `, [from, to])).rows;
+        const usbEventMap = {};
+        usbEventRows.forEach(r => { usbEventMap[r.machine] = parseInt(r.n, 10); });
 
-      const polMap = {};
-      polRows.forEach(p => { polMap[(p.machine || '').toLowerCase()] = p; });
+        const polMap = {};
+        polRows.forEach(p => { polMap[(p.machine || '').toLowerCase()] = p; });
 
-      const grpMap = {};
-      grpRows.forEach(g => { grpMap[g.id] = g; });
+        const grpMap = {};
+        grpRows.forEach(g => { grpMap[g.id] = g; });
 
-      const mgMap = {};
-      mgRows.forEach(mg => { mgMap[(mg.machine || '').toLowerCase()] = mg.group_id; });
+        const mgMap = {};
+        mgRows.forEach(mg => { mgMap[(mg.machine || '').toLowerCase()] = mg.group_id; });
 
-      const complianceList = [];
-      let totalLocked = 0;
-      let totalUnlocked = 0;
-      let totalCompliant = 0;
-      let totalNonCompliant = 0;
-      let totalViolations = 0;
+        const complianceList = [];
+        let totalLocked = 0;
+        let totalUnlocked = 0;
+        let totalCompliant = 0;
+        let totalNonCompliant = 0;
+        let totalViolations = 0;
 
-      for (const m of machines) {
-        if (aggrs.length > 0 && !aggrs.includes(m.aggregator_name)) continue;
+        for (const m of machines) {
+          if (aggrs.length > 0 && !aggrs.includes(m.aggregator_name)) continue;
 
-        const mKey = (m.id || '').toLowerCase();
-        const p = polMap[mKey] || {};
-        const gId = mgMap[mKey];
-        const g = gId ? grpMap[gId] : null;
+          const mKey = (m.id || '').toLowerCase();
+          const p = polMap[mKey] || {};
+          const gId = mgMap[mKey];
+          const g = gId ? grpMap[gId] : null;
 
-        let pj = {};
-        let cj = {};
-        let gj = {};
-        try { pj = JSON.parse(p.policy_json || '{}'); } catch (_) {}
-        try { cj = JSON.parse(p.current_json || '{}'); } catch (_) {}
-        try { gj = JSON.parse(g?.policy_json || '{}'); } catch (_) {}
+          let pj = {};
+          let cj = {};
+          let gj = {};
+          try { pj = JSON.parse(p.policy_json || '{}'); } catch (_) {}
+          try { cj = JSON.parse(p.current_json || '{}'); } catch (_) {}
+          try { gj = JSON.parse(g?.policy_json || '{}'); } catch (_) {}
 
-        // Target configured USB lock: machine override > group setting > default ('unlocked')
-        const targetUsbLock = pj.usbLock !== undefined ? pj.usbLock : (gj.usbLock !== undefined ? gj.usbLock : 'unlocked');
-        const configuredState = targetUsbLock === 'locked' ? 'Disabled (Locked)' : 'Enabled (Allowed)';
+          // Target configured USB lock: machine override > group setting > default ('unlocked')
+          const targetUsbLock = pj.usbLock !== undefined ? pj.usbLock : (gj.usbLock !== undefined ? gj.usbLock : 'unlocked');
+          const configuredState = targetUsbLock === 'locked' ? 'Disabled (Locked)' : 'Enabled (Allowed)';
 
-        // Current reported USB lock from agent:
-        const currentUsbLock = cj.usbLock !== undefined ? cj.usbLock : null;
-        const currentState = currentUsbLock ? (currentUsbLock === 'locked' ? 'Disabled (Locked)' : 'Enabled (Allowed)') : 'Unknown';
+          // Current reported USB lock from agent:
+          const currentUsbLock = cj.usbLock !== undefined ? cj.usbLock : null;
+          const currentState = currentUsbLock ? (currentUsbLock === 'locked' ? 'Disabled (Locked)' : 'Enabled (Allowed)') : 'Unknown';
 
-        // Pickup / sync evaluation
-        const effectiveUpdatedAt = Math.max(g?.updated_at || 0, p.updated_at || 0);
-        const isTimeSynced = Boolean(p.applied_at && (!effectiveUpdatedAt || p.applied_at >= effectiveUpdatedAt));
-        const isStateSynced = currentUsbLock !== null ? (currentUsbLock === targetUsbLock) : isTimeSynced;
+          // Pickup / sync evaluation
+          const effectiveUpdatedAt = Math.max(g?.updated_at || 0, p.updated_at || 0);
+          const isTimeSynced = Boolean(p.applied_at && (!effectiveUpdatedAt || p.applied_at >= effectiveUpdatedAt));
+          const isStateSynced = currentUsbLock !== null ? (currentUsbLock === targetUsbLock) : isTimeSynced;
 
-        const lastSeenEpoch = m.last_seen ? Math.floor(new Date(m.last_seen).getTime() / 1000) : 0;
-        const age = Math.floor(Date.now() / 1000) - lastSeenEpoch;
-        const isOnline = age < 600;
+          const lastSeenEpoch = m.last_seen ? Math.floor(new Date(m.last_seen).getTime() / 1000) : 0;
+          const age = Math.floor(Date.now() / 1000) - lastSeenEpoch;
+          const isOnline = age < 600;
 
-        let status = 'Compliant';
-        let statusBadge = 'success'; // 'success', 'warning', 'danger', 'offline'
+          let status = 'Compliant';
+          let statusBadge = 'success'; // 'success', 'warning', 'danger', 'offline'
 
-        if (!isOnline && age > 86400) {
-          status = 'Offline';
-          statusBadge = 'offline';
-          totalNonCompliant++;
-        } else if (!isStateSynced || !isTimeSynced) {
-          if (currentUsbLock && currentUsbLock !== targetUsbLock) {
-            status = 'Policy Mismatch';
-            statusBadge = 'danger';
+          if (!isOnline && age > 86400) {
+            status = 'Offline';
+            statusBadge = 'offline';
             totalNonCompliant++;
+          } else if (!isStateSynced || !isTimeSynced) {
+            if (currentUsbLock && currentUsbLock !== targetUsbLock) {
+              status = 'Policy Mismatch';
+              statusBadge = 'danger';
+              totalNonCompliant++;
+            } else {
+              status = 'Pending Sync';
+              statusBadge = 'warning';
+              totalNonCompliant++;
+            }
           } else {
-            status = 'Pending Sync';
-            statusBadge = 'warning';
-            totalNonCompliant++;
+            status = 'Compliant';
+            statusBadge = 'success';
+            totalCompliant++;
           }
-        } else {
-          status = 'Compliant';
-          statusBadge = 'success';
-          totalCompliant++;
+
+          if (targetUsbLock === 'locked') totalLocked++;
+          else totalUnlocked++;
+
+          const usbEventsCount = usbEventMap[m.id] || 0;
+          if (targetUsbLock === 'locked' && usbEventsCount > 0) {
+            totalViolations += usbEventsCount;
+          }
+
+          complianceList.push({
+            machine: m.id,
+            label: m.label || m.id,
+            ip: m.ip || '-',
+            aggregator_name: m.aggregator_name || 'direct',
+            group_name: g?.name || 'Ungrouped',
+            configured_usb: configuredState,
+            configured_lock: targetUsbLock,
+            current_usb: currentState,
+            current_lock: currentUsbLock,
+            status,
+            status_badge: statusBadge,
+            is_compliant: status === 'Compliant',
+            applied_at: p.applied_at ? new Date(p.applied_at * 1000).toISOString() : null,
+            usb_events_count: usbEventsCount,
+            last_seen: m.last_seen
+          });
         }
 
-        if (targetUsbLock === 'locked') totalLocked++;
-        else totalUnlocked++;
-
-        const usbEventsCount = usbEventMap[m.id] || 0;
-        if (targetUsbLock === 'locked' && usbEventsCount > 0) {
-          totalViolations += usbEventsCount;
-        }
-
-        complianceList.push({
-          machine: m.id,
-          label: m.label || m.id,
-          ip: m.ip || '-',
-          aggregator_name: m.aggregator_name || 'direct',
-          group_name: g?.name || 'Ungrouped',
-          configured_usb: configuredState,
-          configured_lock: targetUsbLock,
-          current_usb: currentState,
-          current_lock: currentUsbLock,
-          status,
-          status_badge: statusBadge,
-          is_compliant: status === 'Compliant',
-          applied_at: p.applied_at ? new Date(p.applied_at * 1000).toISOString() : null,
-          usb_events_count: usbEventsCount,
-          last_seen: m.last_seen
-        });
+        usbCompliance = {
+          summary: {
+            total_machines: complianceList.length,
+            total_locked: totalLocked,
+            total_unlocked: totalUnlocked,
+            compliant: totalCompliant,
+            non_compliant: totalNonCompliant,
+            total_violations: totalViolations
+          },
+          machines: complianceList
+        };
+      } catch (usbErr) {
+        console.warn('[reports usb compliance error]', usbErr.message);
+        usbCompliance = null;
       }
-
-      usbCompliance = {
-        summary: {
-          total_machines: complianceList.length,
-          total_locked: totalLocked,
-          total_unlocked: totalUnlocked,
-          compliant: totalCompliant,
-          non_compliant: totalNonCompliant,
-          total_violations: totalViolations
-        },
-        machines: complianceList
-      };
-    } catch (usbErr) {
-      console.warn('[reports usb compliance error]', usbErr.message);
-      usbCompliance = null;
     }
 
     // ── Firewall stats ────────────────────────────────────────────────────────
@@ -319,7 +322,7 @@ const generateReport = async (req, res) => {
         const fwDetailedRows = (await req.queryTenant(`
           SELECT *
           FROM fw_events ${fwWhere}
-          ORDER BY ts DESC LIMIT 200
+          ORDER BY ts DESC
         `, fwParams)).rows;
 
         const fwDetailedEvents = fwDetailedRows.map(e => ({
@@ -574,7 +577,6 @@ const generateFirewallReport = async (req, res) => {
       SELECT *
       FROM fw_events ${whereClause}
       ORDER BY ts DESC
-      LIMIT ${Math.min(parseInt(limit, 10) || 1000, 2000)}
     `, params)).rows;
 
     const connRows = rawConnRows.map(r => ({
@@ -660,7 +662,6 @@ const generateFirewallReport = async (req, res) => {
       SELECT *
       FROM fw_events ${alertWhere}
       ORDER BY ts DESC
-      LIMIT 500
     `, alertParams)).rows.map(e => ({
       id: e.id,
       ts: e.ts,
