@@ -251,7 +251,7 @@ async function requireKey(req, res, next) {
           boundMachine: agentKeyRes.boundMachine
         }
       });
-      return res.status(403).json({ error: agentKeyRes.reason });
+      return res.status(403).json({ error: 'Forbidden: Machine identity mismatch. This agent key is already bound to another machine.' });
     }
 
     if (appMode.isAggregator()) {
@@ -333,6 +333,20 @@ async function requireSessionOrKey(req, res, next) {
         req.boundMachine = agentKeyRes.boundMachine;
         req.agentKeyId = agentKeyRes.id;
         return next();
+      } else if (agentKeyRes.reason && agentKeyRes.reason.includes('Machine identity mismatch')) {
+        logSecurityEvent({
+          event: 'AGENT_MACHINE_SPOOF_ATTEMPT',
+          severity: SEVERITY.CRITICAL,
+          ip: clientIp,
+          tenantId: agentKeyRes.tenantId || 'unknown',
+          detail: {
+            reason: agentKeyRes.reason,
+            path: req.originalUrl || req.url,
+            reportedMachine,
+            boundMachine: agentKeyRes.boundMachine
+          }
+        });
+        return res.status(403).json({ error: 'Forbidden: Machine identity mismatch. This agent key is already bound to another machine.' });
       }
 
       if (appMode.isAggregator()) {

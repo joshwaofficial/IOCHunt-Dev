@@ -123,7 +123,7 @@ async function getMachinePolicy(req, res) {
     if (req.isAgentKey && req.boundMachine) {
       if (req.boundMachine.toLowerCase() !== machine.toLowerCase()) {
         return res.status(403).json({
-          error: `Forbidden: Unauthorized access to policy. This agent key is bound to '${req.boundMachine}', but requested policy for '${machine}'`
+          error: 'Forbidden: Unauthorized access to policy. This agent key is already bound to another machine.'
         });
       }
     }
@@ -201,7 +201,7 @@ async function updateMachineCurrentPolicy(req, res) {
     if (req.isAgentKey && req.boundMachine) {
       if (req.boundMachine.toLowerCase() !== machine.toLowerCase()) {
         return res.status(403).json({
-          error: `Forbidden: Unauthorized access to policy. This agent key is bound to '${req.boundMachine}', but requested update for '${machine}'`
+          error: 'Forbidden: Unauthorized access to policy. This agent key is already bound to another machine.'
         });
       }
     }
@@ -345,7 +345,7 @@ async function ackMachinePolicy(req, res) {
     if (req.isAgentKey && req.boundMachine) {
       if (req.boundMachine.toLowerCase() !== machine.toLowerCase()) {
         return res.status(403).json({
-          error: `Forbidden: Unauthorized access to policy. This agent key is bound to '${req.boundMachine}', but requested ACK for '${machine}'`
+          error: 'Forbidden: Unauthorized access to policy. This agent key is already bound to another machine.'
         });
       }
     }

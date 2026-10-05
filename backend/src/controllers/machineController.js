@@ -7,9 +7,21 @@ async function getAllMachines(req, res) {
   try {
     // If request comes from an agent key (e.g. Test Connection), only return connection confirmation (INT-PT-L-001)
     if (req.isAgentKey) {
+      const reportedMachine =
+        req.headers['x-machine-name'] ||
+        req.headers['x-hostname'] ||
+        req.query?.machine;
+
+      if (req.boundMachine && req.boundMachine.toUpperCase() !== 'UNNAMED-ENDPOINT') {
+        if (!reportedMachine || req.boundMachine.toLowerCase() !== reportedMachine.trim().toLowerCase()) {
+          return res.status(403).json({
+            error: 'Forbidden: Machine identity mismatch. This agent key is already bound to another machine.'
+          });
+        }
+      }
+
       return res.status(200).json({
         status: 'connected',
-        machine: req.boundMachine || 'ok',
         timestamp: Math.floor(Date.now() / 1000)
       });
     }

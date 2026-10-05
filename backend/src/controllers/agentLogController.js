@@ -22,7 +22,7 @@ async function ingestAgentLogs(req, res) {
     if (req.isAgentKey && req.boundMachine && req.boundMachine.toUpperCase() !== 'UNNAMED-ENDPOINT') {
       if (req.boundMachine.toLowerCase() !== machine.trim().toLowerCase()) {
         return res.status(403).json({
-          error: `Forbidden: Machine identity mismatch. This agent key is permanently bound to '${req.boundMachine}', but submitted logs for '${machine}'`
+          error: 'Forbidden: Machine identity mismatch. This agent key is already bound to another machine.'
         });
       }
     }
