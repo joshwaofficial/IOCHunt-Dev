@@ -517,11 +517,12 @@ function buildHtml() {
 
     ${generateCategoryDistributionHtml(ev.byCategory, ev.total)}
 
-    <h2>Endpoint Telemetry Distribution</h2>
+    <h2>Machine Health & Endpoint Telemetry</h2>
     <table>
       <thead>
         <tr>
           <th>Endpoint</th>
+          <th>Status</th>
           <th>Total Events</th>
           <th>Proportion</th>
           <th>Share</th>
@@ -536,6 +537,7 @@ function buildHtml() {
           return `
             <tr>
               <td><b style="color:#2563eb">${m.machine}</b></td>
+              <td><span style="color:#16a34a; font-weight:700;">● Active</span></td>
               <td>${count.toLocaleString()}</td>
               <td><div class="bar-wrap"><div class="bar-fill" style="width:${barW}%; background:#3b82f6;"></div></div></td>
               <td>${pct}%</td>

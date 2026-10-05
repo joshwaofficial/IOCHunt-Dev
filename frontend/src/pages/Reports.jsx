@@ -473,9 +473,9 @@ export default function Reports() {
     let html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
       <title>IOC Hunt Security Report</title>
       <style>
-      body{font-family:Arial,sans-serif;font-size:11px;color:#1a2540;margin:0;padding:24px;background:#fff}
+      body{font-family:Arial,sans-serif;font-size:11px;color:#1a2540;margin:0;padding:24px;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
       h1{font-size:20px;font-weight:700;color:#1e3a5f;letter-spacing:1px;margin:0 0 4px}
-      h2{font-size:13px;font-weight:700;color:#1e3a5f;border-bottom:2px solid #e2e8f0;padding-bottom:5px;margin:20px 0 10px}
+      h2{font-size:13px;font-weight:700;color:#1e3a5f;border-bottom:2px solid #e2e8f0;padding-bottom:5px;margin:20px 0 10px;page-break-after:avoid;break-after:avoid}
       .meta{font-size:10px;color:#6b82a0;margin-bottom:20px}
       .threat-box{background:#f8faff;border:2px solid ${tlColor};border-radius:8px;padding:12px 16px;margin-bottom:18px;display:flex;align-items:center;gap:20px}
       .threat-level{font-size:22px;font-weight:700;color:${tlColor};letter-spacing:1px}
@@ -484,18 +484,19 @@ export default function Reports() {
       .stat{background:#f0f4fc;border-radius:6px;padding:10px 14px;min-width:90px;text-align:center}
       .stat-n{font-size:22px;font-weight:700}
       .stat-l{font-size:9px;color:#6b82a0;text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
-      table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:10px}
+      table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:10px;page-break-inside:auto}
       th{background:#f0f4fc;padding:6px 8px;text-align:left;font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#4a5578;border-bottom:2px solid #d0daf0}
       td{padding:5px 8px;border-bottom:1px solid #e8eef8;vertical-align:middle}
       tr:nth-child(even) td{background:#f8faff}
+      tr{page-break-inside:avoid;break-inside:avoid}
       .badge{display:inline-block;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700}
-      .c{background:#fef2f2;color:#ef4444}.h{background:#fff7ed;color:#f97316}
-      .m{background:#fefce8;color:#ca8a04}.l{background:#f0fdf4;color:#16a34a}
-      .ad{background:#faf5ff;color:#a855f7}
+      .c{background:#fef2f2;color:#ef4444;border:1px solid #fecaca}.h{background:#fff7ed;color:#f97316;border:1px solid #fed7aa}
+      .m{background:#fefce8;color:#ca8a04;border:1px solid #fef08a}.l{background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0}
+      .ad{background:#faf5ff;color:#a855f7;border:1px solid #e9d5ff}
       .bar-wrap{background:#e8eef8;border-radius:3px;height:8px;width:100%;overflow:hidden}
       .bar-fill{height:100%;border-radius:3px}
       .footer{margin-top:30px;padding-top:12px;border-top:1px solid #d0daf0;font-size:9px;color:#6b82a0;text-align:center}
-      @media print{body{padding:10px}h2{page-break-after:avoid}table{page-break-inside:auto}tr{page-break-inside:avoid}}
+      @media print{body{padding:10px}h2{page-break-after:avoid;break-after:avoid}table{page-break-inside:auto}tr{page-break-inside:avoid;break-inside:avoid}}
       </style></head><body>`;
 
     html += `<h1>IOC HUNT SECURITY REPORT</h1>
@@ -592,28 +593,53 @@ export default function Reports() {
     html += generateTimelineSvg(ev.hourly, f, durLabel);
     html += generateCategoryMatrixSvg(ev.byCategory, ev.total, catColors);
 
-    if ((ev.byCategory || []).length) {
-      html += `<h2>Events by Category</h2><table><thead><tr><th>Category</th><th>Count</th><th style="width:200px">Distribution</th><th>%</th></tr></thead><tbody>`;
-      ev.byCategory.forEach(r => {
-        const col = catColors[r.category] || '#6b7280';
-        const pct = Math.round(r.n / ev.total * 100);
-        const barW = Math.round(r.n / maxCat * 100);
-        html += `<tr><td><b>${r.category}</b></td><td>${r.n}</td>
-          <td><div class="bar-wrap"><div class="bar-fill" style="width:${barW}%;background:${col}"></div></div></td>
-          <td>${pct}%</td></tr>`;
-      });
-      html += `</tbody></table>`;
-    }
+    // Machine Health Summary (with status indicators, risk scores, and telemetry counts)
+    const rawMachPdf = Array.isArray(d.machines) ? d.machines : (ev.byMachine || []).map(m => ({
+      id: m.machine,
+      label: m.machine,
+      ip: '-',
+      event_count: Number(m.n || 0),
+      critical: 0,
+      high: 0,
+      status: 'Monitored'
+    }));
+    const machPdf = rawMachPdf.filter(m => !f.aggregator || f.aggregator.length === 0 || f.aggregator.includes(m.aggregator_name));
 
-    if ((d.machines || []).length) {
-      html += `<h2>Machine Health</h2><table><thead><tr><th>Machine</th><th>IP</th><th>Status</th><th>Total Events</th><th>Critical</th><th>High</th></tr></thead><tbody>`;
-      d.machines.forEach(m => {
-        const sc = m.status === 'Online' ? '#16a34a' : m.status === 'Offline' ? '#ef4444' : '#f97316';
-        html += `<tr><td><b>${m.label}</b></td><td style="color:#4a5578">${m.ip}</td>
-          <td><span style="color:${sc};font-weight:700">${m.status}</span></td>
-          <td>${m.event_count.toLocaleString()}</td>
+    if (machPdf.length > 0) {
+      html += `<h2>Machine Health Summary</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Machine</th>
+            <th>IP Address</th>
+            <th>Status</th>
+            <th>Total Events</th>
+            <th>Critical</th>
+            <th>High</th>
+            <th>Risk Score</th>
+          </tr>
+        </thead>
+        <tbody>`;
+      machPdf.forEach(m => {
+        const sc = m.status === 'Online' ? '#16a34a' : m.status === 'Recent' ? '#84cc16' : m.status === 'Away' ? '#f97316' : m.status === 'Offline' ? '#ef4444' : '#2563eb';
+        const riskPct = Math.min(100, (m.critical || 0) * 10 + (m.high || 0) * 3);
+        const riskCol = riskPct >= 50 ? '#ef4444' : riskPct >= 20 ? '#f97316' : riskPct >= 5 ? '#ca8a04' : '#16a34a';
+        html += `<tr>
+          <td><b style="color:#2563eb">${m.label || m.id || m.machine}</b></td>
+          <td style="color:#4a5578; font-family:monospace">${m.ip || '-'}</td>
+          <td><span style="color:${sc}; font-weight:700">● ${m.status || 'Active'}</span></td>
+          <td>${(m.event_count || 0).toLocaleString()}</td>
           <td><span class="badge c">${m.critical || 0}</span></td>
-          <td><span class="badge h">${m.high || 0}</span></td></tr>`;
+          <td><span class="badge h">${m.high || 0}</span></td>
+          <td>
+            <div style="display:flex; align-items:center; gap:8px">
+              <div class="bar-wrap" style="width:70px; height:6px">
+                <div class="bar-fill" style="width:${riskPct}%; background:${riskCol}"></div>
+              </div>
+              <span style="font-weight:700; color:${riskCol}; font-size:10px">${riskPct}</span>
+            </div>
+          </td>
+        </tr>`;
       });
       html += `</tbody></table>`;
     }
