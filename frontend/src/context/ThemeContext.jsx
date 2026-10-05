@@ -11,8 +11,12 @@ export function ThemeProvider({ children }) {
     const root = document.documentElement;
     if (theme === 'light') {
       root.classList.add('light');
+      root.classList.remove('dark');
+      root.style.colorScheme = 'light';
     } else {
       root.classList.remove('light');
+      root.classList.add('dark');
+      root.style.colorScheme = 'dark';
     }
     localStorage.setItem('iochunt-theme', theme);
   }, [theme]);

@@ -1,6 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
+  color-scheme: dark;
   /* Surface & Background Colors (Neutral Obsidian) */
   --bg-canvas: #08090d;
   --bg-sidebar: #0b0d13;
@@ -540,5 +541,23 @@ body {
 .mb-2 { margin-bottom: 8px; }
 .mb-4 { margin-bottom: 16px; }
 .mb-6 { margin-bottom: 24px; }
-.text-right { text-align: right; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Form Controls & Native Dropdown Theme */
+input, textarea, select {
+  color-scheme: dark;
+}
+select {
+  color-scheme: dark;
+}
+select option,
+select optgroup {
+  background-color: #0f121a !important;
+  color: #f8fafc !important;
+}
+select option:hover,
+select option:focus,
+select option:checked {
+  background-color: #191f2e !important;
+  color: #ffffff !important;
+}

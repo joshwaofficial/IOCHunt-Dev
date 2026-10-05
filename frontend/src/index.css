@@ -3,6 +3,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Martel+Sans:wght@300;400;500;600;700&display=swap');
 
 :root {
+  color-scheme: dark;
   --critical:#f04f5a;--high:#f97316;--medium:#f5c518;
   --low:#22d47a;--info:#4f8ef7;--purple:#a78bfa;--cyan:#22d3ee;
   --mono:'IBM Plex Sans',sans-serif;--sans:'Martel Sans', sans-serif;
@@ -178,6 +179,7 @@ body.sidebar-collapsed .sidebar-footer-btn .material-symbols-outlined { font-siz
 
 /* ── Light mode CSS vars ── */
 :root.light {
+  color-scheme: light;
   --bg:#f0f4fc;--bg2:#e8eef8;
   --surface:rgba(255,255,255,0.85);
   --surface-solid:#ffffff;
@@ -186,6 +188,9 @@ body.sidebar-collapsed .sidebar-footer-btn .material-symbols-outlined { font-siz
   --border:rgba(0,0,0,0.08);
   --border2:rgba(0,0,0,0.15);
   --text:#1a2540;--muted:#7890b8;--muted2:#4a6080;
+}
+:root.dark {
+  color-scheme: dark;
 }
 :root.light body::before { background: radial-gradient(ellipse 80% 60% at 80% 10%, rgba(37,99,235,0.05) 0%, transparent 60%), radial-gradient(ellipse 60% 50% at 10% 80%, rgba(139,92,246,0.04) 0%, transparent 60%), #f0f4fc; }
 :root.light body::after { }
@@ -492,11 +497,77 @@ main{padding:24px;flex:1}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
 ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.2)}
 
-/* ── Input / Select overrides ── */
+/* ── Form Controls & Native Dropdown Theme ── */
+input, textarea, select {
+  color-scheme: dark;
+}
+
+:root.light input, :root.light textarea, :root.light select,
+.light input, .light textarea, .light select {
+  color-scheme: light;
+}
+
+:root.dark input, :root.dark textarea, :root.dark select,
 .dark input, .dark textarea, .dark select {
   color-scheme: dark;
 }
-.light input, .light textarea, .light select {
+
+/* Base select styling */
+select {
+  color-scheme: dark;
+}
+
+/* Native select dropdown popup options styling (Chrome, Edge, Safari, Firefox) */
+select option,
+select optgroup {
+  background-color: #0d1730 !important;
+  color: #dae2fd !important;
+  font-family: var(--sans);
+  padding: 6px 10px;
+}
+
+select option:hover,
+select option:focus,
+select option:checked {
+  background-color: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+
+:root.light select,
+.light select {
+  color-scheme: light;
+}
+
+:root.light select option,
+:root.light select optgroup,
+.light select option,
+.light select optgroup {
+  background-color: #ffffff !important;
+  color: #1a2540 !important;
+}
+
+:root.light select option:hover,
+:root.light select option:focus,
+:root.light select option:checked,
+.light select option:hover,
+.light select option:focus,
+.light select option:checked {
+  background-color: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+  color-scheme: dark;
+}
+
+:root.light input[type="date"],
+:root.light input[type="time"],
+:root.light input[type="datetime-local"],
+.light input[type="date"],
+.light input[type="time"],
+.light input[type="datetime-local"] {
   color-scheme: light;
 }
 input[type=text]:not(.input-field):not(.modal-field):not(.tb-search):not(.login-input):not(.totp-input-box):not(.login-page-wrapper *):not(.mfa-page-wrapper *):not(.search-input-inner),

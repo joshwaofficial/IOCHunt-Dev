@@ -17,14 +17,19 @@ export default function ForcePasswordReset() {
 
   useEffect(() => {
     const root = document.documentElement;
-    const wasLight = root.classList.contains('light');
-    if (wasLight) {
-      root.classList.remove('light');
-    }
+    root.classList.remove('light');
+    root.classList.add('dark');
+    root.style.colorScheme = 'dark';
     return () => {
       const savedTheme = localStorage.getItem('iochunt-theme');
       if (savedTheme === 'light') {
         root.classList.add('light');
+        root.classList.remove('dark');
+        root.style.colorScheme = 'light';
+      } else {
+        root.classList.add('dark');
+        root.classList.remove('light');
+        root.style.colorScheme = 'dark';
       }
     };
   }, []);

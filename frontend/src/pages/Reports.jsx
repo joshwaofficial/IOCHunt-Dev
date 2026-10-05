@@ -268,7 +268,13 @@ export default function Reports() {
       .badge{display:inline-block;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700}
       .c{background:#fef2f2;color:#ef4444}.h{background:#fff7ed;color:#f97316}
       .m{background:#fefce8;color:#ca8a04}.l{background:#f0fdf4;color:#16a34a}
-      @media print{body{padding:10px}h2{page-break-after:avoid}table{page-break-inside:auto}tr{page-break-inside:avoid}}
+      .analytics-grid{display:flex;gap:16px;margin-top:16px;margin-bottom:20px;page-break-inside:avoid}
+      .analytics-card{flex:1;border:1px solid #d0daf0;border-radius:6px;overflow:hidden;background:#fff}
+      .analytics-header{padding:10px 14px;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid #d0daf0}
+      .analytics-header.src{background:#ecfeff;color:#0891b2}
+      .analytics-header.dst{background:#eff6ff;color:#2563eb}
+      .analytics-card table{margin-bottom:0}
+      @media print{body{padding:10px}h2{page-break-after:avoid}table{page-break-inside:auto}tr{page-break-inside:avoid}.analytics-grid{page-break-inside:avoid}}
       </style></head><body>`;
 
     const periodLabel = getFormattedReportPeriod(f);
@@ -341,6 +347,46 @@ export default function Reports() {
         </tr>`;
       });
       html += `</tbody></table>`;
+    }
+
+    const topSrc = d.analytics?.topSrc || [];
+    const topServices = d.analytics?.topServices || [];
+
+    if (topSrc.length > 0 || topServices.length > 0) {
+      html += `<h2>Traffic & Analytics Breakdown</h2>
+      <div class="analytics-grid">`;
+
+      if (topSrc.length > 0) {
+        html += `<div class="analytics-card">
+          <div class="analytics-header src">TOP SOURCE IPS</div>
+          <table>
+            <thead><tr><th>Source IP</th><th style="text-align:right">Hits</th></tr></thead>
+            <tbody>`;
+        topSrc.forEach(r => {
+          html += `<tr>
+            <td style="font-family:monospace;font-weight:700;color:#ea580c">${r.src_ip || 'Unknown'}</td>
+            <td style="text-align:right;font-weight:700;color:#1a2540">${Number(r.n).toLocaleString()}</td>
+          </tr>`;
+        });
+        html += `</tbody></table></div>`;
+      }
+
+      if (topServices.length > 0) {
+        html += `<div class="analytics-card">
+          <div class="analytics-header dst">TOP DESTINATION SERVICES</div>
+          <table>
+            <thead><tr><th>Destination Service</th><th style="text-align:right">Hits</th></tr></thead>
+            <tbody>`;
+        topServices.forEach(r => {
+          html += `<tr>
+            <td style="font-family:monospace;font-weight:700;color:#2563eb">${r.service || 'Unknown'}</td>
+            <td style="text-align:right;font-weight:700;color:#1a2540">${Number(r.n).toLocaleString()}</td>
+          </tr>`;
+        });
+        html += `</tbody></table></div>`;
+      }
+
+      html += `</div>`;
     }
 
     html += `</body></html>`;
@@ -2469,7 +2515,7 @@ export default function Reports() {
                 </div>
                 
                 {showBranchDropdown && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', marginTop: '4px', zIndex: 30, padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>
+                  <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', background: 'var(--surface-solid)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid var(--border)', borderRadius: '6px', marginTop: '4px', zIndex: 30, padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto', boxShadow: 'var(--shadow-md)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px', borderBottom: '1px solid var(--border)', fontSize: '10px', fontFamily: 'var(--mono)' }}>
                       <span 
                         onClick={() => setFilters({ ...filters, aggregator: [] })}
@@ -2536,7 +2582,7 @@ export default function Reports() {
                 </div>
                 
                 {showSeverityDropdown && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', minWidth: '180px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', marginTop: '4px', zIndex: 35, padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '280px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>
+                  <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', minWidth: '180px', background: 'var(--surface-solid)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid var(--border)', borderRadius: '6px', marginTop: '4px', zIndex: 35, padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '280px', overflowY: 'auto', boxShadow: 'var(--shadow-md)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px', borderBottom: '1px solid var(--border)', fontSize: '10px', fontFamily: 'var(--mono)' }}>
                       <span 
                         onClick={() => setFilters({ ...filters, severity: [] })}
@@ -2615,7 +2661,7 @@ export default function Reports() {
                 </div>
                 
                 {showCategoryDropdown && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', minWidth: '220px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', marginTop: '4px', zIndex: 30, padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '280px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>
+                  <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', minWidth: '220px', background: 'var(--surface-solid)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid var(--border)', borderRadius: '6px', marginTop: '4px', zIndex: 30, padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '280px', overflowY: 'auto', boxShadow: 'var(--shadow-md)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px', borderBottom: '1px solid var(--border)', fontSize: '10px', fontFamily: 'var(--mono)' }}>
                       <span 
                         onClick={() => setFilters({ ...filters, category: [], include_fw: false })}
@@ -2742,7 +2788,7 @@ export default function Reports() {
                 </div>
                 
                 {fwShowBranchDropdown && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', marginTop: '4px', zIndex: 30, padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>
+                  <div style={{ position: 'absolute', top: '100%', left: 0, width: '100%', background: 'var(--surface-solid)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid var(--border)', borderRadius: '6px', marginTop: '4px', zIndex: 30, padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto', boxShadow: 'var(--shadow-md)' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '6px', borderBottom: '1px solid var(--border)', fontSize: '10px', fontFamily: 'var(--mono)' }}>
                       <span onClick={() => setFwFilters({ ...fwFilters, aggregator: [] })} style={{ color: '#06b6d4', cursor: 'pointer', fontWeight: 600 }}>
                         {fwFilters.aggregator.length === 0 ? '✓ All Branches' : 'Reset to All'}
