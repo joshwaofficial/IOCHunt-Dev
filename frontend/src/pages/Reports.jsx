@@ -4,7 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import ReportTimelineChart from '../components/reports/ReportTimelineChart';
 import ReportCategoryChart from '../components/reports/ReportCategoryChart';
 import ReportMachineRiskChart from '../components/reports/ReportMachineRiskChart';
-import { generateTimelineSvg, generateCategoryDonutSvg, generateSeverityProportionSvg } from '../components/reports/reportSvgCharts';
+import { generateTimelineSvg, generateCategoryMatrixSvg } from '../components/reports/reportSvgCharts';
 
 const catColors = { 
   FIREWALL: '#06b6d4',
@@ -531,12 +531,8 @@ export default function Reports() {
     });
     html += `</div>`;
 
-    const pdfCats = Array.isArray(f.category)
-      ? f.category.map(c => String(c).trim().toUpperCase())
-      : (typeof f.category === 'string' && f.category ? f.category.split(',').map(c => c.trim().toUpperCase()) : []);
-    const showUsbPdf = pdfCats.length === 0 || pdfCats.includes('ALL CATEGORIES') || pdfCats.includes('ALL') || pdfCats.includes('USB');
-
-    if (showUsbPdf && d.usb_compliance && d.usb_compliance.machines && d.usb_compliance.machines.length > 0) {
+    // ── USB Policy & Device Compliance Section (Always shown when audit data exists) ──
+    if (d.usb_compliance && d.usb_compliance.machines && d.usb_compliance.machines.length > 0) {
       const uSum = d.usb_compliance.summary || {};
       html += `<h2>USB Policy & Device Compliance (${d.usb_compliance.machines.length} machines)</h2>
         <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">
@@ -552,26 +548,40 @@ export default function Reports() {
         </tr></thead><tbody>`;
       d.usb_compliance.machines.forEach(u => {
         const isLocked = u.configured_lock === 'locked';
-        const compClass = (u.status === 'Compliant' || (isLocked && u.is_compliant))
-          ? 'c' // red
-          : (u.status === 'Non Compliant' || u.status === 'Non-Compliant' || (!isLocked && u.is_compliant))
-          ? 'l' // green
-          : 'h';
-        const compText = (u.status === 'Compliant' || (isLocked && u.is_compliant))
-          ? 'Compliant'
-          : (u.status === 'Non Compliant' || u.status === 'Non-Compliant' || (!isLocked && u.is_compliant))
-          ? 'Non Compliant'
-          : u.status;
-        const confBadge = isLocked ? 'c' : 'l';
+        const confBadge = isLocked 
+          ? '<span class="badge c">🔒 DISABLED (LOCKED)</span>' 
+          : '<span class="badge l" style="background:#f0fdf4; color:#16a34a; border:1px solid #bbf7d0;">🔓 ENABLED (ALLOWED)</span>';
+        
+        const stateText = isLocked 
+          ? '<span style="color:#ef4444; font-weight:700;">Disabled (Locked)</span>'
+          : u.current_usb === 'Unknown'
+          ? '<span style="color:#64748b;">Unknown</span>'
+          : '<span style="color:#16a34a; font-weight:700;">Enabled (Allowed)</span>';
+
+        const compBadge = u.status === 'Compliant'
+          ? '<span class="badge" style="background:#fef2f2; color:#ef4444; border:1px solid #fecaca;">✓ Compliant</span>'
+          : u.status === 'Offline'
+          ? '<span class="badge" style="background:#fffbeb; color:#d97706; border:1px solid #fde68a;">⚠️ Offline</span>'
+          : '<span class="badge" style="background:#f0fdf4; color:#16a34a; border:1px solid #bbf7d0;">Non Compliant</span>';
+
+        const usbEvText = u.usb_events_count > 0
+          ? `<b style="color:#ef4444;">${u.usb_events_count} events <span style="font-size:8px;">(Violation Alert)</span></b>`
+          : '<span style="color:#64748b;">0 events</span>';
+
+        const syncText = u.applied_at ? new Date(u.applied_at).toLocaleString('sv-SE').slice(0,16).replace('T',' ') : (u.last_sync_formatted || 'Never');
+
         html += `<tr>
-          <td><b style="color:#2563eb">${u.machine}</b></td>
+          <td>
+            <b style="color:#2563eb">${u.label || u.machine}</b>
+            ${u.label && u.label !== u.machine ? `<div style="font-size:8px; color:#64748b;">${u.machine}</div>` : ''}
+          </td>
           <td>${u.aggregator_name || 'direct'} &nbsp;(${u.ip || '-'})</td>
-          <td>${u.group_name || 'Ungrouped'}</td>
-          <td><span class="badge ${confBadge}">${u.configured_usb}</span></td>
-          <td>${u.current_usb}</td>
-          <td><span class="badge ${compClass}">${compText}</span></td>
-          <td style="font-weight:700;color:${u.usb_events_count > 0 ? (isLocked ? '#dc2626' : '#2563eb') : '#4a5578'}">${u.usb_events_count > 0 ? `${u.usb_events_count} events${isLocked ? ' (Violation)' : ''}` : '0'}</td>
-          <td style="font-size:9px">${u.applied_at ? new Date(u.applied_at).toLocaleString('sv-SE').slice(0,16).replace('T',' ') : 'Never'}</td>
+          <td><span style="color:#7c3aed">${u.group_name || 'Ungrouped'}</span></td>
+          <td>${confBadge}</td>
+          <td>${stateText}</td>
+          <td>${compBadge}</td>
+          <td>${usbEvText}</td>
+          <td style="font-size:9px">${syncText}</td>
         </tr>`;
       });
       html += `</tbody></table>`;
@@ -580,10 +590,7 @@ export default function Reports() {
     // ── Visual Threat Analytics Vector Graphs (Scoped to Period) ──
     html += `<h2>Visual Threat Analytics</h2>`;
     html += generateTimelineSvg(ev.hourly, f, durLabel);
-    html += `<div style="display:flex; gap:16px; margin-bottom:16px; flex-wrap:wrap;">`;
-    html += generateCategoryDonutSvg(ev.byCategory, ev.total, catColors);
-    html += generateSeverityProportionSvg(sevMap, ev.total);
-    html += `</div>`;
+    html += generateCategoryMatrixSvg(ev.byCategory, ev.total, catColors);
 
     if ((ev.byCategory || []).length) {
       html += `<h2>Events by Category</h2><table><thead><tr><th>Category</th><th>Count</th><th style="width:200px">Distribution</th><th>%</th></tr></thead><tbody>`;
@@ -715,9 +722,16 @@ export default function Reports() {
     if (!reportData) return <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: '14px' }}>Configure filters above and click <b>Generate Report</b></div>;
 
     const d = reportData;
-    const f = d.filters || {};
-    const ev = d.events || {};
-    const mach = d.machines.filter(m => f.aggregator?.length === 0 || f.aggregator?.includes(m.aggregator_name));
+    const rawMachines = Array.isArray(d.machines) ? d.machines : (d.events?.byMachine || []).map(m => ({
+      id: m.machine,
+      label: m.machine,
+      ip: '-',
+      event_count: Number(m.n || 0),
+      critical: 0,
+      high: 0,
+      status: 'Monitored'
+    }));
+    const mach = rawMachines.filter(m => !f.aggregator || f.aggregator.length === 0 || f.aggregator.includes(m.aggregator_name));
     const adEvs = d.ad_attacks || [];
     const userEvs = d.user_events || [];
     const fw = d.firewall;

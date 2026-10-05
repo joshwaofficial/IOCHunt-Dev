@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useEffect } from 'react';
+import React, { useRef, useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 
 const DEFAULT_CAT_COLORS = {
@@ -17,11 +17,13 @@ const DEFAULT_CAT_COLORS = {
   USB: '#f43f5e',
   DEFENDER: '#ef4444',
   STARTUP: '#ec4899',
-  OTHER: '#6b7280'
+  OTHER: '#6b7280',
+  UNCATEGORIZED: '#94a3b8'
 };
 
 export default function ReportCategoryChart({ byCategory = [], totalEvents = 0, catColors = DEFAULT_CAT_COLORS, theme = 'dark' }) {
   const chartRef = useRef(null);
+  const [viewMode, setViewMode] = useState('bars'); // 'bars' | 'donut'
 
   const isLight = theme === 'light';
   const textColor = isLight ? '#334155' : '#cbd5e1';
@@ -30,11 +32,15 @@ export default function ReportCategoryChart({ byCategory = [], totalEvents = 0, 
   const borderColor = isLight ? '#e2e8f0' : 'rgba(255, 255, 255, 0.1)';
 
   const sortedCategories = useMemo(() => {
-    return [...(byCategory || [])]
-      .map(c => ({
-        category: c.category || 'OTHER',
-        n: Number(c.n || c.count || 0)
-      }))
+    const map = {};
+    (byCategory || []).forEach(c => {
+      const raw = typeof c.category === 'string' ? c.category.trim() : '';
+      const cat = raw ? raw.toUpperCase() : 'UNCATEGORIZED';
+      map[cat] = (map[cat] || 0) + Number(c.n || c.count || 0);
+    });
+    return Object.entries(map)
+      .map(([category, n]) => ({ category, n }))
+      .filter(c => c.n > 0)
       .sort((a, b) => b.n - a.n);
   }, [byCategory]);
 
@@ -94,58 +100,79 @@ export default function ReportCategoryChart({ byCategory = [], totalEvents = 0, 
           type: 'pie',
           radius: ['52%', '76%'],
           center: ['50%', '50%'],
-          avoidLabelOverlap: true,
+          avoidLabelOverlap: false,
           itemStyle: {
-            borderRadius: 5,
+            borderRadius: 3,
             borderColor: surfaceColor,
-            borderWidth: 2
+            borderWidth: 1.5
           },
           label: {
-            show: false,
-            position: 'center'
+            show: false
           },
           emphasis: {
             scale: true,
             scaleSize: 6,
             label: {
               show: true,
-              formatter: '{b}\n{c}',
               fontSize: 12,
-              fontWeight: 800,
-              fontFamily: 'monospace',
-              color: textColor
+              fontWeight: 'bold',
+              color: textColor,
+              formatter: '{b}\n{d}%'
             }
           },
           data: seriesData
         }
       ]
     };
-  }, [sortedCategories, effectiveTotal, catColors, isLight, surfaceColor, borderColor, textColor, mutedTextColor]);
+  }, [sortedCategories, catColors, surfaceColor, isLight, borderColor, textColor, mutedTextColor, effectiveTotal]);
 
-  useEffect(() => {
-    if (chartRef.current && option) {
-      chartRef.current.getEchartsInstance().setOption(option, true);
-    }
-  }, [option]);
+  const half = Math.ceil(sortedCategories.length / 2);
+  const col1 = sortedCategories.slice(0, half);
+  const col2 = sortedCategories.slice(half);
+
+  const renderCategoryRow = (c, i) => {
+    const col = catColors[c.category] || catColors[c.category.toUpperCase()] || '#6b7280';
+    const pct = effectiveTotal > 0 ? ((c.n / effectiveTotal) * 100).toFixed(1) : 0;
+    const barW = Math.max(2, Math.round((c.n / effectiveTotal) * 100));
+
+    return (
+      <div key={i} style={{ marginBottom: '10px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', marginBottom: '4px' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: col, flexShrink: 0 }}></span>
+            <b style={{ color: 'var(--text)', letterSpacing: '0.2px' }}>{c.category}</b>
+          </span>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: '11px' }}>
+            <b style={{ color: 'var(--text)' }}>{c.n.toLocaleString()}</b>
+            <span style={{ color: 'var(--muted)', fontSize: '10px', marginLeft: '4px' }}>({pct}%)</span>
+          </span>
+        </div>
+        <div style={{ height: '6px', background: isLight ? '#f1f5f9' : 'rgba(255,255,255,0.06)', borderRadius: '3px', overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${barW}%`, background: col, borderRadius: '3px', transition: 'width 0.5s ease' }}></div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div style={{
       background: 'var(--surface)',
       border: '1px solid var(--border)',
-      borderRadius: '12px',
+      borderRadius: '8px',
       overflow: 'hidden',
       display: 'flex',
-      flexDirection: 'column',
-      boxShadow: '0 4px 20px rgba(0,0,0,0.03)'
+      flexDirection: 'column'
     }}>
       {/* Header */}
       <div style={{
-        padding: '16px 20px',
+        padding: '12px 18px',
         borderBottom: '1px solid var(--border)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        background: 'linear-gradient(90deg, rgba(6,182,212,0.05) 0%, transparent 100%)'
+        background: 'linear-gradient(90deg, rgba(6,182,212,0.05) 0%, transparent 100%)',
+        flexWrap: 'wrap',
+        gap: '10px'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div style={{
@@ -158,7 +185,7 @@ export default function ReportCategoryChart({ byCategory = [], totalEvents = 0, 
             justifyContent: 'center',
             color: '#06b6d4'
           }}>
-            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>pie_chart</span>
+            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>bar_chart</span>
           </div>
           <div>
             <h3 style={{
@@ -173,36 +200,87 @@ export default function ReportCategoryChart({ byCategory = [], totalEvents = 0, 
               Events by Category
             </h3>
             <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '2px' }}>
-              {sortedCategories.length} active event categories in this period
+              Ranked telemetry classification across {sortedCategories.length} categories
             </div>
           </div>
         </div>
-        <span style={{
-          fontSize: '11px',
-          fontWeight: 800,
-          fontFamily: 'var(--mono)',
-          color: '#06b6d4',
-          background: 'rgba(6,182,212,0.1)',
-          border: '1px solid rgba(6,182,212,0.25)',
-          padding: '2px 8px',
-          borderRadius: '10px'
-        }}>
-          {effectiveTotal.toLocaleString()} total
-        </span>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* View switcher */}
+          <div style={{
+            display: 'flex',
+            background: isLight ? '#f1f5f9' : 'rgba(255,255,255,0.06)',
+            padding: '2px',
+            borderRadius: '6px',
+            fontSize: '10px',
+            fontFamily: 'var(--mono)'
+          }}>
+            <button
+              onClick={() => setViewMode('bars')}
+              style={{
+                border: 'none',
+                background: viewMode === 'bars' ? 'var(--primary, #2563eb)' : 'transparent',
+                color: viewMode === 'bars' ? '#fff' : 'var(--muted)',
+                fontWeight: 700,
+                padding: '3px 8px',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              📊 Ranked Bars
+            </button>
+            <button
+              onClick={() => setViewMode('donut')}
+              style={{
+                border: 'none',
+                background: viewMode === 'donut' ? 'var(--primary, #2563eb)' : 'transparent',
+                color: viewMode === 'donut' ? '#fff' : 'var(--muted)',
+                fontWeight: 700,
+                padding: '3px 8px',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              🍩 Donut
+            </button>
+          </div>
+
+          <span style={{
+            fontSize: '11px',
+            fontWeight: 800,
+            fontFamily: 'var(--mono)',
+            color: '#06b6d4',
+            background: 'rgba(6,182,212,0.1)',
+            border: '1px solid rgba(6,182,212,0.25)',
+            padding: '2px 8px',
+            borderRadius: '10px'
+          }}>
+            {effectiveTotal.toLocaleString()} total
+          </span>
+        </div>
       </div>
 
-      {/* Body: Donut chart + Ranked List */}
-      <div style={{
-        padding: '18px 20px',
-        display: 'grid',
-        gridTemplateColumns: 'minmax(200px, 1fr) minmax(260px, 1.4fr)',
-        gap: '20px',
-        alignItems: 'center'
-      }}>
-        {/* Donut Chart with Center Total */}
-        <div style={{ position: 'relative', width: '100%', height: '220px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {sortedCategories.length > 0 ? (
-            <>
+      {/* Body */}
+      <div style={{ padding: '16px 20px', flex: 1 }}>
+        {sortedCategories.length === 0 ? (
+          <div style={{ color: 'var(--muted)', fontSize: '12px', textAlign: 'center', padding: '24px' }}>No categories recorded</div>
+        ) : viewMode === 'bars' ? (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: sortedCategories.length > 5 ? '1fr 1fr' : '1fr',
+            gap: '12px 24px'
+          }}>
+            <div>{col1.map((c, i) => renderCategoryRow(c, i))}</div>
+            {col2.length > 0 && <div>{col2.map((c, i) => renderCategoryRow(c, i + half))}</div>}
+          </div>
+        ) : (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(200px, 1fr) minmax(240px, 1.3fr)',
+            gap: '20px',
+            alignItems: 'center'
+          }}>
+            <div style={{ height: '220px', position: 'relative' }}>
               <ReactECharts
                 ref={chartRef}
                 option={option}
@@ -210,56 +288,12 @@ export default function ReportCategoryChart({ byCategory = [], totalEvents = 0, 
                 lazyUpdate={true}
                 notMerge={true}
               />
-              {/* Static Center Label */}
-              <div style={{
-                position: 'absolute',
-                top: '50%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                textAlign: 'center',
-                pointerEvents: 'none'
-              }}>
-                <div style={{ fontSize: '20px', fontWeight: 800, fontFamily: 'var(--mono)', color: 'var(--text)', lineHeight: 1.1 }}>
-                  {effectiveTotal.toLocaleString()}
-                </div>
-                <div style={{ fontSize: '9px', fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', marginTop: '2px' }}>
-                  EVENTS
-                </div>
-              </div>
-            </>
-          ) : (
-            <div style={{ color: 'var(--muted)', fontSize: '12px' }}>No categories recorded</div>
-          )}
-        </div>
-
-        {/* Ranked Category Breakdown Table/List */}
-        <div style={{ maxHeight: '240px', overflowY: 'auto', paddingRight: '4px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {sortedCategories.map((c, i) => {
-            const col = catColors[c.category] || catColors[c.category.toUpperCase()] || '#6b7280';
-            const pct = effectiveTotal > 0 ? Math.round((c.n / effectiveTotal) * 100) : 0;
-            const barW = Math.round((c.n / maxCatCount) * 100);
-
-            return (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '105px', flexShrink: 0 }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: col, flexShrink: 0 }}></span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: '11px', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.category}>
-                    {c.category}
-                  </span>
-                </div>
-                <div style={{ flex: 1, height: '6px', background: 'var(--surface2)', borderRadius: '3px', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${barW}%`, background: col, borderRadius: '3px', transition: 'width 0.4s ease' }}></div>
-                </div>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: '11px', fontWeight: 700, color: 'var(--text)', width: '42px', textAlign: 'right', flexShrink: 0 }}>
-                  {c.n.toLocaleString()}
-                </span>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: '10px', color: 'var(--muted)', width: '32px', textAlign: 'right', flexShrink: 0 }}>
-                  {pct}%
-                </span>
-              </div>
-            );
-          })}
-        </div>
+            </div>
+            <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
+              {sortedCategories.slice(0, 8).map((c, i) => renderCategoryRow(c, i))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

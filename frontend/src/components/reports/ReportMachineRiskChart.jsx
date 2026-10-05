@@ -15,22 +15,29 @@ export default function ReportMachineRiskChart({ machines = [], theme = 'dark' }
   const topMachines = useMemo(() => {
     return [...(machines || [])]
       .sort((a, b) => {
-        const scoreA = (Number(a.critical || 0) * 10) + (Number(a.high || 0) * 3) + Number(a.event_count || 0);
-        const scoreB = (Number(b.critical || 0) * 10) + (Number(b.high || 0) * 3) + Number(b.event_count || 0);
+        const countA = Number(a.event_count || a.n || 0);
+        const countB = Number(b.event_count || b.n || 0);
+        const scoreA = (Number(a.critical || 0) * 10) + (Number(a.high || 0) * 3) + countA;
+        const scoreB = (Number(b.critical || 0) * 10) + (Number(b.high || 0) * 3) + countB;
         return scoreB - scoreA;
       })
       .slice(0, 8);
   }, [machines]);
+
+  const hasSevBreakdown = useMemo(() => {
+    return topMachines.some(m => (Number(m.critical || 0) + Number(m.high || 0) + Number(m.medium || 0)) > 0);
+  }, [topMachines]);
 
   const option = useMemo(() => {
     if (topMachines.length === 0) return {};
 
     // ECharts Y-axis renders from bottom to top, so reverse for descending order visually
     const reversed = [...topMachines].reverse();
-    const labels = reversed.map(m => m.label || m.id);
+    const labels = reversed.map(m => m.label || m.machine || m.id || 'Unknown');
     const critData = reversed.map(m => Number(m.critical || 0));
     const highData = reversed.map(m => Number(m.high || 0));
     const medData = reversed.map(m => Number(m.medium || 0));
+    const totalData = reversed.map(m => Number(m.event_count || m.n || 0));
 
     return {
       animationDuration: 700,
@@ -86,7 +93,7 @@ export default function ReportMachineRiskChart({ machines = [], theme = 'dark' }
         itemWidth: 10,
         itemHeight: 10,
         textStyle: { color: mutedTextColor, fontSize: 10, fontFamily: 'monospace' },
-        data: ['Critical', 'High', 'Medium']
+        data: hasSevBreakdown ? ['Critical', 'High', 'Medium'] : ['Events']
       },
       grid: {
         left: '2%',
@@ -115,7 +122,7 @@ export default function ReportMachineRiskChart({ machines = [], theme = 'dark' }
           formatter: (value) => value.length > 12 ? `${value.slice(0, 10)}...` : value
         }
       },
-      series: [
+      series: hasSevBreakdown ? [
         {
           name: 'Critical',
           type: 'bar',
@@ -140,9 +147,17 @@ export default function ReportMachineRiskChart({ machines = [], theme = 'dark' }
           itemStyle: { color: '#eab308', borderRadius: [0, 4, 4, 0] },
           barWidth: 14
         }
+      ] : [
+        {
+          name: 'Events',
+          type: 'bar',
+          data: totalData,
+          itemStyle: { color: '#3b82f6', borderRadius: [0, 4, 4, 0] },
+          barWidth: 14
+        }
       ]
     };
-  }, [topMachines, isLight, surfaceColor, borderColor, textColor, mutedTextColor, gridLineColor]);
+  }, [topMachines, hasSevBreakdown, isLight, surfaceColor, borderColor, textColor, mutedTextColor, gridLineColor]);
 
   useEffect(() => {
     if (chartRef.current && option) {
