@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { useTheme } from '../context/ThemeContext';
+import ReportTimelineChart from '../components/reports/ReportTimelineChart';
+import ReportCategoryChart from '../components/reports/ReportCategoryChart';
+import ReportMachineRiskChart from '../components/reports/ReportMachineRiskChart';
+import { generateTimelineSvg, generateCategoryDonutSvg, generateSeverityProportionSvg } from '../components/reports/reportSvgCharts';
 
 const catColors = { 
   FIREWALL: '#06b6d4',
@@ -87,6 +92,7 @@ function getFormattedReportPeriod(f) {
 }
 
 export default function Reports() {
+  const { theme } = useTheme();
   const [filters, setFilters] = useState({
     duration: '24',
     from_date: '',
@@ -570,6 +576,14 @@ export default function Reports() {
       });
       html += `</tbody></table>`;
     }
+
+    // ── Visual Threat Analytics Vector Graphs (Scoped to Period) ──
+    html += `<h2>Visual Threat Analytics</h2>`;
+    html += generateTimelineSvg(ev.hourly, f, durLabel);
+    html += `<div style="display:flex; gap:16px; margin-bottom:16px; flex-wrap:wrap;">`;
+    html += generateCategoryDonutSvg(ev.byCategory, ev.total, catColors);
+    html += generateSeverityProportionSvg(sevMap, ev.total);
+    html += `</div>`;
 
     if ((ev.byCategory || []).length) {
       html += `<h2>Events by Category</h2><table><thead><tr><th>Category</th><th>Count</th><th style="width:200px">Distribution</th><th>%</th></tr></thead><tbody>`;
@@ -1132,33 +1146,26 @@ export default function Reports() {
           ))}
         </div>
 
-        {(ev.byCategory || []).length > 0 && (
-          <div className="card" style={{ marginBottom: '16px' }}>
-            <div className="card-header" style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--muted)' }}>pie_chart</span>
-                <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', margin: 0, color: 'var(--text)' }}>Events by Category</div>
-              </div>
-            </div>
-            <div style={{ padding: '14px 18px' }}>
-              {ev.byCategory.map((r, i) => {
-                const col = catColors[r.category] || '#6b7280';
-                const pct = Math.round(r.n / ev.total * 100);
-                const barW = Math.round(r.n / maxCat * 100);
-                return (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                    <span style={{ fontFamily: 'var(--mono)', fontSize: '11px', width: '110px', color: 'var(--text)' }}>{r.category}</span>
-                    <div style={{ flex: 1, height: '6px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${barW}%`, background: col, borderRadius: '3px' }}></div>
-                    </div>
-                    <span style={{ fontFamily: 'var(--mono)', fontSize: '11px', color: 'var(--muted)', width: '36px', textAlign: 'right' }}>{r.n}</span>
-                    <span style={{ fontFamily: 'var(--mono)', fontSize: '10px', color: 'var(--muted)', width: '32px' }}>{pct}%</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        {/* ── VISUAL THREAT ANALYTICS FOR SELECTED PERIOD ── */}
+        <ReportTimelineChart
+          hourlyData={ev.hourly}
+          periodLabel={durLabel}
+          filters={f}
+          theme={theme}
+        />
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+          <ReportCategoryChart
+            byCategory={ev.byCategory}
+            totalEvents={ev.total}
+            catColors={catColors}
+            theme={theme}
+          />
+          <ReportMachineRiskChart
+            machines={mach}
+            theme={theme}
+          />
+        </div>
 
         {mach.length > 0 && (
           <div style={{ marginBottom: '32px' }}>

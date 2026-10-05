@@ -20,15 +20,18 @@ const generateReport = async (req, res) => {
 
     let fromDate, toDate;
     if (from_date && to_date) {
-      fromDate = new Date(from_date);
-      toDate = new Date(to_date);
+      const fromStr = from_date.includes('T') ? from_date : `${from_date}T00:00:00`;
+      const toStr = to_date.includes('T') ? to_date : `${to_date}T23:59:59.999`;
+      fromDate = new Date(fromStr);
+      toDate = new Date(toStr);
       if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
         toDate = new Date();
         fromDate = new Date(toDate.getTime() - 24 * 3600000);
       }
     } else if (duration === 'today') {
-      toDate = new Date();
-      fromDate = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate(), 0, 0, 0, 0);
+      const now = new Date();
+      fromDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      toDate = now;
     } else {
       const rawHours = parseFloat(duration);
       const hours = (!isNaN(rawHours) && rawHours > 0 && rawHours <= 8760) ? rawHours : 24;
@@ -126,15 +129,15 @@ const generateReport = async (req, res) => {
     // ── Event stats ───────────────────────────────────────────────────────────
     const totalEvents = parseInt((await req.queryTenant(`SELECT COUNT(*) AS n FROM events ${evWhere}`, evParams)).rows[0].n, 10);
 
-    const bySeverity = (await req.queryTenant(`SELECT severity, COUNT(*) AS n FROM events ${evWhere} GROUP BY severity ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END`, evParams)).rows;
+    const bySeverity = (await req.queryTenant(`SELECT severity, COUNT(*)::int AS n FROM events ${evWhere} GROUP BY severity ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END`, evParams)).rows;
 
-    const byCategory = (await req.queryTenant(`SELECT category, COUNT(*) AS n FROM events ${evWhere} GROUP BY category ORDER BY n DESC LIMIT 15`, evParams)).rows;
+    const byCategory = (await req.queryTenant(`SELECT category, COUNT(*)::int AS n FROM events ${evWhere} GROUP BY category ORDER BY n DESC LIMIT 15`, evParams)).rows;
 
-    const byMachine = (await req.queryTenant(`SELECT machine, COUNT(*) AS n FROM events ${evWhere} GROUP BY machine ORDER BY n DESC LIMIT 20`, evParams)).rows;
+    const byMachine = (await req.queryTenant(`SELECT machine, COUNT(*)::int AS n FROM events ${evWhere} GROUP BY machine ORDER BY n DESC LIMIT 20`, evParams)).rows;
 
-    const hourly = (await req.queryTenant(`SELECT TO_CHAR(ts::timestamp, 'YYYY-MM-DD HH24:00') AS hour, severity, COUNT(*) AS n FROM events ${evWhere} GROUP BY hour, severity ORDER BY hour ASC`, evParams)).rows;
+    const hourly = (await req.queryTenant(`SELECT TO_CHAR(ts::timestamp, 'YYYY-MM-DD HH24:00') AS hour, severity, COUNT(*)::int AS n FROM events ${evWhere} GROUP BY hour, severity ORDER BY hour ASC`, evParams)).rows;
 
-    const topTags = (await req.queryTenant(`SELECT tag, COUNT(*) AS n FROM events ${evWhere} GROUP BY tag ORDER BY n DESC LIMIT 25`, evParams)).rows;
+    const topTags = (await req.queryTenant(`SELECT tag, COUNT(*)::int AS n FROM events ${evWhere} GROUP BY tag ORDER BY n DESC LIMIT 25`, evParams)).rows;
 
     // Retrieve ALL events matching the filters without any limitation
     const reportEvents = (await req.queryTenant(
