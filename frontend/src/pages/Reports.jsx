@@ -722,6 +722,8 @@ export default function Reports() {
     if (!reportData) return <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: '14px' }}>Configure filters above and click <b>Generate Report</b></div>;
 
     const d = reportData;
+    const f = d.filters || {};
+    const ev = d.events || {};
     const rawMachines = Array.isArray(d.machines) ? d.machines : (d.events?.byMachine || []).map(m => ({
       id: m.machine,
       label: m.machine,
