@@ -21,8 +21,25 @@ async function ingestAgentLogs(req, res) {
     // Zero-Trust Machine Identity Enforcement (INT-PT-H-003 & INT-PT-H-004)
     if (req.isAgentKey && req.boundMachine && req.boundMachine.toUpperCase() !== 'UNNAMED-ENDPOINT') {
       if (req.boundMachine.toLowerCase() !== machine.trim().toLowerCase()) {
+        try {
+          const { logSecurityEvent, SEVERITY } = require('../services/auditLogService');
+          const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '')
+            .split(',')[0].trim().replace(/^::ffff:/, '').slice(0, 45);
+          logSecurityEvent({
+            event: 'AGENT_MACHINE_SPOOF_ATTEMPT',
+            severity: SEVERITY.CRITICAL,
+            ip: clientIp,
+            tenantId: req.tenantId || 'unknown',
+            detail: {
+              reason: `Machine identity mismatch: Key bound to '${req.boundMachine}', but submitted logs for '${machine}'`,
+              reportedMachine: machine,
+              boundMachine: req.boundMachine,
+              path: req.originalUrl || req.url
+            }
+          });
+        } catch (_) {}
         return res.status(403).json({
-          error: 'Forbidden: Machine identity mismatch. This agent key is already bound to another machine.'
+          error: 'Forbidden: Machine identity mismatch. This agent key is permanently bound to another endpoint.'
         });
       }
     }

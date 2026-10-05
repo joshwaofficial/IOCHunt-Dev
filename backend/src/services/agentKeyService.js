@@ -121,7 +121,8 @@ async function validateAndBindAgentKey(rawKey, reportedMachine, clientIp) {
         if (normReported && data.boundMachine && data.boundMachine.toUpperCase() !== 'UNNAMED-ENDPOINT' && data.boundMachine.toLowerCase() !== normReported) {
           return {
             valid: false,
-            reason: 'Machine identity mismatch: Agent key is already bound to another machine',
+            reason: 'Machine identity mismatch: Agent key is already paired to another endpoint',
+            internalReason: `Machine identity mismatch: Key is bound to '${data.boundMachine}', but request specified '${reportedMachine}'`,
             boundMachine: data.boundMachine
           };
         }
@@ -251,7 +252,8 @@ async function validateAndBindAgentKey(rawKey, reportedMachine, clientIp) {
     if (normReported && row.bound_machine && row.bound_machine.toUpperCase() !== 'UNNAMED-ENDPOINT' && row.bound_machine.toLowerCase() !== normReported) {
       return {
         valid: false,
-        reason: 'Machine identity mismatch: Agent key is already bound to another machine',
+        reason: 'Machine identity mismatch: Agent key is already paired to another endpoint',
+        internalReason: `Machine identity mismatch: Key is bound to '${row.bound_machine}', but request specified '${reportedMachine}'`,
         boundMachine: row.bound_machine
       };
     }

@@ -122,8 +122,25 @@ async function getMachinePolicy(req, res) {
     // Zero-Trust Machine Policy Isolation (INT-PT-L-002)
     if (req.isAgentKey && req.boundMachine) {
       if (req.boundMachine.toLowerCase() !== machine.toLowerCase()) {
+        try {
+          const { logSecurityEvent, SEVERITY } = require('../services/auditLogService');
+          const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '')
+            .split(',')[0].trim().replace(/^::ffff:/, '').slice(0, 45);
+          logSecurityEvent({
+            event: 'AGENT_POLICY_UNAUTHORIZED_ACCESS',
+            severity: SEVERITY.HIGH,
+            ip: clientIp,
+            tenantId: req.tenantId || 'unknown',
+            detail: {
+              reason: `Unauthorized policy access: Key bound to '${req.boundMachine}', requested policy for '${machine}'`,
+              reportedMachine: machine,
+              boundMachine: req.boundMachine,
+              path: req.originalUrl || req.url
+            }
+          });
+        } catch (_) {}
         return res.status(403).json({
-          error: 'Forbidden: Unauthorized access to policy. This agent key is already bound to another machine.'
+          error: 'Forbidden: Unauthorized access to policy. This agent key is not authorized for the requested endpoint.'
         });
       }
     }
@@ -200,8 +217,25 @@ async function updateMachineCurrentPolicy(req, res) {
     // Zero-Trust Machine Policy Isolation (INT-PT-L-002)
     if (req.isAgentKey && req.boundMachine) {
       if (req.boundMachine.toLowerCase() !== machine.toLowerCase()) {
+        try {
+          const { logSecurityEvent, SEVERITY } = require('../services/auditLogService');
+          const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '')
+            .split(',')[0].trim().replace(/^::ffff:/, '').slice(0, 45);
+          logSecurityEvent({
+            event: 'AGENT_POLICY_UNAUTHORIZED_ACCESS',
+            severity: SEVERITY.HIGH,
+            ip: clientIp,
+            tenantId: req.tenantId || 'unknown',
+            detail: {
+              reason: `Unauthorized policy update: Key bound to '${req.boundMachine}', requested update for '${machine}'`,
+              reportedMachine: machine,
+              boundMachine: req.boundMachine,
+              path: req.originalUrl || req.url
+            }
+          });
+        } catch (_) {}
         return res.status(403).json({
-          error: 'Forbidden: Unauthorized access to policy. This agent key is already bound to another machine.'
+          error: 'Forbidden: Unauthorized access to policy. This agent key is not authorized for the requested endpoint.'
         });
       }
     }
@@ -344,8 +378,25 @@ async function ackMachinePolicy(req, res) {
     // Zero-Trust Machine Policy Isolation (INT-PT-L-002)
     if (req.isAgentKey && req.boundMachine) {
       if (req.boundMachine.toLowerCase() !== machine.toLowerCase()) {
+        try {
+          const { logSecurityEvent, SEVERITY } = require('../services/auditLogService');
+          const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '')
+            .split(',')[0].trim().replace(/^::ffff:/, '').slice(0, 45);
+          logSecurityEvent({
+            event: 'AGENT_POLICY_UNAUTHORIZED_ACCESS',
+            severity: SEVERITY.HIGH,
+            ip: clientIp,
+            tenantId: req.tenantId || 'unknown',
+            detail: {
+              reason: `Unauthorized policy ACK: Key bound to '${req.boundMachine}', requested ACK for '${machine}'`,
+              reportedMachine: machine,
+              boundMachine: req.boundMachine,
+              path: req.originalUrl || req.url
+            }
+          });
+        } catch (_) {}
         return res.status(403).json({
-          error: 'Forbidden: Unauthorized access to policy. This agent key is already bound to another machine.'
+          error: 'Forbidden: Unauthorized access to policy. This agent key is not authorized for the requested endpoint.'
         });
       }
     }

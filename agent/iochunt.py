@@ -365,7 +365,12 @@ def _flush_ship_queue():
                 verify=False,
             )
             if not resp.ok:
-                log(f"[CENTRAL-ERR] HTTP {resp.status_code}: {resp.text[:200]}")
+                if resp.status_code == 403:
+                    log(f"[CENTRAL-ERR] HTTP 403 Forbidden: Agent key rejected (already paired to another endpoint or revoked)")
+                elif resp.status_code == 401:
+                    log(f"[CENTRAL-ERR] HTTP 401 Unauthorized: Invalid agent key")
+                else:
+                    log(f"[CENTRAL-ERR] HTTP {resp.status_code}: {resp.text[:200]}")
         except Exception as ex:
             log(f"[CENTRAL-SHIP-ERR] {ex}")
             with _ship_queue_lock:
