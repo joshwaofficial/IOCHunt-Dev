@@ -22,6 +22,11 @@ const getRetentionStatus = async (req, res) => {
     const tenantId = req.session?.tenant_id || req.tenantId || 'default';
     const isAggAdmin = req.session?.role === 'AGGREGATOR_ADMIN' || Boolean(req.session?.aggregator_name);
 
+    await db.query(`
+      ALTER TABLE settings ADD COLUMN IF NOT EXISTS retention_events_days INTEGER DEFAULT 30;
+      ALTER TABLE settings ADD COLUMN IF NOT EXISTS retention_fw_days INTEGER DEFAULT 30;
+    `).catch(() => {});
+
     let settingsRes;
     try {
       settingsRes = await db.query(
@@ -33,9 +38,9 @@ const getRetentionStatus = async (req, res) => {
       );
     }
 
-    const configuredGeneralDays = settingsRes.rows[0]?.local_retention_days || 30;
-    const configuredEventsDays = settingsRes.rows[0]?.retention_events_days || configuredGeneralDays;
-    const configuredFwDays = settingsRes.rows[0]?.retention_fw_days || configuredGeneralDays;
+    const configuredGeneralDays = settingsRes.rows[0]?.local_retention_days != null ? settingsRes.rows[0].local_retention_days : 30;
+    const configuredEventsDays = settingsRes.rows[0]?.retention_events_days != null ? settingsRes.rows[0].retention_events_days : configuredGeneralDays;
+    const configuredFwDays = settingsRes.rows[0]?.retention_fw_days != null ? settingsRes.rows[0].retention_fw_days : 30;
     const lastCleanupAt = settingsRes.rows[0]?.last_cleanup_at || null;
     const lastCleanupCount = settingsRes.rows[0]?.last_cleanup_count || 0;
 
@@ -192,27 +197,33 @@ const getRetentionStatus = async (req, res) => {
  */
 const updateRetentionPolicy = async (req, res) => {
   try {
+    await db.query(`
+      ALTER TABLE settings ADD COLUMN IF NOT EXISTS retention_events_days INTEGER DEFAULT 30;
+      ALTER TABLE settings ADD COLUMN IF NOT EXISTS retention_fw_days INTEGER DEFAULT 30;
+    `).catch(() => {});
+
     const { local_retention_days, retention_events_days, retention_fw_days } = req.body || {};
 
-    let days = local_retention_days ? parseSafeInt(local_retention_days, null, 1, 3650) : null;
+    const genDays = local_retention_days ? parseSafeInt(local_retention_days, null, 1, 3650) : null;
     const evDays = retention_events_days ? parseSafeInt(retention_events_days, null, 1, 3650) : null;
     const fwDays = retention_fw_days ? parseSafeInt(retention_fw_days, null, 1, 3650) : null;
 
-    if (days === null && evDays === null && fwDays === null) {
+    if (genDays === null && evDays === null && fwDays === null) {
       return res.status(400).json({ error: 'Retention days must be an integer between 1 and 3650' });
     }
 
-    if (days === null) {
-      days = evDays || fwDays || 30;
-    }
+    const existing = await db.query(
+      'SELECT id, local_retention_days, retention_events_days, retention_fw_days FROM settings LIMIT 1'
+    ).catch(() => ({ rows: [] }));
 
-    const existing = await db.query('SELECT id, local_retention_days, retention_events_days, retention_fw_days FROM settings LIMIT 1').catch(() => ({ rows: [] }));
-    const currentEv = existing.rows[0]?.retention_events_days || existing.rows[0]?.local_retention_days || 30;
-    const currentFw = existing.rows[0]?.retention_fw_days || existing.rows[0]?.local_retention_days || 30;
+    const currentEv = existing.rows[0]?.retention_events_days != null ? existing.rows[0].retention_events_days : 30;
+    const currentFw = existing.rows[0]?.retention_fw_days != null ? existing.rows[0].retention_fw_days : 30;
+    const currentGen = existing.rows[0]?.local_retention_days != null ? existing.rows[0].local_retention_days : 30;
 
-    const finalEv = evDays !== null ? evDays : (days !== null ? days : currentEv);
-    const finalFw = fwDays !== null ? fwDays : (days !== null ? days : currentFw);
-    const finalGeneral = days !== null ? days : finalEv;
+    // Strict isolation: only modify the specific retention policy that was submitted!
+    const finalEv = evDays !== null ? evDays : currentEv;
+    const finalFw = fwDays !== null ? fwDays : currentFw;
+    const finalGeneral = genDays !== null ? genDays : (evDays !== null ? evDays : currentGen);
 
     if (existing.rows.length > 0) {
       await db.query(
@@ -245,12 +256,18 @@ const updateRetentionPolicy = async (req, res) => {
       });
     }
 
+    const targetTypeMsg = evDays !== null && fwDays === null
+      ? `Endpoint Events retention policy saved (${finalEv}d)`
+      : (fwDays !== null && evDays === null
+        ? `Firewall Logs retention policy saved (${finalFw}d)`
+        : `Retention policies updated: Events (${finalEv}d), Firewall (${finalFw}d)`);
+
     res.json({
       success: true,
       local_retention_days: finalGeneral,
       retention_events_days: finalEv,
       retention_fw_days: finalFw,
-      message: `Database retention policy updated: Endpoint Events (${finalEv}d), Firewall Logs (${finalFw}d).`
+      message: targetTypeMsg
     });
   } catch (error) {
     console.error('[UpdateRetention Error]', error);

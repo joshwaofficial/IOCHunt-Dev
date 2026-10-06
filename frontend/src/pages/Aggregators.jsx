@@ -104,6 +104,11 @@ const Aggregators = () => {
 
       const res = await axios.put('/api/retention/policy', payload);
       toast.success(res.data.message || 'Retention policy saved successfully');
+      setRetentionStatus(prev => ({
+        ...prev,
+        configured_events_days: res.data.retention_events_days !== undefined ? res.data.retention_events_days : prev?.configured_events_days,
+        configured_fw_days: res.data.retention_fw_days !== undefined ? res.data.retention_fw_days : prev?.configured_fw_days
+      }));
       fetchRetentionStatus(eventsRetentionDays, fwRetentionDays, selectedTargetDb);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to update retention policy');
