@@ -316,6 +316,8 @@ function getTableSchemaSQL() {
       session_lifetime_hours INTEGER DEFAULT 8,
       idle_timeout_mins INTEGER DEFAULT 0,
       local_retention_days INTEGER DEFAULT 30,
+      last_cleanup_at TIMESTAMP,
+      last_cleanup_count INTEGER DEFAULT 0,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -389,6 +391,9 @@ const initDB = async (retries = 10, delay = 3000) => {
           ALTER TABLE settings ADD COLUMN IF NOT EXISTS session_policy VARCHAR(50) DEFAULT 'soc_shift_8h';
           ALTER TABLE settings ADD COLUMN IF NOT EXISTS session_lifetime_hours INTEGER DEFAULT 8;
           ALTER TABLE settings ADD COLUMN IF NOT EXISTS idle_timeout_mins INTEGER DEFAULT 0;
+          ALTER TABLE settings ADD COLUMN IF NOT EXISTS local_retention_days INTEGER DEFAULT 30;
+          ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_cleanup_at TIMESTAMP;
+          ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_cleanup_count INTEGER DEFAULT 0;
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT '';
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 0;
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS aggregator_name VARCHAR(255) DEFAULT NULL;

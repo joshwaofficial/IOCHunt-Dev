@@ -22,8 +22,15 @@ async function cleanOldEvents() {
       AND is_forwarded = TRUE
     `, [local_retention_days]);
 
-    if (res.rowCount > 0) {
-      console.log(`[RetentionService] Deleted ${res.rowCount} old events from local database.`);
+    const fwRes = await db.query(`
+      DELETE FROM fw_events 
+      WHERE ts::timestamp < (NOW() - INTERVAL '1 day' * $1)
+      AND is_forwarded = TRUE
+    `, [local_retention_days]).catch(() => ({ rowCount: 0 }));
+
+    const totalCleaned = (res.rowCount || 0) + (fwRes.rowCount || 0);
+    if (totalCleaned > 0) {
+      console.log(`[RetentionService] Deleted ${totalCleaned} old forwarded records (${res.rowCount || 0} events, ${fwRes.rowCount || 0} firewall) from local database.`);
     }
   } catch (error) {
     console.error('[RetentionService] Failed to clean up old events:', error.message);

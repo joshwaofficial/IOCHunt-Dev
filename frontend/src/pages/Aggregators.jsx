@@ -41,8 +41,80 @@ const Aggregators = () => {
     }
   };
 
+  // Retention & Expiration State
+  const [retentionStatus, setRetentionStatus] = useState(null);
+  const [retentionDays, setRetentionDays] = useState(30);
+  const [selectedTargetDb, setSelectedTargetDb] = useState('all');
+  const [loadingRetention, setLoadingRetention] = useState(false);
+  const [isPurging, setIsPurging] = useState(false);
+  const [isSavingPolicy, setIsSavingPolicy] = useState(false);
+
+  const fetchRetentionStatus = async (days = retentionDays, target = selectedTargetDb) => {
+    try {
+      setLoadingRetention(true);
+      const res = await axios.get('/api/retention/status', {
+        params: { days, target, _t: Date.now() }
+      });
+      setRetentionStatus(res.data);
+      if (res.data?.configured_days && retentionDays === 30 && !days) {
+        setRetentionDays(res.data.configured_days);
+      }
+    } catch (err) {
+      console.warn('[Retention] Failed to fetch status:', err.message);
+    } finally {
+      setLoadingRetention(false);
+    }
+  };
+
+  const handleSaveRetentionPolicy = async () => {
+    const days = parseInt(retentionDays, 10);
+    if (!days || days < 1 || days > 3650) {
+      return toast.error('Retention period must be between 1 and 3650 days');
+    }
+    try {
+      setIsSavingPolicy(true);
+      await axios.put('/api/retention/policy', { local_retention_days: days });
+      toast.success(`Automated retention policy set to ${days} days`);
+      fetchRetentionStatus(days, selectedTargetDb);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to update retention policy');
+    } finally {
+      setIsSavingPolicy(false);
+    }
+  };
+
+  const handlePurgeClick = () => {
+    const days = parseInt(retentionDays, 10);
+    const targetName = retentionStatus?.available_databases?.find(d => d.id === selectedTargetDb)?.name || selectedTargetDb;
+    const count = retentionStatus?.expired_counts?.total || 0;
+    const cutoffStr = retentionStatus?.cutoff_time_utc || `${days} days ago`;
+
+    setConfirmDialog({
+      isOpen: true,
+      title: `Purge Database Records Older Than ${days} Days`,
+      message: `Permanently delete all security telemetry events and firewall logs before ${cutoffStr} from ${targetName}? This will purge approximately ${count.toLocaleString()} expired records.`,
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          setIsPurging(true);
+          const res = await axios.post('/api/retention/purge', {
+            days,
+            target: selectedTargetDb
+          });
+          toast.success(res.data.message || `Purged ${res.data.total_deleted.toLocaleString()} expired records!`);
+          fetchRetentionStatus(days, selectedTargetDb);
+        } catch (err) {
+          toast.error(err.response?.data?.error || 'Failed to purge database data');
+        } finally {
+          setIsPurging(false);
+        }
+      }
+    });
+  };
+
   useEffect(() => {
     fetchAggregators();
+    fetchRetentionStatus();
   }, []);
 
   const handleCreateAggregator = async (e) => {
@@ -253,6 +325,338 @@ const Aggregators = () => {
           </div>
         </div>
       )}
+
+      {/* ── DATABASE DATA RETENTION & EXPIRATION POLICY PANEL ── */}
+      <div style={{
+        marginTop: '28px',
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: '12px',
+        padding: '24px',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.03)'
+      }}>
+        {/* Header */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderBottom: '1px solid var(--border)',
+          paddingBottom: '16px',
+          marginBottom: '20px',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{
+              width: '38px',
+              height: '38px',
+              borderRadius: '8px',
+              background: 'linear-gradient(135deg, rgba(168,85,247,0.15), rgba(99,102,241,0.15))',
+              border: '1px solid rgba(168,85,247,0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#a855f7'
+            }}>
+              <Database size={20} />
+            </div>
+            <div>
+              <h2 style={{
+                margin: 0,
+                fontSize: '14px',
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                letterSpacing: '0.8px',
+                fontFamily: 'var(--mono)',
+                color: 'var(--text)'
+              }}>
+                Database Data Retention & Expiration
+              </h2>
+              <p style={{ margin: '3px 0 0', fontSize: '11px', color: 'var(--muted)' }}>
+                Configure automated lifecycle retention or manually purge historical events and firewall logs older than a specified period.
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {retentionStatus?.server_time_utc && (
+              <span style={{
+                fontSize: '10.5px',
+                fontFamily: 'monospace',
+                background: 'var(--surface2)',
+                border: '1px solid var(--border)',
+                color: 'var(--muted)',
+                padding: '4px 10px',
+                borderRadius: '6px'
+              }}>
+                Server Time: <b style={{ color: 'var(--text)' }}>{retentionStatus.server_time_utc}</b>
+              </span>
+            )}
+            <button
+              onClick={() => fetchRetentionStatus(retentionDays, selectedTargetDb)}
+              disabled={loadingRetention}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                background: 'var(--surface2)',
+                border: '1px solid var(--border)',
+                color: 'var(--text)',
+                padding: '5px 10px',
+                borderRadius: '6px',
+                fontSize: '11px',
+                cursor: 'pointer'
+              }}
+              title="Refresh retention status"
+            >
+              <RefreshCw size={13} className={loadingRetention ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {/* Content Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+          
+          {/* Card 1: Target Database Scope */}
+          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px' }}>
+            <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text)', marginBottom: '8px', fontFamily: 'var(--mono)' }}>
+              1. Target Database Scope
+            </label>
+            <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '0 0 10px' }}>
+              Select which database to query and expire historical records from:
+            </p>
+            <select
+              value={selectedTargetDb}
+              onChange={(e) => {
+                const target = e.target.value;
+                setSelectedTargetDb(target);
+                fetchRetentionStatus(retentionDays, target);
+              }}
+              style={{
+                width: '100%',
+                padding: '9px 12px',
+                background: 'var(--background)',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                color: 'var(--text)',
+                fontSize: '12px',
+                fontFamily: 'var(--mono)',
+                marginBottom: '8px'
+              }}
+            >
+              {(retentionStatus?.available_databases || [
+                { id: 'all', name: 'Overall System (Central & All Branch Databases)' },
+                { id: 'central', name: 'Central Database (iochunt_db)' }
+              ]).map(db => (
+                <option key={db.id} value={db.id}>
+                  {db.name} {db.db_name && db.db_name !== db.name ? `[${db.db_name}]` : ''}
+                </option>
+              ))}
+            </select>
+            <div style={{ fontSize: '10.5px', color: 'var(--muted2)', lineHeight: 1.4 }}>
+              Active target: <b style={{ color: '#818cf8', fontFamily: 'monospace' }}>
+                {retentionStatus?.available_databases?.find(d => d.id === selectedTargetDb)?.db_name || selectedTargetDb}
+              </b>
+            </div>
+          </div>
+
+          {/* Card 2: Retention Period & Live Cutoff */}
+          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <label style={{ fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text)', fontFamily: 'var(--mono)' }}>
+                2. Expiration Period (Days)
+              </label>
+              <span style={{ fontSize: '10px', color: '#a855f7', fontWeight: 700, fontFamily: 'monospace' }}>
+                Configured: {retentionStatus?.configured_days || 30}d
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <input
+                  type="number"
+                  min="1"
+                  max="3650"
+                  value={retentionDays}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setRetentionDays(val);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      fetchRetentionStatus(retentionDays, selectedTargetDb);
+                    }
+                  }}
+                  onBlur={() => {
+                    fetchRetentionStatus(retentionDays, selectedTargetDb);
+                  }}
+                  placeholder="30"
+                  style={{
+                    width: '100%',
+                    padding: '8px 45px 8px 12px',
+                    background: 'var(--background)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '6px',
+                    color: 'var(--text)',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    fontFamily: 'monospace',
+                    boxSizing: 'border-box'
+                  }}
+                />
+                <span style={{ position: 'absolute', right: '10px', top: '8px', fontSize: '11px', color: 'var(--muted)', pointerEvents: 'none' }}>
+                  Days
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveRetentionPolicy}
+                disabled={isSavingPolicy}
+                style={{
+                  background: 'rgba(37,99,235,0.1)',
+                  color: '#3b82f6',
+                  border: '1px solid rgba(37,99,235,0.3)',
+                  padding: '8px 12px',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: isSavingPolicy ? 'not-allowed' : 'pointer',
+                  whiteSpace: 'nowrap'
+                }}
+                title="Save as automated daily policy"
+              >
+                {isSavingPolicy ? 'Saving...' : 'Save Policy'}
+              </button>
+            </div>
+
+            {/* Quick Presets */}
+            <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginBottom: '12px' }}>
+              {[7, 14, 30, 60, 90, 180, 365].map(d => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => {
+                    setRetentionDays(d);
+                    fetchRetentionStatus(d, selectedTargetDb);
+                  }}
+                  style={{
+                    border: Number(retentionDays) === d ? '1px solid #3b82f6' : '1px solid var(--border)',
+                    background: Number(retentionDays) === d ? 'rgba(59,130,246,0.15)' : 'var(--background)',
+                    color: Number(retentionDays) === d ? '#3b82f6' : 'var(--muted)',
+                    borderRadius: '4px',
+                    padding: '2px 7px',
+                    fontSize: '10px',
+                    fontFamily: 'monospace',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {d}d
+                </button>
+              ))}
+            </div>
+
+            {/* Real-time Cutoff Badge */}
+            <div style={{
+              background: 'var(--background)',
+              border: '1px dashed var(--border)',
+              borderRadius: '6px',
+              padding: '8px 10px',
+              fontSize: '10.5px'
+            }}>
+              <div style={{ color: 'var(--muted)' }}>
+                Cutoff Date: <b style={{ color: '#ef4444', fontFamily: 'monospace' }}>{retentionStatus?.cutoff_time_utc || 'Calculating...'}</b>
+              </div>
+              <div style={{ color: 'var(--muted2)', fontSize: '9.5px', marginTop: '2px' }}>
+                All logs recorded before this date will be permanently deleted.
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3: Expired Telemetry & Immediate Action */}
+          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text)', marginBottom: '8px', fontFamily: 'var(--mono)' }}>
+                3. Expired Telemetry & Purge
+              </label>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                <div style={{ background: 'var(--background)', borderRadius: '6px', padding: '8px 10px', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '9.5px', color: 'var(--muted)', textTransform: 'uppercase' }}>Expired Events</div>
+                  <div style={{ fontSize: '15px', fontWeight: 800, fontFamily: 'monospace', color: (retentionStatus?.expired_counts?.events || 0) > 0 ? '#ef4444' : 'var(--text)' }}>
+                    {(retentionStatus?.expired_counts?.events || 0).toLocaleString()}
+                  </div>
+                </div>
+                <div style={{ background: 'var(--background)', borderRadius: '6px', padding: '8px 10px', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '9.5px', color: 'var(--muted)', textTransform: 'uppercase' }}>Expired FW Logs</div>
+                  <div style={{ fontSize: '15px', fontWeight: 800, fontFamily: 'monospace', color: (retentionStatus?.expired_counts?.fw_events || 0) > 0 ? '#ef4444' : 'var(--text)' }}>
+                    {(retentionStatus?.expired_counts?.fw_events || 0).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ fontSize: '10.5px', color: 'var(--muted)', marginBottom: '14px' }}>
+                Total Records in Scope: <b style={{ color: 'var(--text)', fontFamily: 'monospace' }}>{(retentionStatus?.total_records?.total || 0).toLocaleString()}</b>
+              </div>
+            </div>
+
+            <div>
+              <button
+                type="button"
+                onClick={handlePurgeClick}
+                disabled={isPurging || (retentionStatus?.expired_counts?.total || 0) === 0}
+                style={{
+                  width: '100%',
+                  padding: '9px 14px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: (retentionStatus?.expired_counts?.total || 0) > 0 ? '#ef4444' : 'var(--border)',
+                  color: (retentionStatus?.expired_counts?.total || 0) > 0 ? '#ffffff' : 'var(--muted)',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  cursor: (retentionStatus?.expired_counts?.total || 0) > 0 && !isPurging ? 'pointer' : 'not-allowed',
+                  transition: 'background 0.2s'
+                }}
+              >
+                <Trash2 size={14} />
+                {isPurging ? 'Purging Expired Records...' : `Purge Data Before ${retentionDays} Days`}
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+        {/* Footer info */}
+        <div style={{
+          paddingTop: '12px',
+          borderTop: '1px solid var(--border)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          fontSize: '11px',
+          color: 'var(--muted)',
+          flexWrap: 'wrap',
+          gap: '8px'
+        }}>
+          <div>
+            Last Purge Execution: <b style={{ color: 'var(--text)', fontFamily: 'monospace' }}>
+              {retentionStatus?.last_cleanup?.timestamp ? new Date(retentionStatus.last_cleanup.timestamp).toLocaleString() : 'Never'}
+            </b>
+            {retentionStatus?.last_cleanup?.deleted_count > 0 && (
+              <span> &bull; Purged: <b style={{ color: '#10b981', fontFamily: 'monospace' }}>{retentionStatus.last_cleanup.deleted_count.toLocaleString()} records</b></span>
+            )}
+          </div>
+          <div style={{ color: 'var(--muted2)', fontSize: '10px' }}>
+            Daily background cron executes automatically every 24 hours based on saved policy.
+          </div>
+        </div>
+      </div>
 
       {/* Modal: Create Aggregator / Pairing Code */}
       {showCreateModal && createPortal(

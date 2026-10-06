@@ -183,6 +183,10 @@ app.get('/api/aggregators', (req, res, next) => {
 app.use('/api/aggregators', requireCentralServer, express.json(), aggregatorRoutes);
 app.use('/api/ingest', requireCentralServer, ingestRoutes); // Handles batch streams
 
+// ── Data Retention & Expiration Management (Central & Branch) ──
+const retentionRoutes = require('./routes/retentionRoutes');
+app.use('/api/retention', express.json(), retentionRoutes);
+
 // ── Aggregator Specific Modules ─────────────────────────────────
 const aggregatorSettingsRoutes = require('./modules/aggregator/routes/settingsRoutes');
 const fwSourceRoutes = require('./modules/aggregator/routes/fwSourceRoutes');
@@ -292,6 +296,7 @@ const { initSyslogReceiver } = require('./utils/syslogReceiver');
 const { initSourceWatchers } = require('./utils/fwWatcher');
 const { startSyncService } = require('./modules/aggregator/services/syncService');
 const { startRetentionService } = require('./modules/aggregator/services/retentionService');
+const { startCentralRetentionService } = require('./services/centralRetentionService');
 const { ensureCertificates } = require('./utils/certManager');
 const { startWorker } = require('./workers/bulkWorker');
 const { startCriticalAlertWorker } = require('./workers/criticalAlertWorker');
@@ -321,10 +326,11 @@ db.initDB().then(async () => {
   console.log(`  Port:            ${PORT}`);
   console.log('══════════════════════════════════════════════════════');
 
-  // Initialize Email Reporting Schedules & Critical Log Alert Worker (Central Server only)
+  // Initialize Email Reporting Schedules, Critical Log Alert Worker & Central Retention (Central Server only)
   if (!appMode.isAggregator()) {
     initSchedules().catch(console.error);
     startCriticalAlertWorker();
+    startCentralRetentionService();
   }
 
   // If running in Aggregator mode, start local syslog, watchers, and central sync
