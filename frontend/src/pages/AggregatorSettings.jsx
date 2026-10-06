@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
+import DatabaseRetentionPanel from '../components/DatabaseRetentionPanel';
+
 export default function AggregatorSettings() {
   const [settings, setSettings] = useState(null);
   const [stats, setStats] = useState(null);
@@ -70,17 +72,6 @@ export default function AggregatorSettings() {
       fetchSettings();
     } catch (err) {
       toast.error('Failed to disconnect');
-    }
-  };
-
-  const handleRetentionChange = async (e) => {
-    const days = e.target.value;
-    try {
-      await axios.put('/api/settings/retention', { local_retention_days: days });
-      toast.success('Local data retention policy updated');
-      fetchSettings();
-    } catch (err) {
-      toast.error('Failed to update retention policy');
     }
   };
 
@@ -307,46 +298,13 @@ export default function AggregatorSettings() {
             Manage Unique Agent Keys →
           </Link>
         </div>
-
-        {/* Local Retention Policy Card */}
-        <div style={{
-          background: 'var(--surface)',
-          borderRadius: '8px',
-          border: '1px solid var(--border)',
-          padding: '24px'
-        }}>
-          <h3 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text)', marginBottom: '4px' }}>
-            Branch Log Retention
-          </h3>
-          <p style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '20px' }}>
-            Configure local disk retention for forwarded events.
-          </p>
-
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text)', marginBottom: '6px' }}>
-              Local Event Retention Period
-            </label>
-            <select
-              value={settings?.local_retention_days || 30}
-              onChange={handleRetentionChange}
-              style={{
-                width: '100%', padding: '10px 14px', background: 'var(--background)',
-                border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '13px'
-              }}
-            >
-              <option value={7}>7 Days (High Traffic / Low Storage)</option>
-              <option value={14}>14 Days</option>
-              <option value={30}>30 Days (Standard)</option>
-              <option value={60}>60 Days</option>
-              <option value={90}>90 Days (Extended)</option>
-            </select>
-          </div>
-          <p style={{ fontSize: '11px', color: 'var(--muted)', lineHeight: 1.5 }}>
-            Events are preserved until successfully synced with Central Server, after which local copies older than this threshold are purged.
-          </p>
-        </div>
-
       </div>
+
+      {/* Full Database Data Retention & Expiration Panel for Aggregator */}
+      <DatabaseRetentionPanel
+        title="Branch Database Data Retention & Expiration"
+        subtitle="Configure automated local retention policies or manually purge historical events and firewall logs from this aggregator node."
+      />
 
       {showConfirmModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(2px)' }}>

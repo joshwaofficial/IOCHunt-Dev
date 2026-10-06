@@ -3,54 +3,40 @@
 // ════════════════════════════════════════════════════════════════
 // Manages telemetry lifecycle, retention policies, and manual
 // or scheduled expiration of historical data across tenant databases.
-// Supports both Central Server Tenant Database (direct/forwarded logs)
-// and Branch Aggregator Dedicated Databases.
-// Targets ONLY events and fw_events tables — preserving all other data.
-// ════════════════════════════════════════════════════════════════
-
 const db = require('../config/db');
-const { getAggregatorPool } = require('../config/aggregatorDbManager');
+const appMode = require('../config/appMode');
+const { getAggregatorPool, getDbForRequest } = require('../config/aggregatorDbManager');
 const { parseSafeInt } = require('../utils/inputValidator');
 const { logSecurityEvent, EVENTS, SEVERITY } = require('../utils/securityLogger');
 
 /**
+ * Ensures schema migration columns exist on settings and aggregators tables.
+ */
+async function ensureRetentionSchema() {
+  await db.query(`
+    ALTER TABLE settings ADD COLUMN IF NOT EXISTS retention_events_days INTEGER DEFAULT 30;
+    ALTER TABLE settings ADD COLUMN IF NOT EXISTS retention_fw_days INTEGER DEFAULT 30;
+    ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_cleanup_at TIMESTAMP;
+    ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_cleanup_count INTEGER DEFAULT 0;
+    ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS retention_events_days INTEGER DEFAULT 30;
+    ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS retention_fw_days INTEGER DEFAULT 30;
+    ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS last_cleanup_at TIMESTAMP;
+    ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS last_cleanup_count INTEGER DEFAULT 0;
+  `).catch(() => {});
+}
+
+/**
  * Returns current retention status, server date/time, cutoff calculations,
- * and count of expired records awaiting deletion strictly for the tenant's databases.
+ * and count of expired records awaiting deletion strictly for the specified database scope.
+ * Supports both Central Server Tenant Database and Branch Aggregator Dedicated Databases.
  */
 const getRetentionStatus = async (req, res) => {
   try {
+    await ensureRetentionSchema();
+
     const tenantId = req.session?.tenant_id || req.tenantId || 'default';
     const isAggAdmin = req.session?.role === 'AGGREGATOR_ADMIN' || Boolean(req.session?.aggregator_name);
-
-    await db.query(`
-      ALTER TABLE settings ADD COLUMN IF NOT EXISTS retention_events_days INTEGER DEFAULT 30;
-      ALTER TABLE settings ADD COLUMN IF NOT EXISTS retention_fw_days INTEGER DEFAULT 30;
-    `).catch(() => {});
-
-    let settingsRes;
-    try {
-      settingsRes = await db.query(
-        'SELECT local_retention_days, retention_events_days, retention_fw_days, updated_at, last_cleanup_at, last_cleanup_count FROM settings LIMIT 1'
-      );
-    } catch (err) {
-      settingsRes = await db.query(
-        'SELECT local_retention_days, updated_at, last_cleanup_at, last_cleanup_count FROM settings LIMIT 1'
-      );
-    }
-
-    const configuredGeneralDays = settingsRes.rows[0]?.local_retention_days != null ? settingsRes.rows[0].local_retention_days : 30;
-    const configuredEventsDays = settingsRes.rows[0]?.retention_events_days != null ? settingsRes.rows[0].retention_events_days : configuredGeneralDays;
-    const configuredFwDays = settingsRes.rows[0]?.retention_fw_days != null ? settingsRes.rows[0].retention_fw_days : 30;
-    const lastCleanupAt = settingsRes.rows[0]?.last_cleanup_at || null;
-    const lastCleanupCount = settingsRes.rows[0]?.last_cleanup_count || 0;
-
-    const requestedEventsDays = req.query.events_days
-      ? parseSafeInt(req.query.events_days, configuredEventsDays, 1, 3650)
-      : (req.query.days ? parseSafeInt(req.query.days, configuredEventsDays, 1, 3650) : configuredEventsDays);
-
-    const requestedFwDays = req.query.fw_days
-      ? parseSafeInt(req.query.fw_days, configuredFwDays, 1, 3650)
-      : (req.query.days ? parseSafeInt(req.query.days, configuredFwDays, 1, 3650) : configuredFwDays);
+    const isAggNode = appMode.isAggregator();
 
     // 1. Central Server Tenant Database (where agents send logs directly or forwarded from aggregators)
     let tenantDbName = tenantId === 'default' ? (process.env.DB_NAME || 'iochunt_db') : `iochunt_tenant_${tenantId}`;
@@ -76,12 +62,12 @@ const getRetentionStatus = async (req, res) => {
       let aggRes;
       if (isAggAdmin && req.session?.aggregator_name) {
         aggRes = await db.query(
-          "SELECT id, name, display_name, database_name, status FROM aggregators WHERE name = $1 AND status != 'deleted'",
+          "SELECT id, name, display_name, database_name, status, retention_events_days, retention_fw_days, last_cleanup_at, last_cleanup_count FROM aggregators WHERE name = $1 AND status != 'deleted'",
           [req.session.aggregator_name]
         );
       } else {
         aggRes = await db.query(
-          "SELECT id, name, display_name, database_name, status FROM aggregators WHERE tenant_id = $1 AND status != 'deleted' ORDER BY name ASC",
+          "SELECT id, name, display_name, database_name, status, retention_events_days, retention_fw_days, last_cleanup_at, last_cleanup_count FROM aggregators WHERE tenant_id = $1 AND status != 'deleted' ORDER BY name ASC",
           [tenantId]
         );
       }
@@ -90,23 +76,86 @@ const getRetentionStatus = async (req, res) => {
         name: `Branch Aggregator: ${a.display_name || a.name}`,
         db_name: a.database_name || `iochunt_agg_${a.name}`,
         type: 'branch',
-        status: a.status
+        status: a.status,
+        retention_events_days: a.retention_events_days,
+        retention_fw_days: a.retention_fw_days,
+        last_cleanup_at: a.last_cleanup_at,
+        last_cleanup_count: a.last_cleanup_count
       }));
     } catch (e) {
       console.error('[RetentionStatus] Error fetching tenant aggregators:', e.message);
     }
 
-    // Available databases: Central Server Workspace database (default) + Own branch aggregator databases
-    const availableDatabases = [
-      centralTenantDb,
-      ...branchDbs
-    ];
+    let availableDatabases = [];
+    if (isAggNode) {
+      const localAggName = process.env.AGGREGATOR_NAME || process.env.TENANT_ID || req.session?.aggregator_name || 'local_aggregator';
+      availableDatabases = [{
+        id: localAggName,
+        name: `Aggregator Node: ${localAggName}`,
+        db_name: process.env.DB_NAME || `iochunt_agg_${localAggName}`,
+        type: 'branch'
+      }];
+    } else {
+      availableDatabases = [centralTenantDb, ...branchDbs];
+    }
 
-    // Resolve target database scope (defaults to Central Server Tenant Database)
+    // Resolve target database scope
     let target = (req.query.target || '').toLowerCase().trim();
     if (!target || target === 'all' || !availableDatabases.some(d => d.id.toLowerCase() === target)) {
-      target = 'central_tenant';
+      target = availableDatabases[0]?.id || 'central_tenant';
     }
+
+    // Read target-specific configured retention policy
+    let configuredGeneralDays = 30;
+    let configuredEventsDays = 30;
+    let configuredFwDays = 30;
+    let lastCleanupAt = null;
+    let lastCleanupCount = 0;
+
+    if (target === 'central_tenant') {
+      let settingsRes = await db.query(
+        'SELECT local_retention_days, retention_events_days, retention_fw_days, updated_at, last_cleanup_at, last_cleanup_count FROM settings LIMIT 1'
+      ).catch(() => ({ rows: [] }));
+
+      configuredGeneralDays = settingsRes.rows[0]?.local_retention_days != null ? settingsRes.rows[0].local_retention_days : 30;
+      configuredEventsDays = settingsRes.rows[0]?.retention_events_days != null ? settingsRes.rows[0].retention_events_days : configuredGeneralDays;
+      configuredFwDays = settingsRes.rows[0]?.retention_fw_days != null ? settingsRes.rows[0].retention_fw_days : 30;
+      lastCleanupAt = settingsRes.rows[0]?.last_cleanup_at || null;
+      lastCleanupCount = settingsRes.rows[0]?.last_cleanup_count || 0;
+    } else {
+      // Find branch aggregator
+      const targetAgg = branchDbs.find(b => b.id.toLowerCase() === target);
+      if (targetAgg) {
+        configuredEventsDays = targetAgg.retention_events_days != null ? targetAgg.retention_events_days : 30;
+        configuredFwDays = targetAgg.retention_fw_days != null ? targetAgg.retention_fw_days : 30;
+        configuredGeneralDays = configuredEventsDays;
+        lastCleanupAt = targetAgg.last_cleanup_at || null;
+        lastCleanupCount = targetAgg.last_cleanup_count || 0;
+      } else {
+        // Fallback to local settings table (e.g. running on branch aggregator node)
+        try {
+          const pool = getDbForRequest(req);
+          const sRes = await pool.query(
+            'SELECT local_retention_days, retention_events_days, retention_fw_days, last_cleanup_at, last_cleanup_count FROM settings LIMIT 1'
+          );
+          if (sRes.rows.length > 0) {
+            configuredGeneralDays = sRes.rows[0].local_retention_days != null ? sRes.rows[0].local_retention_days : 30;
+            configuredEventsDays = sRes.rows[0].retention_events_days != null ? sRes.rows[0].retention_events_days : configuredGeneralDays;
+            configuredFwDays = sRes.rows[0].retention_fw_days != null ? sRes.rows[0].retention_fw_days : 30;
+            lastCleanupAt = sRes.rows[0].last_cleanup_at || null;
+            lastCleanupCount = sRes.rows[0].last_cleanup_count || 0;
+          }
+        } catch (e) {}
+      }
+    }
+
+    const requestedEventsDays = req.query.events_days
+      ? parseSafeInt(req.query.events_days, configuredEventsDays, 1, 3650)
+      : (req.query.days ? parseSafeInt(req.query.days, configuredEventsDays, 1, 3650) : configuredEventsDays);
+
+    const requestedFwDays = req.query.fw_days
+      ? parseSafeInt(req.query.fw_days, configuredFwDays, 1, 3650)
+      : (req.query.days ? parseSafeInt(req.query.days, configuredFwDays, 1, 3650) : configuredFwDays);
 
     const now = new Date();
     const eventsCutoff = new Date(now.getTime() - requestedEventsDays * 86400000);
@@ -121,7 +170,7 @@ const getRetentionStatus = async (req, res) => {
     let totalFw = 0;
 
     if (target === 'central_tenant') {
-      // Query Central Server Tenant Database (where agents send events directly or forwarded from aggregators)
+      // Query Central Server Tenant Database
       try {
         const [expEvRes, expFwRes, totEvRes, totFwRes] = await Promise.all([
           req.queryTenant("SELECT COUNT(*) FROM events WHERE ts < (NOW() - INTERVAL '1 day' * $1)", [requestedEventsDays]),
@@ -139,22 +188,21 @@ const getRetentionStatus = async (req, res) => {
     } else {
       // Query specific branch aggregator database
       const targetAgg = branchDbs.find(b => b.id.toLowerCase() === target);
-      if (targetAgg) {
-        try {
-          const pool = getAggregatorPool(targetAgg.id);
-          const [bExpEv, bExpFw, bTotEv, bTotFw] = await Promise.all([
-            pool.query("SELECT COUNT(*) FROM events WHERE ts < (NOW() - INTERVAL '1 day' * $1)", [requestedEventsDays]),
-            pool.query("SELECT COUNT(*) FROM fw_events WHERE ts < (NOW() - INTERVAL '1 day' * $1)", [requestedFwDays]),
-            pool.query("SELECT COUNT(*) FROM events"),
-            pool.query("SELECT COUNT(*) FROM fw_events")
-          ]);
-          expiredEvents = parseInt(bExpEv.rows[0]?.count || 0, 10);
-          expiredFw = parseInt(bExpFw.rows[0]?.count || 0, 10);
-          totalEvents = parseInt(bTotEv.rows[0]?.count || 0, 10);
-          totalFw = parseInt(bTotFw.rows[0]?.count || 0, 10);
-        } catch (err) {
-          // Silently skip if branch database is offline
-        }
+      try {
+        const pool = targetAgg ? getAggregatorPool(targetAgg.id) : getDbForRequest(req);
+        const [bExpEv, bExpFw, bTotEv, bTotFw] = await Promise.all([
+          pool.query("SELECT COUNT(*) FROM events WHERE ts < (NOW() - INTERVAL '1 day' * $1)", [requestedEventsDays]),
+          pool.query("SELECT COUNT(*) FROM fw_events WHERE ts < (NOW() - INTERVAL '1 day' * $1)", [requestedFwDays]),
+          pool.query("SELECT COUNT(*) FROM events"),
+          pool.query("SELECT COUNT(*) FROM fw_events")
+        ]);
+        expiredEvents = parseInt(bExpEv.rows[0]?.count || 0, 10);
+        expiredFw = parseInt(bExpFw.rows[0]?.count || 0, 10);
+        totalEvents = parseInt(bTotEv.rows[0]?.count || 0, 10);
+        totalFw = parseInt(bTotFw.rows[0]?.count || 0, 10);
+      } catch (err) {
+        // Branch database offline or unreachable
+        console.warn(`[RetentionStatus] Notice: branch query for ${target}:`, err.message);
       }
     }
 
@@ -192,17 +240,20 @@ const getRetentionStatus = async (req, res) => {
 };
 
 /**
- * Updates the retention policy days in settings table.
+ * Updates the retention policy days for either Central Server or a specific Branch Aggregator.
  * Supports updating events retention days, firewall retention days, or local_retention_days.
+ * Maintains strict isolation between databases.
  */
 const updateRetentionPolicy = async (req, res) => {
   try {
-    await db.query(`
-      ALTER TABLE settings ADD COLUMN IF NOT EXISTS retention_events_days INTEGER DEFAULT 30;
-      ALTER TABLE settings ADD COLUMN IF NOT EXISTS retention_fw_days INTEGER DEFAULT 30;
-    `).catch(() => {});
+    const {
+      local_retention_days,
+      retention_events_days,
+      retention_fw_days,
+      target: rawTarget
+    } = req.body || {};
 
-    const { local_retention_days, retention_events_days, retention_fw_days } = req.body || {};
+    const target = (rawTarget || 'central_tenant').toLowerCase().trim();
 
     const genDays = local_retention_days ? parseSafeInt(local_retention_days, null, 1, 3650) : null;
     const evDays = retention_events_days ? parseSafeInt(retention_events_days, null, 1, 3650) : null;
@@ -212,63 +263,159 @@ const updateRetentionPolicy = async (req, res) => {
       return res.status(400).json({ error: 'Retention days must be an integer between 1 and 3650' });
     }
 
-    const existing = await db.query(
-      'SELECT id, local_retention_days, retention_events_days, retention_fw_days FROM settings LIMIT 1'
-    ).catch(() => ({ rows: [] }));
+    await ensureRetentionSchema();
 
-    const currentEv = existing.rows[0]?.retention_events_days != null ? existing.rows[0].retention_events_days : 30;
-    const currentFw = existing.rows[0]?.retention_fw_days != null ? existing.rows[0].retention_fw_days : 30;
-    const currentGen = existing.rows[0]?.local_retention_days != null ? existing.rows[0].local_retention_days : 30;
+    if (target === 'central_tenant') {
+      // ── Central Server Workspace Retention Policy ──
+      const existing = await db.query(
+        'SELECT id, local_retention_days, retention_events_days, retention_fw_days FROM settings LIMIT 1'
+      ).catch(() => ({ rows: [] }));
 
-    // Strict isolation: only modify the specific retention policy that was submitted!
-    const finalEv = evDays !== null ? evDays : currentEv;
-    const finalFw = fwDays !== null ? fwDays : currentFw;
-    const finalGeneral = genDays !== null ? genDays : (evDays !== null ? evDays : currentGen);
+      const currentEv = existing.rows[0]?.retention_events_days != null ? existing.rows[0].retention_events_days : 30;
+      const currentFw = existing.rows[0]?.retention_fw_days != null ? existing.rows[0].retention_fw_days : 30;
+      const currentGen = existing.rows[0]?.local_retention_days != null ? existing.rows[0].local_retention_days : 30;
 
-    if (existing.rows.length > 0) {
-      await db.query(
-        `UPDATE settings 
-         SET local_retention_days = $1, 
-             retention_events_days = $2, 
-             retention_fw_days = $3, 
-             updated_at = CURRENT_TIMESTAMP 
-         WHERE id = $4`,
-        [finalGeneral, finalEv, finalFw, existing.rows[0].id]
-      );
+      // Strict isolation: only modify the specific retention policy that was submitted!
+      const finalEv = evDays !== null ? evDays : currentEv;
+      const finalFw = fwDays !== null ? fwDays : currentFw;
+      const finalGeneral = genDays !== null ? genDays : (evDays !== null ? evDays : currentGen);
+
+      if (existing.rows.length > 0) {
+        await db.query(
+          `UPDATE settings 
+           SET local_retention_days = $1, 
+               retention_events_days = $2, 
+               retention_fw_days = $3, 
+               updated_at = CURRENT_TIMESTAMP 
+           WHERE id = $4`,
+          [finalGeneral, finalEv, finalFw, existing.rows[0].id]
+        );
+      } else {
+        await db.query(
+          `INSERT INTO settings (id, local_retention_days, retention_events_days, retention_fw_days, updated_at) 
+           VALUES (1, $1, $2, $3, CURRENT_TIMESTAMP)`,
+          [finalGeneral, finalEv, finalFw]
+        );
+      }
+
+      if (typeof logSecurityEvent === 'function') {
+        logSecurityEvent({
+          event: 'RETENTION_POLICY_UPDATED',
+          severity: SEVERITY.INFO,
+          user: req.session?.username || 'system',
+          detail: {
+            target: 'central_tenant',
+            retention_general_days: finalGeneral,
+            retention_events_days: finalEv,
+            retention_fw_days: finalFw
+          }
+        });
+      }
+
+      const targetTypeMsg = evDays !== null && fwDays === null
+        ? `Central Server: Endpoint Events retention policy saved (${finalEv}d)`
+        : (fwDays !== null && evDays === null
+          ? `Central Server: Firewall Logs retention policy saved (${finalFw}d)`
+          : `Central Server: Retention policies updated: Events (${finalEv}d), Firewall (${finalFw}d)`);
+
+      return res.json({
+        success: true,
+        target: 'central_tenant',
+        local_retention_days: finalGeneral,
+        retention_events_days: finalEv,
+        retention_fw_days: finalFw,
+        message: targetTypeMsg
+      });
     } else {
-      await db.query(
-        `INSERT INTO settings (id, local_retention_days, retention_events_days, retention_fw_days, updated_at) 
-         VALUES (1, $1, $2, $3, CURRENT_TIMESTAMP)`,
-        [finalGeneral, finalEv, finalFw]
-      );
-    }
+      // ── Branch Aggregator Database Retention Policy ──
+      const aggRes = await db.query(
+        'SELECT id, name, display_name, retention_events_days, retention_fw_days FROM aggregators WHERE LOWER(name) = $1 LIMIT 1',
+        [target]
+      ).catch(() => ({ rows: [] }));
 
-    if (typeof logSecurityEvent === 'function') {
-      logSecurityEvent({
-        event: 'RETENTION_POLICY_UPDATED',
-        severity: SEVERITY.INFO,
-        user: req.session?.username || 'system',
-        detail: {
-          retention_general_days: finalGeneral,
-          retention_events_days: finalEv,
-          retention_fw_days: finalFw
+      let agg = aggRes.rows[0];
+      let finalEv = evDays !== null ? evDays : 30;
+      let finalFw = fwDays !== null ? fwDays : 30;
+
+      if (agg) {
+        const currentEv = agg.retention_events_days != null ? agg.retention_events_days : 30;
+        const currentFw = agg.retention_fw_days != null ? agg.retention_fw_days : 30;
+        finalEv = evDays !== null ? evDays : currentEv;
+        finalFw = fwDays !== null ? fwDays : currentFw;
+
+        // 1. Update central aggregators registry
+        await db.query(
+          'UPDATE aggregators SET retention_events_days = $1, retention_fw_days = $2 WHERE id = $3',
+          [finalEv, finalFw, agg.id]
+        );
+      }
+
+      // 2. Synchronize to branch aggregator dedicated database settings table
+      try {
+        const pool = agg ? getAggregatorPool(agg.name) : getDbForRequest(req);
+        await pool.query(`
+          ALTER TABLE settings ADD COLUMN IF NOT EXISTS retention_events_days INTEGER DEFAULT 30;
+          ALTER TABLE settings ADD COLUMN IF NOT EXISTS retention_fw_days INTEGER DEFAULT 30;
+          ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_cleanup_at TIMESTAMP;
+          ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_cleanup_count INTEGER DEFAULT 0;
+        `).catch(() => {});
+
+        const bSettings = await pool.query('SELECT id, retention_events_days, retention_fw_days FROM settings LIMIT 1');
+        if (bSettings.rows.length > 0) {
+          const bCurrentEv = bSettings.rows[0].retention_events_days != null ? bSettings.rows[0].retention_events_days : 30;
+          const bCurrentFw = bSettings.rows[0].retention_fw_days != null ? bSettings.rows[0].retention_fw_days : 30;
+          const bFinalEv = evDays !== null ? evDays : bCurrentEv;
+          const bFinalFw = fwDays !== null ? fwDays : bCurrentFw;
+
+          await pool.query(
+            `UPDATE settings 
+             SET local_retention_days = $1, 
+                 retention_events_days = $2, 
+                 retention_fw_days = $3, 
+                 updated_at = CURRENT_TIMESTAMP 
+             WHERE id = $4`,
+            [bFinalEv, bFinalEv, bFinalFw, bSettings.rows[0].id]
+          );
+        } else {
+          await pool.query(
+            `INSERT INTO settings (id, local_retention_days, retention_events_days, retention_fw_days, updated_at) 
+             VALUES (1, $1, $1, $2, CURRENT_TIMESTAMP)`,
+            [finalEv, finalFw]
+          );
         }
+      } catch (poolErr) {
+        console.warn(`[UpdateRetention] Notice: branch DB sync for ${target}:`, poolErr.message);
+      }
+
+      if (typeof logSecurityEvent === 'function') {
+        logSecurityEvent({
+          event: 'RETENTION_POLICY_UPDATED',
+          severity: SEVERITY.INFO,
+          user: req.session?.username || 'system',
+          detail: {
+            target,
+            retention_events_days: finalEv,
+            retention_fw_days: finalFw
+          }
+        });
+      }
+
+      const displayName = agg?.display_name || agg?.name || target;
+      const targetTypeMsg = evDays !== null && fwDays === null
+        ? `${displayName}: Endpoint Events retention policy saved (${finalEv}d)`
+        : (fwDays !== null && evDays === null
+          ? `${displayName}: Firewall Logs retention policy saved (${finalFw}d)`
+          : `${displayName}: Retention policies updated: Events (${finalEv}d), Firewall (${finalFw}d)`);
+
+      return res.json({
+        success: true,
+        target,
+        local_retention_days: finalEv,
+        retention_events_days: finalEv,
+        retention_fw_days: finalFw,
+        message: targetTypeMsg
       });
     }
-
-    const targetTypeMsg = evDays !== null && fwDays === null
-      ? `Endpoint Events retention policy saved (${finalEv}d)`
-      : (fwDays !== null && evDays === null
-        ? `Firewall Logs retention policy saved (${finalFw}d)`
-        : `Retention policies updated: Events (${finalEv}d), Firewall (${finalFw}d)`);
-
-    res.json({
-      success: true,
-      local_retention_days: finalGeneral,
-      retention_events_days: finalEv,
-      retention_fw_days: finalFw,
-      message: targetTypeMsg
-    });
   } catch (error) {
     console.error('[UpdateRetention Error]', error);
     res.status(500).json({ error: 'Failed to update retention policy' });
@@ -277,15 +424,12 @@ const updateRetentionPolicy = async (req, res) => {
 
 /**
  * Executes an immediate manual purge of records older than X days.
- * Strictly scopes to the current tenant's database(s).
+ * Strictly scopes to the selected database (Central Server or Branch Aggregator).
  * Strictly deletes ONLY events and/or fw_events based on log_type ('events' | 'firewall' | 'all').
  * NEVER deletes policies, configurations, users, machines, or incidents.
  */
 const purgeExpiredData = async (req, res) => {
   try {
-    const tenantId = req.session?.tenant_id || req.tenantId || 'default';
-    const isAggAdmin = req.session?.role === 'AGGREGATOR_ADMIN' || Boolean(req.session?.aggregator_name);
-
     const {
       days: rawDays,
       events_days: rawEventsDays,
@@ -298,6 +442,11 @@ const purgeExpiredData = async (req, res) => {
     if (!['events', 'firewall', 'all'].includes(logType)) {
       return res.status(400).json({ error: 'Invalid log_type. Must be "events", "firewall", or "all".' });
     }
+
+    await ensureRetentionSchema();
+
+    const tenantId = req.session?.tenant_id || req.tenantId || 'default';
+    const isAggAdmin = req.session?.role === 'AGGREGATOR_ADMIN' || Boolean(req.session?.aggregator_name);
 
     const days = parseSafeInt(
       logType === 'events' ? (rawEventsDays || rawDays) : (logType === 'firewall' ? (rawFwDays || rawDays) : rawDays),
@@ -316,7 +465,7 @@ const purgeExpiredData = async (req, res) => {
     let deletedFw = 0;
 
     if (target === 'central_tenant') {
-      // Purge Central Server Tenant Database (direct/forwarded logs)
+      // Purge Central Server Tenant Database
       try {
         if (logType === 'events' || logType === 'all') {
           const evRes = await req.queryTenant(
@@ -337,6 +486,12 @@ const purgeExpiredData = async (req, res) => {
         console.error('[Purge Central Tenant DB Error]', err.message);
         return res.status(500).json({ error: 'Failed to purge central tenant data: ' + err.message });
       }
+
+      // Record last cleanup statistics strictly in central settings table
+      await db.query(
+        'UPDATE settings SET last_cleanup_at = CURRENT_TIMESTAMP, last_cleanup_count = $1 WHERE id = 1',
+        [deletedEvents + deletedFw]
+      ).catch(() => {});
     } else {
       // Purge Branch Aggregator Database
       let branchDbs = [];
@@ -355,12 +510,10 @@ const purgeExpiredData = async (req, res) => {
       }
 
       const targetAgg = branchDbs.find(b => b.name.toLowerCase() === target || b.id.toString() === target);
-      if (!targetAgg) {
-        return res.status(400).json({ error: 'Target database not found or access denied for this tenant.' });
-      }
+      const aggName = targetAgg?.name || target;
 
       try {
-        const pool = getAggregatorPool(targetAgg.name);
+        const pool = targetAgg ? getAggregatorPool(targetAgg.name) : getDbForRequest(req);
 
         if (logType === 'events' || logType === 'all') {
           const evRes = await pool.query(
@@ -377,18 +530,24 @@ const purgeExpiredData = async (req, res) => {
           );
           deletedFw += fwRes.rowCount || 0;
         }
+
+        // Record last cleanup statistics in branch database settings table
+        await pool.query(
+          'UPDATE settings SET last_cleanup_at = CURRENT_TIMESTAMP, last_cleanup_count = $1 WHERE id = 1',
+          [deletedEvents + deletedFw]
+        ).catch(() => {});
       } catch (err) {
-        console.warn(`[Purge Branch DB Warning] Skipping branch '${targetAgg.name}':`, err.message);
+        console.warn(`[Purge Branch DB Warning] Skipping branch '${aggName}':`, err.message);
       }
+
+      // Record cleanup statistics in central aggregators table for this branch
+      await db.query(
+        'UPDATE aggregators SET last_cleanup_at = CURRENT_TIMESTAMP, last_cleanup_count = $1 WHERE LOWER(name) = $2',
+        [deletedEvents + deletedFw, aggName.toLowerCase()]
+      ).catch(() => {});
     }
 
     const totalDeleted = deletedEvents + deletedFw;
-
-    // Record last cleanup statistics in settings table
-    await db.query(
-      'UPDATE settings SET last_cleanup_at = CURRENT_TIMESTAMP, last_cleanup_count = $1 WHERE id = 1',
-      [totalDeleted]
-    ).catch(() => {});
 
     if (typeof logSecurityEvent === 'function') {
       logSecurityEvent({

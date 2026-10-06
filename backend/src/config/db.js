@@ -133,9 +133,17 @@ function getTableSchemaSQL() {
       database_password_encrypted TEXT DEFAULT '',
       last_sync TIMESTAMP,
       agent_count INTEGER DEFAULT 0,
+      retention_events_days INTEGER DEFAULT 30,
+      retention_fw_days INTEGER DEFAULT 30,
+      last_cleanup_at TIMESTAMP,
+      last_cleanup_count INTEGER DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64);
+    ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS retention_events_days INTEGER DEFAULT 30;
+    ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS retention_fw_days INTEGER DEFAULT 30;
+    ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS last_cleanup_at TIMESTAMP;
+    ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS last_cleanup_count INTEGER DEFAULT 0;
 
     CREATE TABLE IF NOT EXISTS events (
       id BIGSERIAL PRIMARY KEY,
@@ -384,6 +392,10 @@ const initDB = async (retries = 10, delay = 3000) => {
           ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS database_port INTEGER DEFAULT 5433;
           ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS database_user VARCHAR(255) DEFAULT 'postgres';
           ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS database_password_encrypted TEXT DEFAULT '';
+          ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS retention_events_days INTEGER DEFAULT 30;
+          ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS retention_fw_days INTEGER DEFAULT 30;
+          ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS last_cleanup_at TIMESTAMP;
+          ALTER TABLE aggregators ADD COLUMN IF NOT EXISTS last_cleanup_count INTEGER DEFAULT 0;
           ALTER TABLE users ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 1;
           ALTER TABLE users ADD COLUMN IF NOT EXISTS aggregator_name TEXT DEFAULT NULL;
           ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT DEFAULT NULL;

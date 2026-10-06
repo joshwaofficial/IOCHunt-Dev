@@ -72,22 +72,34 @@ async function runCentralRetentionPurge() {
       // Ignore if table not present in control plane
     }
 
-    // 2. Purge Branch Databases for registered aggregators
+    // 2. Purge Branch Databases for registered aggregators (using each aggregator's specific policy)
     try {
-      const aggRes = await db.query("SELECT name FROM aggregators WHERE status != 'deleted'");
+      const aggRes = await db.query(
+        "SELECT id, name, retention_events_days, retention_fw_days FROM aggregators WHERE status != 'deleted'"
+      );
       for (const agg of aggRes.rows) {
         try {
+          const aEvDays = parseInt(agg.retention_events_days || evDays, 10);
+          const aFwDays = parseInt(agg.retention_fw_days || fwDays, 10);
           const pool = getAggregatorPool(agg.name);
-          const aEv = await pool.query(
-            "DELETE FROM events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
-            [evDays]
-          );
-          const aFw = await pool.query(
-            "DELETE FROM fw_events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
-            [fwDays]
-          );
+          const [aEv, aFw] = await Promise.all([
+            pool.query("DELETE FROM events WHERE ts < (NOW() - INTERVAL '1 day' * $1)", [aEvDays]),
+            pool.query("DELETE FROM fw_events WHERE ts < (NOW() - INTERVAL '1 day' * $1)", [aFwDays])
+          ]);
+          const aggDeleted = (aEv.rowCount || 0) + (aFw.rowCount || 0);
           totalDeletedEvents += aEv.rowCount || 0;
           totalDeletedFw += aFw.rowCount || 0;
+
+          // Record last cleanup statistics strictly for this branch aggregator
+          await db.query(
+            'UPDATE aggregators SET last_cleanup_at = CURRENT_TIMESTAMP, last_cleanup_count = $1 WHERE id = $2',
+            [aggDeleted, agg.id]
+          ).catch(() => {});
+
+          await pool.query(
+            'UPDATE settings SET last_cleanup_at = CURRENT_TIMESTAMP, last_cleanup_count = $1 WHERE id = 1',
+            [aggDeleted]
+          ).catch(() => {});
         } catch (err) {
           // Skip if branch database is offline
         }
@@ -98,7 +110,7 @@ async function runCentralRetentionPurge() {
 
     const total = totalDeletedEvents + totalDeletedFw;
 
-    // Update settings table with cleanup stats
+    // Update central settings table with central server cleanup stats
     await db.query(
       'UPDATE settings SET last_cleanup_at = CURRENT_TIMESTAMP, last_cleanup_count = $1 WHERE id = 1',
       [total]
