@@ -227,7 +227,7 @@ export default function ReportCategoryChart({ byCategory = [], totalEvents = 0, 
                 cursor: 'pointer'
               }}
             >
-              📊 Ranked Bars
+              Ranked Bars
             </button>
             <button
               onClick={() => setViewMode('donut')}
@@ -241,7 +241,7 @@ export default function ReportCategoryChart({ byCategory = [], totalEvents = 0, 
                 cursor: 'pointer'
               }}
             >
-              🍩 Donut
+              Donut
             </button>
           </div>
 

@@ -4,7 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import ReportTimelineChart from '../components/reports/ReportTimelineChart';
 import ReportCategoryChart from '../components/reports/ReportCategoryChart';
 import ReportMachineRiskChart from '../components/reports/ReportMachineRiskChart';
-import { generateTimelineSvg, generateCategoryMatrixSvg } from '../components/reports/reportSvgCharts';
+import { generateTimelineSvg, generateCategoryMatrixSvg, generateMachineRiskSvg } from '../components/reports/reportSvgCharts';
 
 const catColors = { 
   FIREWALL: '#06b6d4',
@@ -647,7 +647,16 @@ export default function Reports() {
     // ── Visual Threat Analytics Vector Graphs (Scoped to Period) ──
     html += `<h2>Visual Threat Analytics</h2>`;
     html += generateTimelineSvg(ev.hourly, f, durLabel);
-    html += generateCategoryMatrixSvg(ev.byCategory, ev.total, catColors);
+    if (machPdf.length > 0) {
+      html += `
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; page-break-inside:avoid; break-inside:avoid;">
+          <div style="display:flex; flex-direction:column;">${generateCategoryMatrixSvg(ev.byCategory, ev.total, catColors)}</div>
+          <div style="display:flex; flex-direction:column;">${generateMachineRiskSvg(machPdf, f)}</div>
+        </div>
+      `;
+    } else {
+      html += generateCategoryMatrixSvg(ev.byCategory, ev.total, catColors);
+    }
 
     // Machine Health Summary (with status indicators, risk scores, and telemetry counts)
     if (machPdf.length > 0) {
