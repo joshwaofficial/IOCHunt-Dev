@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
-import { Network, Server, Key, Copy, Check, Clock, Plus, Trash2, Database, Shield, Eye, RefreshCw, X } from 'lucide-react';
+import { Network, Server, Key, Copy, Check, Clock, Plus, Trash2, Database, Shield, Eye, RefreshCw, X, Flame, ShieldAlert, Activity } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 
@@ -43,21 +43,34 @@ const Aggregators = () => {
 
   // Retention & Expiration State
   const [retentionStatus, setRetentionStatus] = useState(null);
-  const [retentionDays, setRetentionDays] = useState(30);
-  const [selectedTargetDb, setSelectedTargetDb] = useState('all');
+  const [eventsRetentionDays, setEventsRetentionDays] = useState(30);
+  const [fwRetentionDays, setFwRetentionDays] = useState(30);
+  const [selectedTargetDb, setSelectedTargetDb] = useState('');
   const [loadingRetention, setLoadingRetention] = useState(false);
-  const [isPurging, setIsPurging] = useState(false);
+  const [isPurgingEvents, setIsPurgingEvents] = useState(false);
+  const [isPurgingFw, setIsPurgingFw] = useState(false);
   const [isSavingPolicy, setIsSavingPolicy] = useState(false);
 
-  const fetchRetentionStatus = async (days = retentionDays, target = selectedTargetDb) => {
+  const fetchRetentionStatus = async (evDays = eventsRetentionDays, fDays = fwRetentionDays, target = selectedTargetDb) => {
     try {
       setLoadingRetention(true);
       const res = await axios.get('/api/retention/status', {
-        params: { days, target, _t: Date.now() }
+        params: {
+          events_days: evDays,
+          fw_days: fDays,
+          target: target || undefined,
+          _t: Date.now()
+        }
       });
       setRetentionStatus(res.data);
-      if (res.data?.configured_days && retentionDays === 30 && !days) {
-        setRetentionDays(res.data.configured_days);
+      if (res.data?.target && (!target || target === 'all')) {
+        setSelectedTargetDb(res.data.target);
+      }
+      if (res.data?.configured_events_days && eventsRetentionDays === 30 && !evDays) {
+        setEventsRetentionDays(res.data.configured_events_days);
+      }
+      if (res.data?.configured_fw_days && fwRetentionDays === 30 && !fDays) {
+        setFwRetentionDays(res.data.configured_fw_days);
       }
     } catch (err) {
       console.warn('[Retention] Failed to fetch status:', err.message);
@@ -66,16 +79,32 @@ const Aggregators = () => {
     }
   };
 
-  const handleSaveRetentionPolicy = async () => {
-    const days = parseInt(retentionDays, 10);
-    if (!days || days < 1 || days > 3650) {
-      return toast.error('Retention period must be between 1 and 3650 days');
+  const handleSavePolicy = async (type = 'all') => {
+    const evD = parseInt(eventsRetentionDays, 10);
+    const fwD = parseInt(fwRetentionDays, 10);
+    if ((type === 'events' || type === 'all') && (!evD || evD < 1 || evD > 3650)) {
+      return toast.error('Endpoint Events retention must be between 1 and 3650 days');
     }
+    if ((type === 'firewall' || type === 'all') && (!fwD || fwD < 1 || fwD > 3650)) {
+      return toast.error('Firewall logs retention must be between 1 and 3650 days');
+    }
+
     try {
       setIsSavingPolicy(true);
-      await axios.put('/api/retention/policy', { local_retention_days: days });
-      toast.success(`Automated retention policy set to ${days} days`);
-      fetchRetentionStatus(days, selectedTargetDb);
+      const payload = {};
+      if (type === 'events') {
+        payload.retention_events_days = evD;
+      } else if (type === 'firewall') {
+        payload.retention_fw_days = fwD;
+      } else {
+        payload.retention_events_days = evD;
+        payload.retention_fw_days = fwD;
+        payload.local_retention_days = evD;
+      }
+
+      const res = await axios.put('/api/retention/policy', payload);
+      toast.success(res.data.message || 'Retention policy saved successfully');
+      fetchRetentionStatus(eventsRetentionDays, fwRetentionDays, selectedTargetDb);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to update retention policy');
     } finally {
@@ -83,30 +112,38 @@ const Aggregators = () => {
     }
   };
 
-  const handlePurgeClick = () => {
-    const days = parseInt(retentionDays, 10);
-    const targetName = retentionStatus?.available_databases?.find(d => d.id === selectedTargetDb)?.name || selectedTargetDb;
-    const count = retentionStatus?.expired_counts?.total || 0;
-    const cutoffStr = retentionStatus?.cutoff_time_utc || `${days} days ago`;
+  const handlePurgeClick = (logType) => {
+    const isEvents = logType === 'events';
+    const days = isEvents ? parseInt(eventsRetentionDays, 10) : parseInt(fwRetentionDays, 10);
+    const count = isEvents ? (retentionStatus?.expired_counts?.events || 0) : (retentionStatus?.expired_counts?.fw_events || 0);
+    const cutoffStr = isEvents ? (retentionStatus?.events_cutoff_utc || `${days} days ago`) : (retentionStatus?.fw_cutoff_utc || `${days} days ago`);
+    const targetName = retentionStatus?.available_databases?.find(d => d.id === selectedTargetDb)?.name || selectedTargetDb || 'this database';
+    const label = isEvents ? 'Endpoint Security Events' : 'Firewall Connection Logs';
+    const tableName = isEvents ? 'events' : 'fw_events';
+    const oppositeType = isEvents ? 'Firewall logs (fw_events)' : 'Endpoint events (events)';
 
     setConfirmDialog({
       isOpen: true,
-      title: `Purge Database Records Older Than ${days} Days`,
-      message: `Permanently delete all security telemetry events and firewall logs before ${cutoffStr} from ${targetName}? This will purge approximately ${count.toLocaleString()} expired records.`,
+      title: `Purge ${label} Older Than ${days} Days`,
+      message: `Permanently delete ${count.toLocaleString()} expired ${label} recorded before ${cutoffStr} from ${targetName}?\n\nSAFETY NOTICE: This deletion operates STRICTLY on the '${tableName}' table. ${oppositeType}, machine policies, agent keys, user accounts, and incidents are strictly preserved and will NOT be touched.`,
       type: 'danger',
       onConfirm: async () => {
         try {
-          setIsPurging(true);
+          if (isEvents) setIsPurgingEvents(true);
+          else setIsPurgingFw(true);
+
           const res = await axios.post('/api/retention/purge', {
-            days,
-            target: selectedTargetDb
+            target: selectedTargetDb,
+            log_type: logType,
+            days
           });
-          toast.success(res.data.message || `Purged ${res.data.total_deleted.toLocaleString()} expired records!`);
-          fetchRetentionStatus(days, selectedTargetDb);
+          toast.success(res.data.message || `Purged ${res.data.total_deleted.toLocaleString()} records!`);
+          fetchRetentionStatus(eventsRetentionDays, fwRetentionDays, selectedTargetDb);
         } catch (err) {
-          toast.error(err.response?.data?.error || 'Failed to purge database data');
+          toast.error(err.response?.data?.error || `Failed to purge ${label}`);
         } finally {
-          setIsPurging(false);
+          if (isEvents) setIsPurgingEvents(false);
+          else setIsPurgingFw(false);
         }
       }
     });
@@ -393,7 +430,7 @@ const Aggregators = () => {
               </span>
             )}
             <button
-              onClick={() => fetchRetentionStatus(retentionDays, selectedTargetDb)}
+              onClick={() => fetchRetentionStatus(eventsRetentionDays, fwRetentionDays, selectedTargetDb)}
               disabled={loadingRetention}
               style={{
                 display: 'inline-flex',
@@ -415,174 +452,229 @@ const Aggregators = () => {
           </div>
         </div>
 
-        {/* Content Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', marginBottom: '20px' }}>
-          
-          {/* Card 1: Target Database Scope */}
-          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px' }}>
-            <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text)', marginBottom: '8px', fontFamily: 'var(--mono)' }}>
-              1. Target Database Scope
+        {/* 1. Target Database Scope (Strictly Isolated Tenant Database) */}
+        <div style={{
+          background: 'var(--surface2)',
+          border: '1px solid var(--border)',
+          borderRadius: '8px',
+          padding: '16px 20px',
+          marginBottom: '20px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text)', fontFamily: 'var(--mono)', margin: 0 }}>
+              <Database size={15} style={{ color: '#818cf8' }} />
+              1. Target Database Scope (Own Company Databases Only)
             </label>
-            <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '0 0 10px' }}>
-              Select which database to query and expire historical records from:
-            </p>
+            <span style={{ fontSize: '10.5px', color: 'var(--muted)', fontFamily: 'monospace' }}>
+              Tenant: <b style={{ color: 'var(--accent)' }}>{user?.tenant_id || user?.company_name || 'Current Workspace'}</b>
+            </span>
+          </div>
+          <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '0 0 10px' }}>
+            Select which dedicated branch database to inspect and expire historical telemetry from. Central control DB and other companies are strictly excluded:
+          </p>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
             <select
               value={selectedTargetDb}
               onChange={(e) => {
                 const target = e.target.value;
                 setSelectedTargetDb(target);
-                fetchRetentionStatus(retentionDays, target);
+                fetchRetentionStatus(eventsRetentionDays, fwRetentionDays, target);
               }}
               style={{
-                width: '100%',
+                flex: '1',
+                minWidth: '260px',
                 padding: '9px 12px',
                 background: 'var(--background)',
                 border: '1px solid var(--border)',
                 borderRadius: '6px',
                 color: 'var(--text)',
                 fontSize: '12px',
-                fontFamily: 'var(--mono)',
-                marginBottom: '8px'
+                fontFamily: 'var(--mono)'
               }}
             >
-              {(retentionStatus?.available_databases || [
-                { id: 'all', name: 'Overall System (Central & All Branch Databases)' },
-                { id: 'central', name: 'Central Database (iochunt_db)' }
-              ]).map(db => (
-                <option key={db.id} value={db.id}>
-                  {db.name} {db.db_name && db.db_name !== db.name ? `[${db.db_name}]` : ''}
-                </option>
-              ))}
+              {(retentionStatus?.available_databases || []).length === 0 ? (
+                <option value="">No branch databases found for this tenant</option>
+              ) : (
+                (retentionStatus?.available_databases || []).map(db => (
+                  <option key={db.id} value={db.id}>
+                    {db.name} {db.db_name && db.db_name !== db.name ? `[${db.db_name}]` : ''}
+                  </option>
+                ))
+              )}
             </select>
-            <div style={{ fontSize: '10.5px', color: 'var(--muted2)', lineHeight: 1.4 }}>
-              Active target: <b style={{ color: '#818cf8', fontFamily: 'monospace' }}>
-                {retentionStatus?.available_databases?.find(d => d.id === selectedTargetDb)?.db_name || selectedTargetDb}
+            <div style={{ fontSize: '11px', color: 'var(--muted2)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              Active Database: <b style={{ color: '#818cf8', fontFamily: 'monospace' }}>
+                {retentionStatus?.available_databases?.find(d => d.id === selectedTargetDb)?.db_name || selectedTargetDb || 'None'}
               </b>
             </div>
           </div>
+        </div>
 
-          {/* Card 2: Retention Period & Live Cutoff */}
-          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <label style={{ fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text)', fontFamily: 'var(--mono)' }}>
-                2. Expiration Period (Days)
-              </label>
-              <span style={{ fontSize: '10px', color: '#a855f7', fontWeight: 700, fontFamily: 'monospace' }}>
-                Configured: {retentionStatus?.configured_days || 30}d
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-              <div style={{ position: 'relative', flex: 1 }}>
-                <input
-                  type="number"
-                  min="1"
-                  max="3650"
-                  value={retentionDays}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setRetentionDays(val);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      fetchRetentionStatus(retentionDays, selectedTargetDb);
-                    }
-                  }}
-                  onBlur={() => {
-                    fetchRetentionStatus(retentionDays, selectedTargetDb);
-                  }}
-                  placeholder="30"
-                  style={{
-                    width: '100%',
-                    padding: '8px 45px 8px 12px',
-                    background: 'var(--background)',
-                    border: '1px solid var(--border)',
+        {/* 2 & 3. Separate Expiration & Purge Cards for Events and Firewall Logs */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+          gap: '20px',
+          marginBottom: '20px'
+        }}>
+          
+          {/* ── CARD A: ENDPOINT SECURITY EVENTS (`events`) ── */}
+          <div style={{
+            background: 'var(--surface2)',
+            border: '1px solid var(--border)',
+            borderRadius: '10px',
+            padding: '18px',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.02)'
+          }}>
+            <div>
+              {/* Card Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{
+                    width: '32px',
+                    height: '32px',
                     borderRadius: '6px',
-                    color: 'var(--text)',
-                    fontSize: '13px',
-                    fontWeight: 700,
-                    fontFamily: 'monospace',
-                    boxSizing: 'border-box'
-                  }}
-                />
-                <span style={{ position: 'absolute', right: '10px', top: '8px', fontSize: '11px', color: 'var(--muted)', pointerEvents: 'none' }}>
-                  Days
+                    background: 'rgba(99, 102, 241, 0.12)',
+                    border: '1px solid rgba(99, 102, 241, 0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#818cf8'
+                  }}>
+                    <Shield size={17} />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--mono)' }}>
+                      Endpoint Security Events
+                    </h3>
+                    <div style={{ fontSize: '10.5px', color: 'var(--muted)', marginTop: '2px' }}>
+                      Host detections, processes, & agent telemetry (<code>events</code> table)
+                    </div>
+                  </div>
+                </div>
+                <span style={{
+                  fontSize: '10px',
+                  fontFamily: 'monospace',
+                  fontWeight: 700,
+                  color: '#818cf8',
+                  background: 'rgba(99, 102, 241, 0.1)',
+                  border: '1px solid rgba(99, 102, 241, 0.25)',
+                  padding: '2px 8px',
+                  borderRadius: '4px'
+                }}>
+                  Policy: {retentionStatus?.configured_events_days || 30}d
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={handleSaveRetentionPolicy}
-                disabled={isSavingPolicy}
-                style={{
-                  background: 'rgba(37,99,235,0.1)',
-                  color: '#3b82f6',
-                  border: '1px solid rgba(37,99,235,0.3)',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  cursor: isSavingPolicy ? 'not-allowed' : 'pointer',
-                  whiteSpace: 'nowrap'
-                }}
-                title="Save as automated daily policy"
-              >
-                {isSavingPolicy ? 'Saving...' : 'Save Policy'}
-              </button>
-            </div>
 
-            {/* Quick Presets */}
-            <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginBottom: '12px' }}>
-              {[7, 14, 30, 60, 90, 180, 365].map(d => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => {
-                    setRetentionDays(d);
-                    fetchRetentionStatus(d, selectedTargetDb);
-                  }}
-                  style={{
-                    border: Number(retentionDays) === d ? '1px solid #3b82f6' : '1px solid var(--border)',
-                    background: Number(retentionDays) === d ? 'rgba(59,130,246,0.15)' : 'var(--background)',
-                    color: Number(retentionDays) === d ? '#3b82f6' : 'var(--muted)',
-                    borderRadius: '4px',
-                    padding: '2px 7px',
-                    fontSize: '10px',
-                    fontFamily: 'monospace',
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                >
-                  {d}d
-                </button>
-              ))}
-            </div>
-
-            {/* Real-time Cutoff Badge */}
-            <div style={{
-              background: 'var(--background)',
-              border: '1px dashed var(--border)',
-              borderRadius: '6px',
-              padding: '8px 10px',
-              fontSize: '10.5px'
-            }}>
-              <div style={{ color: 'var(--muted)' }}>
-                Cutoff Date: <b style={{ color: '#ef4444', fontFamily: 'monospace' }}>{retentionStatus?.cutoff_time_utc || 'Calculating...'}</b>
+              {/* Expiration Input & Policy Save */}
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text)', marginBottom: '6px' }}>
+                  Events Expiration Period (Days):
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ position: 'relative', flex: 1 }}>
+                    <input
+                      type="number"
+                      min="1"
+                      max="3650"
+                      value={eventsRetentionDays}
+                      onChange={(e) => setEventsRetentionDays(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          fetchRetentionStatus(eventsRetentionDays, fwRetentionDays, selectedTargetDb);
+                        }
+                      }}
+                      onBlur={() => fetchRetentionStatus(eventsRetentionDays, fwRetentionDays, selectedTargetDb)}
+                      placeholder="30"
+                      style={{
+                        width: '100%',
+                        padding: '8px 45px 8px 12px',
+                        background: 'var(--background)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '6px',
+                        color: 'var(--text)',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        fontFamily: 'monospace',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                    <span style={{ position: 'absolute', right: '10px', top: '8px', fontSize: '11px', color: 'var(--muted)', pointerEvents: 'none' }}>
+                      Days
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleSavePolicy('events')}
+                    disabled={isSavingPolicy}
+                    style={{
+                      background: 'rgba(99, 102, 241, 0.1)',
+                      color: '#818cf8',
+                      border: '1px solid rgba(99, 102, 241, 0.3)',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: isSavingPolicy ? 'not-allowed' : 'pointer',
+                      whiteSpace: 'nowrap'
+                    }}
+                    title="Save automated retention policy for events"
+                  >
+                    {isSavingPolicy ? 'Saving...' : 'Save Policy'}
+                  </button>
+                </div>
               </div>
-              <div style={{ color: 'var(--muted2)', fontSize: '9.5px', marginTop: '2px' }}>
-                All logs recorded before this date will be permanently deleted.
+
+              {/* Quick Presets */}
+              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                {[7, 14, 30, 60, 90, 180, 365].map(d => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => {
+                      setEventsRetentionDays(d);
+                      fetchRetentionStatus(d, fwRetentionDays, selectedTargetDb);
+                    }}
+                    style={{
+                      border: Number(eventsRetentionDays) === d ? '1px solid #818cf8' : '1px solid var(--border)',
+                      background: Number(eventsRetentionDays) === d ? 'rgba(99, 102, 241, 0.15)' : 'var(--background)',
+                      color: Number(eventsRetentionDays) === d ? '#818cf8' : 'var(--muted)',
+                      borderRadius: '4px',
+                      padding: '2px 7px',
+                      fontSize: '10px',
+                      fontFamily: 'monospace',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {d}d
+                  </button>
+                ))}
               </div>
-            </div>
-          </div>
 
-          {/* Card 3: Expired Telemetry & Immediate Action */}
-          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text)', marginBottom: '8px', fontFamily: 'var(--mono)' }}>
-                3. Expired Telemetry & Purge
-              </label>
+              {/* Cutoff Date */}
+              <div style={{
+                background: 'var(--background)',
+                border: '1px dashed var(--border)',
+                borderRadius: '6px',
+                padding: '8px 10px',
+                fontSize: '10.5px',
+                marginBottom: '14px'
+              }}>
+                <div style={{ color: 'var(--muted)' }}>
+                  Cutoff: <b style={{ color: '#ef4444', fontFamily: 'monospace' }}>{retentionStatus?.events_cutoff_utc || 'Calculating...'}</b>
+                </div>
+                <div style={{ color: 'var(--muted2)', fontSize: '9.5px', marginTop: '2px' }}>
+                  Endpoint events older than {eventsRetentionDays} days are eligible for deletion.
+                </div>
+              </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+              {/* Counts */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
                 <div style={{ background: 'var(--background)', borderRadius: '6px', padding: '8px 10px', border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: '9.5px', color: 'var(--muted)', textTransform: 'uppercase' }}>Expired Events</div>
                   <div style={{ fontSize: '15px', fontWeight: 800, fontFamily: 'monospace', color: (retentionStatus?.expired_counts?.events || 0) > 0 ? '#ef4444' : 'var(--text)' }}>
@@ -590,46 +682,269 @@ const Aggregators = () => {
                   </div>
                 </div>
                 <div style={{ background: 'var(--background)', borderRadius: '6px', padding: '8px 10px', border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: '9.5px', color: 'var(--muted)', textTransform: 'uppercase' }}>Expired FW Logs</div>
-                  <div style={{ fontSize: '15px', fontWeight: 800, fontFamily: 'monospace', color: (retentionStatus?.expired_counts?.fw_events || 0) > 0 ? '#ef4444' : 'var(--text)' }}>
-                    {(retentionStatus?.expired_counts?.fw_events || 0).toLocaleString()}
+                  <div style={{ fontSize: '9.5px', color: 'var(--muted)', textTransform: 'uppercase' }}>Total In Scope</div>
+                  <div style={{ fontSize: '15px', fontWeight: 800, fontFamily: 'monospace', color: 'var(--text)' }}>
+                    {(retentionStatus?.total_records?.events || 0).toLocaleString()}
                   </div>
                 </div>
               </div>
-
-              <div style={{ fontSize: '10.5px', color: 'var(--muted)', marginBottom: '14px' }}>
-                Total Records in Scope: <b style={{ color: 'var(--text)', fontFamily: 'monospace' }}>{(retentionStatus?.total_records?.total || 0).toLocaleString()}</b>
-              </div>
             </div>
 
+            {/* Purge Events Button */}
             <div>
               <button
                 type="button"
-                onClick={handlePurgeClick}
-                disabled={isPurging || (retentionStatus?.expired_counts?.total || 0) === 0}
+                onClick={() => handlePurgeClick('events')}
+                disabled={isPurgingEvents || (retentionStatus?.expired_counts?.events || 0) === 0}
                 style={{
                   width: '100%',
                   padding: '9px 14px',
                   borderRadius: '6px',
                   border: 'none',
-                  background: (retentionStatus?.expired_counts?.total || 0) > 0 ? '#ef4444' : 'var(--border)',
-                  color: (retentionStatus?.expired_counts?.total || 0) > 0 ? '#ffffff' : 'var(--muted)',
+                  background: (retentionStatus?.expired_counts?.events || 0) > 0 ? '#ef4444' : 'var(--border)',
+                  color: (retentionStatus?.expired_counts?.events || 0) > 0 ? '#ffffff' : 'var(--muted)',
                   fontSize: '12px',
                   fontWeight: 700,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '6px',
-                  cursor: (retentionStatus?.expired_counts?.total || 0) > 0 && !isPurging ? 'pointer' : 'not-allowed',
+                  cursor: (retentionStatus?.expired_counts?.events || 0) > 0 && !isPurgingEvents ? 'pointer' : 'not-allowed',
                   transition: 'background 0.2s'
                 }}
               >
                 <Trash2 size={14} />
-                {isPurging ? 'Purging Expired Records...' : `Purge Data Before ${retentionDays} Days`}
+                {isPurgingEvents ? 'Purging Endpoint Events...' : `Purge Endpoint Events (Older than ${eventsRetentionDays}d)`}
               </button>
+              <div style={{ textAlign: 'center', fontSize: '9.5px', color: 'var(--muted2)', marginTop: '5px' }}>
+                Deletes ONLY from <code>events</code> table. Firewall logs & all system data remain safe.
+              </div>
             </div>
           </div>
 
+          {/* ── CARD B: FIREWALL CONNECTION LOGS (`fw_events`) ── */}
+          <div style={{
+            background: 'var(--surface2)',
+            border: '1px solid var(--border)',
+            borderRadius: '10px',
+            padding: '18px',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.02)'
+          }}>
+            <div>
+              {/* Card Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px', borderBottom: '1px solid var(--border)', paddingBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '6px',
+                    background: 'rgba(245, 158, 11, 0.12)',
+                    border: '1px solid rgba(245, 158, 11, 0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#f59e0b'
+                  }}>
+                    <Flame size={17} />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--mono)' }}>
+                      Firewall Connection Logs
+                    </h3>
+                    <div style={{ fontSize: '10.5px', color: 'var(--muted)', marginTop: '2px' }}>
+                      Network traffic, blocked IPs, & firewall telemetry (<code>fw_events</code> table)
+                    </div>
+                  </div>
+                </div>
+                <span style={{
+                  fontSize: '10px',
+                  fontFamily: 'monospace',
+                  fontWeight: 700,
+                  color: '#f59e0b',
+                  background: 'rgba(245, 158, 11, 0.1)',
+                  border: '1px solid rgba(245, 158, 11, 0.25)',
+                  padding: '2px 8px',
+                  borderRadius: '4px'
+                }}>
+                  Policy: {retentionStatus?.configured_fw_days || 30}d
+                </span>
+              </div>
+
+              {/* Expiration Input & Policy Save */}
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text)', marginBottom: '6px' }}>
+                  Firewall Logs Expiration Period (Days):
+                </label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ position: 'relative', flex: 1 }}>
+                    <input
+                      type="number"
+                      min="1"
+                      max="3650"
+                      value={fwRetentionDays}
+                      onChange={(e) => setFwRetentionDays(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          fetchRetentionStatus(eventsRetentionDays, fwRetentionDays, selectedTargetDb);
+                        }
+                      }}
+                      onBlur={() => fetchRetentionStatus(eventsRetentionDays, fwRetentionDays, selectedTargetDb)}
+                      placeholder="30"
+                      style={{
+                        width: '100%',
+                        padding: '8px 45px 8px 12px',
+                        background: 'var(--background)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '6px',
+                        color: 'var(--text)',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        fontFamily: 'monospace',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                    <span style={{ position: 'absolute', right: '10px', top: '8px', fontSize: '11px', color: 'var(--muted)', pointerEvents: 'none' }}>
+                      Days
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleSavePolicy('firewall')}
+                    disabled={isSavingPolicy}
+                    style={{
+                      background: 'rgba(245, 158, 11, 0.1)',
+                      color: '#f59e0b',
+                      border: '1px solid rgba(245, 158, 11, 0.3)',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: isSavingPolicy ? 'not-allowed' : 'pointer',
+                      whiteSpace: 'nowrap'
+                    }}
+                    title="Save automated retention policy for firewall logs"
+                  >
+                    {isSavingPolicy ? 'Saving...' : 'Save Policy'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Presets */}
+              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                {[7, 14, 30, 60, 90, 180, 365].map(d => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => {
+                      setFwRetentionDays(d);
+                      fetchRetentionStatus(eventsRetentionDays, d, selectedTargetDb);
+                    }}
+                    style={{
+                      border: Number(fwRetentionDays) === d ? '1px solid #f59e0b' : '1px solid var(--border)',
+                      background: Number(fwRetentionDays) === d ? 'rgba(245, 158, 11, 0.15)' : 'var(--background)',
+                      color: Number(fwRetentionDays) === d ? '#f59e0b' : 'var(--muted)',
+                      borderRadius: '4px',
+                      padding: '2px 7px',
+                      fontSize: '10px',
+                      fontFamily: 'monospace',
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {d}d
+                  </button>
+                ))}
+              </div>
+
+              {/* Cutoff Date */}
+              <div style={{
+                background: 'var(--background)',
+                border: '1px dashed var(--border)',
+                borderRadius: '6px',
+                padding: '8px 10px',
+                fontSize: '10.5px',
+                marginBottom: '14px'
+              }}>
+                <div style={{ color: 'var(--muted)' }}>
+                  Cutoff: <b style={{ color: '#ef4444', fontFamily: 'monospace' }}>{retentionStatus?.fw_cutoff_utc || 'Calculating...'}</b>
+                </div>
+                <div style={{ color: 'var(--muted2)', fontSize: '9.5px', marginTop: '2px' }}>
+                  Firewall logs older than {fwRetentionDays} days are eligible for deletion.
+                </div>
+              </div>
+
+              {/* Counts */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '14px' }}>
+                <div style={{ background: 'var(--background)', borderRadius: '6px', padding: '8px 10px', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '9.5px', color: 'var(--muted)', textTransform: 'uppercase' }}>Expired FW Logs</div>
+                  <div style={{ fontSize: '15px', fontWeight: 800, fontFamily: 'monospace', color: (retentionStatus?.expired_counts?.fw_events || 0) > 0 ? '#ef4444' : 'var(--text)' }}>
+                    {(retentionStatus?.expired_counts?.fw_events || 0).toLocaleString()}
+                  </div>
+                </div>
+                <div style={{ background: 'var(--background)', borderRadius: '6px', padding: '8px 10px', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '9.5px', color: 'var(--muted)', textTransform: 'uppercase' }}>Total In Scope</div>
+                  <div style={{ fontSize: '15px', fontWeight: 800, fontFamily: 'monospace', color: 'var(--text)' }}>
+                    {(retentionStatus?.total_records?.fw_events || 0).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Purge Firewall Button */}
+            <div>
+              <button
+                type="button"
+                onClick={() => handlePurgeClick('firewall')}
+                disabled={isPurgingFw || (retentionStatus?.expired_counts?.fw_events || 0) === 0}
+                style={{
+                  width: '100%',
+                  padding: '9px 14px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: (retentionStatus?.expired_counts?.fw_events || 0) > 0 ? '#ef4444' : 'var(--border)',
+                  color: (retentionStatus?.expired_counts?.fw_events || 0) > 0 ? '#ffffff' : 'var(--muted)',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  cursor: (retentionStatus?.expired_counts?.fw_events || 0) > 0 && !isPurgingFw ? 'pointer' : 'not-allowed',
+                  transition: 'background 0.2s'
+                }}
+              >
+                <Trash2 size={14} />
+                {isPurgingFw ? 'Purging Firewall Logs...' : `Purge Firewall Logs (Older than ${fwRetentionDays}d)`}
+              </button>
+              <div style={{ textAlign: 'center', fontSize: '9.5px', color: 'var(--muted2)', marginTop: '5px' }}>
+                Deletes ONLY from <code>fw_events</code> table. Endpoint events & all system data remain safe.
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        {/* Safety Guarantee Notice */}
+        <div style={{
+          background: 'rgba(34, 197, 94, 0.05)',
+          border: '1px solid rgba(34, 197, 94, 0.2)',
+          borderRadius: '8px',
+          padding: '10px 14px',
+          fontSize: '11px',
+          color: 'var(--text)',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <Shield size={16} style={{ color: '#22c55e', flexShrink: 0 }} />
+          <span>
+            <b>Zero Collateral Deletion Guarantee:</b> Retention lifecycle operations target strictly telemetry tables (<code>events</code> and <code>fw_events</code>). Agent keys, machine policies, user accounts, and incidents are strictly preserved and never deleted.
+          </span>
         </div>
 
         {/* Footer info */}

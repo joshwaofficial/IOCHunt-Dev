@@ -2,7 +2,8 @@
 // IOC Hunt — Central Server Automated Retention Service
 // ════════════════════════════════════════════════════════════════
 // Performs daily background cleanup of expired telemetry events
-// and firewall connection logs older than the configured days.
+// and firewall connection logs older than their configured periods.
+// Strictly targets ONLY events and fw_events tables.
 // ════════════════════════════════════════════════════════════════
 
 const db = require('../config/db');
@@ -12,34 +13,24 @@ const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 async function runCentralRetentionPurge() {
   try {
-    const settingsRes = await db.query('SELECT local_retention_days FROM settings LIMIT 1');
+    const settingsRes = await db.query(
+      'SELECT local_retention_days, retention_events_days, retention_fw_days FROM settings LIMIT 1'
+    ).catch(() => ({ rows: [] }));
+
     if (settingsRes.rows.length === 0) return;
 
-    const days = parseInt(settingsRes.rows[0].local_retention_days || 30, 10);
-    if (!days || days <= 0) return;
+    const baseDays = parseInt(settingsRes.rows[0].local_retention_days || 30, 10);
+    const evDays = parseInt(settingsRes.rows[0].retention_events_days || baseDays, 10);
+    const fwDays = parseInt(settingsRes.rows[0].retention_fw_days || baseDays, 10);
 
-    console.log(`[CentralRetention] Running scheduled daily purge for records older than ${days} days...`);
+    if (evDays <= 0 && fwDays <= 0) return;
+
+    console.log(`[CentralRetention] Running scheduled daily purge (Events: ${evDays}d, Firewall: ${fwDays}d)...`);
 
     let totalDeletedEvents = 0;
     let totalDeletedFw = 0;
 
-    // 1. Purge Central DB
-    try {
-      const evDel = await db.query(
-        "DELETE FROM events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
-        [days]
-      );
-      const fwDel = await db.query(
-        "DELETE FROM fw_events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
-        [days]
-      );
-      totalDeletedEvents += evDel.rowCount || 0;
-      totalDeletedFw += fwDel.rowCount || 0;
-    } catch (err) {
-      console.error('[CentralRetention] Error cleaning central tables:', err.message);
-    }
-
-    // 2. Purge Branch Databases
+    // Clean Branch Databases for registered aggregators
     try {
       const aggRes = await db.query("SELECT name FROM aggregators WHERE status != 'deleted'");
       for (const agg of aggRes.rows) {
@@ -47,11 +38,11 @@ async function runCentralRetentionPurge() {
           const pool = getAggregatorPool(agg.name);
           const aEv = await pool.query(
             "DELETE FROM events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
-            [days]
+            [evDays]
           );
           const aFw = await pool.query(
             "DELETE FROM fw_events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
-            [days]
+            [fwDays]
           );
           totalDeletedEvents += aEv.rowCount || 0;
           totalDeletedFw += aFw.rowCount || 0;
@@ -71,7 +62,7 @@ async function runCentralRetentionPurge() {
       [total]
     ).catch(() => {});
 
-    console.log(`[CentralRetention] Daily purge completed: ${total} expired records deleted (Events: ${totalDeletedEvents}, Firewall: ${totalDeletedFw}) older than ${days} days.`);
+    console.log(`[CentralRetention] Daily purge completed: ${total} expired records deleted (Events: ${totalDeletedEvents}, Firewall: ${totalDeletedFw}).`);
   } catch (error) {
     console.error('[CentralRetention] Daily cleanup failed:', error.message);
   }
