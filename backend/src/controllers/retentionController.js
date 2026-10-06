@@ -3,7 +3,8 @@
 // ════════════════════════════════════════════════════════════════
 // Manages telemetry lifecycle, retention policies, and manual
 // or scheduled expiration of historical data across tenant databases.
-// Strictly scopes to the owning tenant's isolated databases.
+// Supports both Central Server Tenant Database (direct/forwarded logs)
+// and Branch Aggregator Dedicated Databases.
 // Targets ONLY events and fw_events tables — preserving all other data.
 // ════════════════════════════════════════════════════════════════
 
@@ -46,8 +47,25 @@ const getRetentionStatus = async (req, res) => {
       ? parseSafeInt(req.query.fw_days, configuredFwDays, 1, 3650)
       : (req.query.days ? parseSafeInt(req.query.days, configuredFwDays, 1, 3650) : configuredFwDays);
 
-    // Get list of branch aggregator databases STRICTLY for this tenant
-    // Other companies and the central control-plane database (iochunt_db) are excluded.
+    // 1. Central Server Tenant Database (where agents send logs directly or forwarded from aggregators)
+    let tenantDbName = tenantId === 'default' ? (process.env.DB_NAME || 'iochunt_db') : `iochunt_tenant_${tenantId}`;
+    let companyDisplay = req.session?.company_name || (tenantId !== 'default' ? tenantId.toUpperCase() : 'Central');
+    try {
+      const tRes = await db.query('SELECT company_name, db_name FROM tenants WHERE tenant_id = $1 LIMIT 1', [tenantId]);
+      if (tRes.rows.length > 0) {
+        if (tRes.rows[0].db_name) tenantDbName = tRes.rows[0].db_name;
+        if (tRes.rows[0].company_name) companyDisplay = tRes.rows[0].company_name;
+      }
+    } catch (e) {}
+
+    const centralTenantDb = {
+      id: 'central_tenant',
+      name: `Central Server (${companyDisplay} Workspace)`,
+      db_name: tenantDbName,
+      type: 'central_tenant'
+    };
+
+    // 2. Branch Aggregator Databases belonging strictly to this tenant
     let branchDbs = [];
     try {
       let aggRes;
@@ -64,7 +82,7 @@ const getRetentionStatus = async (req, res) => {
       }
       branchDbs = aggRes.rows.map(a => ({
         id: a.name,
-        name: a.display_name || a.name,
+        name: `Branch Aggregator: ${a.display_name || a.name}`,
         db_name: a.database_name || `iochunt_agg_${a.name}`,
         type: 'branch',
         status: a.status
@@ -73,27 +91,16 @@ const getRetentionStatus = async (req, res) => {
       console.error('[RetentionStatus] Error fetching tenant aggregators:', e.message);
     }
 
-    // Available databases strictly belongs to the current tenant
-    let availableDatabases = [];
-    if (branchDbs.length > 1) {
-      availableDatabases = [
-        { id: 'all_branches', name: `All Own Branch Databases (${branchDbs.length})`, db_name: 'All Tenant Databases', type: 'tenant_all' },
-        ...branchDbs
-      ];
-    } else {
-      availableDatabases = [...branchDbs];
-    }
+    // Available databases: Central Server Workspace database (default) + Own branch aggregator databases
+    const availableDatabases = [
+      centralTenantDb,
+      ...branchDbs
+    ];
 
-    // Resolve target database scope
+    // Resolve target database scope (defaults to Central Server Tenant Database)
     let target = (req.query.target || '').toLowerCase().trim();
     if (!target || target === 'all' || !availableDatabases.some(d => d.id.toLowerCase() === target)) {
-      if (branchDbs.length === 1) {
-        target = branchDbs[0].id.toLowerCase();
-      } else if (branchDbs.length > 1) {
-        target = 'all_branches';
-      } else {
-        target = '';
-      }
+      target = 'central_tenant';
     }
 
     const now = new Date();
@@ -108,29 +115,41 @@ const getRetentionStatus = async (req, res) => {
     let totalEvents = 0;
     let totalFw = 0;
 
-    // Determine target branches to query
-    let targetsToQuery = [];
-    if (target === 'all_branches' || target === 'all') {
-      targetsToQuery = branchDbs;
-    } else if (target) {
-      targetsToQuery = branchDbs.filter(b => b.id.toLowerCase() === target);
-    }
-
-    for (const b of targetsToQuery) {
+    if (target === 'central_tenant') {
+      // Query Central Server Tenant Database (where agents send events directly or forwarded from aggregators)
       try {
-        const pool = getAggregatorPool(b.id);
-        const [bExpEv, bExpFw, bTotEv, bTotFw] = await Promise.all([
-          pool.query("SELECT COUNT(*) FROM events WHERE ts < (NOW() - INTERVAL '1 day' * $1)", [requestedEventsDays]),
-          pool.query("SELECT COUNT(*) FROM fw_events WHERE ts < (NOW() - INTERVAL '1 day' * $1)", [requestedFwDays]),
-          pool.query("SELECT COUNT(*) FROM events"),
-          pool.query("SELECT COUNT(*) FROM fw_events")
+        const [expEvRes, expFwRes, totEvRes, totFwRes] = await Promise.all([
+          req.queryTenant("SELECT COUNT(*) FROM events WHERE ts < (NOW() - INTERVAL '1 day' * $1)", [requestedEventsDays]),
+          req.queryTenant("SELECT COUNT(*) FROM fw_events WHERE ts < (NOW() - INTERVAL '1 day' * $1)", [requestedFwDays]),
+          req.queryTenant("SELECT COUNT(*) FROM events"),
+          req.queryTenant("SELECT COUNT(*) FROM fw_events")
         ]);
-        expiredEvents += parseInt(bExpEv.rows[0]?.count || 0, 10);
-        expiredFw += parseInt(bExpFw.rows[0]?.count || 0, 10);
-        totalEvents += parseInt(bTotEv.rows[0]?.count || 0, 10);
-        totalFw += parseInt(bTotFw.rows[0]?.count || 0, 10);
+        expiredEvents = parseInt(expEvRes.rows[0]?.count || 0, 10);
+        expiredFw = parseInt(expFwRes.rows[0]?.count || 0, 10);
+        totalEvents = parseInt(totEvRes.rows[0]?.count || 0, 10);
+        totalFw = parseInt(totFwRes.rows[0]?.count || 0, 10);
       } catch (err) {
-        // Silently skip if branch database is not yet connected or initialized
+        console.error('[RetentionStatus] Error querying Central Tenant DB:', err.message);
+      }
+    } else {
+      // Query specific branch aggregator database
+      const targetAgg = branchDbs.find(b => b.id.toLowerCase() === target);
+      if (targetAgg) {
+        try {
+          const pool = getAggregatorPool(targetAgg.id);
+          const [bExpEv, bExpFw, bTotEv, bTotFw] = await Promise.all([
+            pool.query("SELECT COUNT(*) FROM events WHERE ts < (NOW() - INTERVAL '1 day' * $1)", [requestedEventsDays]),
+            pool.query("SELECT COUNT(*) FROM fw_events WHERE ts < (NOW() - INTERVAL '1 day' * $1)", [requestedFwDays]),
+            pool.query("SELECT COUNT(*) FROM events"),
+            pool.query("SELECT COUNT(*) FROM fw_events")
+          ]);
+          expiredEvents = parseInt(bExpEv.rows[0]?.count || 0, 10);
+          expiredFw = parseInt(bExpFw.rows[0]?.count || 0, 10);
+          totalEvents = parseInt(bTotEv.rows[0]?.count || 0, 10);
+          totalFw = parseInt(bTotFw.rows[0]?.count || 0, 10);
+        } catch (err) {
+          // Silently skip if branch database is offline
+        }
       }
     }
 
@@ -274,42 +293,58 @@ const purgeExpiredData = async (req, res) => {
     const cutoff = new Date(now.getTime() - days * 86400000);
     const cutoffFormatted = cutoff.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 
-    // Verify tenant branch DBs strictly
-    let branchDbs = [];
-    if (isAggAdmin && req.session?.aggregator_name) {
-      const aggRes = await db.query(
-        "SELECT id, name, display_name, database_name FROM aggregators WHERE name = $1 AND status != 'deleted'",
-        [req.session.aggregator_name]
-      );
-      branchDbs = aggRes.rows;
-    } else {
-      const aggRes = await db.query(
-        "SELECT id, name, display_name, database_name FROM aggregators WHERE tenant_id = $1 AND status != 'deleted'",
-        [tenantId]
-      );
-      branchDbs = aggRes.rows;
-    }
-
-    const target = (rawTarget || '').toLowerCase().trim();
-    let targetsToPurge = [];
-    if (!target || target === 'all' || target === 'all_branches') {
-      targetsToPurge = branchDbs;
-    } else {
-      targetsToPurge = branchDbs.filter(b => b.name.toLowerCase() === target || b.id.toString() === target);
-    }
-
-    if (targetsToPurge.length === 0) {
-      return res.status(400).json({ error: 'No matching branch database found for this tenant.' });
-    }
+    const target = (rawTarget || 'central_tenant').toLowerCase().trim();
 
     let deletedEvents = 0;
     let deletedFw = 0;
 
-    for (const agg of targetsToPurge) {
+    if (target === 'central_tenant') {
+      // Purge Central Server Tenant Database (direct/forwarded logs)
       try {
-        const pool = getAggregatorPool(agg.name);
+        if (logType === 'events' || logType === 'all') {
+          const evRes = await req.queryTenant(
+            "DELETE FROM events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
+            [days]
+          );
+          deletedEvents += evRes.rowCount || 0;
+        }
 
-        // Delete ONLY from events table if requested
+        if (logType === 'firewall' || logType === 'all') {
+          const fwRes = await req.queryTenant(
+            "DELETE FROM fw_events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
+            [days]
+          );
+          deletedFw += fwRes.rowCount || 0;
+        }
+      } catch (err) {
+        console.error('[Purge Central Tenant DB Error]', err.message);
+        return res.status(500).json({ error: 'Failed to purge central tenant data: ' + err.message });
+      }
+    } else {
+      // Purge Branch Aggregator Database
+      let branchDbs = [];
+      if (isAggAdmin && req.session?.aggregator_name) {
+        const aggRes = await db.query(
+          "SELECT id, name, display_name, database_name FROM aggregators WHERE name = $1 AND status != 'deleted'",
+          [req.session.aggregator_name]
+        );
+        branchDbs = aggRes.rows;
+      } else {
+        const aggRes = await db.query(
+          "SELECT id, name, display_name, database_name FROM aggregators WHERE tenant_id = $1 AND status != 'deleted'",
+          [tenantId]
+        );
+        branchDbs = aggRes.rows;
+      }
+
+      const targetAgg = branchDbs.find(b => b.name.toLowerCase() === target || b.id.toString() === target);
+      if (!targetAgg) {
+        return res.status(400).json({ error: 'Target database not found or access denied for this tenant.' });
+      }
+
+      try {
+        const pool = getAggregatorPool(targetAgg.name);
+
         if (logType === 'events' || logType === 'all') {
           const evRes = await pool.query(
             "DELETE FROM events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
@@ -318,7 +353,6 @@ const purgeExpiredData = async (req, res) => {
           deletedEvents += evRes.rowCount || 0;
         }
 
-        // Delete ONLY from fw_events table if requested
         if (logType === 'firewall' || logType === 'all') {
           const fwRes = await pool.query(
             "DELETE FROM fw_events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
@@ -327,7 +361,7 @@ const purgeExpiredData = async (req, res) => {
           deletedFw += fwRes.rowCount || 0;
         }
       } catch (err) {
-        console.warn(`[Purge Branch DB Warning] Skipping branch '${agg.name}':`, err.message);
+        console.warn(`[Purge Branch DB Warning] Skipping branch '${targetAgg.name}':`, err.message);
       }
     }
 

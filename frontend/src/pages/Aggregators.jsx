@@ -463,14 +463,14 @@ const Aggregators = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text)', fontFamily: 'var(--mono)', margin: 0 }}>
               <Database size={15} style={{ color: '#818cf8' }} />
-              1. Target Database Scope (Own Company Databases Only)
+              1. Target Database Scope (Central Server & Branch Databases)
             </label>
             <span style={{ fontSize: '10.5px', color: 'var(--muted)', fontFamily: 'monospace' }}>
               Tenant: <b style={{ color: 'var(--accent)' }}>{user?.tenant_id || user?.company_name || 'Current Workspace'}</b>
             </span>
           </div>
           <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '0 0 10px' }}>
-            Select which dedicated branch database to inspect and expire historical telemetry from. Central control DB and other companies are strictly excluded:
+            Select which database to inspect and expire historical telemetry from. By default targets your Central Server database where endpoint agents connect directly or forward logs:
           </p>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
             <select

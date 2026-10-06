@@ -3,6 +3,7 @@
 // ════════════════════════════════════════════════════════════════
 // Performs daily background cleanup of expired telemetry events
 // and firewall connection logs older than their configured periods.
+// Cleans both Central Server Tenant Databases and Branch Databases.
 // Strictly targets ONLY events and fw_events tables.
 // ════════════════════════════════════════════════════════════════
 
@@ -30,7 +31,48 @@ async function runCentralRetentionPurge() {
     let totalDeletedEvents = 0;
     let totalDeletedFw = 0;
 
-    // Clean Branch Databases for registered aggregators
+    // 1. Purge all Central Tenant Databases
+    try {
+      const tenantDbManager = require('../config/tenantDbManager');
+      const tenantsRes = await db.query("SELECT tenant_id FROM tenants WHERE status = 'active'");
+      for (const t of tenantsRes.rows) {
+        try {
+          const tPool = await tenantDbManager.getTenantPool(t.tenant_id);
+          const tEv = await tPool.query(
+            "DELETE FROM events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
+            [evDays]
+          );
+          const tFw = await tPool.query(
+            "DELETE FROM fw_events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
+            [fwDays]
+          );
+          totalDeletedEvents += tEv.rowCount || 0;
+          totalDeletedFw += tFw.rowCount || 0;
+        } catch (tErr) {
+          // Skip if tenant DB offline
+        }
+      }
+    } catch (e) {
+      // In standalone or onprem mode without tenant manager
+    }
+
+    // Also purge central DB if standalone/on-prem
+    try {
+      const defEv = await db.query(
+        "DELETE FROM events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
+        [evDays]
+      );
+      const defFw = await db.query(
+        "DELETE FROM fw_events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
+        [fwDays]
+      );
+      totalDeletedEvents += defEv.rowCount || 0;
+      totalDeletedFw += defFw.rowCount || 0;
+    } catch (e) {
+      // Ignore if table not present in control plane
+    }
+
+    // 2. Purge Branch Databases for registered aggregators
     try {
       const aggRes = await db.query("SELECT name FROM aggregators WHERE status != 'deleted'");
       for (const agg of aggRes.rows) {
@@ -47,7 +89,7 @@ async function runCentralRetentionPurge() {
           totalDeletedEvents += aEv.rowCount || 0;
           totalDeletedFw += aFw.rowCount || 0;
         } catch (err) {
-          // Skip if branch database is offline or not yet initialized
+          // Skip if branch database is offline
         }
       }
     } catch (e) {
