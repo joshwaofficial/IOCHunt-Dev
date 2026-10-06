@@ -31,10 +31,21 @@ const catColors = {
   UNCATEGORIZED: '#94a3b8'
 };
 
-function generateUsbComplianceSection(usbData) {
+function generateUsbComplianceSection(usbData, targetMachine = '') {
   if (!usbData || !usbData.machines || usbData.machines.length === 0) return '';
-  const uSum = usbData.summary || {};
-  const machines = usbData.machines;
+  const rawMachines = usbData.machines;
+  const machines = targetMachine 
+    ? rawMachines.filter(m => (m.machine && m.machine.toLowerCase() === targetMachine.toLowerCase()) || (m.label && m.label.toLowerCase() === targetMachine.toLowerCase()))
+    : rawMachines;
+  if (machines.length === 0) return '';
+  const uSum = {
+    total_machines: machines.length,
+    total_locked: machines.filter(m => m.configured_lock === 'locked').length,
+    total_unlocked: machines.filter(m => m.configured_lock !== 'locked').length,
+    compliant: machines.filter(m => m.status === 'Compliant').length,
+    non_compliant: machines.filter(m => m.status !== 'Compliant').length,
+    total_violations: machines.reduce((acc, m) => acc + (Number(m.usb_events_count) || 0), 0)
+  };
 
   return `
     <div style="margin-top:24px; margin-bottom:24px;">
@@ -499,7 +510,7 @@ function buildHtml() {
     </div>
 
     <!-- ── USB POLICY & DEVICE COMPLIANCE SECTION ── -->
-    ${generateUsbComplianceSection(d.usb_compliance)}
+    ${generateUsbComplianceSection(d.usb_compliance, f.machine)}
 
     <h2>Summary Statistics</h2>
     <div class="stats">
@@ -509,7 +520,7 @@ function buildHtml() {
       <div class="stat"><div class="stat-n" style="color:#ca8a04">${Number(sevMap.medium || 0).toLocaleString()}</div><div class="stat-l">Medium</div></div>
       <div class="stat"><div class="stat-n" style="color:#3b82f6">${Number(sevMap.low || 0).toLocaleString()}</div><div class="stat-l">Low</div></div>
       <div class="stat"><div class="stat-n" style="color:#06b6d4">${Number(sevMap.info || 0).toLocaleString()}</div><div class="stat-l">Info</div></div>
-      <div class="stat"><div class="stat-n" style="color:#4a5578">${ev.byMachine.length}</div><div class="stat-l">Machines</div></div>
+      <div class="stat"><div class="stat-n" style="color:#4a5578">${(f.machine ? ev.byMachine.filter(m => m.machine && m.machine.toLowerCase() === f.machine.toLowerCase()) : ev.byMachine).length}</div><div class="stat-l">Machines</div></div>
     </div>
 
     <h2>Visual Threat Analytics</h2>
@@ -529,7 +540,7 @@ function buildHtml() {
         </tr>
       </thead>
       <tbody>
-        ${ev.byMachine.map(m => {
+        ${(f.machine ? ev.byMachine.filter(m => m.machine && m.machine.toLowerCase() === f.machine.toLowerCase()) : ev.byMachine).map(m => {
           const count = Number(m.n || 0);
           const pct = Math.round((count / ev.total) * 100);
           const maxM = Math.max(...ev.byMachine.map(x => Number(x.n || 0)));

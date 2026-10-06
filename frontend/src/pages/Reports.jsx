@@ -470,6 +470,42 @@ export default function Reports() {
 
     const maxCat = Math.max(...(ev.byCategory || []).map(r => r.n)) || 1;
 
+    const selectedMachPdf = (f.machine || '').trim().toLowerCase();
+    const selectedSevsPdf = Array.isArray(f.severity) 
+      ? f.severity.map(s => s.trim().toLowerCase()) 
+      : (typeof f.severity === 'string' && f.severity && f.severity !== 'All Severities' && f.severity !== 'ALL'
+          ? f.severity.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+          : []);
+
+    const rawMachPdf = Array.isArray(d.machines) ? d.machines : (ev.byMachine || []).map(m => ({
+      id: m.machine,
+      label: m.machine,
+      ip: '-',
+      event_count: Number(m.n || 0),
+      critical: 0,
+      high: 0,
+      status: 'Monitored'
+    }));
+    let machPdf = rawMachPdf.filter(m => !f.aggregator || f.aggregator.length === 0 || f.aggregator.includes(m.aggregator_name));
+    if (selectedMachPdf) {
+      machPdf = machPdf.filter(m =>
+        (m.id && m.id.toLowerCase() === selectedMachPdf) ||
+        (m.label && m.label.toLowerCase() === selectedMachPdf) ||
+        (m.machine && m.machine.toLowerCase() === selectedMachPdf)
+      );
+    }
+    if (selectedSevsPdf.length > 0 && !selectedMachPdf) {
+      machPdf = machPdf.filter(m => {
+        return selectedSevsPdf.some(s => {
+          if (s === 'critical') return Number(m.critical || 0) > 0;
+          if (s === 'high') return Number(m.high || 0) > 0;
+          if (s === 'medium') return Number(m.medium || 0) > 0;
+          if (s === 'low' || s === 'info') return Number(m.low || 0) > 0 || Number(m.event_count || 0) > 0;
+          return false;
+        });
+      });
+    }
+
     let html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
       <title>IOC Hunt Security Report</title>
       <style>
@@ -519,12 +555,14 @@ export default function Reports() {
     html += `<h2>Summary Statistics</h2><div class="stats">`;
     const statsList = [
       { n: ev.total, l: 'Total Events', c: '#1e3a5f' },
-      { n: critCount, l: 'Critical', c: '#ef4444' },
-      { n: highCount, l: 'High', c: '#f97316' },
-      { n: sevMap.medium || 0, l: 'Medium', c: '#ca8a04' },
+      ...(selectedSevsPdf.length === 0 || selectedSevsPdf.includes('critical') ? [{ n: critCount, l: 'Critical', c: '#ef4444' }] : []),
+      ...(selectedSevsPdf.length === 0 || selectedSevsPdf.includes('high') ? [{ n: highCount, l: 'High', c: '#f97316' }] : []),
+      ...(selectedSevsPdf.length === 0 || selectedSevsPdf.includes('medium') ? [{ n: sevMap.medium || 0, l: 'Medium', c: '#ca8a04' }] : []),
+      ...(selectedSevsPdf.length === 0 || selectedSevsPdf.includes('low') ? [{ n: sevMap.low || 0, l: 'Low', c: '#16a34a' }] : []),
+      ...(selectedSevsPdf.length === 0 || selectedSevsPdf.includes('info') ? [{ n: sevMap.info || 0, l: 'Info', c: '#06b6d4' }] : []),
       { n: adCount, l: 'AD Indicators', c: '#a855f7' },
       { n: (d.user_events || []).length, l: 'Acct Changes', c: '#06b6d4' },
-      { n: (d.machines || []).length, l: 'Machines', c: '#4a5578' }
+      { n: machPdf.length, l: selectedMachPdf ? 'Filtered Machine' : 'Machines', c: '#4a5578' }
     ];
     if (d.firewall) statsList.push({ n: d.firewall.total, l: 'FW Connections', c: '#0e7490' });
     statsList.forEach(s => {
@@ -534,58 +572,76 @@ export default function Reports() {
 
     // ── USB Policy & Device Compliance Section (Always shown when audit data exists) ──
     if (d.usb_compliance && d.usb_compliance.machines && d.usb_compliance.machines.length > 0) {
-      const uSum = d.usb_compliance.summary || {};
-      html += `<h2>USB Policy & Device Compliance (${d.usb_compliance.machines.length} machines)</h2>
-        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">
-          <div style="background:#f0f4fc;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#2563eb">${uSum.total_machines || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">Total Machines</div></div>
-          <div style="background:#fef2f2;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#dc2626">${uSum.total_locked || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">USB Disabled</div></div>
-          <div style="background:#f0fdf4;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#16a34a">${uSum.total_unlocked || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">USB Enabled</div></div>
-          <div style="background:#fef2f2;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#dc2626">${uSum.compliant || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">Compliant (Locked)</div></div>
-          <div style="background:#f0fdf4;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#16a34a">${uSum.non_compliant || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">Non-Compliant / Allowed</div></div>
-          <div style="background:#fef2f2;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#dc2626">${uSum.total_violations || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">USB Events</div></div>
-        </div>
-        <table><thead><tr>
-          <th>Machine</th><th>Branch / IP</th><th>Group</th><th>Configured Policy</th><th>Current State</th><th>Compliance</th><th>USB Events</th><th>Last Sync</th>
-        </tr></thead><tbody>`;
-      d.usb_compliance.machines.forEach(u => {
-        const isLocked = u.configured_lock === 'locked';
-        const confBadge = isLocked 
-          ? '<span class="badge c">🔒 DISABLED (LOCKED)</span>' 
-          : '<span class="badge l" style="background:#f0fdf4; color:#16a34a; border:1px solid #bbf7d0;">🔓 ENABLED (ALLOWED)</span>';
-        
-        const stateText = isLocked 
-          ? '<span style="color:#ef4444; font-weight:700;">Disabled (Locked)</span>'
-          : u.current_usb === 'Unknown'
-          ? '<span style="color:#64748b;">Unknown</span>'
-          : '<span style="color:#16a34a; font-weight:700;">Enabled (Allowed)</span>';
+      const rawUsbPdf = d.usb_compliance.machines;
+      const usbMachinesPdf = selectedMachPdf
+        ? rawUsbPdf.filter(m =>
+            (m.machine && m.machine.toLowerCase() === selectedMachPdf) ||
+            (m.label && m.label.toLowerCase() === selectedMachPdf) ||
+            (m.id && m.id.toLowerCase() === selectedMachPdf)
+          )
+        : rawUsbPdf;
 
-        const compBadge = u.status === 'Compliant'
-          ? '<span class="badge" style="background:#fef2f2; color:#ef4444; border:1px solid #fecaca;">✓ Compliant</span>'
-          : u.status === 'Offline'
-          ? '<span class="badge" style="background:#fffbeb; color:#d97706; border:1px solid #fde68a;">⚠️ Offline</span>'
-          : '<span class="badge" style="background:#f0fdf4; color:#16a34a; border:1px solid #bbf7d0;">Non Compliant</span>';
+      if (usbMachinesPdf.length > 0) {
+        const uSum = {
+          total_machines: usbMachinesPdf.length,
+          total_locked: usbMachinesPdf.filter(m => m.configured_lock === 'locked').length,
+          total_unlocked: usbMachinesPdf.filter(m => m.configured_lock !== 'locked').length,
+          compliant: usbMachinesPdf.filter(m => m.status === 'Compliant').length,
+          non_compliant: usbMachinesPdf.filter(m => m.status !== 'Compliant').length,
+          total_violations: usbMachinesPdf.reduce((acc, m) => acc + (Number(m.usb_events_count) || 0), 0)
+        };
+        html += `<h2>USB Policy & Device Compliance (${usbMachinesPdf.length} machine${usbMachinesPdf.length !== 1 ? 's' : ''})</h2>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+            <div style="background:#f0f4fc;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#2563eb">${uSum.total_machines || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">Total Machines</div></div>
+            <div style="background:#fef2f2;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#dc2626">${uSum.total_locked || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">USB Disabled</div></div>
+            <div style="background:#f0fdf4;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#16a34a">${uSum.total_unlocked || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">USB Enabled</div></div>
+            <div style="background:#fef2f2;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#dc2626">${uSum.compliant || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">Compliant (Locked)</div></div>
+            <div style="background:#f0fdf4;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#16a34a">${uSum.non_compliant || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">Non-Compliant / Allowed</div></div>
+            <div style="background:#fef2f2;border-radius:6px;padding:8px 12px;text-align:center"><div style="font-size:18px;font-weight:700;color:#dc2626">${uSum.total_violations || 0}</div><div style="font-size:8px;color:#6b82a0;text-transform:uppercase">USB Events</div></div>
+          </div>
+          <table><thead><tr>
+            <th>Machine</th><th>Branch / IP</th><th>Group</th><th>Configured Policy</th><th>Current State</th><th>Compliance</th><th>USB Events</th><th>Last Sync</th>
+          </tr></thead><tbody>`;
+        usbMachinesPdf.forEach(u => {
+          const isLocked = u.configured_lock === 'locked';
+          const confBadge = isLocked 
+            ? '<span class="badge c">🔒 DISABLED (LOCKED)</span>' 
+            : '<span class="badge l" style="background:#f0fdf4; color:#16a34a; border:1px solid #bbf7d0;">🔓 ENABLED (ALLOWED)</span>';
+          
+          const stateText = isLocked 
+            ? '<span style="color:#ef4444; font-weight:700;">Disabled (Locked)</span>'
+            : u.current_usb === 'Unknown'
+            ? '<span style="color:#64748b;">Unknown</span>'
+            : '<span style="color:#16a34a; font-weight:700;">Enabled (Allowed)</span>';
 
-        const usbEvText = u.usb_events_count > 0
-          ? `<b style="color:#ef4444;">${u.usb_events_count} events <span style="font-size:8px;">(Violation Alert)</span></b>`
-          : '<span style="color:#64748b;">0 events</span>';
+          const compBadge = u.status === 'Compliant'
+            ? '<span class="badge" style="background:#fef2f2; color:#ef4444; border:1px solid #fecaca;">✓ Compliant</span>'
+            : u.status === 'Offline'
+            ? '<span class="badge" style="background:#fffbeb; color:#d97706; border:1px solid #fde68a;">⚠️ Offline</span>'
+            : '<span class="badge" style="background:#f0fdf4; color:#16a34a; border:1px solid #bbf7d0;">Non Compliant</span>';
 
-        const syncText = u.applied_at ? new Date(u.applied_at).toLocaleString('sv-SE').slice(0,16).replace('T',' ') : (u.last_sync_formatted || 'Never');
+          const usbEvText = u.usb_events_count > 0
+            ? `<b style="color:#ef4444;">${u.usb_events_count} events <span style="font-size:8px;">(Violation Alert)</span></b>`
+            : '<span style="color:#64748b;">0 events</span>';
 
-        html += `<tr>
-          <td>
-            <b style="color:#2563eb">${u.label || u.machine}</b>
-            ${u.label && u.label !== u.machine ? `<div style="font-size:8px; color:#64748b;">${u.machine}</div>` : ''}
-          </td>
-          <td>${u.aggregator_name || 'direct'} &nbsp;(${u.ip || '-'})</td>
-          <td><span style="color:#7c3aed">${u.group_name || 'Ungrouped'}</span></td>
-          <td>${confBadge}</td>
-          <td>${stateText}</td>
-          <td>${compBadge}</td>
-          <td>${usbEvText}</td>
-          <td style="font-size:9px">${syncText}</td>
-        </tr>`;
-      });
-      html += `</tbody></table>`;
+          const syncText = u.applied_at ? new Date(u.applied_at).toLocaleString('sv-SE').slice(0,16).replace('T',' ') : (u.last_sync_formatted || 'Never');
+
+          html += `<tr>
+            <td>
+              <b style="color:#2563eb">${u.label || u.machine}</b>
+              ${u.label && u.label !== u.machine ? `<div style="font-size:8px; color:#64748b;">${u.machine}</div>` : ''}
+            </td>
+            <td>${u.aggregator_name || 'direct'} &nbsp;(${u.ip || '-'})</td>
+            <td><span style="color:#7c3aed">${u.group_name || 'Ungrouped'}</span></td>
+            <td>${confBadge}</td>
+            <td>${stateText}</td>
+            <td>${compBadge}</td>
+            <td>${usbEvText}</td>
+            <td style="font-size:9px">${syncText}</td>
+          </tr>`;
+        });
+        html += `</tbody></table>`;
+      }
     }
 
     // ── Visual Threat Analytics Vector Graphs (Scoped to Period) ──
@@ -594,17 +650,6 @@ export default function Reports() {
     html += generateCategoryMatrixSvg(ev.byCategory, ev.total, catColors);
 
     // Machine Health Summary (with status indicators, risk scores, and telemetry counts)
-    const rawMachPdf = Array.isArray(d.machines) ? d.machines : (ev.byMachine || []).map(m => ({
-      id: m.machine,
-      label: m.machine,
-      ip: '-',
-      event_count: Number(m.n || 0),
-      critical: 0,
-      high: 0,
-      status: 'Monitored'
-    }));
-    const machPdf = rawMachPdf.filter(m => !f.aggregator || f.aggregator.length === 0 || f.aggregator.includes(m.aggregator_name));
-
     if (machPdf.length > 0) {
       html += `<h2>Machine Health Summary</h2>
       <table>
@@ -759,7 +804,33 @@ export default function Reports() {
       high: 0,
       status: 'Monitored'
     }));
-    const mach = rawMachines.filter(m => !f.aggregator || f.aggregator.length === 0 || f.aggregator.includes(m.aggregator_name));
+
+    const selectedMachine = (f.machine || '').trim().toLowerCase();
+    const selectedSevs = Array.isArray(f.severity) 
+      ? f.severity.map(s => s.trim().toLowerCase()) 
+      : (typeof f.severity === 'string' && f.severity && f.severity !== 'All Severities' && f.severity !== 'ALL'
+          ? f.severity.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+          : []);
+
+    let mach = rawMachines.filter(m => !f.aggregator || f.aggregator.length === 0 || f.aggregator.includes(m.aggregator_name));
+    if (selectedMachine) {
+      mach = mach.filter(m =>
+        (m.id && m.id.toLowerCase() === selectedMachine) ||
+        (m.label && m.label.toLowerCase() === selectedMachine) ||
+        (m.machine && m.machine.toLowerCase() === selectedMachine)
+      );
+    }
+    if (selectedSevs.length > 0 && !selectedMachine) {
+      mach = mach.filter(m => {
+        return selectedSevs.some(s => {
+          if (s === 'critical') return Number(m.critical || 0) > 0;
+          if (s === 'high') return Number(m.high || 0) > 0;
+          if (s === 'medium') return Number(m.medium || 0) > 0;
+          if (s === 'low' || s === 'info') return Number(m.low || 0) > 0 || Number(m.event_count || 0) > 0;
+          return false;
+        });
+      });
+    }
     const adEvs = d.ad_attacks || [];
     const userEvs = d.user_events || [];
     const fw = d.firewall;
@@ -825,8 +896,24 @@ export default function Reports() {
           if (!isAllCats && !hasUsb) return null;
           if (!d.usb_compliance || !d.usb_compliance.machines || d.usb_compliance.machines.length === 0) return null;
 
-          const uSum = d.usb_compliance.summary || {};
-          const allUsbMachines = d.usb_compliance.machines;
+          const rawUsbMachines = d.usb_compliance.machines || [];
+          const allUsbMachines = selectedMachine
+            ? rawUsbMachines.filter(m =>
+                (m.machine && m.machine.toLowerCase() === selectedMachine) ||
+                (m.label && m.label.toLowerCase() === selectedMachine) ||
+                (m.id && m.id.toLowerCase() === selectedMachine)
+              )
+            : rawUsbMachines;
+          if (allUsbMachines.length === 0 && selectedMachine) return null;
+
+          const uSum = {
+            total_machines: allUsbMachines.length,
+            total_locked: allUsbMachines.filter(m => m.configured_lock === 'locked').length,
+            total_unlocked: allUsbMachines.filter(m => m.configured_lock !== 'locked').length,
+            compliant: allUsbMachines.filter(m => m.status === 'Compliant').length,
+            non_compliant: allUsbMachines.filter(m => m.status !== 'Compliant').length,
+            total_violations: allUsbMachines.reduce((acc, m) => acc + (Number(m.usb_events_count) || 0), 0)
+          };
 
           // Filter by tab
           let filtered = allUsbMachines.filter(m => {
@@ -1172,12 +1259,14 @@ export default function Reports() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
           {[
             { n: ev.total, l: 'Total Events', c: 'var(--accent)' },
-            { n: critCount, l: 'Critical', c: 'var(--critical)' },
-            { n: highCount, l: 'High', c: 'var(--high)' },
-            { n: sevMap.medium || 0, l: 'Medium', c: 'var(--medium)' },
+            ...(selectedSevs.length === 0 || selectedSevs.includes('critical') ? [{ n: critCount, l: 'Critical', c: 'var(--critical)' }] : []),
+            ...(selectedSevs.length === 0 || selectedSevs.includes('high') ? [{ n: highCount, l: 'High', c: 'var(--high)' }] : []),
+            ...(selectedSevs.length === 0 || selectedSevs.includes('medium') ? [{ n: sevMap.medium || 0, l: 'Medium', c: 'var(--medium)' }] : []),
+            ...(selectedSevs.length === 0 || selectedSevs.includes('low') ? [{ n: sevMap.low || 0, l: 'Low', c: 'var(--low)' }] : []),
+            ...(selectedSevs.length === 0 || selectedSevs.includes('info') ? [{ n: sevMap.info || 0, l: 'Info', c: '#06b6d4' }] : []),
             { n: adEvs.length, l: 'AD Indicators', c: '#a855f7' },
             { n: userEvs.length, l: 'Account Changes', c: 'var(--cyan)' },
-            { n: mach.length, l: 'Machines', c: 'var(--muted2)' },
+            { n: mach.length, l: selectedMachine ? 'Filtered Machine' : 'Machines', c: 'var(--muted2)' },
             ...(fw ? [{ n: fw.total, l: 'FW Connections', c: '#06b6d4' }] : [])
           ].map((s, i) => (
             <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px 20px', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
@@ -1205,6 +1294,7 @@ export default function Reports() {
           />
           <ReportMachineRiskChart
             machines={mach}
+            filters={f}
             theme={theme}
           />
         </div>

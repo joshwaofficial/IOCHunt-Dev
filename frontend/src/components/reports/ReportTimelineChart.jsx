@@ -29,13 +29,43 @@ export default function ReportTimelineChart({ hourlyData = [], periodLabel = '',
     setBucket(isMultiDay ? 'daily' : 'hourly');
   }, [isMultiDay]);
 
-  // Active series toggles
+  // Extract any active severity filter from props
+  const selectedSevs = useMemo(() => {
+    if (!filters.severity) return [];
+    if (Array.isArray(filters.severity)) {
+      return filters.severity.map(s => s.trim().toLowerCase()).filter(s => s && s !== 'all severities' && s !== 'all');
+    }
+    if (typeof filters.severity === 'string' && filters.severity !== 'All Severities' && filters.severity !== 'ALL') {
+      return filters.severity.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    }
+    return [];
+  }, [filters.severity]);
+
+  // Active series toggles - defaults to filtered severities if specified
   const [activeSeries, setActiveSeries] = useState({
-    critical: true,
-    high: true,
-    medium: true,
-    low: true,
+    critical: selectedSevs.length === 0 || selectedSevs.includes('critical'),
+    high: selectedSevs.length === 0 || selectedSevs.includes('high'),
+    medium: selectedSevs.length === 0 || selectedSevs.includes('medium'),
+    low: selectedSevs.length === 0 || selectedSevs.includes('low') || selectedSevs.includes('info'),
   });
+
+  useEffect(() => {
+    if (selectedSevs.length > 0) {
+      setActiveSeries({
+        critical: selectedSevs.includes('critical'),
+        high: selectedSevs.includes('high'),
+        medium: selectedSevs.includes('medium'),
+        low: selectedSevs.includes('low') || selectedSevs.includes('info'),
+      });
+    } else {
+      setActiveSeries({
+        critical: true,
+        high: true,
+        medium: true,
+        low: true,
+      });
+    }
+  }, [selectedSevs]);
 
   const toggleSeries = (sev) => {
     setActiveSeries(prev => {
@@ -368,7 +398,11 @@ export default function ReportTimelineChart({ hourlyData = [], periodLabel = '',
               { id: 'high', label: 'High', color: '#f97316' },
               { id: 'medium', label: 'Medium', color: '#eab308' },
               { id: 'low', label: 'Low / Info', color: '#3b82f6' }
-            ].map(s => {
+            ].filter(s => {
+              if (selectedSevs.length === 0) return true;
+              if (s.id === 'low') return selectedSevs.includes('low') || selectedSevs.includes('info');
+              return selectedSevs.includes(s.id);
+            }).map(s => {
               const active = activeSeries[s.id];
               return (
                 <button

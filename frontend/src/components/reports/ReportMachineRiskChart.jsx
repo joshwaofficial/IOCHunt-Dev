@@ -1,7 +1,7 @@
 import React, { useRef, useMemo, useEffect } from 'react';
 import ReactECharts from 'echarts-for-react';
 
-export default function ReportMachineRiskChart({ machines = [], theme = 'dark' }) {
+export default function ReportMachineRiskChart({ machines = [], filters = {}, theme = 'dark' }) {
   const chartRef = useRef(null);
 
   const isLight = theme === 'light';
@@ -10,6 +10,18 @@ export default function ReportMachineRiskChart({ machines = [], theme = 'dark' }
   const gridLineColor = isLight ? 'rgba(0, 0, 0, 0.06)' : 'rgba(148, 163, 184, 0.1)';
   const surfaceColor = isLight ? '#ffffff' : '#0f172a';
   const borderColor = isLight ? '#e2e8f0' : 'rgba(255, 255, 255, 0.1)';
+
+  // Extract selected severities
+  const selectedSevs = useMemo(() => {
+    if (!filters.severity) return [];
+    if (Array.isArray(filters.severity)) {
+      return filters.severity.map(s => s.trim().toLowerCase()).filter(s => s && s !== 'all severities' && s !== 'all');
+    }
+    if (typeof filters.severity === 'string' && filters.severity !== 'All Severities' && filters.severity !== 'ALL') {
+      return filters.severity.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    }
+    return [];
+  }, [filters.severity]);
 
   // Sort machines by risk score or event count, take top 8
   const topMachines = useMemo(() => {
@@ -39,6 +51,66 @@ export default function ReportMachineRiskChart({ machines = [], theme = 'dark' }
     const medData = reversed.map(m => Number(m.medium || 0));
     const totalData = reversed.map(m => Number(m.event_count || m.n || 0));
 
+    let seriesList = [];
+    if (hasSevBreakdown) {
+      const allSevSeries = [
+        {
+          name: 'Critical',
+          id: 'critical',
+          type: 'bar',
+          stack: 'total',
+          data: critData,
+          itemStyle: { color: '#ef4444' },
+          barWidth: 14
+        },
+        {
+          name: 'High',
+          id: 'high',
+          type: 'bar',
+          stack: 'total',
+          data: highData,
+          itemStyle: { color: '#f97316' },
+          barWidth: 14
+        },
+        {
+          name: 'Medium',
+          id: 'medium',
+          type: 'bar',
+          stack: 'total',
+          data: medData,
+          itemStyle: { color: '#eab308', borderRadius: [0, 4, 4, 0] },
+          barWidth: 14
+        }
+      ];
+
+      if (selectedSevs.length > 0) {
+        seriesList = allSevSeries.filter(s => selectedSevs.includes(s.id));
+        if (seriesList.length === 0) {
+          seriesList = [
+            {
+              name: 'Events',
+              type: 'bar',
+              data: totalData,
+              itemStyle: { color: '#3b82f6', borderRadius: [0, 4, 4, 0] },
+              barWidth: 14
+            }
+          ];
+        }
+      } else {
+        seriesList = allSevSeries;
+      }
+    } else {
+      seriesList = [
+        {
+          name: 'Events',
+          type: 'bar',
+          data: totalData,
+          itemStyle: { color: '#3b82f6', borderRadius: [0, 4, 4, 0] },
+          barWidth: 14
+        }
+      ];
+    }
+
     return {
       animationDuration: 700,
       tooltip: {
@@ -54,11 +126,9 @@ export default function ReportMachineRiskChart({ machines = [], theme = 'dark' }
           const machName = params[0].axisValue;
           const machObj = topMachines.find(m => (m.label || m.id) === machName);
 
-          let totalAlerts = 0;
           let lines = '';
           params.forEach(p => {
             const val = Number(p.value || 0);
-            totalAlerts += val;
             lines += `
               <div style="display:flex; justify-content:space-between; gap:16px; font-size:11px; margin-top:2px;">
                 <span style="display:flex; align-items:center; gap:5px; color:${mutedTextColor};">
@@ -93,7 +163,7 @@ export default function ReportMachineRiskChart({ machines = [], theme = 'dark' }
         itemWidth: 10,
         itemHeight: 10,
         textStyle: { color: mutedTextColor, fontSize: 10, fontFamily: 'monospace' },
-        data: hasSevBreakdown ? ['Critical', 'High', 'Medium'] : ['Events']
+        data: seriesList.map(s => s.name)
       },
       grid: {
         left: '2%',
@@ -122,42 +192,9 @@ export default function ReportMachineRiskChart({ machines = [], theme = 'dark' }
           formatter: (value) => value.length > 12 ? `${value.slice(0, 10)}...` : value
         }
       },
-      series: hasSevBreakdown ? [
-        {
-          name: 'Critical',
-          type: 'bar',
-          stack: 'total',
-          data: critData,
-          itemStyle: { color: '#ef4444' },
-          barWidth: 14
-        },
-        {
-          name: 'High',
-          type: 'bar',
-          stack: 'total',
-          data: highData,
-          itemStyle: { color: '#f97316' },
-          barWidth: 14
-        },
-        {
-          name: 'Medium',
-          type: 'bar',
-          stack: 'total',
-          data: medData,
-          itemStyle: { color: '#eab308', borderRadius: [0, 4, 4, 0] },
-          barWidth: 14
-        }
-      ] : [
-        {
-          name: 'Events',
-          type: 'bar',
-          data: totalData,
-          itemStyle: { color: '#3b82f6', borderRadius: [0, 4, 4, 0] },
-          barWidth: 14
-        }
-      ]
+      series: seriesList
     };
-  }, [topMachines, hasSevBreakdown, isLight, surfaceColor, borderColor, textColor, mutedTextColor, gridLineColor]);
+  }, [topMachines, hasSevBreakdown, selectedSevs, isLight, surfaceColor, borderColor, textColor, mutedTextColor, gridLineColor]);
 
   useEffect(() => {
     if (chartRef.current && option) {

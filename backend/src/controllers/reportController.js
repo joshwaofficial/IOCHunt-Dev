@@ -74,7 +74,11 @@ const generateReport = async (req, res) => {
     const evConds = ['ts>=$1', 'ts<=$2', 'is_noise=false'];
     const evParams = [from, to];
     let evIdx = 3;
-    if (machine) { evConds.push(`machine=$${evIdx++}`); evParams.push(machine); }
+    if (machine) {
+      evConds.push(`(machine=$${evIdx} OR LOWER(machine)=LOWER($${evIdx}))`);
+      evParams.push(machine);
+      evIdx++;
+    }
     
     let aggrs = [];
     if (aggregator && aggregator !== 'All Aggregators') {
@@ -169,20 +173,40 @@ const generateReport = async (req, res) => {
 
     const machSevMap = {};
     machSevRows.forEach(r => {
-      if (!machSevMap[r.machine]) machSevMap[r.machine] = {};
-      machSevMap[r.machine][r.severity] = parseInt(r.n, 10);
+      const k = (r.machine || '').toLowerCase();
+      if (!machSevMap[k]) machSevMap[k] = {};
+      machSevMap[k][(r.severity || '').toLowerCase()] = parseInt(r.n, 10);
     });
 
     const machineSummary = [];
     for (const m of machines) {
       if (aggrs.length > 0 && !aggrs.includes(m.aggregator_name)) continue;
-      const sv = machSevMap[m.id] || {};
+      if (machine) {
+        const mMatches = (m.id && m.id.toLowerCase() === machine.toLowerCase()) ||
+                        (m.label && m.label.toLowerCase() === machine.toLowerCase()) ||
+                        (m.name && m.name.toLowerCase() === machine.toLowerCase());
+        if (!mMatches) continue;
+      }
+
+      const mKey = (m.id || '').toLowerCase();
+      const mLabelKey = (m.label || '').toLowerCase();
+      const sv = machSevMap[mKey] || machSevMap[mLabelKey] || {};
+      const periodEventCount = (sv.critical || 0) + (sv.high || 0) + (sv.medium || 0) + (sv.low || 0) + (sv.info || 0);
+
+      // If a severity filter is active and a specific machine is not chosen, only include machines with matching events
+      if (selectedSevs.length > 0 && !machine && periodEventCount === 0) {
+        continue;
+      }
+
       const lastSeenEpoch = m.last_seen ? Math.floor(new Date(m.last_seen).getTime() / 1000) : 0;
       const age = Math.floor(Date.now() / 1000) - lastSeenEpoch;
       machineSummary.push({
         id: m.id, label: m.label || m.id, ip: m.ip || '',
-        last_seen: m.last_seen, event_count: m.event_count || 0,
+        last_seen: m.last_seen,
+        event_count: periodEventCount,
+        lifetime_event_count: m.event_count || 0,
         critical: sv.critical || 0, high: sv.high || 0, medium: sv.medium || 0,
+        low: sv.low || 0, info: sv.info || 0,
         age_seconds: age,
         status: age < 180 ? 'Online' : age < 600 ? 'Recent' : age < 3600 ? 'Away' : 'Offline',
       });
@@ -198,15 +222,21 @@ const generateReport = async (req, res) => {
         const mgRows = (await req.queryTenant('SELECT machine, group_id FROM machine_groups')).rows;
 
         // Count USB events in the report window per machine
-        const usbEventRows = (await req.queryTenant(`
+        let usbEventQuery = `
           SELECT machine, COUNT(*) AS n 
           FROM events 
           WHERE (category='USB' OR tag ILIKE '%USB%' OR message ILIKE '%USB%')
             AND ts>=$1 AND ts<=$2
-          GROUP BY machine
-        `, [from, to])).rows;
+        `;
+        const usbParams = [from, to];
+        if (machine) {
+          usbParams.push(machine);
+          usbEventQuery += ` AND (machine=$3 OR LOWER(machine)=LOWER($3))`;
+        }
+        usbEventQuery += ` GROUP BY machine`;
+        const usbEventRows = (await req.queryTenant(usbEventQuery, usbParams)).rows;
         const usbEventMap = {};
-        usbEventRows.forEach(r => { usbEventMap[r.machine] = parseInt(r.n, 10); });
+        usbEventRows.forEach(r => { usbEventMap[(r.machine || '').toLowerCase()] = parseInt(r.n, 10); });
 
         const polMap = {};
         polRows.forEach(p => { polMap[(p.machine || '').toLowerCase()] = p; });
@@ -226,6 +256,12 @@ const generateReport = async (req, res) => {
 
         for (const m of machines) {
           if (aggrs.length > 0 && !aggrs.includes(m.aggregator_name)) continue;
+          if (machine) {
+            const mMatches = (m.id && m.id.toLowerCase() === machine.toLowerCase()) ||
+                            (m.label && m.label.toLowerCase() === machine.toLowerCase()) ||
+                            (m.name && m.name.toLowerCase() === machine.toLowerCase());
+            if (!mMatches) continue;
+          }
 
           const mKey = (m.id || '').toLowerCase();
           const p = polMap[mKey] || {};
@@ -288,7 +324,7 @@ const generateReport = async (req, res) => {
           if (targetUsbLock === 'locked') totalLocked++;
           else totalUnlocked++;
 
-          const usbEventsCount = usbEventMap[m.id] || 0;
+          const usbEventsCount = usbEventMap[mKey] || usbEventMap[(m.label || '').toLowerCase()] || 0;
           if (targetUsbLock === 'locked' && usbEventsCount > 0) {
             totalViolations += usbEventsCount;
           }

@@ -93,12 +93,28 @@ export function generateTimelineSvg(hourlyData = [], filters = {}, periodLabel =
   const getY = (val) => padT + plotH - (val / roundedMax) * plotH;
   const getX = (idx) => padL + idx * slotW + slotW / 2;
 
-  const seriesMeta = [
+  const selectedSevs = Array.isArray(filters.severity)
+    ? filters.severity.map(s => s.trim().toLowerCase())
+    : (typeof filters.severity === 'string' && filters.severity && filters.severity !== 'All Severities' && filters.severity !== 'ALL'
+        ? filters.severity.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+        : []);
+
+  let seriesMeta = [
     { key: 'crit', color: '#ef4444', label: 'Critical', bg: 'rgba(239, 68, 68, 0.08)' },
     { key: 'high', color: '#f97316', label: 'High', bg: 'rgba(249, 115, 22, 0.08)' },
     { key: 'med',  color: '#ca8a04', label: 'Medium', bg: 'rgba(202, 138, 4, 0.08)' },
     { key: 'low',  color: '#3b82f6', label: 'Low/Info', bg: 'rgba(59, 130, 246, 0.08)' }
   ];
+
+  if (selectedSevs.length > 0) {
+    seriesMeta = seriesMeta.filter(sm => {
+      if (sm.key === 'crit') return selectedSevs.includes('critical');
+      if (sm.key === 'high') return selectedSevs.includes('high');
+      if (sm.key === 'med') return selectedSevs.includes('medium');
+      if (sm.key === 'low') return selectedSevs.includes('low') || selectedSevs.includes('info');
+      return false;
+    });
+  }
 
   let linesSvg = '';
   let dotsSvg = '';
@@ -157,10 +173,9 @@ export function generateTimelineSvg(hourlyData = [], filters = {}, periodLabel =
           Security Activity & Threat Timeline &nbsp;<span style="font-size:10px; font-weight:normal; color:#64748b;">(${periodLabel})</span>
         </div>
         <div style="display:flex; gap:12px; font-size:9px; font-family:monospace;">
-          <span style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:8px; height:8px; background:#ef4444; border-radius:2px;"></span>Critical</span>
-          <span style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:8px; height:8px; background:#f97316; border-radius:2px;"></span>High</span>
-          <span style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:8px; height:8px; background:#ca8a04; border-radius:2px;"></span>Medium</span>
-          <span style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:8px; height:8px; background:#3b82f6; border-radius:2px;"></span>Low/Info</span>
+          ${seriesMeta.map(sm => `
+            <span style="display:flex; align-items:center; gap:4px;"><span style="display:inline-block; width:8px; height:8px; background:${sm.color}; border-radius:2px;"></span>${sm.label}</span>
+          `).join('')}
         </div>
       </div>
       <svg viewBox="0 0 ${svgW} ${svgH}" width="100%" height="${svgH}" style="display:block; overflow:visible;">
