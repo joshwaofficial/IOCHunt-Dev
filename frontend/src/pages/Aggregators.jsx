@@ -43,8 +43,8 @@ const Aggregators = () => {
 
   // Retention & Expiration State
   const [retentionStatus, setRetentionStatus] = useState(null);
-  const [eventsRetentionDays, setEventsRetentionDays] = useState(30);
-  const [fwRetentionDays, setFwRetentionDays] = useState(30);
+  const [eventsRetentionDays, setEventsRetentionDays] = useState(null);
+  const [fwRetentionDays, setFwRetentionDays] = useState(null);
   const [selectedTargetDb, setSelectedTargetDb] = useState('');
   const [loadingRetention, setLoadingRetention] = useState(false);
   const [isPurgingEvents, setIsPurgingEvents] = useState(false);
@@ -54,23 +54,30 @@ const Aggregators = () => {
   const fetchRetentionStatus = async (evDays = eventsRetentionDays, fDays = fwRetentionDays, target = selectedTargetDb) => {
     try {
       setLoadingRetention(true);
-      const res = await axios.get('/api/retention/status', {
-        params: {
-          events_days: evDays,
-          fw_days: fDays,
-          target: target || undefined,
-          _t: Date.now()
-        }
-      });
+      const params = {
+        _t: Date.now()
+      };
+      if (evDays !== null && evDays !== undefined && evDays !== '') {
+        params.events_days = evDays;
+      }
+      if (fDays !== null && fDays !== undefined && fDays !== '') {
+        params.fw_days = fDays;
+      }
+      if (target && target !== 'all') {
+        params.target = target;
+      }
+
+      const res = await axios.get('/api/retention/status', { params });
       setRetentionStatus(res.data);
       if (res.data?.target && (!target || target === 'all')) {
         setSelectedTargetDb(res.data.target);
       }
-      if (res.data?.configured_events_days && eventsRetentionDays === 30 && !evDays) {
-        setEventsRetentionDays(res.data.configured_events_days);
+      // Populate state with configured saved policies when state was uninitialized or not customized
+      if (evDays === null || evDays === undefined) {
+        setEventsRetentionDays(res.data?.configured_events_days ?? 30);
       }
-      if (res.data?.configured_fw_days && fwRetentionDays === 30 && !fDays) {
-        setFwRetentionDays(res.data.configured_fw_days);
+      if (fDays === null || fDays === undefined) {
+        setFwRetentionDays(res.data?.configured_fw_days ?? 30);
       }
     } catch (err) {
       console.warn('[Retention] Failed to fetch status:', err.message);
@@ -80,8 +87,8 @@ const Aggregators = () => {
   };
 
   const handleSavePolicy = async (type = 'all') => {
-    const evD = parseInt(eventsRetentionDays, 10);
-    const fwD = parseInt(fwRetentionDays, 10);
+    const evD = parseInt(eventsRetentionDays ?? retentionStatus?.configured_events_days ?? 30, 10);
+    const fwD = parseInt(fwRetentionDays ?? retentionStatus?.configured_fw_days ?? 30, 10);
     if ((type === 'events' || type === 'all') && (!evD || evD < 1 || evD > 3650)) {
       return toast.error('Endpoint Events retention must be between 1 and 3650 days');
     }
@@ -104,12 +111,27 @@ const Aggregators = () => {
 
       const res = await axios.put('/api/retention/policy', payload);
       toast.success(res.data.message || 'Retention policy saved successfully');
+
+      const savedEv = res.data.retention_events_days !== undefined ? res.data.retention_events_days : evD;
+      const savedFw = res.data.retention_fw_days !== undefined ? res.data.retention_fw_days : fwD;
+
       setRetentionStatus(prev => ({
         ...prev,
-        configured_events_days: res.data.retention_events_days !== undefined ? res.data.retention_events_days : prev?.configured_events_days,
-        configured_fw_days: res.data.retention_fw_days !== undefined ? res.data.retention_fw_days : prev?.configured_fw_days
+        configured_events_days: savedEv,
+        configured_fw_days: savedFw
       }));
-      fetchRetentionStatus(eventsRetentionDays, fwRetentionDays, selectedTargetDb);
+
+      if (type === 'events') {
+        setEventsRetentionDays(savedEv);
+        fetchRetentionStatus(savedEv, fwRetentionDays, selectedTargetDb);
+      } else if (type === 'firewall') {
+        setFwRetentionDays(savedFw);
+        fetchRetentionStatus(eventsRetentionDays, savedFw, selectedTargetDb);
+      } else {
+        setEventsRetentionDays(savedEv);
+        setFwRetentionDays(savedFw);
+        fetchRetentionStatus(savedEv, savedFw, selectedTargetDb);
+      }
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to update retention policy');
     } finally {
@@ -119,7 +141,9 @@ const Aggregators = () => {
 
   const handlePurgeClick = (logType) => {
     const isEvents = logType === 'events';
-    const days = isEvents ? parseInt(eventsRetentionDays, 10) : parseInt(fwRetentionDays, 10);
+    const days = isEvents 
+      ? parseInt(eventsRetentionDays ?? retentionStatus?.configured_events_days ?? 30, 10) 
+      : parseInt(fwRetentionDays ?? retentionStatus?.configured_fw_days ?? 30, 10);
     const count = isEvents ? (retentionStatus?.expired_counts?.events || 0) : (retentionStatus?.expired_counts?.fw_events || 0);
     const cutoffStr = isEvents ? (retentionStatus?.events_cutoff_utc || `${days} days ago`) : (retentionStatus?.fw_cutoff_utc || `${days} days ago`);
     const targetName = retentionStatus?.available_databases?.find(d => d.id === selectedTargetDb)?.name || selectedTargetDb || 'this database';
@@ -585,7 +609,7 @@ const Aggregators = () => {
                       type="number"
                       min="1"
                       max="3650"
-                      value={eventsRetentionDays}
+                      value={eventsRetentionDays ?? (retentionStatus?.configured_events_days ?? '')}
                       onChange={(e) => setEventsRetentionDays(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
@@ -594,7 +618,7 @@ const Aggregators = () => {
                         }
                       }}
                       onBlur={() => fetchRetentionStatus(eventsRetentionDays, fwRetentionDays, selectedTargetDb)}
-                      placeholder="30"
+                      placeholder={String(retentionStatus?.configured_events_days || 30)}
                       style={{
                         width: '100%',
                         padding: '8px 45px 8px 12px',
@@ -636,29 +660,33 @@ const Aggregators = () => {
 
               {/* Quick Presets */}
               <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '12px' }}>
-                {[7, 14, 30, 60, 90, 180, 365].map(d => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => {
-                      setEventsRetentionDays(d);
-                      fetchRetentionStatus(d, fwRetentionDays, selectedTargetDb);
-                    }}
-                    style={{
-                      border: Number(eventsRetentionDays) === d ? '1px solid #818cf8' : '1px solid var(--border)',
-                      background: Number(eventsRetentionDays) === d ? 'rgba(99, 102, 241, 0.15)' : 'var(--background)',
-                      color: Number(eventsRetentionDays) === d ? '#818cf8' : 'var(--muted)',
-                      borderRadius: '4px',
-                      padding: '2px 7px',
-                      fontSize: '10px',
-                      fontFamily: 'monospace',
-                      fontWeight: 600,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {d}d
-                  </button>
-                ))}
+                {[7, 14, 30, 60, 90, 180, 365].map(d => {
+                  const currentVal = Number(eventsRetentionDays ?? retentionStatus?.configured_events_days ?? 30);
+                  const isSelected = currentVal === d;
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => {
+                        setEventsRetentionDays(d);
+                        fetchRetentionStatus(d, fwRetentionDays, selectedTargetDb);
+                      }}
+                      style={{
+                        border: isSelected ? '1px solid #818cf8' : '1px solid var(--border)',
+                        background: isSelected ? 'rgba(99, 102, 241, 0.15)' : 'var(--background)',
+                        color: isSelected ? '#818cf8' : 'var(--muted)',
+                        borderRadius: '4px',
+                        padding: '2px 7px',
+                        fontSize: '10px',
+                        fontFamily: 'monospace',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {d}d
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Cutoff Date */}
@@ -674,7 +702,7 @@ const Aggregators = () => {
                   Cutoff: <b style={{ color: '#ef4444', fontFamily: 'monospace' }}>{retentionStatus?.events_cutoff_utc || 'Calculating...'}</b>
                 </div>
                 <div style={{ color: 'var(--muted2)', fontSize: '9.5px', marginTop: '2px' }}>
-                  Endpoint events older than {eventsRetentionDays} days are eligible for deletion.
+                  Endpoint events older than {eventsRetentionDays ?? retentionStatus?.configured_events_days ?? 30} days are eligible for deletion.
                 </div>
               </div>
 
@@ -719,7 +747,7 @@ const Aggregators = () => {
                 }}
               >
                 <Trash2 size={14} />
-                {isPurgingEvents ? 'Purging Endpoint Events...' : `Purge Endpoint Events (Older than ${eventsRetentionDays}d)`}
+                {isPurgingEvents ? 'Purging Endpoint Events...' : `Purge Endpoint Events (Older than ${eventsRetentionDays ?? retentionStatus?.configured_events_days ?? 30}d)`}
               </button>
               <div style={{ textAlign: 'center', fontSize: '9.5px', color: 'var(--muted2)', marginTop: '5px' }}>
                 Deletes ONLY from <code>events</code> table. Firewall logs & all system data remain safe.
@@ -789,7 +817,7 @@ const Aggregators = () => {
                       type="number"
                       min="1"
                       max="3650"
-                      value={fwRetentionDays}
+                      value={fwRetentionDays ?? (retentionStatus?.configured_fw_days ?? '')}
                       onChange={(e) => setFwRetentionDays(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
@@ -798,7 +826,7 @@ const Aggregators = () => {
                         }
                       }}
                       onBlur={() => fetchRetentionStatus(eventsRetentionDays, fwRetentionDays, selectedTargetDb)}
-                      placeholder="30"
+                      placeholder={String(retentionStatus?.configured_fw_days || 30)}
                       style={{
                         width: '100%',
                         padding: '8px 45px 8px 12px',
@@ -840,29 +868,33 @@ const Aggregators = () => {
 
               {/* Quick Presets */}
               <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '12px' }}>
-                {[7, 14, 30, 60, 90, 180, 365].map(d => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => {
-                      setFwRetentionDays(d);
-                      fetchRetentionStatus(eventsRetentionDays, d, selectedTargetDb);
-                    }}
-                    style={{
-                      border: Number(fwRetentionDays) === d ? '1px solid #f59e0b' : '1px solid var(--border)',
-                      background: Number(fwRetentionDays) === d ? 'rgba(245, 158, 11, 0.15)' : 'var(--background)',
-                      color: Number(fwRetentionDays) === d ? '#f59e0b' : 'var(--muted)',
-                      borderRadius: '4px',
-                      padding: '2px 7px',
-                      fontSize: '10px',
-                      fontFamily: 'monospace',
-                      fontWeight: 600,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    {d}d
-                  </button>
-                ))}
+                {[7, 14, 30, 60, 90, 180, 365].map(d => {
+                  const currentVal = Number(fwRetentionDays ?? retentionStatus?.configured_fw_days ?? 30);
+                  const isSelected = currentVal === d;
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => {
+                        setFwRetentionDays(d);
+                        fetchRetentionStatus(eventsRetentionDays, d, selectedTargetDb);
+                      }}
+                      style={{
+                        border: isSelected ? '1px solid #f59e0b' : '1px solid var(--border)',
+                        background: isSelected ? 'rgba(245, 158, 11, 0.15)' : 'var(--background)',
+                        color: isSelected ? '#f59e0b' : 'var(--muted)',
+                        borderRadius: '4px',
+                        padding: '2px 7px',
+                        fontSize: '10px',
+                        fontFamily: 'monospace',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {d}d
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Cutoff Date */}
@@ -878,7 +910,7 @@ const Aggregators = () => {
                   Cutoff: <b style={{ color: '#ef4444', fontFamily: 'monospace' }}>{retentionStatus?.fw_cutoff_utc || 'Calculating...'}</b>
                 </div>
                 <div style={{ color: 'var(--muted2)', fontSize: '9.5px', marginTop: '2px' }}>
-                  Firewall logs older than {fwRetentionDays} days are eligible for deletion.
+                  Firewall logs older than {fwRetentionDays ?? retentionStatus?.configured_fw_days ?? 30} days are eligible for deletion.
                 </div>
               </div>
 
@@ -923,7 +955,7 @@ const Aggregators = () => {
                 }}
               >
                 <Trash2 size={14} />
-                {isPurgingFw ? 'Purging Firewall Logs...' : `Purge Firewall Logs (Older than ${fwRetentionDays}d)`}
+                {isPurgingFw ? 'Purging Firewall Logs...' : `Purge Firewall Logs (Older than ${fwRetentionDays ?? retentionStatus?.configured_fw_days ?? 30}d)`}
               </button>
               <div style={{ textAlign: 'center', fontSize: '9.5px', color: 'var(--muted2)', marginTop: '5px' }}>
                 Deletes ONLY from <code>fw_events</code> table. Endpoint events & all system data remain safe.
