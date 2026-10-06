@@ -7,7 +7,6 @@ import { useTheme } from '../context/ThemeContext';
 import { getTodayStartAndEnd } from '../utils/dateUtils';
 import BloodHoundNodeDiagram from './graph/BloodHoundNodeDiagram';
 import BloodHoundEntityPanel from './graph/BloodHoundEntityPanel';
-import { generateSimulationData } from './graph/simulationData';
 
 function isPrivate(ip) {
   return /^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.)/.test(ip);
@@ -21,10 +20,7 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
 
   const { machine } = useFilter();
   const [counts, setCounts] = useState({ in: 0, out: 0, lat: 0, ad: 0 });
-  const [isSimulated, setIsSimulated] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [viewMode, setViewMode] = useState('graph'); // 'graph' | 'flow'
-  const [activeFlows, setActiveFlows] = useState([]);
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
   const [focusedCategory, setFocusedCategory] = useState('all');
@@ -62,106 +58,6 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
       ad_attacks: adAttacks || [],
       machines: machines || []
     });
-
-    // Build flow rows for 3-Column Traffic Flow view
-    const flowRows = [];
-    let flowIndex = 0;
-
-    (inbound || []).forEach(c => {
-      const proto = (c.protocol || '') + (c.port ? `:${c.port}` : '');
-      const bl = c.blocked > 0;
-      flowRows.push({
-        id: `flow_in_${flowIndex++}`,
-        src: c.from_machine || c.from_ip || '?',
-        dst: c.to_machine || '?',
-        proto,
-        port: c.port || '',
-        count: c.count || 1,
-        blocked: c.blocked || 0,
-        dir: 'in',
-        severity: c.severity || 'info',
-        color: bl ? '#ef4444' : '#f97316',
-        detailRow: {
-          first_seen: c.first_seen, last_seen: c.last_seen,
-          src: c.from_machine || c.from_ip || '?', dst: c.to_machine || '?',
-          protocol: c.protocol || '', port: c.port || '',
-          count: c.count || 1, blocked: c.blocked || 0, severity: c.severity || 'info',
-          extra: c.description || (bl ? 'BLOCKED' : '')
-        }
-      });
-    });
-
-    (outbound || []).forEach(c => {
-      const proto = (c.protocol || '') + (c.port ? `:${c.port}` : '');
-      const bl = c.blocked > 0;
-      flowRows.push({
-        id: `flow_out_${flowIndex++}`,
-        src: c.from_machine || '?',
-        dst: c.to_machine || c.to_ip || '?',
-        proto,
-        port: c.port || '',
-        count: c.count || 1,
-        blocked: c.blocked || 0,
-        dir: 'out',
-        severity: c.severity || 'info',
-        color: bl ? '#ef4444' : '#3b82f6',
-        detailRow: {
-          first_seen: c.first_seen, last_seen: c.last_seen,
-          src: c.from_machine || '?', dst: c.to_machine || c.to_ip || '?',
-          protocol: c.protocol || '', port: c.port || '',
-          count: c.count || 1, blocked: c.blocked || 0, severity: c.severity || 'info',
-          extra: c.description || (bl ? 'BLOCKED' : '')
-        }
-      });
-    });
-
-    (lateral || []).forEach(c => {
-      const proto = (c.protocol || '') + (c.port ? `:${c.port}` : '');
-      const bl = c.blocked > 0;
-      flowRows.push({
-        id: `flow_lat_${flowIndex++}`,
-        src: c.source,
-        dst: c.target,
-        proto,
-        port: c.port || '',
-        count: c.count || 1,
-        blocked: c.blocked || 0,
-        dir: 'lat',
-        severity: c.severity || 'critical',
-        color: '#ef4444',
-        detailRow: {
-          first_seen: c.first_seen, last_seen: c.last_seen,
-          src: c.source, dst: c.target,
-          protocol: c.protocol || '', port: c.port || '',
-          count: c.count || 1, blocked: c.blocked || 0, severity: c.severity || 'critical',
-          extra: c.description || (bl ? 'BLOCKED' : '')
-        }
-      });
-    });
-
-    (adAttacks || []).forEach(a => {
-      flowRows.push({
-        id: `flow_ad_${flowIndex++}`,
-        src: a.actor || a.remote_ip || '?',
-        dst: a.target_machine || '?',
-        proto: a.attack_type || a.protocol || 'AD Attack',
-        port: '-',
-        count: a.count || 1,
-        blocked: 0,
-        dir: 'ad',
-        severity: a.severity || 'critical',
-        color: '#a855f7',
-        detailRow: {
-          first_seen: a.first_seen, last_seen: a.last_seen,
-          src: a.actor || a.remote_ip || '?', dst: a.target_machine || '?',
-          protocol: a.protocol || a.attack_type, port: '-',
-          count: a.count || 1, blocked: 0, severity: a.severity || 'critical',
-          extra: a.description || `AD Attack: ${a.attack_type}`
-        }
-      });
-    });
-
-    setActiveFlows(flowRows);
   }, []);
 
   const applyFilter = useCallback(() => {
@@ -250,28 +146,9 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
     }
   }, [localRange, machine, applyFilter]);
 
-  const toggleSimulation = useCallback((enable) => {
-    if (enable) {
-      const sim = generateSimulationData();
-      rawDataRef.current = sim;
-      setCounts({
-        in: sim.inbound.length,
-        out: sim.outbound.length,
-        lat: sim.lateral.length,
-        ad: sim.ad_attacks.length
-      });
-      setIsSimulated(true);
-      updateActiveDatasets(sim.inbound, sim.outbound, sim.ad_attacks, sim.lateral, sim.machines);
-    } else {
-      setIsSimulated(false);
-      fetchTopology();
-    }
-  }, [fetchTopology, updateActiveDatasets]);
-
   const isFirstMountRef = useRef(true);
 
   useEffect(() => {
-    if (isSimulated) return;
     if (isFirstMountRef.current && initialData && (initialData.inbound?.length || initialData.lateral?.length || initialData.ad_attacks?.length)) {
       isFirstMountRef.current = false;
       rawDataRef.current = initialData;
@@ -288,7 +165,7 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
     isFirstMountRef.current = false;
     localStorage.setItem('topoRange', localRange);
     fetchTopology();
-  }, [localRange, machine, initialData, applyFilter, fetchTopology, isSimulated]);
+  }, [localRange, machine, initialData, applyFilter, fetchTopology]);
 
   const isMountedRef = useRef(false);
   useEffect(() => {
@@ -378,60 +255,6 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
             <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text)', letterSpacing: '0.3px' }}>
               Network Topology
             </div>
-
-            {/* View Mode Switcher */}
-            <div
-              style={{
-                display: 'flex',
-                background: 'var(--surface2)',
-                borderRadius: '6px',
-                border: '1px solid var(--border)',
-                padding: '2px',
-                gap: '2px',
-                marginLeft: '6px'
-              }}
-            >
-              <button
-                onClick={() => setViewMode('graph')}
-                style={{
-                  background: viewMode === 'graph' ? 'var(--accent)' : 'transparent',
-                  color: viewMode === 'graph' ? '#fff' : 'var(--muted)',
-                  border: 'none',
-                  padding: '3px 10px',
-                  borderRadius: '4px',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  transition: 'all 0.2s'
-                }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>hub</span>
-                Graph
-              </button>
-              <button
-                onClick={() => setViewMode('flow')}
-                style={{
-                  background: viewMode === 'flow' ? 'var(--accent)' : 'transparent',
-                  color: viewMode === 'flow' ? '#fff' : 'var(--muted)',
-                  border: 'none',
-                  padding: '3px 10px',
-                  borderRadius: '4px',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  transition: 'all 0.2s'
-                }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>alt_route</span>
-                Traffic Flow
-              </button>
-            </div>
           </div>
 
           <div style={{ display: 'flex', gap: '8px', fontFamily: 'var(--mono)', fontSize: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -466,55 +289,6 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
             <span><span style={{ display: 'inline-block', width: '8px', height: '2px', background: '#3b82f6', marginRight: '4px', verticalAlign: 'middle' }}></span>{counts.out} outbound</span>
             <span><span style={{ display: 'inline-block', width: '8px', height: '2px', background: '#ef4444', marginRight: '4px', verticalAlign: 'middle' }}></span>{counts.lat} lateral</span>
             <span style={{ color: '#a855f7' }}><span style={{ display: 'inline-block', width: '8px', height: '2px', background: '#a855f7', marginRight: '4px', verticalAlign: 'middle' }}></span>{counts.ad} AD</span>
-
-            {/* Simulation Mode Toggle */}
-            {isSimulated ? (
-              <button
-                onClick={() => toggleSimulation(false)}
-                style={{
-                  background: 'rgba(239, 68, 68, 0.15)',
-                  border: '1px solid rgba(239, 68, 68, 0.4)',
-                  color: '#ef4444',
-                  borderRadius: '4px',
-                  padding: '4px 10px',
-                  cursor: 'pointer',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  marginLeft: '8px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  transition: 'all 0.2s'
-                }}
-                title="Exit simulation mode and restore real database data"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>restart_alt</span>
-                Return to Live Data
-              </button>
-            ) : (
-              <button
-                onClick={() => toggleSimulation(true)}
-                style={{
-                  background: 'linear-gradient(135deg, rgba(168,85,247,0.2), rgba(168,85,247,0.08))',
-                  border: '1px solid rgba(168,85,247,0.4)',
-                  color: '#c084fc',
-                  borderRadius: '4px',
-                  padding: '4px 10px',
-                  cursor: 'pointer',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  marginLeft: '8px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  transition: 'all 0.2s'
-                }}
-                title="Simulate 100 realistic nodes across all Active Directory & network entity types"
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '15px' }}>bolt</span>
-                ⚡ Simulate (100 Nodes)
-              </button>
-            )}
 
             <button
               onClick={() => {
@@ -641,183 +415,60 @@ export default function NetworkTopology({ initialData, standalone = false, onExi
             }}
           >
             {/* BloodHound WebGL Node Diagram View */}
-            {viewMode === 'graph' && (
-              <>
-                <BloodHoundEntityPanel
-                  selectedNode={selectedNode}
-                  selectedEdge={selectedEdge}
-                  activeCategory={focusedCategory}
-                  onClose={() => {
-                    setSelectedNode(null);
-                    setSelectedEdge(null);
-                    // Do NOT reset focusedCategory so background nodes remain hidden!
-                    setFocusNodeTarget(null);
-                    setInfoText('Click a node or edge to inspect');
-                  }}
-                  onFocusCategory={(cat) => setFocusedCategory(cat)}
-                  onSelectNodeById={(targetId) => {
-                    setFocusNodeTarget(targetId);
-                  }}
-                  theme={theme}
-                />
-                <BloodHoundNodeDiagram
-                  inbound={filteredData.inbound}
-                  outbound={filteredData.outbound}
-                  lateral={filteredData.lateral}
-                  adAttacks={filteredData.ad_attacks}
-                  machines={filteredData.machines}
-                  theme={theme}
-                  focusedCategory={focusedCategory}
-                  focusNodeTarget={focusNodeTarget}
-                  isPanelOpen={Boolean(selectedNode || selectedEdge)}
-                  onSelectNode={(n) => {
-                    setSelectedNode(n);
-                    setSelectedEdge(null);
-                    setFocusedCategory(prev => (prev && prev !== 'all' ? 'isolated' : 'all'));
-                    setInfoText(`HOST / NODE: ${n.label} (${n.subLabel || ''}) — ${n.rows.length} connection(s)`);
-                  }}
-                  onSelectEdge={(e) => {
-                    setSelectedEdge(e);
-                    setSelectedNode(null);
-                    const edgeCount = e.count
-                      || (e.rows && e.rows.length > 0
-                          ? e.rows.reduce((sum, r) => sum + (Number(r.count) || 1), 0)
-                          : (e.detail?.count || 1));
-                    setInfoText(`${e.label} | ${e.detail?.src || ''} → ${e.detail?.dst || ''} (x${edgeCount})`);
-                  }}
-                  onClearSelection={(isFullReset) => {
-                    setSelectedNode(null);
-                    setSelectedEdge(null);
-                    if (isFullReset) {
-                      setFocusedCategory('all');
-                    } else {
-                      setFocusedCategory(prev => (prev && prev !== 'all' ? prev : 'all'));
-                    }
-                    setFocusNodeTarget(null);
-                    setInfoText('Click a node or edge to inspect');
-                  }}
-                />
-              </>
-            )}
-
-            {/* 3-Column Traffic Flow View */}
-            {viewMode === 'flow' && (
-              <div style={{ padding: '20px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.6fr 1.2fr', gap: '16px', padding: '0 10px', fontFamily: 'var(--mono)', fontSize: '11px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                  <div>Source Endpoint</div>
-                  <div style={{ textAlign: 'center' }}>Traffic Stream / Protocol</div>
-                  <div style={{ textAlign: 'right' }}>Destination Machine</div>
-                </div>
-
-                {activeFlows.length > 0 ? (
-                  activeFlows.map(f => {
-                    const isPriv = isPrivate(f.src);
-                    const isAd = f.dir === 'ad';
-                    const isLat = f.dir === 'lat';
-                    const isIn = f.dir === 'in';
-
-                    return (
-                      <div
-                        key={f.id}
-                        onClick={() => {
-                          if (f.detailRow) {
-                            const dirLabel = f.dir === 'ad' ? 'AD ATTACK' : f.dir === 'lat' ? 'LATERAL' : f.dir === 'in' ? 'INBOUND' : 'OUTBOUND';
-                            setDetails({ title: `${dirLabel} — ${f.proto} ${f.src} → ${f.dst}`, rows: [f.detailRow] });
-                            setInfoText(`${dirLabel} | ${f.proto} | ${f.src} → ${f.dst} (x${f.count})`);
-                          }
-                        }}
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: '1.2fr 1.6fr 1.2fr',
-                          alignItems: 'center',
-                          gap: '16px',
-                          background: 'var(--surface2)',
-                          border: `1px solid ${f.color}33`,
-                          borderLeft: `4px solid ${f.color}`,
-                          padding: '12px 16px',
-                          borderRadius: '8px',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease'
-                        }}
-                        onMouseOver={e => {
-                          e.currentTarget.style.background = 'var(--surface)';
-                          e.currentTarget.style.boxShadow = `0 4px 16px ${f.color}22`;
-                          e.currentTarget.style.transform = 'translateY(-1px)';
-                        }}
-                        onMouseOut={e => {
-                          e.currentTarget.style.background = 'var(--surface2)';
-                          e.currentTarget.style.boxShadow = 'none';
-                          e.currentTarget.style.transform = 'none';
-                        }}
-                      >
-                        {/* Source Box */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: '18px', color: isAd ? '#a855f7' : isPriv ? '#84cc16' : '#9aa5c0' }}>
-                            {isAd ? 'person' : isPriv ? 'computer' : 'public'}
-                          </span>
-                          <div>
-                            <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--mono)' }}>{f.src}</div>
-                            <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: isAd ? 'rgba(168,85,247,0.15)' : isPriv ? 'rgba(132,204,22,0.15)' : 'rgba(154,165,192,0.15)', color: isAd ? '#c084fc' : isPriv ? '#a3e635' : '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                              {isAd ? 'AD Actor' : isPriv ? 'Private IP' : 'External WAN'}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Middle Flow Path */}
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                          <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <div style={{ flex: 1, height: '2px', background: `linear-gradient(90deg, ${f.color}22, ${f.color})` }}></div>
-                            <span style={{
-                              background: theme === 'light' ? '#ffffff' : '#0b0f19',
-                              border: `1px solid ${f.color}`,
-                              color: f.color,
-                              fontSize: '11px',
-                              fontWeight: 800,
-                              padding: '3px 10px',
-                              borderRadius: '12px',
-                              fontFamily: 'var(--mono)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              boxShadow: `0 0 10px ${f.color}33`
-                            }}>
-                              <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>
-                                {isIn ? 'arrow_downward' : isLat ? 'swap_horiz' : isAd ? 'security' : 'arrow_upward'}
-                              </span>
-                              {f.proto}
-                              <span style={{ background: `${f.color}33`, padding: '1px 6px', borderRadius: '8px', fontSize: '10px' }}>
-                                x{f.count}
-                              </span>
-                            </span>
-                            <div style={{ flex: 1, height: '2px', background: `linear-gradient(90deg, ${f.color}, ${f.color}22)` }}></div>
-                          </div>
-                          {f.blocked > 0 && (
-                            <span style={{ fontSize: '9px', fontWeight: 800, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                              🛑 BLOCKED
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Destination Box */}
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px' }}>
-                          <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontSize: '13px', fontWeight: 800, color: '#3b82f6', fontFamily: 'var(--mono)' }}>{f.dst}</div>
-                            <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                              Monitored Host
-                            </span>
-                          </div>
-                          <span className="material-symbols-outlined" style={{ fontSize: '18px', color: '#3b82f6' }}>computer</span>
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: '13px' }}>
-                    No traffic flows match the current filters.
-                  </div>
-                )}
-              </div>
-            )}
+            <BloodHoundEntityPanel
+              selectedNode={selectedNode}
+              selectedEdge={selectedEdge}
+              activeCategory={focusedCategory}
+              onClose={() => {
+                setSelectedNode(null);
+                setSelectedEdge(null);
+                // Do NOT reset focusedCategory so background nodes remain hidden!
+                setFocusNodeTarget(null);
+                setInfoText('Click a node or edge to inspect');
+              }}
+              onFocusCategory={(cat) => setFocusedCategory(cat)}
+              onSelectNodeById={(targetId) => {
+                setFocusNodeTarget(targetId);
+              }}
+              theme={theme}
+            />
+            <BloodHoundNodeDiagram
+              inbound={filteredData.inbound}
+              outbound={filteredData.outbound}
+              lateral={filteredData.lateral}
+              adAttacks={filteredData.ad_attacks}
+              machines={filteredData.machines}
+              theme={theme}
+              focusedCategory={focusedCategory}
+              focusNodeTarget={focusNodeTarget}
+              isPanelOpen={Boolean(selectedNode || selectedEdge)}
+              onSelectNode={(n) => {
+                setSelectedNode(n);
+                setSelectedEdge(null);
+                setFocusedCategory(prev => (prev && prev !== 'all' ? 'isolated' : 'all'));
+                setInfoText(`HOST / NODE: ${n.label} (${n.subLabel || ''}) — ${n.rows.length} connection(s)`);
+              }}
+              onSelectEdge={(e) => {
+                setSelectedEdge(e);
+                setSelectedNode(null);
+                const edgeCount = e.count
+                  || (e.rows && e.rows.length > 0
+                      ? e.rows.reduce((sum, r) => sum + (Number(r.count) || 1), 0)
+                      : (e.detail?.count || 1));
+                setInfoText(`${e.label} | ${e.detail?.src || ''} → ${e.detail?.dst || ''} (x${edgeCount})`);
+              }}
+              onClearSelection={(isFullReset) => {
+                setSelectedNode(null);
+                setSelectedEdge(null);
+                if (isFullReset) {
+                  setFocusedCategory('all');
+                } else {
+                  setFocusedCategory(prev => (prev && prev !== 'all' ? prev : 'all'));
+                }
+                setFocusNodeTarget(null);
+                setInfoText('Click a node or edge to inspect');
+              }}
+            />
           </div>
 
           {/* Info Status Bar */}
