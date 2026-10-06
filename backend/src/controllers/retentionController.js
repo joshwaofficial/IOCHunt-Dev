@@ -231,7 +231,8 @@ const getRetentionStatus = async (req, res) => {
         timestamp: lastCleanupAt,
         deleted_count: lastCleanupCount
       },
-      available_databases: availableDatabases
+      available_databases: availableDatabases,
+      is_aggregator: Boolean(isAggNode || isAggAdmin)
     });
   } catch (error) {
     console.error('[RetentionStatus Error]', error);
