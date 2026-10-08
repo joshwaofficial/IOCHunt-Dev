@@ -46,5 +46,11 @@ docker-compose.override.yml
 *.log
 logs/
 
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
 # Misc
 cookies.txt
+*.html.tmp
