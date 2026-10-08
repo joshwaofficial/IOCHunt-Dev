@@ -91,21 +91,20 @@ async function getIncidentSummary(req, res) {
     let whereBase = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
 
     const byStatusQ = `SELECT status, COUNT(*) AS n FROM incidents ${whereBase} GROUP BY status`;
-    const byStatus = await req.queryTenant(byStatusQ, params);
-
     const whereNotClosed = whereBase ? `${whereBase} AND status NOT IN ('resolved','closed')` : `WHERE status NOT IN ('resolved','closed')`;
     const byPriorityQ = `SELECT priority, COUNT(*) AS n FROM incidents ${whereNotClosed} GROUP BY priority`;
-    const byPriority = await req.queryTenant(byPriorityQ, params);
-
     const openQ = `SELECT COUNT(*) AS n FROM incidents ${whereNotClosed}`;
-    const openRes = await req.queryTenant(openQ, params);
-
     const whereP1 = whereBase ? `${whereBase} AND priority='P1' AND status NOT IN ('resolved','closed')` : `WHERE priority='P1' AND status NOT IN ('resolved','closed')`;
     const p1OpenQ = `SELECT COUNT(*) AS n FROM incidents ${whereP1}`;
-    const p1OpenRes = await req.queryTenant(p1OpenQ, params);
-
     const recentQ = `SELECT * FROM incidents ${whereBase} ORDER BY created_at DESC LIMIT 5`;
-    const recentRes = await req.queryTenant(recentQ, params);
+
+    const [byStatus, byPriority, openRes, p1OpenRes, recentRes] = await Promise.all([
+      req.queryTenant(byStatusQ, params),
+      req.queryTenant(byPriorityQ, params),
+      req.queryTenant(openQ, params),
+      req.queryTenant(p1OpenQ, params),
+      req.queryTenant(recentQ, params)
+    ]);
     
     return res.status(200).json({ 
       byStatus: byStatus.rows, 

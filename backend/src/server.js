@@ -9,6 +9,7 @@
 // ════════════════════════════════════════════════════════════════
 
 const express = require('express');
+const compression = require('compression');
 const hpp = require('hpp');
 const cookieParser = require('cookie-parser');
 const path = require('path');
@@ -53,6 +54,13 @@ app.use(createSecurityHeadersMiddleware());
 
 // ── Secure CORS Configuration (Restricted Trusted Origins, No Wildcards) ──
 app.use(createCorsMiddleware());
+app.use(compression({
+  filter: (req, res) => {
+    if (req.path && req.path.includes('/stream')) return false;
+    return compression.filter(req, res);
+  },
+  threshold: 1024
+}));
 app.use(hpp());
 app.use(cookieParser());
 app.use(sanitizationMiddleware);

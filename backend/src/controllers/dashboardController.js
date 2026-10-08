@@ -33,7 +33,7 @@ const getEvents = async (req, res) => {
 
     const aggregator = getEffectiveAggregator(req);
     
-    let whereClauses = ["message NOT ILIKE '%iochuntwatchdog%' AND tag NOT ILIKE '%iochuntwatchdog%' AND message NOT ILIKE '%net1.exe%' AND message NOT ILIKE '%system32\\\\net1%'"];
+    let whereClauses = [];
     const params = [];
 
     // Noise filtering
@@ -234,7 +234,7 @@ const crypto = require('crypto');
 async function buildChains(req, from, to, machine, aggregator) {
   let params = [from, to];
   let pIdx = 3;
-  let where = "WHERE ts>=$1 AND ts<=$2 AND message NOT ILIKE '%iochuntwatchdog%' AND tag NOT ILIKE '%iochuntwatchdog%'";
+  let where = "WHERE ts>=$1 AND ts<=$2 AND is_noise=false";
   
   if (machine) {
     where += ` AND machine=$${pIdx}`;
@@ -290,7 +290,7 @@ const getStats = async (req, res) => {
     const { from, to } = resolveTimeRange(req, 24);
 
     
-    let nw = "WHERE ts>=$1 AND ts<=$2 AND is_noise=false AND message NOT ILIKE '%iochuntwatchdog%' AND tag NOT ILIKE '%iochuntwatchdog%'";
+    let nw = "WHERE ts>=$1 AND ts<=$2 AND is_noise=false";
     const bp = [from, to];
     let pIdx = 3;
     
