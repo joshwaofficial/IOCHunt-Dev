@@ -214,50 +214,26 @@ function getSimulatedReportData(period = 'daily', includeFw = false) {
   }
 
   if (p === 'monthly') {
-    const realExportPath = path.resolve(__dirname, '../../../real_telemetry_export.json');
-    if (fs.existsSync(realExportPath)) {
-      try {
-        const raw = JSON.parse(fs.readFileSync(realExportPath, 'utf8'));
-        const ev = raw.events || {};
+    const timeline = [
+      { bucket: 'Week 1', total: 22100, crit: 15, high: 78, med: 210, low: 21797 },
+      { bucket: 'Week 2', total: 24500, crit: 12, high: 82, med: 195, low: 24211 },
+      { bucket: 'Week 3', total: 23800, crit: 14, high: 75, med: 220, low: 23491 },
+      { bucket: 'Week 4', total: 23810, crit: 11, high: 75, med: 215, low: 23509 }
+    ];
 
-        const dayMap = {};
-        (ev.hourly || []).forEach(h => {
-          const d = (h.hour || '').slice(5, 10);
-          if (!d) return;
-          if (!dayMap[d]) dayMap[d] = { bucket: d, total: 0, crit: 0, high: 0, med: 0, low: 0 };
-          const cnt = parseInt(h.n, 10) || 0;
-          dayMap[d].total += cnt;
-          if (h.severity === 'critical') dayMap[d].crit += cnt;
-          else if (h.severity === 'high') dayMap[d].high += cnt;
-          else if (h.severity === 'medium') dayMap[d].med += cnt;
-          else dayMap[d].low += cnt;
-        });
-        const timeline = Object.values(dayMap).sort((a, b) => a.bucket.localeCompare(b.bucket));
+    const categories = [
+      { category: 'PROCESSES', n: 4210, color: '#ef4444' },
+      { category: 'ENUM', n: 2420, color: '#f97316' },
+      { category: 'LOGON', n: 1890, color: '#8b5cf6' },
+      { category: 'NETWORK', n: 1430, color: '#3b82f6' },
+      { category: 'CONFIG', n: 810, color: '#eab308' },
+      { category: 'DEFENDER', n: 460, color: '#06b6d4' },
+      { category: 'USB', n: 309, color: '#ec4899' }
+    ];
 
-        const catColors = {
-          PROCESSES: '#ef4444',
-          ENUM: '#f97316',
-          LOGON: '#8b5cf6',
-          STARTUP: '#10b981',
-          USB: '#ec4899',
-          CONFIG: '#eab308',
-          NETWORK: '#3b82f6',
-          DEFENDER: '#06b6d4',
-          SERVICES: '#a855f7',
-          TASKS: '#6366f1',
-          SENSITIVE: '#f43f5e',
-          OTHER: '#64748b'
-        };
-        const categories = (ev.byCategory || []).map(c => ({
-          category: c.category,
-          n: parseInt(c.n, 10) || 0,
-          color: catColors[c.category] || '#64748b'
-        }));
+    const sevMap = { critical: 52, high: 310, medium: 840, low: 2890, info: 7437 };
 
-        const sevMap = {};
-        (ev.bySeverity || []).forEach(s => { sevMap[s.severity] = parseInt(s.n, 10) || 0; });
-
-        return {
+    return {
           scheduleName: 'Monthly Executive Threat Analytics & SOC Audit Dossier',
           generatedAt: nowStr + ' UTC',
           periodLabel: `Monthly Report (${monthAgoDateStr} to ${todayDateStr})`,
@@ -420,11 +396,7 @@ function getSimulatedReportData(period = 'daily', includeFw = false) {
             'Agent Tamper Security: Review 402 intercepted tamper events on machine GIRI and verify Tamper Protection integrity.',
             'Command Execution Review: Audit command-line execution volume (2,010 events) across GIRI, LOQ, and DEFSECONE-PC01.'
           ]
-        };
-      } catch (parseErr) {
-        console.warn('[REPORT BUILDER] real_telemetry_export.json parse error:', parseErr.message);
-      }
-    }
+      };
   }
 
   // Default: Daily (24 Hours)

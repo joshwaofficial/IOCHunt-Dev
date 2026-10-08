@@ -1,6 +1,5 @@
 const Event = require('../models/Event');
 const { parseAdEvent, parseMaliciousEvent, parseUsbEvent, parseUserEvent, parseNetworkEvent } = require('../utils/eventParsers');
-const appMode = require('../config/appMode');
 const { parseSafeInt } = require('../utils/inputValidator');
 
 /**
@@ -446,6 +445,9 @@ const getADAttacks = async (req, res) => {
     if (tactic) {
       events = events.filter(a => (a.tactic || '').toLowerCase().includes(tactic));
     }
+    if (isPrivileged) {
+      events = events.filter(a => !!a.is_privileged);
+    }
     if (excludeSystem) {
       events = events.filter(a => !/\b(system|SYSTEM)\b/.test(a.actor) && !a.actor.endsWith('$') && !/\b(system|SYSTEM)\b/.test(a.target_machine));
     }
@@ -739,8 +741,10 @@ const getUserEvents = async (req, res) => {
     }
 
     const total = out.length;
+    const offset = (page - 1) * limit;
+    const paginatedEvents = out.slice(offset, offset + limit);
 
-    return res.status(200).json({ events: out, stats: { total, critical: 0, high: 0 } });
+    return res.status(200).json({ events: paginatedEvents, stats: { total, critical: 0, high: 0 } });
   } catch (error) {
     console.error('[Dashboard] Failed to get user events:', error);
     return res.status(500).json({ error: 'Internal server error' });

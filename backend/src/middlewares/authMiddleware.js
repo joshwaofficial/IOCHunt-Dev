@@ -4,7 +4,7 @@
 
 const crypto = require('crypto');
 const db = require('../config/db');
-const { normalizeRole, isRoleAboveOrEqual } = require('../config/roles');
+const { isRoleAboveOrEqual } = require('../config/roles');
 const appMode = require('../config/appMode');
 const { logSecurityEvent, EVENTS, SEVERITY } = require('../utils/securityLogger');
 const { getCandidateCookieNames } = require('../utils/cookieHelper');

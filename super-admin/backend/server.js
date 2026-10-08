@@ -17,8 +17,6 @@ const { Pool } = require('pg');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const {
-  isString,
-  isInteger,
   parseSafeInt,
   isDbIdentifier,
   validatePasswordComplexity,

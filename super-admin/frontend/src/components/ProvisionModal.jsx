@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Server, Building, Check, Copy, AlertTriangle, ArrowRight } from 'lucide-react';
+import { X, Server, Building, ArrowRight } from 'lucide-react';
 import axios from 'axios';
 
 export default function ProvisionModal({ isOpen, onClose, onSuccess }) {

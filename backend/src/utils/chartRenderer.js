@@ -22,20 +22,6 @@ try {
 // Ensure Chart.js defaults to Inter with fallbacks
 Chart.defaults.font.family = "'Inter', 'InterBold', 'Helvetica Neue', 'Helvetica', 'Arial', sans-serif";
 
-// Curated SOC Palette
-const PALETTE = {
-  crit: '#ef4444',
-  high: '#f97316',
-  med: '#f59e0b',
-  low: '#0ea5e9',
-  info: '#64748b',
-  purple: '#8b5cf6',
-  indigo: '#6366f1',
-  emerald: '#10b981',
-  dark: '#0f172a',
-  border: '#e2e8f0',
-  grid: 'rgba(226, 232, 240, 0.8)'
-};
 
 /**
  * Custom Chart.js plugin to draw centered text inside a Doughnut chart.

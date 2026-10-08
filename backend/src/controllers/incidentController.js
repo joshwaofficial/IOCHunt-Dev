@@ -1,10 +1,8 @@
 const { sendAssignmentEmail } = require('../utils/emailHelper');
 const appMode = require('../config/appMode');
 const {
-  isString,
   isPositiveInteger,
   parseSafeInt,
-  isEnum,
   sanitizeText
 } = require('../utils/inputValidator');
 
@@ -267,6 +265,24 @@ async function updateIncident(req, res) {
     if (priority !== undefined && priority !== inc.priority) { changes.push(['priority', priority]); auditLines.push(`Priority changed to ${priority}.`); }
     if (machine !== undefined && machine !== inc.machine) { changes.push(['machine', machine]); }
     if (assigned_to !== undefined && assigned_to !== inc.assigned_to) {
+      if (assigned_to) {
+        const User = require('../models/User');
+        const targetUser = await User.findByUsername(assigned_to, req.queryTenant);
+        if (!targetUser) return res.status(404).json({ error: 'Target user not found' });
+
+        const callerRole = req.session.role;
+        const targetRole = targetUser.role;
+
+        let allowed = false;
+        if (callerRole === 'ADMIN') allowed = true;
+        else if (callerRole === 'L3_ANALYST' && ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST'].includes(targetRole)) allowed = true;
+        else if (callerRole === 'L2_ANALYST' && ['L1_ANALYST', 'L2_ANALYST', 'L3_ANALYST'].includes(targetRole)) allowed = true;
+        else if (callerRole === 'L1_ANALYST' && targetRole === 'L2_ANALYST') allowed = true;
+
+        if (!allowed) {
+          return res.status(403).json({ error: 'Forbidden: Assignment not allowed' });
+        }
+      }
       changes.push(['assigned_to', assigned_to]);
       auditLines.push(assigned_to ? `Assigned to ${assigned_to}.` : `Assignment cleared.`);
       if (assigned_to) {
@@ -360,7 +376,7 @@ async function addNote(req, res) {
       }
     }
 
-    await req.queryTenant('INSERT INTO incident_notes (incident_id, author, body, note_type) VALUES ($1,$2,$3,$4)', [inc.id, author, body, note_type]);
+    await req.queryTenant('INSERT INTO incident_notes (incident_id, author, body, note_type) VALUES ($1,$2,$3,$4)', [inc.id, author, cleanBody, cleanNoteType]);
     await req.queryTenant('UPDATE incidents SET updated_at=$1 WHERE id=$2', [Math.floor(Date.now() / 1000), inc.id]);
 
     return res.status(201).json({ ok: true });
@@ -461,8 +477,7 @@ async function assignIncident(req, res) {
 
     const updatedIncRes = await req.queryTenant('SELECT * FROM incidents WHERE id=$1', [id]);
     const updatedInc = updatedIncRes.rows[0];
-    const { sendAssignmentEmail } = require('../utils/emailHelper');
-    await sendAssignmentEmail(updatedInc, assignee);
+    await sendAssignmentEmail(updatedInc, assignee, req.queryTenant, req.tenantId);
 
     return res.status(200).json({ ok: true, incident: updatedInc });
   } catch (error) {

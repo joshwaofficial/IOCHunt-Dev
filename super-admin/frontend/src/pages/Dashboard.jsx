@@ -6,7 +6,6 @@ import {
   HardDrive,
   Activity,
   Server,
-  ArrowUpRight,
   Plus,
   Clock,
   Database,

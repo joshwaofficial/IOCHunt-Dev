@@ -13,7 +13,6 @@ const hpp = require('hpp');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 const fs = require('fs');
-const { execFileSync } = require('child_process');
 const { createSecurityHeadersMiddleware } = require('./middlewares/securityHeaders');
 const { createCorsMiddleware } = require('./middlewares/corsConfig');
 require('dotenv').config();
@@ -26,26 +25,7 @@ const { logSecurityEvent, EVENTS, SEVERITY } = require('./utils/securityLogger')
 const auditMiddleware = require('./middlewares/auditMiddleware');
 const sanitizationMiddleware = require('./middlewares/sanitizationMiddleware');
 
-// ── Auto-Generate SSL Certificates ─────────────────────────────
-try {
-  const sslDir = path.join(__dirname, '../../nginx/ssl');
-  if (fs.existsSync(sslDir)) {
-    const crtPath = path.join(sslDir, 'iochunt.crt');
-    const keyPath = path.join(sslDir, 'iochunt.key');
-    if (!fs.existsSync(crtPath) || !fs.existsSync(keyPath)) {
-      console.log('[Setup] SSL certificates missing. Generating self-signed certificates...');
-      execFileSync('openssl', [
-        'req', '-x509', '-newkey', 'rsa:4096',
-        '-keyout', keyPath, '-out', crtPath,
-        '-days', '3650', '-nodes',
-        '-subj', '/CN=iochunt-platform/O=DefSecOne/C=IN'
-      ], { stdio: 'ignore' });
-      console.log('[Setup] SSL certificates generated successfully.');
-    }
-  }
-} catch (err) {
-  console.error('[Setup] Failed to auto-generate SSL certificates:', err.message);
-}
+
 
 const db = require('./config/db');
 const appMode = require('./config/appMode');

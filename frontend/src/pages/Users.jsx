@@ -37,6 +37,58 @@ const formatDuration = (seconds) => {
   return `${secs}s`;
 };
 
+const PremiumCard = ({ value, label, color, icon, subtitle }) => (
+  <div 
+    style={{ 
+      background: 'var(--surface)', 
+      border: '1px solid var(--border)', 
+      borderRadius: '12px', 
+      padding: '16px 20px', 
+      display: 'flex', 
+      flexDirection: 'column', 
+      gap: '12px', 
+      boxShadow: '0 4px 6px rgba(0,0,0,0.02)',
+      position: 'relative',
+      overflow: 'hidden',
+      cursor: 'default'
+    }}
+  >
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div style={{ 
+        width: '32px', height: '32px', 
+        borderRadius: '8px', 
+        background: `${color}1A`, 
+        display: 'flex', alignItems: 'center', justifyContent: 'center', 
+        color: color 
+      }}>
+        <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>{icon}</span>
+      </div>
+      {subtitle && (
+        <span style={{ 
+          fontSize: '11px', 
+          fontWeight: 600, 
+          color: 'var(--muted)', 
+          background: 'var(--background)', 
+          padding: '2px 8px', 
+          borderRadius: '12px',
+          border: '1px solid var(--border)',
+          fontFamily: 'var(--mono)'
+        }}>
+          {subtitle}
+        </span>
+      )}
+    </div>
+    <div>
+      <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px', lineHeight: 1.2, fontFamily: 'var(--mono)' }}>
+        {value}
+      </div>
+      <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--muted)', marginTop: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+        {label}
+      </div>
+    </div>
+  </div>
+);
+
 export default function Users() {
   const { user: currentUser, setUser, logout } = useAuth();
   const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'AGGREGATOR_ADMIN';
@@ -549,58 +601,6 @@ export default function Users() {
     );
   });
 
-  // Reusable Premium KPI Card
-  const PremiumCard = ({ value, label, color, icon, subtitle }) => (
-    <div 
-      style={{ 
-        background: 'var(--surface)', 
-        border: '1px solid var(--border)', 
-        borderRadius: '12px', 
-        padding: '16px 20px', 
-        display: 'flex', 
-        flexDirection: 'column', 
-        gap: '12px', 
-        boxShadow: '0 4px 6px rgba(0,0,0,0.02)',
-        position: 'relative',
-        overflow: 'hidden',
-        cursor: 'default'
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div style={{ 
-          width: '32px', height: '32px', 
-          borderRadius: '8px', 
-          background: `${color}1A`, 
-          display: 'flex', alignItems: 'center', justifyContent: 'center', 
-          color: color 
-        }}>
-          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>{icon}</span>
-        </div>
-        {subtitle && (
-          <span style={{ 
-            fontSize: '11px', 
-            fontWeight: 600, 
-            color: 'var(--muted)', 
-            background: 'var(--background)', 
-            padding: '2px 8px', 
-            borderRadius: '12px',
-            border: '1px solid var(--border)',
-            fontFamily: 'var(--mono)'
-          }}>
-            {subtitle}
-          </span>
-        )}
-      </div>
-      <div>
-        <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px', lineHeight: 1.2, fontFamily: 'var(--mono)' }}>
-          {value}
-        </div>
-        <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--muted)', marginTop: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-          {label}
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <div style={{ width: '100%', paddingBottom: '40px', position: 'relative' }}>

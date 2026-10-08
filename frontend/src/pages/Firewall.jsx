@@ -7,6 +7,7 @@ import FirewallSourcesModal from '../components/FirewallSourcesModal';
 import FirewallSetupModal from '../components/FirewallSetupModal';
 import { useFilter } from '../context/FilterContext';
 import { getTodayStartAndEnd } from '../utils/dateUtils';
+import PremiumCard from '../components/PremiumCard';
 
 const sevColor = {
   critical: '#f04f5a',
@@ -212,25 +213,6 @@ export default function Firewall() {
 
   const totalPages = Math.max(1, Math.ceil(data.total / perPage));
 
-  const PremiumCard = ({ value, label, color, icon, subtitle }) => {
-    const num = Number(value);
-    const displayVal = !isNaN(num) ? num.toLocaleString() : (value || 0);
-    return (
-      <div style={{ background: 'var(--surface)', border: `1px solid ${color}44`, borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: `${color}1A`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: color }}>
-            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>{icon}</span>
-          </div>
-          <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', fontFamily: 'var(--mono)', marginTop: '4px' }}>{label}</span>
-        </div>
-        <div style={{ fontSize: '32px', fontWeight: 900, color: 'var(--text)', lineHeight: 1, letterSpacing: '-0.5px' }}>{displayVal}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: 'auto' }}>
-          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: color }}></span>
-          <span style={{ fontSize: '10px', color: 'var(--muted)', fontWeight: 600, letterSpacing: '0.2px' }}>{subtitle}</span>
-        </div>
-      </div>
-    );
-  };
 
   const getActionCount = (keys) => {
     return (data.byAction || []).filter(a => keys.some(k => (a.action||'').toLowerCase().includes(k))).reduce((sum, a) => sum + (Number(a.n) || 0), 0);

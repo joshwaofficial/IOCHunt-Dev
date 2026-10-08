@@ -7,7 +7,6 @@
 // ════════════════════════════════════════════════════════════════
 
 const path = require('path');
-const fs = require('fs');
 
 // Regular Expressions for strict validation
 const IDENTIFIER_REGEX = /^[a-zA-Z0-9_\-.:]{1,128}$/;
