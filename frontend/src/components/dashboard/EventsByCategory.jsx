@@ -105,8 +105,8 @@ const EventsByCategory = ({ data }) => {
         {
           name: 'Events by Category',
           type: 'pie',
-          radius: ['24%', '40%'],
-          center: ['50%', '65%'],
+          radius: ['26%', '46%'],
+          center: ['50%', '60%'],
           avoidLabelOverlap: true,
           minAngle: 8,
           itemStyle: {
@@ -175,7 +175,7 @@ const EventsByCategory = ({ data }) => {
           {totalEvents.toLocaleString()} total events
         </div>
       </div>
-      <div style={{ padding: '16px 20px', height: '420px', width: '100%' }}>
+      <div style={{ padding: '16px 20px', height: '380px', width: '100%' }}>
         <ReactECharts
           ref={chartRef}
           option={{ ...option, animationDurationUpdate: 800 }}
