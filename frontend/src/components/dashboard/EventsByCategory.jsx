@@ -88,16 +88,16 @@ const EventsByCategory = ({ data }) => {
         left: 'center',
         width: '95%',
         icon: 'circle',
-        itemWidth: 10,
-        itemHeight: 10,
-        itemGap: 16,
+        itemWidth: 8,
+        itemHeight: 8,
+        itemGap: 14,
         formatter: (name) => {
           const item = seriesData.find(d => d.name === name);
           return item ? `${name} (${item.value.toLocaleString()})` : name;
         },
         textStyle: {
           color: textColor,
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: 600
         }
       },
@@ -105,30 +105,47 @@ const EventsByCategory = ({ data }) => {
         {
           name: 'Events by Category',
           type: 'pie',
-          radius: ['45%', '70%'],
-          center: ['50%', '58%'],
+          radius: ['24%', '40%'],
+          center: ['50%', '65%'],
           avoidLabelOverlap: true,
+          minAngle: 8,
           itemStyle: {
             borderRadius: 6,
             borderColor: surfaceColor,
             borderWidth: 2
           },
-          // Anti-slop / Taste skill rule: Rings are never labelled on the slices.
-          // Values and categories are cleanly displayed in the legend and tooltip.
           label: {
-            show: false
+            show: true,
+            position: 'outside',
+            formatter: '{b}',
+            fontSize: 11,
+            fontWeight: 600,
+            color: textColor
           },
           labelLine: {
-            show: false
+            show: true,
+            length: 8,
+            length2: 10,
+            smooth: 0.2,
+            lineStyle: {
+              color: isLight ? '#94a3b8' : '#64748b',
+              width: 1
+            }
           },
           emphasis: {
             scale: true,
             scaleSize: 6,
             label: {
-              show: false
+              show: true,
+              fontSize: 12,
+              fontWeight: 'bold',
+              color: textColor
             },
             labelLine: {
-              show: false
+              show: true,
+              lineStyle: {
+                width: 1.5
+              }
             }
           },
           data: seriesData
@@ -158,7 +175,7 @@ const EventsByCategory = ({ data }) => {
           {totalEvents.toLocaleString()} total events
         </div>
       </div>
-      <div style={{ padding: '16px 20px', height: '380px', width: '100%' }}>
+      <div style={{ padding: '16px 20px', height: '420px', width: '100%' }}>
         <ReactECharts
           ref={chartRef}
           option={{ ...option, animationDurationUpdate: 800 }}
