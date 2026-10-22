@@ -105,47 +105,30 @@ const EventsByCategory = ({ data }) => {
         {
           name: 'Events by Category',
           type: 'pie',
-          radius: ['40%', '64%'],
-          center: ['50%', '55%'],
+          radius: ['45%', '70%'],
+          center: ['50%', '58%'],
           avoidLabelOverlap: true,
           itemStyle: {
-            borderRadius: 8,
+            borderRadius: 6,
             borderColor: surfaceColor,
             borderWidth: 2
           },
-          // Small pointer line mentioning Category Name ONLY
+          // Anti-slop / Taste skill rule: Rings are never labelled on the slices.
+          // Values and categories are cleanly displayed in the legend and tooltip.
           label: {
-            show: true,
-            position: 'outside',
-            formatter: '{b}',
-            fontSize: 11,
-            fontWeight: 600,
-            color: textColor
+            show: false
           },
           labelLine: {
-            show: true,
-            length: 12,
-            length2: 12,
-            smooth: 0.2,
-            lineStyle: {
-              color: isLight ? '#94a3b8' : '#64748b',
-              width: 1.2
-            }
+            show: false
           },
           emphasis: {
             scale: true,
             scaleSize: 6,
             label: {
-              show: true,
-              fontSize: 12,
-              fontWeight: 'bold',
-              color: textColor
+              show: false
             },
             labelLine: {
-              show: true,
-              lineStyle: {
-                width: 2
-              }
+              show: false
             }
           },
           data: seriesData
