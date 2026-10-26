@@ -43,9 +43,9 @@ function getDbConnectionConfig(databaseName) {
     user,
     password,
     database: databaseName,
-    max: 10,
+    max: parseInt(process.env.AGG_DB_POOL_MAX || '40', 10),
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000
+    connectionTimeoutMillis: 10000
   };
 }
 

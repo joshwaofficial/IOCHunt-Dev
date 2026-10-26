@@ -9,6 +9,7 @@ const sseBroadcaster = require('../services/sseBroadcaster');
 const { detectNoise, classifySeverity, parseCategory, normalizeToUTC } = require('../utils/ingestHelpers');
 const { isAggregator } = require('../config/appMode');
 const syncService = require('../modules/aggregator/services/syncService');
+const crypto = require('crypto');
 const { isIdentifier, isString, sanitizeText } = require('../utils/inputValidator');
 
 async function ingestAgentLogs(req, res) {
@@ -83,38 +84,38 @@ async function ingestAgentLogs(req, res) {
     
     let uniqueRows = [];
     try {
-      // 1. Perform high-performance duplicate checking
-      if (rows.length <= 100) {
-        for (const r of rows) {
-          const dupRes = await client.query(
-            'SELECT 1 FROM events WHERE machine=$1 AND ts=$2 AND tag=$3 AND message=$4 LIMIT 1',
-            [r.machine, r.ts, r.tag, r.message]
-          );
-          if (dupRes.rowCount === 0) {
-            uniqueRows.push(r);
-          }
-        }
-      } else {
-        // Optimized bulk deduplication using timestamp window and hash lookup
+      // 1. Optimized bulk deduplication using timestamp window and hash lookup (single round-trip query)
+      if (rows.length > 0) {
         const timestamps = rows.map(r => r.ts).filter(Boolean);
-        const minTs = timestamps.reduce((a, b) => a < b ? a : b);
-        const maxTs = timestamps.reduce((a, b) => a > b ? a : b);
         const existingSet = new Set();
         
-        try {
-          const existingRes = await client.query(
-            'SELECT ts, tag, md5(message) as msg_hash FROM events WHERE machine=$1 AND ts >= $2 AND ts <= $3',
-            [machine, minTs, maxTs]
-          );
-          for (const er of existingRes.rows) {
-            existingSet.add(`${new Date(er.ts).toISOString()}|${er.tag}|${er.msg_hash}`);
+        const toIsoDate = (val) => {
+          try {
+            const d = new Date(val);
+            return isNaN(d.getTime()) ? String(val || '') : d.toISOString();
+          } catch (_) {
+            return String(val || '');
           }
-        } catch (_) {}
+        };
 
-        const crypto = require('crypto');
+        if (timestamps.length > 0) {
+          const minTs = timestamps.reduce((a, b) => a < b ? a : b);
+          const maxTs = timestamps.reduce((a, b) => a > b ? a : b);
+          
+          try {
+            const existingRes = await client.query(
+              'SELECT ts, tag, md5(message) as msg_hash FROM events WHERE machine=$1 AND ts >= $2 AND ts <= $3',
+              [machine, minTs, maxTs]
+            );
+            for (const er of existingRes.rows) {
+              existingSet.add(`${toIsoDate(er.ts)}|${er.tag}|${er.msg_hash}`);
+            }
+          } catch (_) {}
+        }
+
         for (const r of rows) {
           const msgHash = crypto.createHash('md5').update(r.message).digest('hex');
-          const key = `${new Date(r.ts).toISOString()}|${r.tag}|${msgHash}`;
+          const key = `${toIsoDate(r.ts)}|${r.tag}|${msgHash}`;
           if (!existingSet.has(key)) {
             existingSet.add(key);
             uniqueRows.push(r);
