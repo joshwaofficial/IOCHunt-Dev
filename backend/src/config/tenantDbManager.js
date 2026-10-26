@@ -267,6 +267,12 @@ async function getTenantPool(tenantId) {
     })();
   }
 
+  pool.on('connect', (client) => {
+    client.query("SET timezone = 'UTC'").catch((err) => {
+      console.error(`[TenantDB:${tenantId}] Error setting timezone to UTC:`, err.message);
+    });
+  });
+
   pool.on('error', (err) => {
     console.error(`[TenantDB:${tenantId}] Pool error:`, err.message);
   });

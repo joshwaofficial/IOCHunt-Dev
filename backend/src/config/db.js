@@ -52,6 +52,12 @@ if (process.env.DATABASE_SSL === 'true') {
 
 const pool = new Pool(poolConfig);
 
+pool.on('connect', (client) => {
+  client.query("SET timezone = 'UTC'").catch((err) => {
+    console.error('[DB] Error setting timezone to UTC:', err.message);
+  });
+});
+
 pool.on('error', (err) => {
   console.error('[DB] Unexpected error on idle PostgreSQL client:', err.message);
 });

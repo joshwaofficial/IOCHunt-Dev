@@ -885,7 +885,8 @@ async function buildReportDataAndPdf(options, queryFn = null) {
     machinesMap.set(targetMachine.name, targetMachine);
     machinesMap.set(targetMachine.id, targetMachine);
 
-    const isOnline = (Number(targetMachine.offline_seconds) || 0) <= 1800;
+    const offSec = Number(targetMachine.offline_seconds) || 0;
+    const isOnline = offSec >= -30 && offSec <= 1800;
     const totalFleet = 1;
     const activeFleet = isOnline ? 1 : 0;
     const inactiveFleet = isOnline ? 0 : 1;
@@ -943,11 +944,17 @@ async function buildReportDataAndPdf(options, queryFn = null) {
     });
 
     const totalFleet = allMachines.length;
-    const activeFleet = allMachines.filter(m => (Number(m.offline_seconds) || 0) <= 1800).length;
+    const activeFleet = allMachines.filter(m => {
+      const s = Number(m.offline_seconds) || 0;
+      return s >= -30 && s <= 1800;
+    }).length;
     const inactiveFleet = totalFleet - activeFleet;
 
     const staleList = allMachines
-      .filter(m => (Number(m.offline_seconds) || 0) > 1800)
+      .filter(m => {
+        const s = Number(m.offline_seconds) || 0;
+        return s > 1800 || s < -30;
+      })
       .sort((a, b) => (Number(b.offline_seconds) || 0) - (Number(a.offline_seconds) || 0))
       .slice(0, 6)
       .map(m => {

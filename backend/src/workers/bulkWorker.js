@@ -2,6 +2,26 @@ const { getRedisClient } = require('../config/redisClient');
 const tenantDbManager = require('../config/tenantDbManager');
 const { classifySeverity } = require('../utils/ingestHelpers');
 
+function toUtcSql(val) {
+  if (!val) return new Date().toISOString().slice(0, 19).replace('T', ' ');
+  let d;
+  if (val instanceof Date) {
+    d = val;
+  } else if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(trimmed)) {
+      return trimmed.replace('T', ' ');
+    }
+    d = new Date(trimmed);
+  } else {
+    d = new Date(val);
+  }
+  if (isNaN(d.getTime())) {
+    return new Date().toISOString().slice(0, 19).replace('T', ' ');
+  }
+  return d.toISOString().slice(0, 19).replace('T', ' ');
+}
+
 // Dedicated Redis connection for bulkWorker to ensure blocking stream operations (XREADGROUP ... BLOCK)
 // do not freeze the shared Redis TCP socket used by auth, rate limiting, and HTTP handlers.
 const redis = getRedisClient().duplicate();
@@ -170,25 +190,26 @@ async function processBatch(streamKey, messages) {
 
       if (data.machines && data.machines.length > 0) {
         for (const m of data.machines) {
-          const firstSeenDt = m.first_seen ? new Date(m.first_seen) : new Date();
-          const lastSeenDt = m.last_seen ? new Date(m.last_seen) : new Date();
+          const firstSeenStr = toUtcSql(m.first_seen);
+          const lastSeenStr = toUtcSql(m.last_seen);
 
           await client.query(`
             INSERT INTO machines (id, aggregator_name, name, label, first_seen, last_seen, os, ip, "user", event_count)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (id) DO UPDATE SET
+              aggregator_name = EXCLUDED.aggregator_name,
               last_seen = EXCLUDED.last_seen,
               ip = CASE WHEN EXCLUDED.ip != '' THEN EXCLUDED.ip ELSE machines.ip END,
               "user" = EXCLUDED."user",
               label = EXCLUDED.label,
-              event_count = machines.event_count + EXCLUDED.event_count
+              event_count = GREATEST(machines.event_count, EXCLUDED.event_count)
           `, [
             m.id || m.name || m.ip,
             m.aggregator_name || 'syslog',
             m.name || m.id || m.ip,
             m.label || m.name || m.id || m.ip,
-            isNaN(firstSeenDt.getTime()) ? new Date() : firstSeenDt,
-            isNaN(lastSeenDt.getTime()) ? new Date() : lastSeenDt,
+            firstSeenStr,
+            lastSeenStr,
             m.os || 'unknown',
             m.ip || '',
             m.user || 'system',

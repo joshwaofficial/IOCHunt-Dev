@@ -95,7 +95,9 @@ async function getClients(req, res) {
     const clients = [];
     for (const m of machines) {
       const lastSeenEpoch = m.last_seen ? Math.floor(new Date(m.last_seen).getTime() / 1000) : 0;
-      const isOnline = (now - lastSeenEpoch) <= 300; 
+      const diff = now - lastSeenEpoch;
+      // Online strictly if last_seen was in the last 300 seconds (5m) and not in the future (allowing up to 30s clock skew)
+      const isOnline = lastSeenEpoch > 0 && diff >= -30 && diff <= 300; 
 
       const activeIncidentCount = await req.queryTenant(
         `SELECT COUNT(DISTINCT i.id) as count 

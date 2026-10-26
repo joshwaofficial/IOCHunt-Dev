@@ -53,20 +53,21 @@ async function syncQueueToCentral() {
       // The loop will naturally terminate at the bottom since events.length < BATCH_SIZE.
 
       // 3. Prepare unique machine details
-      let machines = [];
-      if (events.length > 0) {
-        const machineIds = [...new Set(events.map(e => e.machine))];
-        const machinesRes = await client.query('SELECT * FROM machines WHERE id = ANY($1)', [machineIds]);
-        machines = machinesRes.rows.map(m => ({
-          name: m.id,
-          label: m.label || m.id,
-          first_seen: m.last_seen,
-          last_seen: m.last_seen,
-          os: m.os || 'unknown',
-          ip: m.ip || '',
-          user: m.user || 'system'
-        }));
-      }
+      // Always sync all registered machines from this aggregator node so Central Server
+      // receives accurate heartbeats, status, and metadata even when no new security events occur.
+      const machinesRes = await client.query('SELECT * FROM machines');
+      const machines = machinesRes.rows.map(m => ({
+        id: m.id,
+        name: m.name || m.id,
+        label: m.label || m.name || m.id,
+        aggregator_name: m.aggregator_name || process.env.AGGREGATOR_NAME || 'aggregator',
+        first_seen: m.first_seen ? new Date(m.first_seen).toISOString() : (m.last_seen ? new Date(m.last_seen).toISOString() : new Date().toISOString()),
+        last_seen: m.last_seen ? new Date(m.last_seen).toISOString() : new Date().toISOString(),
+        os: m.os || 'unknown',
+        ip: m.ip || '',
+        user: m.user || 'system',
+        event_count: m.event_count || 0
+      }));
 
       const agentCountRes = await client.query('SELECT COUNT(*) FROM machines');
       const totalAgents = parseInt(agentCountRes.rows[0].count, 10);

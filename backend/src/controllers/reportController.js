@@ -200,6 +200,8 @@ const generateReport = async (req, res) => {
 
       const lastSeenEpoch = m.last_seen ? Math.floor(new Date(m.last_seen).getTime() / 1000) : 0;
       const age = Math.floor(Date.now() / 1000) - lastSeenEpoch;
+      const effectiveAge = Math.max(0, age);
+      const isOnline = lastSeenEpoch > 0 && age >= -30 && age < 180;
       machineSummary.push({
         id: m.id, label: m.label || m.id, ip: m.ip || '',
         last_seen: m.last_seen,
@@ -207,8 +209,8 @@ const generateReport = async (req, res) => {
         lifetime_event_count: m.event_count || 0,
         critical: sv.critical || 0, high: sv.high || 0, medium: sv.medium || 0,
         low: sv.low || 0, info: sv.info || 0,
-        age_seconds: age,
-        status: age < 180 ? 'Online' : age < 600 ? 'Recent' : age < 3600 ? 'Away' : 'Offline',
+        age_seconds: effectiveAge,
+        status: isOnline ? 'Online' : (effectiveAge < 600 ? 'Recent' : (effectiveAge < 3600 ? 'Away' : 'Offline')),
       });
     }
 
@@ -290,7 +292,7 @@ const generateReport = async (req, res) => {
 
           const lastSeenEpoch = m.last_seen ? Math.floor(new Date(m.last_seen).getTime() / 1000) : 0;
           const age = Math.floor(Date.now() / 1000) - lastSeenEpoch;
-          const isOnline = age < 600;
+          const isOnline = lastSeenEpoch > 0 && age >= -30 && age < 600;
 
           let status = 'Compliant';
           let statusBadge = 'success'; // 'success', 'warning', 'danger', 'offline'
