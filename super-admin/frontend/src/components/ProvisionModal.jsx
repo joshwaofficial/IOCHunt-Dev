@@ -78,7 +78,7 @@ export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
                 {provisionedData ? 'Tenant Successfully Provisioned' : 'Provision Isolated Tenant Workspace'}
               </h3>
               <p style={{ fontSize: '12px', color: '#64748b' }}>
-                {provisionedData ? 'Secure deployment details generated' : 'Creates dedicated PostgreSQL schema & assigned Syslog port'}
+                {provisionedData ? 'Secure deployment details generated' : 'Provisions dedicated workspace & assigned Syslog port'}
               </p>
             </div>
           </div>
@@ -119,8 +119,8 @@ export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
                   <span style={{ color: '#64748b' }}>Tenant ID:</span>
                   <span className="font-mono" style={{ color: '#38bdf8' }}>{provisionedData.company_id}</span>
 
-                  <span style={{ color: '#64748b' }}>Database:</span>
-                  <span className="font-mono" style={{ color: '#94a3b8' }}>{provisionedData.db_name}</span>
+                  <span style={{ color: '#64748b' }}>Workspace ID:</span>
+                  <span className="font-mono" style={{ color: '#94a3b8' }}>{provisionedData.company_id}</span>
 
                   <span style={{ color: '#64748b' }}>Syslog Port:</span>
                   <span className="font-mono" style={{ color: '#10b981' }}>UDP :{provisionedData.syslog_port}</span>
@@ -173,7 +173,7 @@ export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">
                   <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Server size={13} /> Tenant Identifier (Slug & Database Name)
+                    <Server size={13} /> Tenant Identifier (Slug)
                   </span>
                 </label>
                 <input
@@ -185,9 +185,6 @@ export default function ProvisionModal({ isOpen, onClose, onSuccess }) {
                   required
                   disabled={isLoading}
                 />
-                <span style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                  Resulting DB: <code className="font-mono" style={{ color: '#94a3b8' }}>iochunt_tenant_{companyId || 'company'}</code>
-                </span>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>

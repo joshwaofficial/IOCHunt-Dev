@@ -130,7 +130,7 @@ export default function SystemHealth() {
             <table className="ent-table">
               <thead>
                 <tr>
-                  <th>Database Name</th>
+                  <th>Tenant Workspace</th>
                   <th>Disk Footprint</th>
                   <th>Status</th>
                 </tr>
@@ -140,7 +140,9 @@ export default function SystemHealth() {
                   healthData.postgres.databases.map((db, idx) => (
                     <tr key={idx}>
                       <td>
-                        <span className="badge-pill badge-neutral font-mono">{db.db_name}</span>
+                        <span className="badge-pill badge-neutral font-mono">
+                          {db.db_name?.replace(/^(iochunt_tenant_|iochunt_agg_|iochunt_)/, '') || db.db_name}
+                        </span>
                       </td>
                       <td className="font-mono tabular-nums" style={{ color: '#38bdf8', fontWeight: '500' }}>
                         {db.pretty_size}

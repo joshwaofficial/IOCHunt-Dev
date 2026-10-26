@@ -61,7 +61,7 @@ const Aggregators = () => {
       setPairingData(res.data);
       setFormData({ name: '', display_name: '' });
       fetchAggregators();
-      toast.success('Aggregator and separate database provisioned successfully!');
+      toast.success('Aggregator provisioned successfully!');
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to create aggregator');
     }
@@ -121,8 +121,8 @@ const Aggregators = () => {
           </h2>
           <p className="page-sub" style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '4px' }}>
             {isBranchAdmin 
-              ? `Connected to branch database: iochunt_agg_${user?.aggregator_name}`
-              : 'Manage regional branch aggregator nodes (each isolated in a dedicated PostgreSQL database).'}
+              ? `Connected to branch node: ${user?.display_name || user?.aggregator_name}`
+              : 'Manage regional branch aggregator nodes and synchronization status.'}
           </p>
         </div>
         {isCentralAdmin && (
@@ -146,7 +146,7 @@ const Aggregators = () => {
         <div className="empty" style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px dashed var(--border2)', padding: '40px 20px', textAlign: 'center', marginTop: '24px' }}>
           <Server size={32} style={{ color: '#64748b', margin: '0 auto 12px' }} />
           <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text)', marginBottom: '4px' }}>No Branch Aggregators Registered</div>
-          <div style={{ fontSize: '12px', color: 'var(--muted)' }}>Create an aggregator (e.g. Branch-1, Branch-2, Branch-3) to provision its database and generate a pairing key.</div>
+          <div style={{ fontSize: '12px', color: 'var(--muted)' }}>Create an aggregator (e.g. Branch-1, Branch-2, Branch-3) to generate a pairing key.</div>
         </div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', overflow: 'hidden', marginTop: '24px' }}>
@@ -161,7 +161,7 @@ const Aggregators = () => {
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border)', background: 'linear-gradient(90deg, rgba(37,99,235,0.06) 0%, rgba(37,99,235,0) 100%)' }}>
                   <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Branch / Node Name</th>
-                  <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Dedicated Database</th>
+                  <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Aggregator ID</th>
                   <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Status</th>
                   <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Agents</th>
                   <th style={{ padding: '12px 16px', fontSize: '10px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '1px', textAlign: 'left' }}>Last Sync</th>
@@ -196,12 +196,13 @@ const Aggregators = () => {
                           <Server size={18} style={{ color: badge.color }} />
                           <div>
                             <div>{agg.display_name || agg.name}</div>
-                            <div style={{ fontSize: '10px', color: '#64748b', fontFamily: 'monospace' }}>ID: {agg.name}</div>
                           </div>
                         </div>
                       </td>
                       <td style={{ padding: '14px 16px', fontSize: '11px', color: '#818cf8', fontFamily: 'monospace' }}>
-                        {agg.database_name || `iochunt_agg_${agg.name}`}
+                        <span style={{ background: 'rgba(129, 140, 248, 0.08)', padding: '3px 8px', borderRadius: '4px' }}>
+                          {agg.name}
+                        </span>
                       </td>
                       <td style={{ padding: '14px 16px' }}>
                         <span style={{ 
@@ -269,7 +270,7 @@ const Aggregators = () => {
             </h3>
             <p style={{ margin: '0 0 20px', fontSize: '13px', color: 'var(--muted)', lineHeight: 1.5 }}>
               {!pairingData 
-                ? 'Creates a separate PostgreSQL database and generates a secure handshake pairing code.' 
+                ? 'Creates a regional branch aggregator node and generates a secure handshake pairing code.' 
                 : 'Enter this code in your branch aggregator setup wizard or settings to establish TLS sync.'}
             </p>
 
@@ -287,7 +288,6 @@ const Aggregators = () => {
                     placeholder="e.g. branch_1 or branch_mumbai"
                     style={{ width: '100%', boxSizing: 'border-box', background: '#090d16', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', outline: 'none', fontFamily: 'monospace' }}
                   />
-                  <span style={{ fontSize: '10px', color: '#64748b' }}>PostgreSQL database will be named <code>iochunt_agg_{formData.name || '...'}</code></span>
                 </div>
 
                 <div>
@@ -394,7 +394,7 @@ const Aggregators = () => {
                   Branch Logs: {selectedAggForLogs.display_name || selectedAggForLogs.name}
                 </h3>
                 <span style={{ fontSize: '11px', background: 'rgba(59,130,246,0.15)', color: '#60a5fa', padding: '2px 8px', borderRadius: '4px', fontFamily: 'monospace' }}>
-                  {selectedAggForLogs.database_name}
+                  ID: {selectedAggForLogs.name}
                 </span>
               </div>
               <button 

@@ -72,7 +72,7 @@ export default function Dashboard() {
             Control Plane Overview
           </h1>
           <p style={{ fontSize: '13px', color: '#94a3b8' }}>
-            Central multi-tenant telemetry, database cluster metrics, and fleet statistics
+            Central multi-tenant telemetry, cluster metrics, and fleet statistics
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -153,7 +153,7 @@ export default function Dashboard() {
               <h2 style={{ fontSize: '14px', fontWeight: '600', color: '#f8fafc', margin: 0 }}>
                 Recent Tenant Deployments
               </h2>
-              <span style={{ fontSize: '12px', color: '#64748b' }}>Showing up to 6 recently provisioned tenant databases</span>
+              <span style={{ fontSize: '12px', color: '#64748b' }}>Showing up to 6 recently provisioned tenant workspaces</span>
             </div>
             <button className="btn btn-ghost" onClick={() => navigate('/tenants')} style={{ fontSize: '12px', padding: '4px 8px' }}>
               View All ({companies.length}) <ChevronRight size={13} />
@@ -172,7 +172,7 @@ export default function Dashboard() {
                 <thead>
                   <tr>
                     <th>Tenant Organization</th>
-                    <th>Database Identifier</th>
+                    <th>Tenant Identifier</th>
                     <th>Status</th>
                     <th>Syslog Port</th>
                   </tr>

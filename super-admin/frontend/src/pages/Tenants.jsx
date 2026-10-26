@@ -100,7 +100,7 @@ export default function Tenants() {
             Managed Tenants Directory
           </h1>
           <p style={{ fontSize: '13px', color: '#94a3b8' }}>
-            Multi-tenant PostgreSQL database allocations, Syslog ports, and organization status controls
+            Multi-tenant workspaces, Syslog ports, and organization status controls
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -165,7 +165,7 @@ export default function Tenants() {
             <thead>
               <tr>
                 <th>Tenant Organization</th>
-                <th>Database & Subdomain</th>
+                <th>Tenant Slug / ID</th>
                 <th>Status</th>
                 <th>Syslog Listener</th>
                 <th>Enrolled Agents</th>
@@ -284,7 +284,7 @@ export default function Tenants() {
                 </div>
                 <div>
                   <h3 style={{ fontSize: '15px', fontWeight: '600', color: '#f8fafc' }}>Permanent Tenant Destruction</h3>
-                  <p style={{ fontSize: '12px', color: '#64748b' }}>Irreversible database purge action</p>
+                  <p style={{ fontSize: '12px', color: '#64748b' }}>Irreversible tenant deletion</p>
                 </div>
               </div>
               <button
@@ -298,7 +298,7 @@ export default function Tenants() {
 
             <div className="modal-body">
               <p style={{ color: '#94a3b8', fontSize: '13px', lineHeight: '1.5', marginBottom: '14px' }}>
-                You are about to permanently drop the database <strong>iochunt_tenant_{deleteConfirm.companyId}</strong> for <strong>{deleteConfirm.companyName}</strong>. All associated event logs, machine groups, and policies will be wiped.
+                You are about to permanently delete the tenant workspace for <strong>{deleteConfirm.companyName}</strong> (ID: <strong>{deleteConfirm.companyId}</strong>). All associated event logs, machine groups, and policies will be wiped.
               </p>
 
               {deleteConfirm.error && (
@@ -345,7 +345,7 @@ export default function Tenants() {
                 onClick={handleDelete}
                 disabled={deleteConfirm.isDeleting || deleteConfirm.confirmText !== deleteConfirm.companyId}
               >
-                {deleteConfirm.isDeleting ? 'Dropping DB...' : 'Erase Database & Tenant'}
+                {deleteConfirm.isDeleting ? 'Deleting...' : 'Delete Tenant'}
               </button>
             </div>
           </div>

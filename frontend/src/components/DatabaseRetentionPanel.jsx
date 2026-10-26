@@ -10,7 +10,7 @@ export default function DatabaseRetentionPanel({
   initialTarget,
   readOnlyTarget = false,
   hideTargetScope = false,
-  title = 'Database Data Retention & Expiration',
+  title = 'Data Retention & Expiration',
   subtitle = 'Configure automated lifecycle retention or manually purge historical events and firewall logs older than a specified period.'
 }) {
   const { user } = useAuth();
@@ -164,8 +164,8 @@ export default function DatabaseRetentionPanel({
     const count = isEvents ? (retentionStatus?.expired_counts?.events || 0) : (retentionStatus?.expired_counts?.fw_events || 0);
     const cutoffStr = isEvents ? (retentionStatus?.events_cutoff_utc || `${days} days ago`) : (retentionStatus?.fw_cutoff_utc || `${days} days ago`);
     const targetName = isAggregatorMode
-      ? 'this local aggregator database'
-      : (retentionStatus?.available_databases?.find(d => d.id === selectedTargetDb)?.name || selectedTargetDb || 'this database');
+      ? 'this local aggregator node'
+      : (retentionStatus?.available_databases?.find(d => d.id === selectedTargetDb)?.name || selectedTargetDb || 'this workspace');
     const label = isEvents ? 'Endpoint Security Events' : 'Firewall Connection Logs';
     const tableName = isEvents ? 'events' : 'fw_events';
     const oppositeType = isEvents ? 'Firewall logs (fw_events)' : 'Endpoint events (events)';
@@ -264,8 +264,8 @@ export default function DatabaseRetentionPanel({
               gap: '6px'
             }}>
               <Database size={12} />
-              Aggregator DB: <b style={{ color: 'var(--text)' }}>
-                {retentionStatus?.available_databases?.[0]?.db_name || (retentionStatus?.target ? `iochunt_agg_${retentionStatus.target}` : 'iochunt_agg_aggregator')}
+              Aggregator Node: <b style={{ color: 'var(--text)' }}>
+                {retentionStatus?.target || (retentionStatus?.available_databases?.[0]?.name ? retentionStatus.available_databases[0].name.replace(/^Branch Aggregator:\s*/, '') : '') || user?.aggregator_name || 'Node'}
               </b>
             </span>
           )}
@@ -317,14 +317,14 @@ export default function DatabaseRetentionPanel({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11.5px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text)', fontFamily: 'var(--mono)', margin: 0 }}>
               <Database size={15} style={{ color: '#818cf8' }} />
-              Target Database Scope (Central Server & Branch Aggregators)
+              Target Scope (Central Server & Branch Aggregators)
             </label>
             <span style={{ fontSize: '10.5px', color: 'var(--muted)', fontFamily: 'monospace' }}>
               Tenant: <b style={{ color: 'var(--accent)' }}>{user?.tenant_id || user?.company_name || 'Current Workspace'}</b>
             </span>
           </div>
           <p style={{ fontSize: '11px', color: 'var(--muted)', margin: '0 0 10px' }}>
-            Select which database to inspect and expire historical telemetry from. Each database maintains an independent retention policy:
+            Select which node or workspace to inspect and expire historical telemetry from. Each maintains an independent retention policy:
           </p>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
             {!readOnlyTarget ? (
@@ -348,7 +348,7 @@ export default function DatabaseRetentionPanel({
                 ) : (
                   (retentionStatus?.available_databases || []).map(db => (
                     <option key={db.id} value={db.id}>
-                      {db.name} {db.db_name && db.db_name !== db.name ? `[${db.db_name}]` : ''}
+                      {db.name}
                     </option>
                   ))
                 )}
@@ -369,8 +369,8 @@ export default function DatabaseRetentionPanel({
               </div>
             )}
             <div style={{ fontSize: '11px', color: 'var(--muted2)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              Active Database: <b style={{ color: '#818cf8', fontFamily: 'monospace' }}>
-                {retentionStatus?.available_databases?.find(d => d.id === selectedTargetDb)?.db_name || selectedTargetDb || 'None'}
+              Active Scope: <b style={{ color: '#818cf8', fontFamily: 'monospace' }}>
+                {retentionStatus?.available_databases?.find(d => d.id === selectedTargetDb)?.name || selectedTargetDb || 'Central'}
               </b>
             </div>
           </div>

@@ -302,7 +302,7 @@ export default function AggregatorSettings() {
 
       {/* Full Database Data Retention & Expiration Panel for Aggregator */}
       <DatabaseRetentionPanel
-        title="Branch Database Data Retention & Expiration"
+        title="Branch Data Retention & Expiration"
         subtitle="Configure automated local retention policies or manually purge historical events and firewall logs from this aggregator node."
         hideTargetScope={true}
       />
