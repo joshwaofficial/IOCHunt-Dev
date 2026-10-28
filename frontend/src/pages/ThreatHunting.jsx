@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
-  Radar, Shield, ShieldAlert, Key, RefreshCw, Database, 
-  ExternalLink, Copy, Check, Eye, EyeOff, Search, Filter, 
-  AlertTriangle, Server, ArrowUpRight, Activity, Cpu, CheckCircle2,
-  Clock, Hash, Globe, Layers
+  Radar, Key, RefreshCw, Database, 
+  ExternalLink, Copy, Check, Eye, EyeOff, Search,
+  Server, CheckCircle2, ShieldAlert
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
+import PremiumCard from '../components/PremiumCard';
 
 export default function ThreatHunting() {
   const { user } = useAuth();
@@ -22,6 +22,7 @@ export default function ThreatHunting() {
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [selectedFeeds, setSelectedFeeds] = useState({
     threatfox: true,
     malwarebazaar: true,
@@ -92,7 +93,7 @@ export default function ThreatHunting() {
       setMatchesTotalPages(res.data.totalPages || 1);
     } catch (err) {
       console.error(err);
-      toast.error('Failed to load threat detection matches');
+      toast.error(err.response?.data?.details || err.response?.data?.error || 'Failed to load threat detection matches');
     } finally {
       setMatchesLoading(false);
     }
@@ -117,7 +118,7 @@ export default function ThreatHunting() {
       setIndicatorsTotalPages(res.data.totalPages || 1);
     } catch (err) {
       console.error(err);
-      toast.error('Failed to load threat indicators');
+      toast.error(err.response?.data?.error || 'Failed to load threat indicators');
     } finally {
       setIndicatorsLoading(false);
     }
@@ -165,14 +166,17 @@ export default function ThreatHunting() {
   // Handle Manual Sync
   const handleManualSync = async () => {
     try {
+      setIsSyncing(true);
       const res = await axios.post('/api/threat-hunting/sync-now');
       toast.success(res.data.message || 'Threat intelligence sync started in background!');
       setTimeout(() => {
         fetchStatus();
         if (activeTab === 'matches') fetchMatches(matchesPage);
         else fetchIndicators(indicatorsPage);
+        setIsSyncing(false);
       }, 3000);
     } catch (err) {
+      setIsSyncing(false);
       toast.error(err.response?.data?.error || 'Failed to trigger sync');
     }
   };
@@ -189,52 +193,59 @@ export default function ThreatHunting() {
   if (loading) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '16px' }}>
-        <div style={{ width: '40px', height: '40px', border: '3px solid rgba(59,130,246,0.2)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-        <p style={{ color: '#94a3b8', fontSize: '14px' }}>Loading Threat Hunting Engine...</p>
+        <div style={{ width: '36px', height: '36px', border: '3px solid rgba(59,130,246,0.2)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        <p style={{ color: 'var(--muted)', fontSize: '13px', fontWeight: 600 }}>Loading Threat Hunting Engine...</p>
       </div>
     );
   }
 
   // ════════════════════════════════════════════════════════════════
-  // 1. SETUP WIZARD (If No API Key is Configured)
+  // 1. SETUP WIZARD (When API Key is not configured)
   // ════════════════════════════════════════════════════════════════
   if (!status?.configured) {
     return (
-      <div style={{ maxWidth: '850px', margin: '40px auto', padding: '0 20px' }}>
+      <div style={{ maxWidth: '820px', margin: '40px auto', padding: '0 20px', width: '100%' }}>
         {/* Header Hero */}
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div style={{ display: 'inline-flex', padding: '14px', borderRadius: '16px', background: 'rgba(37,99,235,0.12)', border: '1px solid rgba(37,99,235,0.3)', marginBottom: '16px' }}>
-            <Radar size={36} color="#60a5fa" />
+        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+          <div style={{ 
+            display: 'inline-flex', 
+            padding: '16px', 
+            borderRadius: '20px', 
+            background: 'rgba(37,99,235,0.08)', 
+            border: '1px solid rgba(37,99,235,0.2)', 
+            marginBottom: '16px' 
+          }}>
+            <Radar size={40} color="#3b82f6" />
           </div>
-          <h1 style={{ fontSize: '28px', fontWeight: '700', color: '#f8fafc', marginBottom: '8px', letterSpacing: '-0.02em' }}>
+          <h1 style={{ fontSize: '26px', fontWeight: 800, color: 'var(--text)', marginBottom: '8px', letterSpacing: '-0.5px' }}>
             Automated Threat Intelligence & Hunting
           </h1>
-          <p style={{ color: '#94a3b8', fontSize: '15px', maxWidth: '640px', margin: '0 auto', lineHeight: '1.6' }}>
-            Connect verified threat intelligence feeds to automatically scan network logs and endpoint processes across all 500+ systems in real-time with nanosecond in-memory matching.
+          <p style={{ color: 'var(--muted2)', fontSize: '14px', maxWidth: '620px', margin: '0 auto', lineHeight: '1.6' }}>
+            Connect verified threat feeds to automatically scan network logs and endpoint processes across all 500+ systems in real-time with nanosecond in-memory matching.
           </p>
         </div>
 
         {/* Setup Card */}
         <div style={{
-          background: 'rgba(17,24,39,0.7)',
-          border: '1px solid rgba(255,255,255,0.08)',
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
           borderRadius: '16px',
           padding: '32px',
-          backdropFilter: 'blur(12px)',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.4)'
+          boxShadow: '0 8px 32px rgba(0,0,0,0.04)',
+          position: 'relative'
         }}>
           <form onSubmit={handleSaveConfig}>
             {/* Step 1: Abuse.ch Key */}
             <div style={{ marginBottom: '24px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <label style={{ fontSize: '14px', fontWeight: '600', color: '#f1f5f9', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   <Key size={16} color="#3b82f6" /> Abuse.ch ThreatFox Auth-Key
                 </label>
                 <a 
                   href="https://threatfox.abuse.ch/" 
                   target="_blank" 
                   rel="noreferrer"
-                  style={{ fontSize: '13px', color: '#60a5fa', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  style={{ fontSize: '12px', color: '#3b82f6', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}
                 >
                   Get Free Key <ExternalLink size={12} />
                 </a>
@@ -248,12 +259,12 @@ export default function ThreatHunting() {
                   style={{
                     width: '100%',
                     padding: '12px 42px 12px 14px',
-                    background: 'rgba(11,19,38,0.8)',
-                    border: '1px solid rgba(255,255,255,0.12)',
+                    background: 'var(--surface2)',
+                    border: '1px solid var(--border)',
                     borderRadius: '8px',
-                    color: '#f8fafc',
+                    color: 'var(--text)',
                     fontSize: '14px',
-                    fontFamily: 'monospace',
+                    fontFamily: 'var(--mono)',
                     outline: 'none',
                     boxSizing: 'border-box'
                   }}
@@ -269,7 +280,7 @@ export default function ThreatHunting() {
                     transform: 'translateY(-50%)',
                     background: 'none',
                     border: 'none',
-                    color: '#64748b',
+                    color: 'var(--muted)',
                     cursor: 'pointer',
                     padding: '4px'
                   }}
@@ -277,76 +288,76 @@ export default function ThreatHunting() {
                   {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
-              <p style={{ fontSize: '12px', color: '#64748b', marginTop: '6px' }}>
-                Key is tested live with Abuse.ch, encrypted using <strong>AES-256-GCM</strong>, and stored securely on Central Server.
+              <p style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '8px', lineHeight: '1.4' }}>
+                Key is validated live with Abuse.ch, encrypted using <strong>AES-256-GCM</strong>, and stored securely on Central Server.
               </p>
             </div>
 
             {/* Step 2: Feeds Selection */}
-            <div style={{ marginBottom: '28px' }}>
-              <label style={{ fontSize: '14px', fontWeight: '600', color: '#f1f5f9', display: 'block', marginBottom: '12px' }}>
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', display: 'block', marginBottom: '12px', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Feeds Included in Real-Time Engine
               </label>
               
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
                 {/* ThreatFox */}
                 <div style={{
-                  padding: '14px',
+                  padding: '16px',
                   borderRadius: '10px',
-                  background: 'rgba(255,255,255,0.03)',
-                  border: '1px solid rgba(255,255,255,0.08)'
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)'
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                    <span style={{ fontWeight: '600', fontSize: '14px', color: '#e2e8f0' }}>ThreatFox C2</span>
-                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(37,99,235,0.2)', color: '#60a5fa' }}>Auth-Key</span>
+                    <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text)' }}>ThreatFox C2</span>
+                    <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: 'rgba(59,130,246,0.15)', color: '#3b82f6', fontFamily: 'var(--mono)' }}>Auth-Key</span>
                   </div>
-                  <p style={{ fontSize: '12px', color: '#94a3b8', margin: 0 }}>C2 IP Addresses, Botnet Domains & Hash Indicators.</p>
+                  <p style={{ fontSize: '12px', color: 'var(--muted2)', margin: 0, lineHeight: '1.4' }}>C2 IP Addresses, Botnet Domains & Hash Indicators.</p>
                 </div>
 
                 {/* MalwareBazaar */}
                 <div style={{
-                  padding: '14px',
+                  padding: '16px',
                   borderRadius: '10px',
-                  background: 'rgba(255,255,255,0.03)',
-                  border: '1px solid rgba(255,255,255,0.08)'
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)'
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                    <span style={{ fontWeight: '600', fontSize: '14px', color: '#e2e8f0' }}>MalwareBazaar</span>
-                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(34,197,94,0.2)', color: '#4ade80' }}>Free Feed</span>
+                    <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text)' }}>MalwareBazaar</span>
+                    <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontFamily: 'var(--mono)' }}>Free Feed</span>
                   </div>
-                  <p style={{ fontSize: '12px', color: '#94a3b8', margin: 0 }}>Known Malicious Executable Binary SHA256 Hashes.</p>
+                  <p style={{ fontSize: '12px', color: 'var(--muted2)', margin: 0, lineHeight: '1.4' }}>Known Malicious Executable Binary SHA256 Hashes.</p>
                 </div>
 
                 {/* URLhaus */}
                 <div style={{
-                  padding: '14px',
+                  padding: '16px',
                   borderRadius: '10px',
-                  background: 'rgba(255,255,255,0.03)',
-                  border: '1px solid rgba(255,255,255,0.08)'
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)'
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                    <span style={{ fontWeight: '600', fontSize: '14px', color: '#e2e8f0' }}>URLhaus</span>
-                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(34,197,94,0.2)', color: '#4ade80' }}>Free Feed</span>
+                    <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text)' }}>URLhaus</span>
+                    <span style={{ fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontFamily: 'var(--mono)' }}>Free Feed</span>
                   </div>
-                  <p style={{ fontSize: '12px', color: '#94a3b8', margin: 0 }}>Malicious Distribution Hostnames and IP Addresses.</p>
+                  <p style={{ fontSize: '12px', color: 'var(--muted2)', margin: 0, lineHeight: '1.4' }}>Malicious Distribution Hostnames and IP Addresses.</p>
                 </div>
               </div>
             </div>
 
             {/* Architecture Banner */}
             <div style={{
-              background: 'rgba(59,130,246,0.06)',
+              background: 'rgba(59,130,246,0.05)',
               border: '1px solid rgba(59,130,246,0.2)',
               borderRadius: '10px',
-              padding: '14px 18px',
+              padding: '14px 16px',
               display: 'flex',
               gap: '12px',
               alignItems: 'flex-start',
-              marginBottom: '28px'
+              marginBottom: '24px'
             }}>
-              <Server size={20} color="#60a5fa" style={{ flexShrink: 0, marginTop: '2px' }} />
-              <div style={{ fontSize: '13px', color: '#94a3b8', lineHeight: '1.5' }}>
-                <strong style={{ color: '#e2e8f0' }}>Single-Point Architecture:</strong> Entered once here on the Central Server. Branch Aggregators do not need an API key; they forward compressed syslog and endpoint logs to Central where they are matched against Node.js process RAM in 5 nanoseconds.
+              <Server size={18} color="#3b82f6" style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div style={{ fontSize: '12px', color: 'var(--muted2)', lineHeight: '1.5' }}>
+                <strong style={{ color: 'var(--text)' }}>Single-Point Architecture:</strong> Entered once here on Central Server. Branch Aggregators do not need an API key; they forward compressed syslog and endpoint logs to Central where they are matched against Node.js process RAM in 5 nanoseconds.
               </div>
             </div>
 
@@ -356,36 +367,37 @@ export default function ThreatHunting() {
               disabled={isVerifying || !isAdmin}
               style={{
                 width: '100%',
-                padding: '14px',
+                padding: '13px',
                 borderRadius: '8px',
                 border: 'none',
-                background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                background: '#2563eb',
                 color: '#ffffff',
-                fontWeight: '600',
-                fontSize: '15px',
+                fontWeight: 700,
+                fontSize: '14px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '8px',
                 cursor: (isVerifying || !isAdmin) ? 'not-allowed' : 'pointer',
                 opacity: (isVerifying || !isAdmin) ? 0.7 : 1,
-                boxShadow: '0 4px 14px rgba(37,99,235,0.4)',
-                transition: 'all 0.2s'
+                boxShadow: '0 2px 8px rgba(37,99,235,0.3)',
+                transition: 'all 0.2s',
+                fontFamily: 'var(--sans)'
               }}
             >
               {isVerifying ? (
                 <>
-                  <div style={{ width: '18px', height: '18px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                  <div style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
                   Verifying with Abuse.ch & Encrypting...
                 </>
               ) : (
                 <>
-                  <Shield size={18} /> Verify, Encrypt & Activate Threat Engine
+                  <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>lock</span> Verify, Encrypt & Activate Threat Engine
                 </>
               )}
             </button>
             {!isAdmin && (
-              <p style={{ fontSize: '12px', color: '#f87171', textAlign: 'center', marginTop: '10px' }}>
+              <p style={{ fontSize: '12px', color: '#ef4444', textAlign: 'center', marginTop: '10px' }}>
                 * Admin permissions required to configure Threat Intelligence.
               </p>
             )}
@@ -396,40 +408,48 @@ export default function ThreatHunting() {
   }
 
   // ════════════════════════════════════════════════════════════════
-  // 2. ACTIVE DASHBOARD MODE (API Key Configured)
+  // 2. ACTIVE DASHBOARD MODE
   // ════════════════════════════════════════════════════════════════
   return (
-    <div style={{ padding: '24px', maxWidth: '1600px', margin: '0 auto' }}>
-      {/* Header Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
+    <div style={{ width: '100%', paddingBottom: '40px', position: 'relative' }}>
+      {/* Top Header */}
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'flex-start', 
+        flexWrap: 'wrap', 
+        gap: '16px', 
+        marginBottom: '20px' 
+      }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <h1 style={{ fontSize: '24px', fontWeight: '700', color: '#f8fafc', margin: 0, letterSpacing: '-0.02em' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h1 style={{ fontSize: '22px', fontWeight: 900, color: 'var(--text)', margin: 0, letterSpacing: '-0.5px' }}>
               Threat Hunting & Threat Intelligence
             </h1>
             <div style={{
               display: 'inline-flex',
               alignItems: 'center',
               gap: '6px',
-              padding: '4px 10px',
+              padding: '3px 8px',
               borderRadius: '20px',
-              background: 'rgba(34,197,94,0.12)',
-              border: '1px solid rgba(34,197,94,0.3)',
-              color: '#4ade80',
-              fontSize: '12px',
-              fontWeight: '600'
+              background: 'rgba(34,197,94,0.1)',
+              border: '1px solid rgba(34,197,94,0.25)',
+              color: '#22c55e',
+              fontSize: '11px',
+              fontWeight: 700,
+              fontFamily: 'var(--mono)'
             }}>
-              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#4ade80', display: 'inline-block' }} />
-              Live Ingestion Active
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
+              LIVE INGESTION
             </div>
           </div>
-          <p style={{ color: '#94a3b8', fontSize: '14px', marginTop: '4px', marginBottom: 0 }}>
+          <p style={{ color: 'var(--muted2)', fontSize: '13px', marginTop: '4px', marginBottom: 0 }}>
             Real-time ThreatFox, MalwareBazaar & URLhaus matching across all 500+ endpoints & branch firewalls.
           </p>
         </div>
 
         {/* Action Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {isAdmin && (
             <button
               onClick={() => setShowSettingsModal(true)}
@@ -437,155 +457,116 @@ export default function ThreatHunting() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '8px 14px',
-                borderRadius: '8px',
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                color: '#cbd5e1',
-                fontSize: '13px',
-                cursor: 'pointer'
+                padding: '7px 12px',
+                borderRadius: '6px',
+                background: 'var(--surface2)',
+                border: '1px solid var(--border)',
+                color: 'var(--text)',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s'
               }}
             >
-              <Key size={15} /> Feed Settings
+              <Key size={14} /> Feed Settings
             </button>
           )}
 
           <button
             onClick={handleManualSync}
+            disabled={isSyncing}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              padding: '8px 14px',
-              borderRadius: '8px',
-              background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+              padding: '7px 14px',
+              borderRadius: '6px',
+              background: '#2563eb',
               border: 'none',
               color: '#ffffff',
-              fontSize: '13px',
-              fontWeight: '500',
-              cursor: 'pointer',
-              boxShadow: '0 2px 8px rgba(37,99,235,0.3)'
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: isSyncing ? 'not-allowed' : 'pointer',
+              boxShadow: '0 2px 6px rgba(37,99,235,0.3)',
+              transition: 'all 0.2s',
+              opacity: isSyncing ? 0.7 : 1
             }}
           >
-            <RefreshCw size={14} /> Sync Feeds Now
+            <RefreshCw size={13} style={{ animation: isSyncing ? 'spin 1s linear infinite' : 'none' }} />
+            {isSyncing ? 'Syncing...' : 'Sync Feeds Now'}
           </button>
         </div>
       </div>
 
-      {/* 4 Stat Metric Cards */}
+      {/* 4 Premium Metric Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-        {/* Total Indicators */}
-        <div style={{
-          background: 'rgba(17,24,39,0.7)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '12px',
-          padding: '20px',
-          backdropFilter: 'blur(8px)'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-            <span style={{ fontSize: '13px', color: '#94a3b8', fontWeight: '500' }}>RAM Indicators Cached</span>
-            <div style={{ padding: '6px', borderRadius: '8px', background: 'rgba(37,99,235,0.15)', color: '#60a5fa' }}>
-              <Cpu size={18} />
-            </div>
-          </div>
-          <div style={{ fontSize: '26px', fontWeight: '700', color: '#f8fafc' }}>
-            {status?.stats?.total_iocs?.toLocaleString() || '0'}
-          </div>
-          <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <span style={{ color: '#4ade80' }}>0.000005 ms</span> per event lookup (~8 MB RAM)
-          </div>
-        </div>
-
-        {/* Matches Last 24 Hours */}
-        <div style={{
-          background: 'rgba(17,24,39,0.7)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '12px',
-          padding: '20px',
-          backdropFilter: 'blur(8px)'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-            <span style={{ fontSize: '13px', color: '#94a3b8', fontWeight: '500' }}>Threat Matches (24h)</span>
-            <div style={{ padding: '6px', borderRadius: '8px', background: 'rgba(239,68,68,0.15)', color: '#f87171' }}>
-              <ShieldAlert size={18} />
-            </div>
-          </div>
-          <div style={{ fontSize: '26px', fontWeight: '700', color: status?.stats?.matches_today > 0 ? '#f87171' : '#f8fafc' }}>
-            {status?.stats?.matches_today?.toLocaleString() || '0'}
-          </div>
-          <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
-            Flagged with CRITICAL severity & [THREAT DANGER]
-          </div>
-        </div>
-
-        {/* Malicious IPs & Domains */}
-        <div style={{
-          background: 'rgba(17,24,39,0.7)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '12px',
-          padding: '20px',
-          backdropFilter: 'blur(8px)'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-            <span style={{ fontSize: '13px', color: '#94a3b8', fontWeight: '500' }}>Malicious C2 IPs & Domains</span>
-            <div style={{ padding: '6px', borderRadius: '8px', background: 'rgba(168,85,247,0.15)', color: '#c084fc' }}>
-              <Globe size={18} />
-            </div>
-          </div>
-          <div style={{ fontSize: '26px', fontWeight: '700', color: '#f8fafc' }}>
-            {((status?.stats?.ips || 0) + (status?.stats?.domains || 0)).toLocaleString()}
-          </div>
-          <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
-            {status?.stats?.ips?.toLocaleString() || 0} IPs · {status?.stats?.domains?.toLocaleString() || 0} Domains
-          </div>
-        </div>
-
-        {/* Malware Hashes */}
-        <div style={{
-          background: 'rgba(17,24,39,0.7)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '12px',
-          padding: '20px',
-          backdropFilter: 'blur(8px)'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-            <span style={{ fontSize: '13px', color: '#94a3b8', fontWeight: '500' }}>Executable Hashes (SHA256)</span>
-            <div style={{ padding: '6px', borderRadius: '8px', background: 'rgba(234,179,8,0.15)', color: '#facc15' }}>
-              <Hash size={18} />
-            </div>
-          </div>
-          <div style={{ fontSize: '26px', fontWeight: '700', color: '#f8fafc' }}>
-            {status?.stats?.hashes?.toLocaleString() || '0'}
-          </div>
-          <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
-            60-Day rolling retention auto-purged
-          </div>
-        </div>
+        <PremiumCard
+          label="RAM Indicators Cached"
+          value={status?.stats?.total_iocs?.toLocaleString() || '0'}
+          color="#3b82f6"
+          icon="memory"
+          subtitle="0.000005 ms per event lookup (~8 MB RAM)"
+        />
+        <PremiumCard
+          label="Threat Matches (24h)"
+          value={status?.stats?.matches_today?.toLocaleString() || '0'}
+          color="#ef4444"
+          icon="crisis_alert"
+          subtitle="Flagged CRITICAL with [THREAT DANGER]"
+        />
+        <PremiumCard
+          label="Malicious C2 IPs & Domains"
+          value={((status?.stats?.ips || 0) + (status?.stats?.domains || 0)).toLocaleString()}
+          color="#a855f7"
+          icon="public"
+          subtitle={`${status?.stats?.ips?.toLocaleString() || 0} IPs · ${status?.stats?.domains?.toLocaleString() || 0} Domains`}
+        />
+        <PremiumCard
+          label="Executable Hashes (SHA256)"
+          value={status?.stats?.hashes?.toLocaleString() || '0'}
+          color="#eab308"
+          icon="fingerprint"
+          subtitle="60-Day rolling retention auto-purged"
+        />
       </div>
 
-      {/* Tabs Switcher */}
-      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)', marginBottom: '20px' }}>
+      {/* Tabs Navigation */}
+      <div style={{ 
+        display: 'flex', 
+        gap: '4px', 
+        borderBottom: '1px solid var(--border)', 
+        marginBottom: '20px' 
+      }}>
         <button
           onClick={() => setActiveTab('matches')}
           style={{
-            padding: '10px 18px',
+            padding: '10px 16px',
             background: 'none',
             border: 'none',
-            borderBottom: activeTab === 'matches' ? '2px solid #3b82f6' : '2px solid transparent',
-            color: activeTab === 'matches' ? '#f8fafc' : '#94a3b8',
-            fontWeight: activeTab === 'matches' ? '600' : '400',
-            fontSize: '14px',
+            borderBottom: activeTab === 'matches' ? '2px solid #2563eb' : '2px solid transparent',
+            color: activeTab === 'matches' ? 'var(--text)' : 'var(--muted)',
+            fontWeight: activeTab === 'matches' ? 700 : 500,
+            fontSize: '13px',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
             cursor: 'pointer',
-            transition: 'all 0.2s'
+            transition: 'all 0.2s',
+            fontFamily: 'var(--sans)'
           }}
         >
-          <ShieldAlert size={16} color={activeTab === 'matches' ? '#ef4444' : 'currentColor'} />
+          <ShieldAlert size={15} color={activeTab === 'matches' ? '#ef4444' : 'currentColor'} />
           Threat Detections (Matches)
           {status?.stats?.matches_today > 0 && (
-            <span style={{ padding: '2px 7px', borderRadius: '10px', background: 'rgba(239,68,68,0.2)', color: '#f87171', fontSize: '11px', fontWeight: '700' }}>
+            <span style={{ 
+              padding: '1px 6px', 
+              borderRadius: '10px', 
+              background: 'rgba(239,68,68,0.15)', 
+              color: '#ef4444', 
+              fontSize: '11px', 
+              fontWeight: 800,
+              fontFamily: 'var(--mono)'
+            }}>
               {status.stats.matches_today}
             </span>
           )}
@@ -594,21 +575,22 @@ export default function ThreatHunting() {
         <button
           onClick={() => setActiveTab('indicators')}
           style={{
-            padding: '10px 18px',
+            padding: '10px 16px',
             background: 'none',
             border: 'none',
-            borderBottom: activeTab === 'indicators' ? '2px solid #3b82f6' : '2px solid transparent',
-            color: activeTab === 'indicators' ? '#f8fafc' : '#94a3b8',
-            fontWeight: activeTab === 'indicators' ? '600' : '400',
-            fontSize: '14px',
+            borderBottom: activeTab === 'indicators' ? '2px solid #2563eb' : '2px solid transparent',
+            color: activeTab === 'indicators' ? 'var(--text)' : 'var(--muted)',
+            fontWeight: activeTab === 'indicators' ? 700 : 500,
+            fontSize: '13px',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
             cursor: 'pointer',
-            transition: 'all 0.2s'
+            transition: 'all 0.2s',
+            fontFamily: 'var(--sans)'
           }}
         >
-          <Database size={16} color={activeTab === 'indicators' ? '#3b82f6' : 'currentColor'} />
+          <Database size={15} color={activeTab === 'indicators' ? '#3b82f6' : 'currentColor'} />
           Threat Database (Feed Indicators)
         </button>
       </div>
@@ -620,10 +602,10 @@ export default function ThreatHunting() {
         <div>
           {/* Filters Bar */}
           <div style={{
-            background: 'rgba(17,24,39,0.7)',
-            border: '1px solid rgba(255,255,255,0.08)',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
             borderRadius: '10px',
-            padding: '14px',
+            padding: '12px 16px',
             marginBottom: '16px',
             display: 'flex',
             flexWrap: 'wrap',
@@ -632,8 +614,8 @@ export default function ThreatHunting() {
             justifyContent: 'space-between'
           }}>
             {/* Search Input */}
-            <div style={{ position: 'relative', flex: '1', minWidth: '240px', maxWidth: '400px' }}>
-              <Search size={15} color="#64748b" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+            <div style={{ position: 'relative', flex: '1', minWidth: '240px', maxWidth: '380px' }}>
+              <Search size={14} color="var(--muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
               <input
                 type="text"
                 placeholder="Search matched IP, domain, hash, device..."
@@ -642,31 +624,34 @@ export default function ThreatHunting() {
                 onKeyDown={(e) => e.key === 'Enter' && fetchMatches(1)}
                 style={{
                   width: '100%',
-                  padding: '8px 12px 8px 34px',
-                  background: 'rgba(11,19,38,0.8)',
-                  border: '1px solid rgba(255,255,255,0.1)',
+                  padding: '7px 12px 7px 34px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
                   borderRadius: '6px',
-                  color: '#f8fafc',
-                  fontSize: '13px',
+                  color: 'var(--text)',
+                  fontSize: '12px',
                   outline: 'none',
-                  boxSizing: 'border-box'
+                  boxSizing: 'border-box',
+                  fontFamily: 'var(--sans)'
                 }}
               />
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               {/* Type Filter */}
               <select
                 value={matchesType}
                 onChange={(e) => setMatchesType(e.target.value)}
                 style={{
-                  padding: '8px 12px',
-                  background: 'rgba(11,19,38,0.8)',
-                  border: '1px solid rgba(255,255,255,0.1)',
+                  padding: '6px 10px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
                   borderRadius: '6px',
-                  color: '#cbd5e1',
-                  fontSize: '13px',
-                  outline: 'none'
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--sans)'
                 }}
               >
                 <option value="all">All Indicator Types</option>
@@ -680,13 +665,15 @@ export default function ThreatHunting() {
                 value={matchesTimeRange}
                 onChange={(e) => setMatchesTimeRange(e.target.value)}
                 style={{
-                  padding: '8px 12px',
-                  background: 'rgba(11,19,38,0.8)',
-                  border: '1px solid rgba(255,255,255,0.1)',
+                  padding: '6px 10px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
                   borderRadius: '6px',
-                  color: '#cbd5e1',
-                  fontSize: '13px',
-                  outline: 'none'
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--sans)'
                 }}
               >
                 <option value="24h">Last 24 Hours</option>
@@ -698,45 +685,45 @@ export default function ThreatHunting() {
               <button
                 onClick={() => fetchMatches(1)}
                 style={{
-                  padding: '8px 12px',
+                  padding: '6px 12px',
                   borderRadius: '6px',
-                  background: 'rgba(255,255,255,0.06)',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  color: '#f8fafc',
-                  fontSize: '13px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  fontWeight: 600,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '6px'
                 }}
               >
-                <RefreshCw size={13} /> Filter
+                <RefreshCw size={12} /> Filter
               </button>
             </div>
           </div>
 
           {/* Matches Table */}
           <div style={{
-            background: 'rgba(17,24,39,0.7)',
-            border: '1px solid rgba(255,255,255,0.08)',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
             borderRadius: '12px',
-            overflow: 'hidden',
-            backdropFilter: 'blur(8px)'
+            overflow: 'hidden'
           }}>
             {matchesLoading ? (
-              <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
-                <div style={{ width: '32px', height: '32px', border: '3px solid rgba(59,130,246,0.2)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
-                Scanning matched logs across all endpoints...
+              <div style={{ padding: '60px', textAlign: 'center', color: 'var(--muted)' }}>
+                <div style={{ width: '30px', height: '30px', border: '3px solid rgba(59,130,246,0.2)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
+                <span style={{ fontSize: '13px', fontWeight: 600 }}>Scanning matched logs across all endpoints...</span>
               </div>
             ) : matches.length === 0 ? (
               <div style={{ padding: '60px 20px', textAlign: 'center' }}>
-                <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-                  <CheckCircle2 size={28} color="#4ade80" />
+                <div style={{ width: '50px', height: '50px', borderRadius: '50%', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                  <CheckCircle2 size={26} color="#22c55e" />
                 </div>
-                <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#f8fafc', marginBottom: '6px' }}>
+                <h3 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text)', marginBottom: '6px' }}>
                   No Known Threat Matches Detected
                 </h3>
-                <p style={{ fontSize: '13px', color: '#94a3b8', maxWidth: '440px', margin: '0 auto' }}>
+                <p style={{ fontSize: '13px', color: 'var(--muted)', maxWidth: '440px', margin: '0 auto', lineHeight: '1.5' }}>
                   All network connections and running endpoint executables are clean against the active Abuse.ch C2 and malware feeds.
                 </p>
               </div>
@@ -744,13 +731,13 @@ export default function ThreatHunting() {
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
                   <thead>
-                    <tr style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8' }}>
-                      <th style={{ padding: '12px 16px', fontWeight: '600' }}>Timestamp</th>
-                      <th style={{ padding: '12px 16px', fontWeight: '600' }}>Severity</th>
-                      <th style={{ padding: '12px 16px', fontWeight: '600' }}>Endpoint / Device</th>
-                      <th style={{ padding: '12px 16px', fontWeight: '600' }}>Aggregator / Branch</th>
-                      <th style={{ padding: '12px 16px', fontWeight: '600' }}>Matched Indicator</th>
-                      <th style={{ padding: '12px 16px', fontWeight: '600' }}>Threat Context</th>
+                    <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)', color: 'var(--muted)' }}>
+                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Timestamp</th>
+                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Severity</th>
+                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Endpoint / Device</th>
+                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Aggregator / Branch</th>
+                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Matched Indicator</th>
+                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Threat Context</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -758,13 +745,12 @@ export default function ThreatHunting() {
                       <tr 
                         key={idx}
                         style={{ 
-                          borderBottom: '1px solid rgba(255,255,255,0.04)',
-                          background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+                          borderBottom: '1px solid var(--border)',
                           transition: 'background 0.2s'
                         }}
                       >
                         {/* Timestamp */}
-                        <td style={{ padding: '12px 16px', color: '#94a3b8', whiteSpace: 'nowrap' }}>
+                        <td style={{ padding: '12px 16px', color: 'var(--muted2)', whiteSpace: 'nowrap', fontSize: '12px', fontFamily: 'var(--mono)' }}>
                           {item.ts ? new Date(item.ts).toLocaleString() : 'Just now'}
                         </td>
 
@@ -773,34 +759,33 @@ export default function ThreatHunting() {
                           <span style={{
                             padding: '3px 8px',
                             borderRadius: '4px',
-                            background: 'rgba(239,68,68,0.15)',
-                            color: '#f87171',
-                            border: '1px solid rgba(239,68,68,0.3)',
-                            fontSize: '11px',
-                            fontWeight: '700'
+                            background: 'rgba(239,68,68,0.12)',
+                            color: '#ef4444',
+                            border: '1px solid rgba(239,68,68,0.25)',
+                            fontSize: '10px',
+                            fontWeight: 800,
+                            fontFamily: 'var(--mono)'
                           }}>
                             CRITICAL
                           </span>
                         </td>
 
                         {/* Endpoint */}
-                        <td style={{ padding: '12px 16px', color: '#f8fafc', fontWeight: '500' }}>
+                        <td style={{ padding: '12px 16px', color: 'var(--text)', fontWeight: 600 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {item.source_type === 'firewall' ? (
-                              <Server size={14} color="#f97316" />
-                            ) : (
-                              <Activity size={14} color="#60a5fa" />
-                            )}
+                            <span className="material-symbols-outlined" style={{ fontSize: '16px', color: item.source_type === 'firewall' ? '#f97316' : '#3b82f6' }}>
+                              {item.source_type === 'firewall' ? 'local_fire_department' : 'computer'}
+                            </span>
                             {item.endpoint}
                           </div>
                           {item.src_ip && item.src_ip !== 'local' && (
-                            <span style={{ fontSize: '11px', color: '#64748b' }}>Src: {item.src_ip}</span>
+                            <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Src: {item.src_ip}</span>
                           )}
                         </td>
 
                         {/* Branch / Aggregator */}
-                        <td style={{ padding: '12px 16px', color: '#cbd5e1' }}>
-                          <span style={{ padding: '2px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', fontSize: '11px' }}>
+                        <td style={{ padding: '12px 16px', color: 'var(--text)' }}>
+                          <span style={{ padding: '2px 8px', borderRadius: '4px', background: 'var(--surface2)', border: '1px solid var(--border)', fontSize: '11px', fontFamily: 'var(--mono)' }}>
                             {item.aggregator_name || 'direct'}
                           </span>
                         </td>
@@ -809,31 +794,32 @@ export default function ThreatHunting() {
                         <td style={{ padding: '12px 16px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <span style={{
-                              fontFamily: 'monospace',
-                              color: '#f87171',
-                              fontWeight: '600',
+                              fontFamily: 'var(--mono)',
+                              color: '#ef4444',
+                              fontWeight: 700,
                               background: 'rgba(239,68,68,0.08)',
                               padding: '2px 6px',
-                              borderRadius: '4px'
+                              borderRadius: '4px',
+                              fontSize: '12px'
                             }}>
                               {item.indicator && item.indicator.length > 28 ? `${item.indicator.slice(0, 24)}...` : item.indicator}
                             </span>
                             <button
                               onClick={() => copyIndicator(item.indicator)}
                               title="Copy Indicator"
-                              style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '2px' }}
+                              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '2px' }}
                             >
-                              {copiedItem === item.indicator ? <Check size={14} color="#4ade80" /> : <Copy size={14} />}
+                              {copiedItem === item.indicator ? <Check size={14} color="#22c55e" /> : <Copy size={14} />}
                             </button>
                           </div>
-                          <span style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)' }}>
                             Type: {item.indicator_type}
                           </span>
                         </td>
 
                         {/* Details */}
-                        <td style={{ padding: '12px 16px', color: '#cbd5e1', maxWidth: '380px' }}>
-                          <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <td style={{ padding: '12px 16px', color: 'var(--muted2)', maxWidth: '360px' }}>
+                          <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '12px' }}>
                             {item.details}
                           </div>
                         </td>
@@ -846,8 +832,8 @@ export default function ThreatHunting() {
 
             {/* Pagination Controls */}
             {matchesTotalPages > 1 && (
-              <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                <span style={{ fontSize: '12px', color: '#64748b' }}>
+              <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)' }}>
+                <span style={{ fontSize: '12px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
                   Showing {matches.length} of {matchesTotal} detections
                 </span>
                 <div style={{ display: 'flex', gap: '6px' }}>
@@ -855,31 +841,33 @@ export default function ThreatHunting() {
                     disabled={matchesPage <= 1}
                     onClick={() => fetchMatches(matchesPage - 1)}
                     style={{
-                      padding: '6px 12px',
-                      background: 'rgba(255,255,255,0.05)',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: '6px',
-                      color: matchesPage <= 1 ? '#475569' : '#cbd5e1',
+                      padding: '5px 10px',
+                      background: 'var(--surface2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '4px',
+                      color: matchesPage <= 1 ? 'var(--muted)' : 'var(--text)',
                       cursor: matchesPage <= 1 ? 'not-allowed' : 'pointer',
-                      fontSize: '12px'
+                      fontSize: '11px',
+                      fontWeight: 600
                     }}
                   >
                     Previous
                   </button>
-                  <span style={{ padding: '6px 12px', color: '#94a3b8', fontSize: '12px' }}>
+                  <span style={{ padding: '5px 10px', color: 'var(--muted2)', fontSize: '11px', fontFamily: 'var(--mono)' }}>
                     Page {matchesPage} of {matchesTotalPages}
                   </span>
                   <button
                     disabled={matchesPage >= matchesTotalPages}
                     onClick={() => fetchMatches(matchesPage + 1)}
                     style={{
-                      padding: '6px 12px',
-                      background: 'rgba(255,255,255,0.05)',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: '6px',
-                      color: matchesPage >= matchesTotalPages ? '#475569' : '#cbd5e1',
+                      padding: '5px 10px',
+                      background: 'var(--surface2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '4px',
+                      color: matchesPage >= matchesTotalPages ? 'var(--muted)' : 'var(--text)',
                       cursor: matchesPage >= matchesTotalPages ? 'not-allowed' : 'pointer',
-                      fontSize: '12px'
+                      fontSize: '11px',
+                      fontWeight: 600
                     }}
                   >
                     Next
@@ -898,10 +886,10 @@ export default function ThreatHunting() {
         <div>
           {/* Filters Bar */}
           <div style={{
-            background: 'rgba(17,24,39,0.7)',
-            border: '1px solid rgba(255,255,255,0.08)',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
             borderRadius: '10px',
-            padding: '14px',
+            padding: '12px 16px',
             marginBottom: '16px',
             display: 'flex',
             flexWrap: 'wrap',
@@ -910,8 +898,8 @@ export default function ThreatHunting() {
             justifyContent: 'space-between'
           }}>
             {/* Search Input */}
-            <div style={{ position: 'relative', flex: '1', minWidth: '240px', maxWidth: '400px' }}>
-              <Search size={15} color="#64748b" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+            <div style={{ position: 'relative', flex: '1', minWidth: '240px', maxWidth: '380px' }}>
+              <Search size={14} color="var(--muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
               <input
                 type="text"
                 placeholder="Search indicator value or malware family..."
@@ -920,31 +908,34 @@ export default function ThreatHunting() {
                 onKeyDown={(e) => e.key === 'Enter' && fetchIndicators(1)}
                 style={{
                   width: '100%',
-                  padding: '8px 12px 8px 34px',
-                  background: 'rgba(11,19,38,0.8)',
-                  border: '1px solid rgba(255,255,255,0.1)',
+                  padding: '7px 12px 7px 34px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
                   borderRadius: '6px',
-                  color: '#f8fafc',
-                  fontSize: '13px',
+                  color: 'var(--text)',
+                  fontSize: '12px',
                   outline: 'none',
-                  boxSizing: 'border-box'
+                  boxSizing: 'border-box',
+                  fontFamily: 'var(--sans)'
                 }}
               />
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               {/* Type Filter */}
               <select
                 value={indicatorsType}
                 onChange={(e) => setIndicatorsType(e.target.value)}
                 style={{
-                  padding: '8px 12px',
-                  background: 'rgba(11,19,38,0.8)',
-                  border: '1px solid rgba(255,255,255,0.1)',
+                  padding: '6px 10px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
                   borderRadius: '6px',
-                  color: '#cbd5e1',
-                  fontSize: '13px',
-                  outline: 'none'
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--sans)'
                 }}
               >
                 <option value="all">All Types</option>
@@ -958,13 +949,15 @@ export default function ThreatHunting() {
                 value={indicatorsSource}
                 onChange={(e) => setIndicatorsSource(e.target.value)}
                 style={{
-                  padding: '8px 12px',
-                  background: 'rgba(11,19,38,0.8)',
-                  border: '1px solid rgba(255,255,255,0.1)',
+                  padding: '6px 10px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
                   borderRadius: '6px',
-                  color: '#cbd5e1',
-                  fontSize: '13px',
-                  outline: 'none'
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--sans)'
                 }}
               >
                 <option value="all">All Feed Sources</option>
@@ -976,43 +969,43 @@ export default function ThreatHunting() {
               <button
                 onClick={() => fetchIndicators(1)}
                 style={{
-                  padding: '8px 12px',
+                  padding: '6px 12px',
                   borderRadius: '6px',
-                  background: 'rgba(255,255,255,0.06)',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  color: '#f8fafc',
-                  fontSize: '13px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  fontWeight: 600,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '6px'
                 }}
               >
-                <RefreshCw size={13} /> Filter
+                <RefreshCw size={12} /> Filter
               </button>
             </div>
           </div>
 
           {/* Indicators Table */}
           <div style={{
-            background: 'rgba(17,24,39,0.7)',
-            border: '1px solid rgba(255,255,255,0.08)',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
             borderRadius: '12px',
-            overflow: 'hidden',
-            backdropFilter: 'blur(8px)'
+            overflow: 'hidden'
           }}>
             {indicatorsLoading ? (
-              <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
-                <div style={{ width: '32px', height: '32px', border: '3px solid rgba(59,130,246,0.2)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
-                Loading threat indicators database...
+              <div style={{ padding: '60px', textAlign: 'center', color: 'var(--muted)' }}>
+                <div style={{ width: '30px', height: '30px', border: '3px solid rgba(59,130,246,0.2)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
+                <span style={{ fontSize: '13px', fontWeight: 600 }}>Loading threat indicators database...</span>
               </div>
             ) : indicators.length === 0 ? (
               <div style={{ padding: '60px 20px', textAlign: 'center' }}>
-                <Database size={36} color="#64748b" style={{ margin: '0 auto 12px' }} />
-                <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#f8fafc', marginBottom: '6px' }}>
+                <Database size={32} color="var(--muted)" style={{ margin: '0 auto 12px' }} />
+                <h3 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text)', marginBottom: '6px' }}>
                   No Threat Indicators Found
                 </h3>
-                <p style={{ fontSize: '13px', color: '#94a3b8' }}>
+                <p style={{ fontSize: '13px', color: 'var(--muted)' }}>
                   Click "Sync Feeds Now" above to download the latest threat indicators from Abuse.ch.
                 </p>
               </div>
@@ -1020,13 +1013,13 @@ export default function ThreatHunting() {
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
                   <thead>
-                    <tr style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8' }}>
-                      <th style={{ padding: '12px 16px', fontWeight: '600' }}>Indicator Value</th>
-                      <th style={{ padding: '12px 16px', fontWeight: '600' }}>Type</th>
-                      <th style={{ padding: '12px 16px', fontWeight: '600' }}>Malware Family</th>
-                      <th style={{ padding: '12px 16px', fontWeight: '600' }}>Feed Provider</th>
-                      <th style={{ padding: '12px 16px', fontWeight: '600' }}>Confidence</th>
-                      <th style={{ padding: '12px 16px', fontWeight: '600' }}>Last Verified</th>
+                    <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)', color: 'var(--muted)' }}>
+                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Indicator Value</th>
+                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Type</th>
+                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Malware Family</th>
+                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Feed Provider</th>
+                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Confidence</th>
+                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Last Verified</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1034,23 +1027,22 @@ export default function ThreatHunting() {
                       <tr 
                         key={idx}
                         style={{ 
-                          borderBottom: '1px solid rgba(255,255,255,0.04)',
-                          background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)',
+                          borderBottom: '1px solid var(--border)',
                           transition: 'background 0.2s'
                         }}
                       >
                         {/* Indicator Value */}
                         <td style={{ padding: '12px 16px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontFamily: 'monospace', color: '#f8fafc', fontWeight: '500' }}>
+                            <span style={{ fontFamily: 'var(--mono)', color: 'var(--text)', fontWeight: 600, fontSize: '12px' }}>
                               {ioc.ioc_value && ioc.ioc_value.length > 40 ? `${ioc.ioc_value.slice(0, 36)}...` : ioc.ioc_value}
                             </span>
                             <button
                               onClick={() => copyIndicator(ioc.ioc_value)}
                               title="Copy Indicator"
-                              style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '2px' }}
+                              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '2px' }}
                             >
-                              {copiedItem === ioc.ioc_value ? <Check size={14} color="#4ade80" /> : <Copy size={14} />}
+                              {copiedItem === ioc.ioc_value ? <Check size={14} color="#22c55e" /> : <Copy size={14} />}
                             </button>
                           </div>
                         </td>
@@ -1060,37 +1052,38 @@ export default function ThreatHunting() {
                           <span style={{
                             padding: '3px 8px',
                             borderRadius: '4px',
-                            background: ioc.ioc_type === 'ip' ? 'rgba(59,130,246,0.15)' : ioc.ioc_type === 'domain' ? 'rgba(168,85,247,0.15)' : 'rgba(234,179,8,0.15)',
-                            color: ioc.ioc_type === 'ip' ? '#60a5fa' : ioc.ioc_type === 'domain' ? '#c084fc' : '#facc15',
-                            fontSize: '11px',
-                            fontWeight: '600',
-                            textTransform: 'uppercase'
+                            background: ioc.ioc_type === 'ip' ? 'rgba(59,130,246,0.12)' : ioc.ioc_type === 'domain' ? 'rgba(168,85,247,0.12)' : 'rgba(234,179,8,0.12)',
+                            color: ioc.ioc_type === 'ip' ? '#3b82f6' : ioc.ioc_type === 'domain' ? '#a855f7' : '#eab308',
+                            fontSize: '10px',
+                            fontWeight: 800,
+                            textTransform: 'uppercase',
+                            fontFamily: 'var(--mono)'
                           }}>
                             {ioc.ioc_type}
                           </span>
                         </td>
 
                         {/* Malware Family */}
-                        <td style={{ padding: '12px 16px', color: '#e2e8f0' }}>
-                          <span style={{ padding: '2px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', fontSize: '12px' }}>
+                        <td style={{ padding: '12px 16px', color: 'var(--text)' }}>
+                          <span style={{ padding: '2px 8px', borderRadius: '4px', background: 'var(--surface2)', border: '1px solid var(--border)', fontSize: '11px', fontWeight: 600 }}>
                             {ioc.malware_family || 'Generic C2 / Malware'}
                           </span>
                         </td>
 
                         {/* Provider */}
-                        <td style={{ padding: '12px 16px', color: '#94a3b8' }}>
-                          <span style={{ fontSize: '12px', textTransform: 'capitalize' }}>
-                            {ioc.source}
+                        <td style={{ padding: '12px 16px', color: 'var(--muted2)' }}>
+                          <span style={{ fontSize: '12px', textTransform: 'capitalize', fontWeight: 500 }}>
+                            {ioc.source_feed || ioc.source}
                           </span>
                         </td>
 
                         {/* Confidence */}
-                        <td style={{ padding: '12px 16px', color: '#4ade80' }}>
+                        <td style={{ padding: '12px 16px', color: '#22c55e', fontWeight: 700, fontFamily: 'var(--mono)', fontSize: '12px' }}>
                           {ioc.confidence_level || 100}%
                         </td>
 
                         {/* Last Seen */}
-                        <td style={{ padding: '12px 16px', color: '#64748b', whiteSpace: 'nowrap' }}>
+                        <td style={{ padding: '12px 16px', color: 'var(--muted)', whiteSpace: 'nowrap', fontSize: '12px', fontFamily: 'var(--mono)' }}>
                           {ioc.last_seen ? new Date(ioc.last_seen).toLocaleDateString() : 'Active'}
                         </td>
                       </tr>
@@ -1102,8 +1095,8 @@ export default function ThreatHunting() {
 
             {/* Pagination Controls */}
             {indicatorsTotalPages > 1 && (
-              <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                <span style={{ fontSize: '12px', color: '#64748b' }}>
+              <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)' }}>
+                <span style={{ fontSize: '12px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
                   Showing {indicators.length} of {indicatorsTotal} indicators
                 </span>
                 <div style={{ display: 'flex', gap: '6px' }}>
@@ -1111,31 +1104,33 @@ export default function ThreatHunting() {
                     disabled={indicatorsPage <= 1}
                     onClick={() => fetchIndicators(indicatorsPage - 1)}
                     style={{
-                      padding: '6px 12px',
-                      background: 'rgba(255,255,255,0.05)',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: '6px',
-                      color: indicatorsPage <= 1 ? '#475569' : '#cbd5e1',
+                      padding: '5px 10px',
+                      background: 'var(--surface2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '4px',
+                      color: indicatorsPage <= 1 ? 'var(--muted)' : 'var(--text)',
                       cursor: indicatorsPage <= 1 ? 'not-allowed' : 'pointer',
-                      fontSize: '12px'
+                      fontSize: '11px',
+                      fontWeight: 600
                     }}
                   >
                     Previous
                   </button>
-                  <span style={{ padding: '6px 12px', color: '#94a3b8', fontSize: '12px' }}>
+                  <span style={{ padding: '5px 10px', color: 'var(--muted2)', fontSize: '11px', fontFamily: 'var(--mono)' }}>
                     Page {indicatorsPage} of {indicatorsTotalPages}
                   </span>
                   <button
                     disabled={indicatorsPage >= indicatorsTotalPages}
                     onClick={() => fetchIndicators(indicatorsPage + 1)}
                     style={{
-                      padding: '6px 12px',
-                      background: 'rgba(255,255,255,0.05)',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: '6px',
-                      color: indicatorsPage >= indicatorsTotalPages ? '#475569' : '#cbd5e1',
+                      padding: '5px 10px',
+                      background: 'var(--surface2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '4px',
+                      color: indicatorsPage >= indicatorsTotalPages ? 'var(--muted)' : 'var(--text)',
                       cursor: indicatorsPage >= indicatorsTotalPages ? 'not-allowed' : 'pointer',
-                      fontSize: '12px'
+                      fontSize: '11px',
+                      fontWeight: 600
                     }}
                   >
                     Next
@@ -1154,8 +1149,8 @@ export default function ThreatHunting() {
         <div style={{
           position: 'fixed',
           inset: 0,
-          background: 'rgba(0,0,0,0.7)',
-          backdropFilter: 'blur(6px)',
+          background: 'rgba(0,0,0,0.5)',
+          backdropFilter: 'blur(4px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -1163,24 +1158,24 @@ export default function ThreatHunting() {
           padding: '20px'
         }}>
           <div style={{
-            background: 'rgba(17,24,39,0.95)',
-            border: '1px solid rgba(255,255,255,0.12)',
+            background: 'var(--surface-solid)',
+            border: '1px solid var(--border)',
             borderRadius: '16px',
             padding: '28px',
-            maxWidth: '560px',
+            maxWidth: '540px',
             width: '100%',
-            boxShadow: '0 16px 48px rgba(0,0,0,0.6)'
+            boxShadow: '0 20px 40px rgba(0,0,0,0.2)'
           }}>
-            <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#f8fafc', marginBottom: '8px' }}>
+            <h3 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text)', marginBottom: '8px', letterSpacing: '-0.3px' }}>
               Threat Intelligence Feed Settings
             </h3>
-            <p style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '20px', lineHeight: '1.5' }}>
+            <p style={{ fontSize: '13px', color: 'var(--muted2)', marginBottom: '20px', lineHeight: '1.5' }}>
               Update your Abuse.ch Auth-Key or toggle individual feed sources. The key is encrypted with AES-256-GCM.
             </p>
 
             <form onSubmit={handleSaveConfig}>
               <div style={{ marginBottom: '18px' }}>
-                <label style={{ fontSize: '13px', fontWeight: '600', color: '#e2e8f0', display: 'block', marginBottom: '6px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', display: 'block', marginBottom: '6px', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>
                   Update Abuse.ch ThreatFox Auth-Key (Leave empty to keep existing)
                 </label>
                 <div style={{ position: 'relative' }}>
@@ -1192,19 +1187,19 @@ export default function ThreatHunting() {
                     style={{
                       width: '100%',
                       padding: '10px 38px 10px 12px',
-                      background: 'rgba(11,19,38,0.8)',
-                      border: '1px solid rgba(255,255,255,0.12)',
+                      background: 'var(--surface2)',
+                      border: '1px solid var(--border)',
                       borderRadius: '6px',
-                      color: '#f8fafc',
+                      color: 'var(--text)',
                       fontSize: '13px',
-                      fontFamily: 'monospace',
+                      fontFamily: 'var(--mono)',
                       boxSizing: 'border-box'
                     }}
                   />
                   <button
                     type="button"
                     onClick={() => setShowKey(!showKey)}
-                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}
+                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}
                   >
                     {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
@@ -1213,11 +1208,11 @@ export default function ThreatHunting() {
 
               {/* Feed Checkboxes */}
               <div style={{ marginBottom: '24px' }}>
-                <label style={{ fontSize: '13px', fontWeight: '600', color: '#e2e8f0', display: 'block', marginBottom: '10px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', display: 'block', marginBottom: '10px', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>
                   Active Feed Integrations
                 </label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#cbd5e1', cursor: 'pointer' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text)', cursor: 'pointer' }}>
                     <input
                       type="checkbox"
                       checked={selectedFeeds.threatfox}
@@ -1225,7 +1220,7 @@ export default function ThreatHunting() {
                     />
                     ThreatFox C2 Indicators (Public IPs, Domains, Hashes)
                   </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#cbd5e1', cursor: 'pointer' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text)', cursor: 'pointer' }}>
                     <input
                       type="checkbox"
                       checked={selectedFeeds.malwarebazaar}
@@ -1233,7 +1228,7 @@ export default function ThreatHunting() {
                     />
                     MalwareBazaar (Executable Malware Binary Hashes)
                   </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#cbd5e1', cursor: 'pointer' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text)', cursor: 'pointer' }}>
                     <input
                       type="checkbox"
                       checked={selectedFeeds.urlhaus}
@@ -1245,17 +1240,18 @@ export default function ThreatHunting() {
               </div>
 
               {/* Buttons */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                 <button
                   type="button"
                   onClick={() => setShowSettingsModal(false)}
                   style={{
-                    padding: '8px 16px',
+                    padding: '7px 14px',
                     borderRadius: '6px',
-                    background: 'rgba(255,255,255,0.06)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    color: '#cbd5e1',
-                    fontSize: '13px',
+                    background: 'var(--surface2)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--muted2)',
+                    fontSize: '12px',
+                    fontWeight: 600,
                     cursor: 'pointer'
                   }}
                 >
@@ -1265,13 +1261,13 @@ export default function ThreatHunting() {
                   type="submit"
                   disabled={isVerifying}
                   style={{
-                    padding: '8px 18px',
+                    padding: '7px 16px',
                     borderRadius: '6px',
-                    background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+                    background: '#2563eb',
                     border: 'none',
                     color: '#ffffff',
-                    fontWeight: '500',
-                    fontSize: '13px',
+                    fontWeight: 700,
+                    fontSize: '12px',
                     cursor: isVerifying ? 'not-allowed' : 'pointer'
                   }}
                 >

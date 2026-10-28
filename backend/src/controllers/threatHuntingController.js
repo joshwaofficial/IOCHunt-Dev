@@ -242,11 +242,11 @@ exports.getMatches = async (req, res) => {
       aggregator = '',
       timeRange = '24h',
       page = 1,
-      limit = 25
+      limit = 20
     } = req.query;
 
     const pageNum = Math.max(1, parseSafeInt(page, 1));
-    const limitNum = Math.min(100, Math.max(1, parseSafeInt(limit, 25)));
+    const limitNum = Math.min(100, Math.max(1, parseSafeInt(limit, 20)));
     const offset = (pageNum - 1) * limitNum;
 
     // Time boundary
@@ -255,105 +255,146 @@ exports.getMatches = async (req, res) => {
     if (timeRange === '30d') intervalClause = "INTERVAL '30 days'";
     if (timeRange === '60d') intervalClause = "INTERVAL '60 days'";
 
-    // Build unified UNION query across fw_events and events
-    // Columns: id, source_type, ts, aggregator_name, endpoint, src_ip, indicator, indicator_type, severity, details
-    const params = [];
-    let pIdx = 1;
-
-    let fwConds = [
+    const fwConds = [
       `ts >= NOW() - ${intervalClause}`,
       `(logdesc LIKE '%[THREAT DANGER]%' OR msg LIKE '%[THREAT DANGER]%')`
     ];
-
-    let evConds = [
+    const evConds = [
       `ts >= NOW() - ${intervalClause}`,
       `(tag = 'MALWARE-EXE-DETECTED' OR message LIKE '%[THREAT DANGER]%')`
     ];
 
+    const fwParams = [];
+    const evParams = [];
+    let fwIdx = 1;
+    let evIdx = 1;
+
     if (aggregator && aggregator.trim()) {
-      fwConds.push(`aggregator_name = $${pIdx}`);
-      evConds.push(`aggregator_name = $${pIdx}`);
-      params.push(aggregator.trim());
-      pIdx++;
+      fwConds.push(`aggregator_name = $${fwIdx++}`);
+      fwParams.push(aggregator.trim());
+      evConds.push(`aggregator_name = $${evIdx++}`);
+      evParams.push(aggregator.trim());
     }
 
     if (search && search.trim()) {
       const term = `%${search.trim()}%`;
-      fwConds.push(`(src_ip ILIKE $${pIdx} OR dst_ip ILIKE $${pIdx} OR cfgobj ILIKE $${pIdx} OR devname ILIKE $${pIdx} OR msg ILIKE $${pIdx})`);
-      evConds.push(`(machine ILIKE $${pIdx} OR message ILIKE $${pIdx} OR tag ILIKE $${pIdx})`);
-      params.push(term);
-      pIdx++;
+      fwConds.push(`(src_ip ILIKE $${fwIdx} OR dst_ip ILIKE $${fwIdx} OR cfgobj ILIKE $${fwIdx} OR devname ILIKE $${fwIdx} OR msg ILIKE $${fwIdx})`);
+      fwParams.push(term);
+      fwIdx++;
+
+      evConds.push(`(machine ILIKE $${evIdx} OR message ILIKE $${evIdx} OR tag ILIKE $${evIdx})`);
+      evParams.push(term);
+      evIdx++;
     }
 
-    const fwQuery = `
-      SELECT 
-        id, 
-        'firewall' AS source_type, 
-        ts, 
-        aggregator_name, 
-        COALESCE(NULLIF(devname, ''), 'Firewall') AS endpoint, 
-        src_ip, 
-        COALESCE(NULLIF(dst_ip, ''), cfgobj) AS indicator, 
-        CASE 
-          WHEN cfgobj IS NOT NULL AND cfgobj != '' THEN 'domain'
-          ELSE 'ip'
-        END AS indicator_type, 
-        severity, 
-        COALESCE(NULLIF(logdesc, ''), msg) AS details
-      FROM fw_events
-      WHERE ${fwConds.join(' AND ')}
-    `;
+    let allMatches = [];
+    let total = 0;
 
-    const evQuery = `
-      SELECT 
-        id, 
-        'endpoint' AS source_type, 
-        ts, 
-        aggregator_name, 
-        COALESCE(NULLIF(machine, ''), 'Endpoint') AS endpoint, 
-        'local' AS src_ip, 
-        COALESCE(SUBSTRING(message FROM '([a-fA-F0-9]{64})'), 'MALWARE-EXE') AS indicator, 
-        'sha256' AS indicator_type, 
-        severity, 
-        message AS details
-      FROM events
-      WHERE ${evConds.join(' AND ')}
-    `;
+    if (type === 'sha256') {
+      // Query events only
+      const countRes = await qTenant(`SELECT COUNT(*) AS total FROM events WHERE ${evConds.join(' AND ')}`, evParams);
+      total = parseInt(countRes.rows[0]?.total, 10) || 0;
 
-    // Filter by type if requested
-    let combinedQuery = '';
-    if (type === 'ip' || type === 'domain') {
-      combinedQuery = fwQuery;
-    } else if (type === 'sha256') {
-      combinedQuery = evQuery;
+      const dataQuery = `
+        SELECT 
+          id, 'endpoint' AS source_type, ts, aggregator_name,
+          COALESCE(NULLIF(machine, ''), 'Endpoint') AS endpoint,
+          'local' AS src_ip,
+          'MALWARE-EXE' AS indicator,
+          'sha256' AS indicator_type,
+          severity,
+          message AS details
+        FROM events
+        WHERE ${evConds.join(' AND ')}
+        ORDER BY ts DESC
+        LIMIT $${evIdx++} OFFSET $${evIdx++}
+      `;
+      const dataRes = await qTenant(dataQuery, [...evParams, limitNum, offset]);
+      allMatches = dataRes.rows || [];
+    } else if (type === 'ip' || type === 'domain') {
+      // Query fw_events only
+      let typeCond = '';
+      if (type === 'domain') {
+        typeCond = " AND (cfgobj IS NOT NULL AND cfgobj != '')";
+      } else if (type === 'ip') {
+        typeCond = " AND (cfgobj IS NULL OR cfgobj = '')";
+      }
+
+      const countRes = await qTenant(`SELECT COUNT(*) AS total FROM fw_events WHERE ${fwConds.join(' AND ')}${typeCond}`, fwParams);
+      total = parseInt(countRes.rows[0]?.total, 10) || 0;
+
+      const dataQuery = `
+        SELECT 
+          id, 'firewall' AS source_type, ts, aggregator_name,
+          COALESCE(NULLIF(devname, ''), 'Firewall') AS endpoint,
+          src_ip,
+          COALESCE(NULLIF(dst_ip, ''), cfgobj, 'THREAT') AS indicator,
+          CASE WHEN cfgobj IS NOT NULL AND cfgobj != '' THEN 'domain' ELSE 'ip' END AS indicator_type,
+          severity,
+          COALESCE(NULLIF(logdesc, ''), msg, 'Threat connection detected') AS details
+        FROM fw_events
+        WHERE ${fwConds.join(' AND ')}${typeCond}
+        ORDER BY ts DESC
+        LIMIT $${fwIdx++} OFFSET $${fwIdx++}
+      `;
+      const dataRes = await qTenant(dataQuery, [...fwParams, limitNum, offset]);
+      allMatches = dataRes.rows || [];
     } else {
-      combinedQuery = `(${fwQuery}) UNION ALL (${evQuery})`;
+      // 'all': Query both safely and combine
+      const [fwCountRes, evCountRes] = await Promise.all([
+        qTenant(`SELECT COUNT(*) AS total FROM fw_events WHERE ${fwConds.join(' AND ')}`, fwParams).catch(() => ({ rows: [{ total: 0 }] })),
+        qTenant(`SELECT COUNT(*) AS total FROM events WHERE ${evConds.join(' AND ')}`, evParams).catch(() => ({ rows: [{ total: 0 }] }))
+      ]);
+
+      const fwTotal = parseInt(fwCountRes.rows[0]?.total, 10) || 0;
+      const evTotal = parseInt(evCountRes.rows[0]?.total, 10) || 0;
+      total = fwTotal + evTotal;
+
+      const [fwDataRes, evDataRes] = await Promise.all([
+        qTenant(`
+          SELECT 
+            id, 'firewall' AS source_type, ts, aggregator_name,
+            COALESCE(NULLIF(devname, ''), 'Firewall') AS endpoint,
+            src_ip,
+            COALESCE(NULLIF(dst_ip, ''), cfgobj, 'THREAT') AS indicator,
+            CASE WHEN cfgobj IS NOT NULL AND cfgobj != '' THEN 'domain' ELSE 'ip' END AS indicator_type,
+            severity,
+            COALESCE(NULLIF(logdesc, ''), msg, 'Threat connection detected') AS details
+          FROM fw_events
+          WHERE ${fwConds.join(' AND ')}
+          ORDER BY ts DESC
+          LIMIT $${fwIdx++} OFFSET $${fwIdx++}
+        `, [...fwParams, limitNum, offset]).catch(e => { console.warn('[ThreatHunting] fw_events query err:', e.message); return { rows: [] }; }),
+        qTenant(`
+          SELECT 
+            id, 'endpoint' AS source_type, ts, aggregator_name,
+            COALESCE(NULLIF(machine, ''), 'Endpoint') AS endpoint,
+            'local' AS src_ip,
+            'MALWARE-EXE' AS indicator,
+            'sha256' AS indicator_type,
+            severity,
+            message AS details
+          FROM events
+          WHERE ${evConds.join(' AND ')}
+          ORDER BY ts DESC
+          LIMIT $${evIdx++} OFFSET $${evIdx++}
+        `, [...evParams, limitNum, offset]).catch(e => { console.warn('[ThreatHunting] events query err:', e.message); return { rows: [] }; })
+      ]);
+
+      const combined = [...(fwDataRes.rows || []), ...(evDataRes.rows || [])];
+      combined.sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0));
+      allMatches = combined.slice(0, limitNum);
     }
-
-    // Total Count
-    const countSql = `SELECT COUNT(*) AS total FROM (${combinedQuery}) AS combined`;
-    const countRes = await qTenant(countSql, params);
-    const total = parseInt(countRes.rows[0]?.total, 10) || 0;
-
-    // Data query with ordering & pagination
-    const dataSql = `
-      SELECT * FROM (${combinedQuery}) AS combined 
-      ORDER BY ts DESC 
-      LIMIT $${pIdx++} OFFSET $${pIdx++}
-    `;
-    params.push(limitNum, offset);
-
-    const dataRes = await qTenant(dataSql, params);
 
     res.json({
-      matches: dataRes.rows,
+      matches: allMatches,
       total,
       page: pageNum,
       totalPages: Math.ceil(total / limitNum) || 1
     });
   } catch (err) {
-    console.error('[ThreatHunting] getMatches error:', err);
-    res.status(500).json({ error: 'Failed to retrieve threat matches' });
+    console.error('[ThreatHunting] getMatches fatal error:', err.message, err.stack);
+    res.status(500).json({ error: 'Failed to retrieve threat matches', details: err.message });
   }
 };
 
