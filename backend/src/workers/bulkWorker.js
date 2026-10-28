@@ -200,12 +200,19 @@ async function processBatch(streamKey, messages) {
         let pIdx = 1;
         for (const event of data.fw_events) {
           // 🎯 Real-Time Threat Hunting IP & Domain Check (5 Nanoseconds)
-          const dstIp = (event.dst_ip || '').trim();
-          const srcIp = (event.src_ip || '').trim();
-          const rawDomain = (event.domain || event.cfgobj || '').toLowerCase().trim();
+          const rawDst = (event.dst_ip || '').trim();
+          const dstIp = rawDst.includes(':') && !rawDst.includes('::') ? rawDst.split(':')[0] : rawDst;
 
-          const isDstBad = dstIp ? threatCache.ips.has(dstIp) : false;
-          const isSrcBad = srcIp ? threatCache.ips.has(srcIp) : false;
+          const rawSrc = (event.src_ip || '').trim();
+          const srcIp = rawSrc.includes(':') && !rawSrc.includes('::') ? rawSrc.split(':')[0] : rawSrc;
+
+          let rawDomain = (event.domain || event.cfgobj || '').toLowerCase().trim();
+          if (rawDomain.startsWith('http://') || rawDomain.startsWith('https://')) {
+            try { rawDomain = new URL(rawDomain).hostname.toLowerCase(); } catch (_) {}
+          }
+
+          const isDstBad = dstIp ? (threatCache.ips.has(dstIp) || threatCache.ips.has(rawDst)) : false;
+          const isSrcBad = srcIp ? (threatCache.ips.has(srcIp) || threatCache.ips.has(rawSrc)) : false;
           const isDomainBad = rawDomain ? threatCache.domains.has(rawDomain) : false;
 
           if (isDstBad || isSrcBad || isDomainBad) {

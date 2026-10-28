@@ -1103,8 +1103,10 @@ export default function ThreatHunting() {
                 }}
               >
                 <option value="all">All Confidence</option>
+                <option value="100">100% Verified</option>
                 <option value="high">≥ 90% High</option>
-                <option value="medium">≥ 75% Medium+</option>
+                <option value="medium">70% – 85% Medium</option>
+                <option value="50">≤ 50% Low / Caution</option>
               </select>
 
               <button
@@ -1720,9 +1722,10 @@ export default function ThreatHunting() {
 
                   {selectedDetail.data.source_feed === 'threatfox' && (
                     <a
-                      href="https://threatfox.abuse.ch/browse/"
+                      href={`https://threatfox.abuse.ch/browse.php?search=ioc%3A${encodeURIComponent(selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value)}`}
                       target="_blank"
                       rel="noopener noreferrer"
+                      title="Search this IOC on ThreatFox"
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -1737,15 +1740,16 @@ export default function ThreatHunting() {
                         textDecoration: 'none'
                       }}
                     >
-                      <ExternalLink size={12} /> ThreatFox
+                      <ExternalLink size={12} /> ThreatFox Intel
                     </a>
                   )}
 
                   {selectedDetail.data.source_feed === 'urlhaus' && (
                     <a
-                      href="https://urlhaus.abuse.ch/browse/"
+                      href={`https://urlhaus.abuse.ch/browse.php?search=${encodeURIComponent(selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value)}`}
                       target="_blank"
                       rel="noopener noreferrer"
+                      title="Search this IOC on URLhaus"
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -1760,7 +1764,7 @@ export default function ThreatHunting() {
                         textDecoration: 'none'
                       }}
                     >
-                      <ExternalLink size={12} /> URLhaus
+                      <ExternalLink size={12} /> URLhaus Search
                     </a>
                   )}
                 </div>

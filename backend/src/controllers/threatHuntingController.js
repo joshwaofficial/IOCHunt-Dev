@@ -432,10 +432,27 @@ exports.getIndicators = async (req, res) => {
     const params = [];
     let pIdx = 1;
 
-    if (search && search.trim()) {
-      conds.push(`(ioc_value ILIKE $${pIdx} OR malware_family ILIKE $${pIdx})`);
-      params.push(`%${search.trim()}%`);
-      pIdx++;
+    const cleanSearch = (search || '').trim().replace(/%/g, '');
+    let isNumericSearch = false;
+    let numericSearchVal = null;
+    if (cleanSearch && /^\d+$/.test(cleanSearch)) {
+      const num = parseInt(cleanSearch, 10);
+      if (num >= 0 && num <= 100) {
+        isNumericSearch = true;
+        numericSearchVal = num;
+      }
+    }
+
+    if (cleanSearch) {
+      if (isNumericSearch) {
+        conds.push(`(ioc_value ILIKE $${pIdx} OR malware_family ILIKE $${pIdx} OR COALESCE(confidence_level, 100) = $${pIdx + 1})`);
+        params.push(`%${cleanSearch}%`, numericSearchVal);
+        pIdx += 2;
+      } else {
+        conds.push(`(ioc_value ILIKE $${pIdx} OR malware_family ILIKE $${pIdx})`);
+        params.push(`%${cleanSearch}%`);
+        pIdx++;
+      }
     }
 
     if (type && type !== 'all') {
@@ -459,10 +476,14 @@ exports.getIndicators = async (req, res) => {
       }
     }
 
-    if (confidence === 'high') {
+    if (confidence === '100') {
+      conds.push(`COALESCE(confidence_level, 100) = 100`);
+    } else if (confidence === 'high') {
       conds.push(`COALESCE(confidence_level, 100) >= 90`);
-    } else if (confidence === 'medium') {
-      conds.push(`COALESCE(confidence_level, 100) >= 75`);
+    } else if (confidence === 'medium' || confidence === '75') {
+      conds.push(`COALESCE(confidence_level, 100) >= 70 AND COALESCE(confidence_level, 100) < 90`);
+    } else if (confidence === 'low' || confidence === '50') {
+      conds.push(`COALESCE(confidence_level, 100) <= 50`);
     }
 
     const whereClause = conds.join(' AND ');
@@ -479,6 +500,7 @@ exports.getIndicators = async (req, res) => {
       FROM threat_intel_iocs
       WHERE ${whereClause}
       ORDER BY 
+        ${isNumericSearch ? `(CASE WHEN COALESCE(confidence_level, 100) = ${numericSearchVal} THEN 0 ELSE 1 END) ASC,` : ''}
         (CASE WHEN status IN ('online', 'active') THEN 0 ELSE 1 END) ASC,
         id DESC
       LIMIT $${pIdx++} OFFSET $${pIdx++}
