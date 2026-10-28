@@ -6,6 +6,7 @@
 // ════════════════════════════════════════════════════════════════
 
 const https = require('https');
+const http = require('http');
 const readline = require('readline');
 const db = require('../config/db');
 const { getRedisClient } = require('../config/redisClient');
@@ -14,6 +15,31 @@ const { decryptText } = require('../utils/cryptoHelper');
 const redis = getRedisClient();
 
 let isSyncing = false;
+
+// Robust CSV Line Parser that handles quoted commas, double quotes, and unquoted fields
+function parseCsvLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
 
 // Helper to fetch JSON from HTTPS endpoints
 function fetchJson(url, postData = null, headers = {}) {
@@ -56,41 +82,99 @@ function fetchJson(url, postData = null, headers = {}) {
   });
 }
 
-// Helper to stream CSV lines from HTTPS endpoints
-function streamCsvLines(url, onLine) {
+// Helper to stream CSV lines from HTTPS/HTTP endpoints with automatic redirect following
+function streamCsvLines(url, onLine, headers = {}, maxRedirects = 5) {
   return new Promise((resolve, reject) => {
-    https.get(url, { headers: { 'User-Agent': 'IOCHunt-ThreatEngine/2.0' }, timeout: 60000 }, (res) => {
-      if (res.statusCode !== 200) {
-        return reject(new Error(`HTTP error ${res.statusCode} fetching ${url}`));
+    function get(currentUrl, redirectsLeft) {
+      if (redirectsLeft < 0) {
+        return reject(new Error(`Too many redirects fetching ${url}`));
       }
 
-      const rl = readline.createInterface({ input: res, crlfDelay: Infinity });
-      rl.on('line', (line) => {
-        try {
-          onLine(line);
-        } catch (_) {}
+      let parsedUrl;
+      try {
+        parsedUrl = new URL(currentUrl);
+      } catch (err) {
+        return reject(new Error(`Invalid URL: ${currentUrl}`));
+      }
+
+      const client = parsedUrl.protocol === 'http:' ? http : https;
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || (parsedUrl.protocol === 'http:' ? 80 : 443),
+        path: parsedUrl.pathname + parsedUrl.search,
+        headers: {
+          'User-Agent': 'IOCHunt-ThreatEngine/2.0',
+          ...headers
+        },
+        timeout: 60000
+      };
+
+      const req = client.get(options, (res) => {
+        // Follow redirects (301, 302, 303, 307, 308)
+        if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+          const nextUrl = new URL(res.headers.location, currentUrl).href;
+          res.resume();
+          return get(nextUrl, redirectsLeft - 1);
+        }
+
+        if (res.statusCode !== 200) {
+          res.resume();
+          return reject(new Error(`HTTP error ${res.statusCode} fetching ${currentUrl}`));
+        }
+
+        const rl = readline.createInterface({ input: res, crlfDelay: Infinity });
+        rl.on('line', (line) => {
+          try {
+            onLine(line);
+          } catch (_) {}
+        });
+        rl.on('close', resolve);
+        rl.on('error', reject);
       });
-      rl.on('close', resolve);
-      rl.on('error', reject);
-    }).on('error', reject);
+
+      req.on('error', reject);
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error(`Request timed out fetching ${currentUrl}`));
+      });
+    }
+
+    get(url, maxRedirects);
   });
 }
 
-// Retrieve ThreatFox API Key (checks encrypted settings in DB, then env fallback)
-async function getThreatFoxApiKey() {
+// Retrieve Threat Intelligence Config & Decrypted Unified Abuse.ch API Key
+async function getThreatIntelConfig() {
   try {
     const res = await db.query('SELECT threat_intel_config FROM settings LIMIT 1');
     if (res.rows.length > 0 && res.rows[0].threat_intel_config) {
-      const cfg = JSON.parse(res.rows[0].threat_intel_config);
+      const cfg = typeof res.rows[0].threat_intel_config === 'string'
+        ? JSON.parse(res.rows[0].threat_intel_config)
+        : res.rows[0].threat_intel_config;
+      let apiKey = null;
       if (cfg.encryptedApiKey) {
-        return decryptText(cfg.encryptedApiKey);
+        apiKey = decryptText(cfg.encryptedApiKey);
+      } else if (cfg.apiKey) {
+        apiKey = cfg.apiKey;
       }
-      if (cfg.apiKey) return cfg.apiKey;
+      return {
+        apiKey: apiKey || process.env.THREATFOX_API_KEY || null,
+        feeds: cfg.feeds || { threatfox: true, malwarebazaar: true, urlhaus: true }
+      };
     }
   } catch (err) {
     console.warn('[ThreatIntel] DB config read warning:', err.message);
   }
-  return process.env.THREATFOX_API_KEY || null;
+  return {
+    apiKey: process.env.THREATFOX_API_KEY || null,
+    feeds: { threatfox: true, malwarebazaar: true, urlhaus: true }
+  };
+}
+
+// Backwards-compatible helper to retrieve the decrypted API key
+async function getThreatFoxApiKey() {
+  const config = await getThreatIntelConfig();
+  return config.apiKey;
 }
 
 // Helper for batch upserting indicators into PostgreSQL
@@ -113,6 +197,7 @@ async function bulkUpsertIocs(records) {
       VALUES ${values.join(', ')}
       ON CONFLICT (ioc_type, ioc_value) DO UPDATE SET 
         malware_family = EXCLUDED.malware_family,
+        source_feed = EXCLUDED.source_feed,
         last_seen = CURRENT_TIMESTAMP;
     `;
     await db.query(query, params).catch(e => console.warn('[ThreatIntel] Bulk upsert warning:', e.message));
@@ -187,25 +272,34 @@ async function syncThreatFox() {
 
 // ── 2. MalwareBazaar Ingestor (100% Malicious EXE Hashes) ───────────
 async function syncMalwareBazaar() {
-  console.log('[ThreatIntel] Fetching MalwareBazaar daily executable hashes...');
+  const apiKey = await getThreatFoxApiKey();
+  if (!apiKey) {
+    console.log('[ThreatIntel] Abuse.ch API key not configured yet. Skipping MalwareBazaar sync.');
+    return { count: 0, skipped: true };
+  }
+
+  console.log('[ThreatIntel] Fetching MalwareBazaar daily executable hashes via v2 export API...');
   try {
     const pipe = redis.pipeline();
     const records = [];
     let count = 0;
 
-    await streamCsvLines('https://bazaar.abuse.ch/export/csv/recent/', (line) => {
+    const url = `https://mb-api.abuse.ch/v2/files/exports/${encodeURIComponent(apiKey.trim())}/recent.csv`;
+    const headers = { 'Auth-Key': apiKey.trim() };
+
+    await streamCsvLines(url, (line) => {
       if (!line || line.startsWith('#')) return;
       // CSV format: "first_seen_utc","sha256_hash","md5_hash","sha1_hash","reporter","file_name","file_type_guess","signature"
-      const cols = line.split('","').map(c => c.replace(/"/g, ''));
+      const cols = parseCsvLine(line);
       const sha256 = (cols[1] || '').toLowerCase().trim();
       const signature = cols[7] || 'Malware';
 
-      if (sha256 && sha256.length === 64) {
+      if (sha256 && sha256.length === 64 && /^[0-9a-f]{64}$/i.test(sha256)) {
         pipe.sadd('threat:hashes', sha256);
         records.push({ ioc_type: 'sha256', ioc_value: sha256, malware_family: signature, source_feed: 'malwarebazaar' });
         count++;
       }
-    });
+    }, headers);
 
     await pipe.exec();
     await bulkUpsertIocs(records);
@@ -219,19 +313,28 @@ async function syncMalwareBazaar() {
 
 // ── 3. URLhaus Ingestor (Malicious Domains & IPs) ────────────────────
 async function syncURLhaus() {
-  console.log('[ThreatIntel] Fetching URLhaus recent malicious domains & IPs...');
+  const apiKey = await getThreatFoxApiKey();
+  if (!apiKey) {
+    console.log('[ThreatIntel] Abuse.ch API key not configured yet. Skipping URLhaus sync.');
+    return { count: 0, skipped: true };
+  }
+
+  console.log('[ThreatIntel] Fetching URLhaus recent malicious domains & IPs via v2 export API...');
   try {
     const pipe = redis.pipeline();
     const records = [];
     let count = 0;
 
-    await streamCsvLines('https://urlhaus.abuse.ch/downloads/csv_recent/', (line) => {
+    const url = `https://urlhaus-api.abuse.ch/v2/files/exports/${encodeURIComponent(apiKey.trim())}/recent.csv`;
+    const headers = { 'Auth-Key': apiKey.trim() };
+
+    await streamCsvLines(url, (line) => {
       if (!line || line.startsWith('#')) return;
       // CSV format: id,dateadded,url,url_status,last_online,threat,tags,urlhaus_link,reporter
-      const cols = line.split('","').map(c => c.replace(/"/g, ''));
+      const cols = parseCsvLine(line);
       const rawUrl = cols[2];
-      const threatTag = cols[6] || 'Malware';
-      if (!rawUrl) return;
+      const threatTag = cols[6] || cols[5] || 'Malware';
+      if (!rawUrl || rawUrl.toLowerCase() === 'url') return;
 
       try {
         let parseTarget = rawUrl.trim();
@@ -245,13 +348,13 @@ async function syncURLhaus() {
           pipe.sadd('threat:ips', hostname);
           records.push({ ioc_type: 'ip', ioc_value: hostname, malware_family: threatTag, source_feed: 'urlhaus' });
           count++;
-        } else if (hostname.includes('.')) {
+        } else if (hostname && hostname.includes('.')) {
           pipe.sadd('threat:domains', hostname);
           records.push({ ioc_type: 'domain', ioc_value: hostname, malware_family: threatTag, source_feed: 'urlhaus' });
           count++;
         }
       } catch (_) {}
-    });
+    }, headers);
 
     await pipe.exec();
     await bulkUpsertIocs(records);
@@ -302,9 +405,19 @@ async function syncAllFeeds() {
   }
   isSyncing = true;
   try {
-    await syncThreatFox();
-    await syncMalwareBazaar();
-    await syncURLhaus();
+    const config = await getThreatIntelConfig();
+    const feeds = config.feeds || { threatfox: true, malwarebazaar: true, urlhaus: true };
+
+    if (feeds.threatfox !== false) {
+      await syncThreatFox();
+    }
+    if (feeds.malwarebazaar !== false) {
+      await syncMalwareBazaar();
+    }
+    if (feeds.urlhaus !== false) {
+      await syncURLhaus();
+    }
+
     await run60DayPurge();
 
     // Signal bulkWorker to reload its Level-1 in-memory RAM cache
@@ -343,5 +456,7 @@ module.exports = {
   syncMalwareBazaar,
   syncURLhaus,
   run60DayPurge,
-  getThreatFoxApiKey
+  getThreatFoxApiKey,
+  getThreatIntelConfig
 };
+
