@@ -219,9 +219,29 @@ async function getThreatFoxApiKey() {
 // Helper for batch upserting indicators into PostgreSQL
 async function bulkUpsertIocs(records) {
   if (!records || records.length === 0) return;
+
+  // Deduplicate within the batch to prevent PostgreSQL "ON CONFLICT DO UPDATE cannot affect row a second time" error
+  const uniqueMap = new Map();
+  for (const r of records) {
+    if (!r.ioc_type || !r.ioc_value) continue;
+    const cleanVal = r.ioc_value.toLowerCase().trim();
+    const key = `${r.ioc_type}:${cleanVal}`;
+    // Prefer more descriptive malware family if duplicate
+    const existing = uniqueMap.get(key);
+    if (!existing || (existing.malware_family === 'Malware' && r.malware_family && r.malware_family !== 'Malware')) {
+      uniqueMap.set(key, {
+        ioc_type: r.ioc_type,
+        ioc_value: cleanVal,
+        malware_family: r.malware_family || '',
+        source_feed: r.source_feed
+      });
+    }
+  }
+
+  const deduped = Array.from(uniqueMap.values());
   const CHUNK_SIZE = 100;
-  for (let i = 0; i < records.length; i += CHUNK_SIZE) {
-    const chunk = records.slice(i, i + CHUNK_SIZE);
+  for (let i = 0; i < deduped.length; i += CHUNK_SIZE) {
+    const chunk = deduped.slice(i, i + CHUNK_SIZE);
     const values = [];
     const params = [];
     let pIdx = 1;
