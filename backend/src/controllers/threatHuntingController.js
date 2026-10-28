@@ -449,8 +449,14 @@ exports.getIndicators = async (req, res) => {
     }
 
     if (status && status !== 'all') {
-      conds.push(`status = $${pIdx++}`);
-      params.push(status.trim());
+      if (status === 'online') {
+        conds.push(`status IN ('online', 'active')`);
+      } else if (status === 'offline') {
+        conds.push(`status = 'offline'`);
+      } else {
+        conds.push(`status = $${pIdx++}`);
+        params.push(status.trim());
+      }
     }
 
     if (confidence === 'high') {
@@ -472,7 +478,9 @@ exports.getIndicators = async (req, res) => {
              first_seen, last_seen
       FROM threat_intel_iocs
       WHERE ${whereClause}
-      ORDER BY last_seen DESC
+      ORDER BY 
+        (CASE WHEN status IN ('online', 'active') THEN 0 ELSE 1 END) ASC,
+        id DESC
       LIMIT $${pIdx++} OFFSET $${pIdx++}
     `;
     params.push(limitNum, offset);

@@ -820,15 +820,15 @@ export default function ThreatHunting() {
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', tableLayout: 'fixed' }}>
                   <thead>
                     <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)', color: 'var(--muted)' }}>
-                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Timestamp</th>
-                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Severity</th>
-                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Endpoint / Device</th>
-                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Aggregator / Branch</th>
-                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Matched Indicator</th>
-                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Threat Context</th>
+                      <th style={{ width: '16%', minWidth: '150px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Timestamp</th>
+                      <th style={{ width: '12%', minWidth: '110px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Severity</th>
+                      <th style={{ width: '18%', minWidth: '150px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Endpoint / Device</th>
+                      <th style={{ width: '14%', minWidth: '120px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Aggregator / Branch</th>
+                      <th style={{ width: '20%', minWidth: '170px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Matched Indicator</th>
+                      <th style={{ width: '20%', minWidth: '180px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Threat Context</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1180,15 +1180,15 @@ export default function ThreatHunting() {
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left', tableLayout: 'fixed' }}>
                   <thead>
                     <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)', color: 'var(--muted)' }}>
-                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Indicator Value</th>
-                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Type</th>
-                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Malware Family</th>
-                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Feed Provider</th>
-                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Confidence</th>
-                      <th style={{ padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Last Verified</th>
+                      <th style={{ width: '27%', minWidth: '220px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Indicator Value</th>
+                      <th style={{ width: '18%', minWidth: '160px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Type & Status</th>
+                      <th style={{ width: '23%', minWidth: '180px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Malware Family</th>
+                      <th style={{ width: '13%', minWidth: '110px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Feed Provider</th>
+                      <th style={{ width: '10%', minWidth: '100px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Confidence</th>
+                      <th style={{ width: '9%', minWidth: '95px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px', textAlign: 'right' }}>Last Verified</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1206,10 +1206,22 @@ export default function ThreatHunting() {
                         onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                       >
                         {/* Indicator Value */}
-                        <td style={{ padding: '12px 16px' }}>
+                        <td style={{ padding: '12px 16px', verticalAlign: 'middle' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontFamily: 'var(--mono)', color: 'var(--text)', fontWeight: 600, fontSize: '12px' }}>
-                              {ioc.ioc_value && ioc.ioc_value.length > 40 ? `${ioc.ioc_value.slice(0, 36)}...` : ioc.ioc_value}
+                            <span 
+                              title={ioc.ioc_value}
+                              style={{ 
+                                fontFamily: 'var(--mono)', 
+                                color: 'var(--text)', 
+                                fontWeight: 600, 
+                                fontSize: '12px',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                maxWidth: '240px'
+                              }}
+                            >
+                              {ioc.ioc_value}
                             </span>
                             <button
                               onClick={(e) => {
@@ -1217,7 +1229,7 @@ export default function ThreatHunting() {
                                 copyIndicator(ioc.ioc_value);
                               }}
                               title="Copy Indicator"
-                              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '2px' }}
+                              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '2px', flexShrink: 0 }}
                             >
                               {copiedItem === ioc.ioc_value ? <Check size={14} color="#22c55e" /> : <Copy size={14} />}
                             </button>
@@ -1225,7 +1237,7 @@ export default function ThreatHunting() {
                         </td>
 
                         {/* Type & Inline Status Badge */}
-                        <td style={{ padding: '12px 16px' }}>
+                        <td style={{ padding: '12px 16px', verticalAlign: 'middle' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                             <span style={{
                               padding: '2px 7px',
@@ -1265,21 +1277,37 @@ export default function ThreatHunting() {
                         </td>
 
                         {/* Malware Family */}
-                        <td style={{ padding: '12px 16px', color: 'var(--text)' }}>
-                          <span style={{ padding: '2px 8px', borderRadius: '4px', background: 'var(--surface2)', border: '1px solid var(--border)', fontSize: '11px', fontWeight: 600 }}>
+                        <td style={{ padding: '12px 16px', color: 'var(--text)', verticalAlign: 'middle' }}>
+                          <span 
+                            title={ioc.malware_family || 'Generic C2 / Malware'}
+                            style={{ 
+                              padding: '2px 8px', 
+                              borderRadius: '4px', 
+                              background: 'var(--surface2)', 
+                              border: '1px solid var(--border)', 
+                              fontSize: '11px', 
+                              fontWeight: 600,
+                              maxWidth: '190px',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              display: 'inline-block',
+                              verticalAlign: 'middle'
+                            }}
+                          >
                             {ioc.malware_family || 'Generic C2 / Malware'}
                           </span>
                         </td>
 
                         {/* Provider */}
-                        <td style={{ padding: '12px 16px', color: 'var(--muted2)' }}>
+                        <td style={{ padding: '12px 16px', color: 'var(--muted2)', verticalAlign: 'middle' }}>
                           <span style={{ fontSize: '12px', textTransform: 'capitalize', fontWeight: 500 }}>
                             {ioc.source_feed || ioc.source}
                           </span>
                         </td>
 
                         {/* Confidence */}
-                        <td style={{ padding: '12px 16px' }}>
+                        <td style={{ padding: '12px 16px', verticalAlign: 'middle' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                             <span style={{ 
                               color: (ioc.confidence_level || 100) >= 90 ? '#22c55e' : (ioc.confidence_level || 100) >= 75 ? '#eab308' : '#ef4444', 
@@ -1305,7 +1333,7 @@ export default function ThreatHunting() {
                         </td>
 
                         {/* Last Seen */}
-                        <td style={{ padding: '12px 16px', color: 'var(--muted)', whiteSpace: 'nowrap', fontSize: '12px', fontFamily: 'var(--mono)' }}>
+                        <td style={{ padding: '12px 16px', color: 'var(--muted)', whiteSpace: 'nowrap', fontSize: '12px', fontFamily: 'var(--mono)', verticalAlign: 'middle', textAlign: 'right' }}>
                           {ioc.last_seen ? new Date(ioc.last_seen).toLocaleDateString() : 'Active'}
                         </td>
                       </tr>
