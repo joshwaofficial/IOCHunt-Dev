@@ -7,6 +7,7 @@
 
 const https = require('https');
 const http = require('http');
+const zlib = require('zlib');
 const readline = require('readline');
 const db = require('../config/db');
 const { getRedisClient } = require('../config/redisClient');
@@ -41,7 +42,7 @@ function parseCsvLine(line) {
   return result;
 }
 
-// Helper to fetch JSON from HTTPS endpoints
+// Helper to fetch JSON from HTTPS endpoints with automatic decompression & redirect support
 function fetchJson(url, postData = null, headers = {}) {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
@@ -52,21 +53,46 @@ function fetchJson(url, postData = null, headers = {}) {
       method: postData ? 'POST' : 'GET',
       headers: {
         'User-Agent': 'IOCHunt-ThreatEngine/2.0',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Encoding': 'gzip, deflate, identity',
         ...headers
       },
       timeout: 30000
     };
 
     const req = https.request(options, (res) => {
+      // Follow redirects (301, 302, 303, 307, 308)
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+        const nextUrl = new URL(res.headers.location, url).href;
+        res.resume();
+        return fetchJson(nextUrl, postData, headers).then(resolve).catch(reject);
+      }
+
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`HTTP error ${res.statusCode} fetching JSON from ${url}`));
+      }
+
+      let stream = res;
+      const encoding = (res.headers['content-encoding'] || '').toLowerCase();
+      if (encoding === 'gzip') {
+        stream = res.pipe(zlib.createGunzip());
+      } else if (encoding === 'deflate') {
+        stream = res.pipe(zlib.createInflate());
+      } else if (encoding === 'br') {
+        stream = res.pipe(zlib.createBrotliDecompress());
+      }
+
       let body = '';
-      res.on('data', chunk => body += chunk);
-      res.on('end', () => {
+      stream.on('data', chunk => body += chunk);
+      stream.on('end', () => {
         try {
           resolve(JSON.parse(body));
         } catch (e) {
           reject(new Error(`Failed to parse JSON response: ${e.message}`));
         }
       });
+      stream.on('error', reject);
     });
 
     req.on('error', reject);
@@ -82,7 +108,7 @@ function fetchJson(url, postData = null, headers = {}) {
   });
 }
 
-// Helper to stream CSV lines from HTTPS/HTTP endpoints with automatic redirect following
+// Helper to stream CSV lines from HTTPS/HTTP endpoints with automatic redirect & gzip decompression
 function streamCsvLines(url, onLine, headers = {}, maxRedirects = 5) {
   return new Promise((resolve, reject) => {
     function get(currentUrl, redirectsLeft) {
@@ -104,6 +130,7 @@ function streamCsvLines(url, onLine, headers = {}, maxRedirects = 5) {
         path: parsedUrl.pathname + parsedUrl.search,
         headers: {
           'User-Agent': 'IOCHunt-ThreatEngine/2.0',
+          'Accept-Encoding': 'gzip, deflate, identity',
           ...headers
         },
         timeout: 60000
@@ -122,13 +149,25 @@ function streamCsvLines(url, onLine, headers = {}, maxRedirects = 5) {
           return reject(new Error(`HTTP error ${res.statusCode} fetching ${currentUrl}`));
         }
 
-        const rl = readline.createInterface({ input: res, crlfDelay: Infinity });
+        // Automatic stream decompression if server returns gzip, deflate, or br
+        let stream = res;
+        const encoding = (res.headers['content-encoding'] || '').toLowerCase();
+        if (encoding === 'gzip') {
+          stream = res.pipe(zlib.createGunzip());
+        } else if (encoding === 'deflate') {
+          stream = res.pipe(zlib.createInflate());
+        } else if (encoding === 'br') {
+          stream = res.pipe(zlib.createBrotliDecompress());
+        }
+
+        const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
         rl.on('line', (line) => {
           try {
             onLine(line);
           } catch (_) {}
         });
         rl.on('close', resolve);
+        stream.on('error', reject);
         rl.on('error', reject);
       });
 
@@ -319,25 +358,26 @@ async function syncURLhaus() {
     return { count: 0, skipped: true };
   }
 
-  console.log('[ThreatIntel] Fetching URLhaus recent malicious domains & IPs via v2 export API...');
-  try {
-    const pipe = redis.pipeline();
-    const records = [];
-    let count = 0;
+  console.log('[ThreatIntel] Fetching URLhaus recent malicious domains & IPs...');
+  const pipe = redis.pipeline();
+  const records = [];
+  let count = 0;
 
+  // Strategy 1: URLhaus v2 Bulk CSV Export with Gzip Decompression
+  try {
     const url = `https://urlhaus-api.abuse.ch/v2/files/exports/${encodeURIComponent(apiKey.trim())}/recent.csv`;
     const headers = { 'Auth-Key': apiKey.trim() };
 
     await streamCsvLines(url, (line) => {
       if (!line || line.startsWith('#')) return;
-      // CSV format: id,dateadded,url,url_status,last_online,threat,tags,urlhaus_link,reporter
       const cols = parseCsvLine(line);
-      const rawUrl = cols[2];
-      const threatTag = cols[6] || cols[5] || 'Malware';
+      // Auto-detect URL column (find column starting with http://, https://, or hxxp://, or fallback to index 2)
+      const rawUrl = cols.find(c => typeof c === 'string' && /^(?:https?|hxxps?):\/\//i.test(c.trim())) || cols[2];
+      const threatTag = (cols[4] && cols[4] !== 'online' && cols[4] !== 'offline') ? cols[4] : (cols[5] || cols[6] || 'Malware');
       if (!rawUrl || rawUrl.toLowerCase() === 'url') return;
 
       try {
-        let parseTarget = rawUrl.trim();
+        let parseTarget = rawUrl.replace(/^hxxp/i, 'http').replace(/\[\.\]/g, '.').trim();
         if (!parseTarget.startsWith('http://') && !parseTarget.startsWith('https://')) {
           parseTarget = 'http://' + parseTarget;
         }
@@ -356,14 +396,96 @@ async function syncURLhaus() {
       } catch (_) {}
     }, headers);
 
-    await pipe.exec();
-    await bulkUpsertIocs(records);
-    console.log(`[ThreatIntel] URLhaus processed ${count} indicators.`);
-    return { count };
+    if (records.length > 0) {
+      await pipe.exec();
+      await bulkUpsertIocs(records);
+      console.log(`[ThreatIntel] URLhaus processed ${count} indicators from CSV export.`);
+      return { count };
+    }
   } catch (err) {
-    console.error('[ThreatIntel] URLhaus sync error:', err.message);
-    return { count: 0, error: err.message };
+    console.warn('[ThreatIntel] URLhaus CSV export attempt failed, falling back to JSON API:', err.message);
   }
+
+  // Strategy 2: Official URLhaus JSON API (/v1/urls/recent/)
+  try {
+    console.log('[ThreatIntel] Fetching URLhaus recent indicators via official JSON API fallback...');
+    const jsonRes = await fetchJson('https://urlhaus-api.abuse.ch/v1/urls/recent/', null, {
+      'Auth-Key': apiKey.trim()
+    });
+
+    if (jsonRes && jsonRes.query_status === 'ok' && Array.isArray(jsonRes.urls)) {
+      const fbPipe = redis.pipeline();
+      const fbRecords = [];
+      let fbCount = 0;
+
+      for (const item of jsonRes.urls) {
+        let host = (item.host || '').toLowerCase().trim();
+        const threat = item.threat || (Array.isArray(item.tags) ? item.tags.join(', ') : 'Malware');
+
+        if (!host && item.url) {
+          try {
+            let t = item.url.replace(/^hxxp/i, 'http').replace(/\[\.\]/g, '.').trim();
+            if (!t.startsWith('http://') && !t.startsWith('https://')) t = 'http://' + t;
+            host = new URL(t).hostname.toLowerCase().trim();
+          } catch (_) {}
+        }
+
+        if (!host) continue;
+        const isIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
+
+        if (isIp) {
+          fbPipe.sadd('threat:ips', host);
+          fbRecords.push({ ioc_type: 'ip', ioc_value: host, malware_family: threat, source_feed: 'urlhaus' });
+          fbCount++;
+        } else if (host.includes('.')) {
+          fbPipe.sadd('threat:domains', host);
+          fbRecords.push({ ioc_type: 'domain', ioc_value: host, malware_family: threat, source_feed: 'urlhaus' });
+          fbCount++;
+        }
+      }
+
+      await fbPipe.exec();
+      await bulkUpsertIocs(fbRecords);
+      console.log(`[ThreatIntel] URLhaus processed ${fbCount} indicators via JSON API.`);
+      return { count: fbCount };
+    } else {
+      console.warn('[ThreatIntel] URLhaus JSON API status:', jsonRes?.query_status);
+    }
+  } catch (jsonErr) {
+    console.warn('[ThreatIntel] URLhaus JSON API attempt failed, trying hostfile fallback:', jsonErr.message);
+  }
+
+  // Strategy 3: URLhaus Hostfile (/v2/files/exports/<API KEY>/hostfile.txt)
+  try {
+    console.log('[ThreatIntel] Fetching URLhaus malicious hostfile export...');
+    const hostfileUrl = `https://urlhaus-api.abuse.ch/v2/files/exports/${encodeURIComponent(apiKey.trim())}/hostfile.txt`;
+    const hfPipe = redis.pipeline();
+    const hfRecords = [];
+    let hfCount = 0;
+
+    await streamCsvLines(hostfileUrl, (line) => {
+      if (!line || line.startsWith('#')) return;
+      // Hostfile format: "127.0.0.1  malicious.domain.com"
+      const parts = line.trim().split(/\s+/);
+      const domain = (parts[1] || parts[0] || '').toLowerCase().trim();
+      if (!domain || domain === '127.0.0.1' || domain === 'localhost' || !domain.includes('.')) return;
+
+      hfPipe.sadd('threat:domains', domain);
+      hfRecords.push({ ioc_type: 'domain', ioc_value: domain, malware_family: 'Malware Distribution', source_feed: 'urlhaus' });
+      hfCount++;
+    }, { 'Auth-Key': apiKey.trim() });
+
+    if (hfRecords.length > 0) {
+      await hfPipe.exec();
+      await bulkUpsertIocs(hfRecords);
+      console.log(`[ThreatIntel] URLhaus processed ${hfCount} domains from hostfile export.`);
+      return { count: hfCount };
+    }
+  } catch (hfErr) {
+    console.error('[ThreatIntel] URLhaus hostfile fallback error:', hfErr.message);
+  }
+
+  return { count };
 }
 
 // ── 4. 60-Day Rotational Purge ─────────────────────────────────────
