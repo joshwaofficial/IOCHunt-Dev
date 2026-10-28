@@ -3,7 +3,7 @@ import axios from 'axios';
 import { 
   Radar, Key, RefreshCw, Database, 
   ExternalLink, Copy, Check, Eye, EyeOff, Search,
-  Server, CheckCircle2, ShieldAlert
+  Server, CheckCircle2, ShieldAlert, X, Info, Activity, Filter, RotateCcw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
@@ -30,6 +30,9 @@ export default function ThreatHunting() {
   });
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
+  // Detail Modal State (Popup on row click)
+  const [selectedDetail, setSelectedDetail] = useState(null);
+
   // Matches State (Tab 1)
   const [matches, setMatches] = useState([]);
   const [matchesLoading, setMatchesLoading] = useState(false);
@@ -38,6 +41,8 @@ export default function ThreatHunting() {
   const [matchesTotalPages, setMatchesTotalPages] = useState(1);
   const [matchesSearch, setMatchesSearch] = useState('');
   const [matchesType, setMatchesType] = useState('all');
+  const [matchesSeverity, setMatchesSeverity] = useState('all');
+  const [matchesSourceType, setMatchesSourceType] = useState('all');
   const [matchesTimeRange, setMatchesTimeRange] = useState('24h');
 
   // Indicators State (Tab 2)
@@ -49,6 +54,8 @@ export default function ThreatHunting() {
   const [indicatorsSearch, setIndicatorsSearch] = useState('');
   const [indicatorsType, setIndicatorsType] = useState('all');
   const [indicatorsSource, setIndicatorsSource] = useState('all');
+  const [indicatorsStatus, setIndicatorsStatus] = useState('all');
+  const [indicatorsConfidence, setIndicatorsConfidence] = useState('all');
 
   // Copied indicator state for visual feedback
   const [copiedItem, setCopiedItem] = useState(null);
@@ -84,6 +91,8 @@ export default function ThreatHunting() {
           limit: 20,
           search: matchesSearch,
           type: matchesType,
+          severity: matchesSeverity,
+          sourceType: matchesSourceType,
           timeRange: matchesTimeRange
         }
       });
@@ -109,7 +118,9 @@ export default function ThreatHunting() {
           limit: 25,
           search: indicatorsSearch,
           type: indicatorsType,
-          source: indicatorsSource
+          source: indicatorsSource,
+          status: indicatorsStatus,
+          confidence: indicatorsConfidence
         }
       });
       setIndicators(res.data.indicators || []);
@@ -124,7 +135,7 @@ export default function ThreatHunting() {
     }
   };
 
-  // Triggers when status is configured or active tab switches
+  // Triggers when status is configured or active tab switches / filters change
   useEffect(() => {
     if (status?.configured) {
       if (activeTab === 'matches') {
@@ -133,7 +144,18 @@ export default function ThreatHunting() {
         fetchIndicators(1);
       }
     }
-  }, [status?.configured, activeTab, matchesType, matchesTimeRange, indicatorsType, indicatorsSource]);
+  }, [
+    status?.configured, 
+    activeTab, 
+    matchesType, 
+    matchesSeverity, 
+    matchesSourceType, 
+    matchesTimeRange, 
+    indicatorsType, 
+    indicatorsSource, 
+    indicatorsStatus, 
+    indicatorsConfidence
+  ]);
 
   // Handle Save / Setup API Key
   const handleSaveConfig = async (e) => {
@@ -614,7 +636,7 @@ export default function ThreatHunting() {
             justifyContent: 'space-between'
           }}>
             {/* Search Input */}
-            <div style={{ position: 'relative', flex: '1', minWidth: '240px', maxWidth: '380px' }}>
+            <div style={{ position: 'relative', flex: '1', minWidth: '220px', maxWidth: '320px' }}>
               <Search size={14} color="var(--muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
               <input
                 type="text"
@@ -654,10 +676,51 @@ export default function ThreatHunting() {
                   fontFamily: 'var(--sans)'
                 }}
               >
-                <option value="all">All Indicator Types</option>
+                <option value="all">All Types</option>
                 <option value="ip">IP Address</option>
                 <option value="domain">Domain Name</option>
                 <option value="sha256">SHA256 Hash</option>
+              </select>
+
+              {/* Source Engine Filter */}
+              <select
+                value={matchesSourceType}
+                onChange={(e) => setMatchesSourceType(e.target.value)}
+                style={{
+                  padding: '6px 10px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--sans)'
+                }}
+              >
+                <option value="all">All Sources</option>
+                <option value="endpoint">Agent Endpoints</option>
+                <option value="firewall">Firewall Network</option>
+              </select>
+
+              {/* Severity Filter */}
+              <select
+                value={matchesSeverity}
+                onChange={(e) => setMatchesSeverity(e.target.value)}
+                style={{
+                  padding: '6px 10px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--sans)'
+                }}
+              >
+                <option value="all">All Severities</option>
+                <option value="critical">Critical Only</option>
               </select>
 
               {/* Time Range Filter */}
@@ -687,9 +750,9 @@ export default function ThreatHunting() {
                 style={{
                   padding: '6px 12px',
                   borderRadius: '6px',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text)',
+                  background: '#2563eb',
+                  border: 'none',
+                  color: '#ffffff',
                   fontSize: '12px',
                   fontWeight: 600,
                   cursor: 'pointer',
@@ -698,8 +761,36 @@ export default function ThreatHunting() {
                   gap: '6px'
                 }}
               >
-                <RefreshCw size={12} /> Filter
+                <Filter size={12} /> Filter
               </button>
+
+              {(matchesSearch || matchesType !== 'all' || matchesSeverity !== 'all' || matchesSourceType !== 'all' || matchesTimeRange !== '24h') && (
+                <button
+                  onClick={() => {
+                    setMatchesSearch('');
+                    setMatchesType('all');
+                    setMatchesSeverity('all');
+                    setMatchesSourceType('all');
+                    setMatchesTimeRange('24h');
+                  }}
+                  title="Reset all filters"
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: '6px',
+                    background: 'var(--surface2)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--muted)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <RotateCcw size={12} /> Reset
+                </button>
+              )}
             </div>
           </div>
 
@@ -744,10 +835,15 @@ export default function ThreatHunting() {
                     {matches.map((item, idx) => (
                       <tr 
                         key={idx}
+                        onClick={() => setSelectedDetail({ type: 'match', data: item })}
+                        title="Click to view full threat match details"
                         style={{ 
                           borderBottom: '1px solid var(--border)',
-                          transition: 'background 0.2s'
+                          transition: 'background 0.15s ease',
+                          cursor: 'pointer'
                         }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface2)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                       >
                         {/* Timestamp */}
                         <td style={{ padding: '12px 16px', color: 'var(--muted2)', whiteSpace: 'nowrap', fontSize: '12px', fontFamily: 'var(--mono)' }}>
@@ -766,7 +862,7 @@ export default function ThreatHunting() {
                             fontWeight: 800,
                             fontFamily: 'var(--mono)'
                           }}>
-                            CRITICAL
+                            {item.severity ? item.severity.toUpperCase() : 'CRITICAL'}
                           </span>
                         </td>
 
@@ -805,7 +901,10 @@ export default function ThreatHunting() {
                               {item.indicator && item.indicator.length > 28 ? `${item.indicator.slice(0, 24)}...` : item.indicator}
                             </span>
                             <button
-                              onClick={() => copyIndicator(item.indicator)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                copyIndicator(item.indicator);
+                              }}
                               title="Copy Indicator"
                               style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '2px' }}
                             >
@@ -966,14 +1065,56 @@ export default function ThreatHunting() {
                 <option value="urlhaus">URLhaus</option>
               </select>
 
+              {/* Status Filter */}
+              <select
+                value={indicatorsStatus}
+                onChange={(e) => setIndicatorsStatus(e.target.value)}
+                style={{
+                  padding: '6px 10px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--sans)'
+                }}
+              >
+                <option value="all">All Statuses</option>
+                <option value="online">Online / Active</option>
+                <option value="offline">Offline / Dormant</option>
+              </select>
+
+              {/* Confidence Filter */}
+              <select
+                value={indicatorsConfidence}
+                onChange={(e) => setIndicatorsConfidence(e.target.value)}
+                style={{
+                  padding: '6px 10px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--sans)'
+                }}
+              >
+                <option value="all">All Confidence</option>
+                <option value="high">≥ 90% High</option>
+                <option value="medium">≥ 75% Medium+</option>
+              </select>
+
               <button
                 onClick={() => fetchIndicators(1)}
                 style={{
                   padding: '6px 12px',
                   borderRadius: '6px',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text)',
+                  background: '#2563eb',
+                  border: 'none',
+                  color: '#ffffff',
                   fontSize: '12px',
                   fontWeight: 600,
                   cursor: 'pointer',
@@ -982,8 +1123,36 @@ export default function ThreatHunting() {
                   gap: '6px'
                 }}
               >
-                <RefreshCw size={12} /> Filter
+                <Filter size={12} /> Filter
               </button>
+
+              {(indicatorsSearch || indicatorsType !== 'all' || indicatorsSource !== 'all' || indicatorsStatus !== 'all' || indicatorsConfidence !== 'all') && (
+                <button
+                  onClick={() => {
+                    setIndicatorsSearch('');
+                    setIndicatorsType('all');
+                    setIndicatorsSource('all');
+                    setIndicatorsStatus('all');
+                    setIndicatorsConfidence('all');
+                  }}
+                  title="Reset all filters"
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: '6px',
+                    background: 'var(--surface2)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--muted)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <RotateCcw size={12} /> Reset
+                </button>
+              )}
             </div>
           </div>
 
@@ -1026,10 +1195,15 @@ export default function ThreatHunting() {
                     {indicators.map((ioc, idx) => (
                       <tr 
                         key={idx}
+                        onClick={() => setSelectedDetail({ type: 'indicator', data: ioc })}
+                        title="Click to view full threat intelligence details"
                         style={{ 
                           borderBottom: '1px solid var(--border)',
-                          transition: 'background 0.2s'
+                          transition: 'background 0.15s ease',
+                          cursor: 'pointer'
                         }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface2)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                       >
                         {/* Indicator Value */}
                         <td style={{ padding: '12px 16px' }}>
@@ -1038,7 +1212,10 @@ export default function ThreatHunting() {
                               {ioc.ioc_value && ioc.ioc_value.length > 40 ? `${ioc.ioc_value.slice(0, 36)}...` : ioc.ioc_value}
                             </span>
                             <button
-                              onClick={() => copyIndicator(ioc.ioc_value)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                copyIndicator(ioc.ioc_value);
+                              }}
                               title="Copy Indicator"
                               style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '2px' }}
                             >
@@ -1047,20 +1224,44 @@ export default function ThreatHunting() {
                           </div>
                         </td>
 
-                        {/* Type */}
+                        {/* Type & Inline Status Badge */}
                         <td style={{ padding: '12px 16px' }}>
-                          <span style={{
-                            padding: '3px 8px',
-                            borderRadius: '4px',
-                            background: ioc.ioc_type === 'ip' ? 'rgba(59,130,246,0.12)' : ioc.ioc_type === 'domain' ? 'rgba(168,85,247,0.12)' : 'rgba(234,179,8,0.12)',
-                            color: ioc.ioc_type === 'ip' ? '#3b82f6' : ioc.ioc_type === 'domain' ? '#a855f7' : '#eab308',
-                            fontSize: '10px',
-                            fontWeight: 800,
-                            textTransform: 'uppercase',
-                            fontFamily: 'var(--mono)'
-                          }}>
-                            {ioc.ioc_type}
-                          </span>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{
+                              padding: '2px 7px',
+                              borderRadius: '4px',
+                              background: ioc.ioc_type === 'ip' ? 'rgba(59,130,246,0.12)' : ioc.ioc_type === 'domain' ? 'rgba(168,85,247,0.12)' : 'rgba(234,179,8,0.12)',
+                              color: ioc.ioc_type === 'ip' ? '#3b82f6' : ioc.ioc_type === 'domain' ? '#a855f7' : '#eab308',
+                              fontSize: '10px',
+                              fontWeight: 800,
+                              textTransform: 'uppercase',
+                              fontFamily: 'var(--mono)'
+                            }}>
+                              {ioc.ioc_type}
+                            </span>
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              background: (ioc.status === 'online' || ioc.status === 'active') ? 'rgba(34,197,94,0.1)' : ioc.status === 'offline' ? 'rgba(100,116,139,0.15)' : 'rgba(148,163,184,0.1)',
+                              color: (ioc.status === 'online' || ioc.status === 'active') ? '#22c55e' : ioc.status === 'offline' ? '#94a3b8' : 'var(--muted)',
+                              border: `1px solid ${(ioc.status === 'online' || ioc.status === 'active') ? 'rgba(34,197,94,0.25)' : ioc.status === 'offline' ? 'rgba(100,116,139,0.25)' : 'var(--border)'}`,
+                              fontSize: '10px',
+                              fontWeight: 600,
+                              fontFamily: 'var(--mono)',
+                              textTransform: 'capitalize'
+                            }}>
+                              <span style={{
+                                width: '5px',
+                                height: '5px',
+                                borderRadius: '50%',
+                                background: (ioc.status === 'online' || ioc.status === 'active') ? '#22c55e' : ioc.status === 'offline' ? '#94a3b8' : '#64748b'
+                              }} />
+                              {ioc.status || 'online'}
+                            </span>
+                          </div>
                         </td>
 
                         {/* Malware Family */}
@@ -1078,8 +1279,29 @@ export default function ThreatHunting() {
                         </td>
 
                         {/* Confidence */}
-                        <td style={{ padding: '12px 16px', color: '#22c55e', fontWeight: 700, fontFamily: 'var(--mono)', fontSize: '12px' }}>
-                          {ioc.confidence_level || 100}%
+                        <td style={{ padding: '12px 16px' }}>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ 
+                              color: (ioc.confidence_level || 100) >= 90 ? '#22c55e' : (ioc.confidence_level || 100) >= 75 ? '#eab308' : '#ef4444', 
+                              fontWeight: 700, 
+                              fontFamily: 'var(--mono)', 
+                              fontSize: '12px' 
+                            }}>
+                              {ioc.confidence_level || 100}%
+                            </span>
+                            <span style={{
+                              fontSize: '9px',
+                              padding: '1px 5px',
+                              borderRadius: '3px',
+                              background: (ioc.confidence_level || 100) >= 90 ? 'rgba(34,197,94,0.1)' : 'rgba(234,179,8,0.1)',
+                              color: (ioc.confidence_level || 100) >= 90 ? '#22c55e' : '#eab308',
+                              fontWeight: 700,
+                              letterSpacing: '0.3px',
+                              textTransform: 'uppercase'
+                            }}>
+                              {(ioc.confidence_level || 100) >= 90 ? 'High' : 'Med'}
+                            </span>
+                          </div>
                         </td>
 
                         {/* Last Seen */}
@@ -1275,6 +1497,474 @@ export default function ThreatHunting() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════
+          FULL DETAIL POPUP MODAL (Row Click on Match or Indicator)
+          ════════════════════════════════════════════════════════════════ */}
+      {selectedDetail && (
+        <div 
+          onClick={() => setSelectedDetail(null)} 
+          style={{ 
+            position: 'fixed', 
+            top: 0, 
+            left: 0, 
+            right: 0, 
+            bottom: 0, 
+            background: 'rgba(0,0,0,0.65)', 
+            zIndex: 10000, 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            backdropFilter: 'blur(5px)',
+            padding: '20px'
+          }}
+        >
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            style={{ 
+              background: 'var(--surface-solid, var(--surface))', 
+              border: '1px solid var(--border)',
+              borderRadius: '16px', 
+              width: '100%', 
+              maxWidth: '740px', 
+              maxHeight: '88vh', 
+              display: 'flex', 
+              flexDirection: 'column', 
+              boxShadow: '0 24px 60px rgba(0,0,0,0.35)', 
+              overflow: 'hidden'
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{ 
+              padding: '18px 24px', 
+              borderBottom: '1px solid var(--border)', 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              background: selectedDetail.type === 'match' ? 'rgba(239,68,68,0.06)' : 'rgba(37,99,235,0.04)', 
+              flexShrink: 0 
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '8px',
+                  background: selectedDetail.type === 'match' ? 'rgba(239,68,68,0.15)' : 'rgba(37,99,235,0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: selectedDetail.type === 'match' ? '#ef4444' : '#3b82f6'
+                }}>
+                  {selectedDetail.type === 'match' ? <ShieldAlert size={18} /> : <Database size={18} />}
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.2px' }}>
+                    {selectedDetail.type === 'match' ? 'Threat Detection Match Details' : 'Threat Intelligence Indicator Details'}
+                  </h3>
+                  <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                    {selectedDetail.type === 'match' 
+                      ? 'Live event match against ThreatFox / MalwareBazaar / URLhaus feed' 
+                      : `Ingested from ${selectedDetail.data.source_feed || selectedDetail.data.source || 'Abuse.ch'}`}
+                  </span>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setSelectedDetail(null)} 
+                title="Close"
+                style={{ 
+                  background: 'none', 
+                  border: 'none', 
+                  color: 'var(--muted)', 
+                  cursor: 'pointer', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  padding: '6px',
+                  borderRadius: '6px',
+                  transition: 'background 0.15s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface2)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Highlight Banner / Indicator Card */}
+              <div style={{
+                background: 'var(--surface2)',
+                border: '1px solid var(--border)',
+                borderRadius: '10px',
+                padding: '14px 18px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '220px', flex: 1 }}>
+                  <span style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.6px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                    {selectedDetail.type === 'match' ? 'Triggered Indicator' : 'Indicator Value'}
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ 
+                      fontSize: '14px', 
+                      fontWeight: 700, 
+                      color: selectedDetail.type === 'match' ? '#ef4444' : 'var(--text)', 
+                      fontFamily: 'var(--mono)',
+                      wordBreak: 'break-all'
+                    }}>
+                      {selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value}
+                    </span>
+                    <button
+                      onClick={() => copyIndicator(selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value)}
+                      title="Copy Indicator"
+                      style={{ 
+                        background: 'none', 
+                        border: 'none', 
+                        color: 'var(--muted)', 
+                        cursor: 'pointer', 
+                        padding: '4px',
+                        display: 'flex',
+                        alignItems: 'center'
+                      }}
+                    >
+                      {copiedItem === (selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value) 
+                        ? <Check size={16} color="#22c55e" /> 
+                        : <Copy size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* External Actions / Search Links */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  {/* VirusTotal Link */}
+                  <a
+                    href={`https://www.virustotal.com/gui/search/${encodeURIComponent(selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      background: 'rgba(59,130,246,0.12)',
+                      border: '1px solid rgba(59,130,246,0.25)',
+                      color: '#3b82f6',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      textDecoration: 'none'
+                    }}
+                  >
+                    <ExternalLink size={12} /> VirusTotal
+                  </a>
+
+                  {/* Feed Direct Link */}
+                  {selectedDetail.data.source_feed === 'malwarebazaar' && (
+                    <a
+                      href={`https://bazaar.abuse.ch/sample/${selectedDetail.data.ioc_value}/`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        background: 'var(--surface)',
+                        border: '1px solid var(--border)',
+                        color: 'var(--text)',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        textDecoration: 'none'
+                      }}
+                    >
+                      <ExternalLink size={12} /> Bazaar Sample
+                    </a>
+                  )}
+
+                  {selectedDetail.data.source_feed === 'threatfox' && (
+                    <a
+                      href="https://threatfox.abuse.ch/browse/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        background: 'var(--surface)',
+                        border: '1px solid var(--border)',
+                        color: 'var(--text)',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        textDecoration: 'none'
+                      }}
+                    >
+                      <ExternalLink size={12} /> ThreatFox
+                    </a>
+                  )}
+
+                  {selectedDetail.data.source_feed === 'urlhaus' && (
+                    <a
+                      href="https://urlhaus.abuse.ch/browse/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        background: 'var(--surface)',
+                        border: '1px solid var(--border)',
+                        color: 'var(--text)',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        textDecoration: 'none'
+                      }}
+                    >
+                      <ExternalLink size={12} /> URLhaus
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              {/* Specific Content Based on Detail Type */}
+              {selectedDetail.type === 'match' ? (
+                /* ── MATCH EVENT DETAILS ── */
+                <div style={{ display: 'grid', gap: '14px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                    <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '4px' }}>
+                        Severity
+                      </span>
+                      <span style={{
+                        padding: '3px 8px',
+                        borderRadius: '4px',
+                        background: 'rgba(239,68,68,0.15)',
+                        color: '#ef4444',
+                        fontWeight: 800,
+                        fontSize: '11px',
+                        fontFamily: 'var(--mono)',
+                        display: 'inline-block'
+                      }}>
+                        {selectedDetail.data.severity ? selectedDetail.data.severity.toUpperCase() : 'CRITICAL'} [THREAT DANGER]
+                      </span>
+                    </div>
+
+                    <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '4px' }}>
+                        Detection Engine
+                      </span>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', textTransform: 'capitalize' }}>
+                        {selectedDetail.data.source_type === 'firewall' ? 'Firewall Traffic Filter' : 'Endpoint Sentinel Agent'}
+                      </span>
+                    </div>
+
+                    <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '4px' }}>
+                        Endpoint / Device Name
+                      </span>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--mono)' }}>
+                        {selectedDetail.data.endpoint || 'Unknown Device'}
+                      </span>
+                    </div>
+
+                    <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '4px' }}>
+                        Aggregator / Branch
+                      </span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--mono)' }}>
+                        {selectedDetail.data.aggregator_name || 'Central Server'}
+                      </span>
+                    </div>
+
+                    <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '4px' }}>
+                        Source IP
+                      </span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--mono)' }}>
+                        {selectedDetail.data.src_ip || 'local'}
+                      </span>
+                    </div>
+
+                    <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '4px' }}>
+                        Detection Timestamp
+                      </span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--mono)' }}>
+                        {selectedDetail.data.ts ? new Date(selectedDetail.data.ts).toLocaleString() : 'Just now'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Raw Details / Threat Context */}
+                  <div style={{ padding: '14px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                    <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '8px' }}>
+                      Threat Message & Raw Detection Context
+                    </span>
+                    <pre style={{
+                      margin: 0,
+                      padding: '10px',
+                      background: 'rgba(0,0,0,0.25)',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text)',
+                      fontSize: '11px',
+                      lineHeight: '1.6',
+                      fontFamily: 'var(--mono)',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      maxHeight: '180px',
+                      overflowY: 'auto'
+                    }}>
+                      {selectedDetail.data.details || 'No additional raw log details available'}
+                    </pre>
+                  </div>
+                </div>
+              ) : (
+                /* ── FEED INDICATOR DETAILS ── */
+                <div style={{ display: 'grid', gap: '14px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+                    <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '4px' }}>
+                        IOC Type
+                      </span>
+                      <span style={{
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        background: selectedDetail.data.ioc_type === 'ip' ? 'rgba(59,130,246,0.12)' : selectedDetail.data.ioc_type === 'domain' ? 'rgba(168,85,247,0.12)' : 'rgba(234,179,8,0.12)',
+                        color: selectedDetail.data.ioc_type === 'ip' ? '#3b82f6' : selectedDetail.data.ioc_type === 'domain' ? '#a855f7' : '#eab308',
+                        fontSize: '11px',
+                        fontWeight: 800,
+                        textTransform: 'uppercase',
+                        fontFamily: 'var(--mono)',
+                        display: 'inline-block'
+                      }}>
+                        {selectedDetail.data.ioc_type === 'ip' ? 'IP Address' : selectedDetail.data.ioc_type === 'domain' ? 'Domain Hostname' : 'Executable SHA256'}
+                      </span>
+                    </div>
+
+                    <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '4px' }}>
+                        Live Endpoint Status
+                      </span>
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '3px 8px',
+                        borderRadius: '4px',
+                        background: (selectedDetail.data.status === 'online' || selectedDetail.data.status === 'active') ? 'rgba(34,197,94,0.1)' : selectedDetail.data.status === 'offline' ? 'rgba(100,116,139,0.15)' : 'rgba(148,163,184,0.1)',
+                        color: (selectedDetail.data.status === 'online' || selectedDetail.data.status === 'active') ? '#22c55e' : selectedDetail.data.status === 'offline' ? '#94a3b8' : 'var(--muted)',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        fontFamily: 'var(--mono)',
+                        textTransform: 'capitalize'
+                      }}>
+                        <span style={{
+                          width: '6px',
+                          height: '6px',
+                          borderRadius: '50%',
+                          background: (selectedDetail.data.status === 'online' || selectedDetail.data.status === 'active') ? '#22c55e' : selectedDetail.data.status === 'offline' ? '#94a3b8' : '#64748b'
+                        }} />
+                        {selectedDetail.data.status || 'online'}
+                      </span>
+                    </div>
+
+                    <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '4px' }}>
+                        Confidence Level
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ 
+                          fontSize: '13px', 
+                          fontWeight: 800, 
+                          color: (selectedDetail.data.confidence_level || 100) >= 90 ? '#22c55e' : '#eab308',
+                          fontFamily: 'var(--mono)' 
+                        }}>
+                          {selectedDetail.data.confidence_level || 100}%
+                        </span>
+                        <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                          {(selectedDetail.data.confidence_level || 100) >= 90 ? 'Verified High-Threat' : 'Medium Confidence'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '4px' }}>
+                        Malware Family / Signature
+                      </span>
+                      <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>
+                        {selectedDetail.data.malware_family || 'Generic C2 / Malware'}
+                      </span>
+                    </div>
+
+                    <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '4px' }}>
+                        Source Provider
+                      </span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', textTransform: 'capitalize' }}>
+                        {selectedDetail.data.source_feed || selectedDetail.data.source || 'Abuse.ch Feed'}
+                      </span>
+                    </div>
+
+                    <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '4px' }}>
+                        Last Verified Date
+                      </span>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--mono)' }}>
+                        {selectedDetail.data.last_seen ? new Date(selectedDetail.data.last_seen).toLocaleString() : 'Currently Active'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Confidence Calculation & Intelligence explanation note */}
+                  <div style={{ padding: '12px 16px', background: 'rgba(59,130,246,0.06)', borderRadius: '8px', border: '1px solid rgba(59,130,246,0.2)', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                    <Info size={16} color="#3b82f6" style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <div style={{ fontSize: '12px', color: 'var(--text)', lineHeight: '1.5' }}>
+                      <strong>Confidence Calculation:</strong> {
+                        selectedDetail.data.source_feed === 'malwarebazaar'
+                          ? '100% confidence indicates confirmed malicious executable binary payload verified by Abuse.ch sandbox behavioral analysis.'
+                          : selectedDetail.data.source_feed === 'urlhaus'
+                          ? selectedDetail.data.status === 'online'
+                            ? '100% confidence indicates actively serving malicious payload distribution URLs.'
+                            : '80% confidence indicates dormant or offline distribution point retained for retrospective forensics.'
+                          : 'Confidence is assessed by Abuse.ch security researchers and automated threat hunting sensors (ThreatFox).'
+                      }
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', background: 'var(--surface2)' }}>
+              <button
+                onClick={() => setSelectedDetail(null)}
+                style={{
+                  padding: '7px 18px',
+                  borderRadius: '6px',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

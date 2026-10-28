@@ -240,6 +240,8 @@ exports.getMatches = async (req, res) => {
       search = '',
       type = 'all',
       aggregator = '',
+      severity = 'all',
+      sourceType = 'all',
       timeRange = '24h',
       page = 1,
       limit = 20
@@ -269,6 +271,13 @@ exports.getMatches = async (req, res) => {
     let fwIdx = 1;
     let evIdx = 1;
 
+    if (severity && severity !== 'all') {
+      fwConds.push(`severity ILIKE $${fwIdx++}`);
+      fwParams.push(`%${severity.trim()}%`);
+      evConds.push(`severity ILIKE $${evIdx++}`);
+      evParams.push(`%${severity.trim()}%`);
+    }
+
     if (aggregator && aggregator.trim()) {
       fwConds.push(`aggregator_name = $${fwIdx++}`);
       fwParams.push(aggregator.trim());
@@ -290,9 +299,9 @@ exports.getMatches = async (req, res) => {
     let allMatches = [];
     let total = 0;
 
-    if (type === 'sha256') {
+    if (type === 'sha256' || sourceType === 'endpoint') {
       // Query events only
-      const countRes = await qTenant(`SELECT COUNT(*) AS total FROM events WHERE ${evConds.join(' AND ')}`, evParams);
+      const countRes = await qTenant(`SELECT COUNT(*) AS total FROM events WHERE ${evConds.join(' AND ')}`, evParams).catch(() => ({ rows: [{ total: 0 }] }));
       total = parseInt(countRes.rows[0]?.total, 10) || 0;
 
       const dataQuery = `
@@ -309,9 +318,9 @@ exports.getMatches = async (req, res) => {
         ORDER BY ts DESC
         LIMIT $${evIdx++} OFFSET $${evIdx++}
       `;
-      const dataRes = await qTenant(dataQuery, [...evParams, limitNum, offset]);
+      const dataRes = await qTenant(dataQuery, [...evParams, limitNum, offset]).catch(() => ({ rows: [] }));
       allMatches = dataRes.rows || [];
-    } else if (type === 'ip' || type === 'domain') {
+    } else if (type === 'ip' || type === 'domain' || sourceType === 'firewall') {
       // Query fw_events only
       let typeCond = '';
       if (type === 'domain') {
@@ -320,7 +329,7 @@ exports.getMatches = async (req, res) => {
         typeCond = " AND (cfgobj IS NULL OR cfgobj = '')";
       }
 
-      const countRes = await qTenant(`SELECT COUNT(*) AS total FROM fw_events WHERE ${fwConds.join(' AND ')}${typeCond}`, fwParams);
+      const countRes = await qTenant(`SELECT COUNT(*) AS total FROM fw_events WHERE ${fwConds.join(' AND ')}${typeCond}`, fwParams).catch(() => ({ rows: [{ total: 0 }] }));
       total = parseInt(countRes.rows[0]?.total, 10) || 0;
 
       const dataQuery = `
@@ -337,7 +346,7 @@ exports.getMatches = async (req, res) => {
         ORDER BY ts DESC
         LIMIT $${fwIdx++} OFFSET $${fwIdx++}
       `;
-      const dataRes = await qTenant(dataQuery, [...fwParams, limitNum, offset]);
+      const dataRes = await qTenant(dataQuery, [...fwParams, limitNum, offset]).catch(() => ({ rows: [] }));
       allMatches = dataRes.rows || [];
     } else {
       // 'all': Query both safely and combine
@@ -409,6 +418,8 @@ exports.getIndicators = async (req, res) => {
       search = '',
       type = 'all',
       source = 'all',
+      status = 'all',
+      confidence = 'all',
       page = 1,
       limit = 50
     } = req.query;
@@ -437,6 +448,17 @@ exports.getIndicators = async (req, res) => {
       params.push(source.trim());
     }
 
+    if (status && status !== 'all') {
+      conds.push(`status = $${pIdx++}`);
+      params.push(status.trim());
+    }
+
+    if (confidence === 'high') {
+      conds.push(`COALESCE(confidence_level, 100) >= 90`);
+    } else if (confidence === 'medium') {
+      conds.push(`COALESCE(confidence_level, 100) >= 75`);
+    }
+
     const whereClause = conds.join(' AND ');
 
     const countSql = `SELECT COUNT(*) AS total FROM threat_intel_iocs WHERE ${whereClause}`;
@@ -444,7 +466,10 @@ exports.getIndicators = async (req, res) => {
     const total = parseInt(countRes.rows[0]?.total, 10) || 0;
 
     const dataSql = `
-      SELECT id, ioc_type, ioc_value, malware_family, source_feed, source_feed AS source, 100 AS confidence_level, first_seen, last_seen
+      SELECT id, ioc_type, ioc_value, malware_family, source_feed, source_feed AS source, 
+             COALESCE(confidence_level, 100) AS confidence_level,
+             COALESCE(status, 'online') AS status,
+             first_seen, last_seen
       FROM threat_intel_iocs
       WHERE ${whereClause}
       ORDER BY last_seen DESC

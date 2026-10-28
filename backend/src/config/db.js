@@ -325,6 +325,8 @@ function getTableSchemaSQL() {
       ioc_value VARCHAR(255) NOT NULL,
       malware_family VARCHAR(100) DEFAULT '',
       source_feed VARCHAR(50) NOT NULL,
+      confidence_level INTEGER DEFAULT 100,
+      status VARCHAR(20) DEFAULT 'online',
       first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       hit_count INTEGER DEFAULT 0,
@@ -332,6 +334,8 @@ function getTableSchemaSQL() {
     );
     CREATE INDEX IF NOT EXISTS idx_threat_type_val ON threat_intel_iocs (ioc_type, ioc_value);
     CREATE INDEX IF NOT EXISTS idx_threat_last_seen ON threat_intel_iocs (last_seen);
+    ALTER TABLE threat_intel_iocs ADD COLUMN IF NOT EXISTS confidence_level INTEGER DEFAULT 100;
+    ALTER TABLE threat_intel_iocs ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'online';
 
     CREATE TABLE IF NOT EXISTS settings (
       id INTEGER PRIMARY KEY DEFAULT 1,
@@ -444,6 +448,8 @@ const initDB = async (retries = 10, delay = 3000) => {
           );
           CREATE INDEX IF NOT EXISTS idx_threat_type_val ON threat_intel_iocs (ioc_type, ioc_value);
           CREATE INDEX IF NOT EXISTS idx_threat_last_seen ON threat_intel_iocs (last_seen);
+          ALTER TABLE threat_intel_iocs ADD COLUMN IF NOT EXISTS confidence_level INTEGER DEFAULT 100;
+          ALTER TABLE threat_intel_iocs ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'online';
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT '';
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 0;
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS aggregator_name VARCHAR(255) DEFAULT NULL;

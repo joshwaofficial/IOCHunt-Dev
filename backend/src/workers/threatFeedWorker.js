@@ -233,7 +233,9 @@ async function bulkUpsertIocs(records) {
         ioc_type: r.ioc_type,
         ioc_value: cleanVal,
         malware_family: r.malware_family || '',
-        source_feed: r.source_feed
+        source_feed: r.source_feed,
+        confidence_level: r.confidence_level || 100,
+        status: r.status || 'online'
       });
     }
   }
@@ -247,16 +249,18 @@ async function bulkUpsertIocs(records) {
     let pIdx = 1;
 
     for (const r of chunk) {
-      values.push(`($${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++})`);
-      params.push(r.ioc_type, r.ioc_value, r.malware_family || '', r.source_feed);
+      values.push(`($${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++})`);
+      params.push(r.ioc_type, r.ioc_value, r.malware_family || '', r.source_feed, r.confidence_level || 100, r.status || 'online');
     }
 
     const query = `
-      INSERT INTO threat_intel_iocs (ioc_type, ioc_value, malware_family, source_feed)
+      INSERT INTO threat_intel_iocs (ioc_type, ioc_value, malware_family, source_feed, confidence_level, status)
       VALUES ${values.join(', ')}
       ON CONFLICT (ioc_type, ioc_value) DO UPDATE SET 
         malware_family = EXCLUDED.malware_family,
         source_feed = EXCLUDED.source_feed,
+        confidence_level = EXCLUDED.confidence_level,
+        status = EXCLUDED.status,
         last_seen = CURRENT_TIMESTAMP;
     `;
     await db.query(query, params).catch(e => console.warn('[ThreatIntel] Bulk upsert warning:', e.message));
@@ -293,27 +297,28 @@ async function syncThreatFox() {
       const type = item.ioc_type;
       const val = item.ioc;
       const malware = item.malware_printable || 'Malware';
+      const conf = parseInt(item.confidence_level, 10) || 100;
       if (!val) continue;
 
       if (type === 'ip:port') {
         const ip = val.split(':')[0].trim();
         if (ip) {
           pipe.sadd('threat:ips', ip);
-          records.push({ ioc_type: 'ip', ioc_value: ip, malware_family: malware, source_feed: 'threatfox' });
+          records.push({ ioc_type: 'ip', ioc_value: ip, malware_family: malware, source_feed: 'threatfox', confidence_level: conf, status: 'online' });
           count++;
         }
       } else if (type === 'domain') {
         const domain = val.toLowerCase().trim();
         if (domain && domain.includes('.')) {
           pipe.sadd('threat:domains', domain);
-          records.push({ ioc_type: 'domain', ioc_value: domain, malware_family: malware, source_feed: 'threatfox' });
+          records.push({ ioc_type: 'domain', ioc_value: domain, malware_family: malware, source_feed: 'threatfox', confidence_level: conf, status: 'online' });
           count++;
         }
       } else if (type === 'sha256_hash') {
         const hash = val.toLowerCase().trim();
         if (hash.length === 64) {
           pipe.sadd('threat:hashes', hash);
-          records.push({ ioc_type: 'sha256', ioc_value: hash, malware_family: malware, source_feed: 'threatfox' });
+          records.push({ ioc_type: 'sha256', ioc_value: hash, malware_family: malware, source_feed: 'threatfox', confidence_level: conf, status: 'online' });
           count++;
         }
       }
@@ -355,7 +360,14 @@ async function syncMalwareBazaar() {
 
       if (sha256 && sha256.length === 64 && /^[0-9a-f]{64}$/i.test(sha256)) {
         pipe.sadd('threat:hashes', sha256);
-        records.push({ ioc_type: 'sha256', ioc_value: sha256, malware_family: signature, source_feed: 'malwarebazaar' });
+        records.push({
+          ioc_type: 'sha256',
+          ioc_value: sha256,
+          malware_family: signature,
+          source_feed: 'malwarebazaar',
+          confidence_level: 100, // 100% verified binary signature
+          status: 'active'
+        });
         count++;
       }
     }, headers);
@@ -393,8 +405,35 @@ async function syncURLhaus() {
       const cols = parseCsvLine(line);
       // Auto-detect URL column (find column starting with http://, https://, or hxxp://, or fallback to index 2)
       const rawUrl = cols.find(c => typeof c === 'string' && /^(?:https?|hxxps?):\/\//i.test(c.trim())) || cols[2];
-      const threatTag = (cols[4] && cols[4] !== 'online' && cols[4] !== 'offline') ? cols[4] : (cols[5] || cols[6] || 'Malware');
       if (!rawUrl || rawUrl.toLowerCase() === 'url') return;
+
+      // Extract status: 'online' or 'offline'
+      let status = 'online';
+      if (cols.includes('offline') || cols[3] === 'offline') {
+        status = 'offline';
+      } else if (cols.includes('online') || cols[3] === 'online') {
+        status = 'online';
+      }
+
+      // Extract malware family excluding timestamps, URLs, and status keywords
+      let threatTag = '';
+      for (const c of [cols[6], cols[5], cols[7], cols[4]]) {
+        if (!c) continue;
+        const val = c.trim();
+        if (val && 
+            val !== 'None' && 
+            val !== 'online' && 
+            val !== 'offline' && 
+            val !== 'malware_download' &&
+            !val.startsWith('http') && 
+            !/^\d{4}-\d{2}-\d{2}/.test(val)) {
+          threatTag = val;
+          break;
+        }
+      }
+      if (!threatTag) threatTag = 'Malware Distribution';
+
+      const conf = status === 'online' ? 100 : 80;
 
       try {
         let parseTarget = rawUrl.replace(/^hxxp/i, 'http').replace(/\[\.\]/g, '.').trim();
@@ -406,11 +445,11 @@ async function syncURLhaus() {
 
         if (isIp) {
           pipe.sadd('threat:ips', hostname);
-          records.push({ ioc_type: 'ip', ioc_value: hostname, malware_family: threatTag, source_feed: 'urlhaus' });
+          records.push({ ioc_type: 'ip', ioc_value: hostname, malware_family: threatTag, source_feed: 'urlhaus', confidence_level: conf, status });
           count++;
         } else if (hostname && hostname.includes('.')) {
           pipe.sadd('threat:domains', hostname);
-          records.push({ ioc_type: 'domain', ioc_value: hostname, malware_family: threatTag, source_feed: 'urlhaus' });
+          records.push({ ioc_type: 'domain', ioc_value: hostname, malware_family: threatTag, source_feed: 'urlhaus', confidence_level: conf, status });
           count++;
         }
       } catch (_) {}
@@ -440,7 +479,9 @@ async function syncURLhaus() {
 
       for (const item of jsonRes.urls) {
         let host = (item.host || '').toLowerCase().trim();
-        const threat = item.threat || (Array.isArray(item.tags) ? item.tags.join(', ') : 'Malware');
+        const status = item.url_status === 'offline' ? 'offline' : 'online';
+        const threat = item.threat || (Array.isArray(item.tags) && item.tags.length > 0 ? item.tags.join(', ') : 'Malware Distribution');
+        const conf = status === 'online' ? 100 : 80;
 
         if (!host && item.url) {
           try {
@@ -455,11 +496,11 @@ async function syncURLhaus() {
 
         if (isIp) {
           fbPipe.sadd('threat:ips', host);
-          fbRecords.push({ ioc_type: 'ip', ioc_value: host, malware_family: threat, source_feed: 'urlhaus' });
+          fbRecords.push({ ioc_type: 'ip', ioc_value: host, malware_family: threat, source_feed: 'urlhaus', confidence_level: conf, status });
           fbCount++;
         } else if (host.includes('.')) {
           fbPipe.sadd('threat:domains', host);
-          fbRecords.push({ ioc_type: 'domain', ioc_value: host, malware_family: threat, source_feed: 'urlhaus' });
+          fbRecords.push({ ioc_type: 'domain', ioc_value: host, malware_family: threat, source_feed: 'urlhaus', confidence_level: conf, status });
           fbCount++;
         }
       }
@@ -491,7 +532,7 @@ async function syncURLhaus() {
       if (!domain || domain === '127.0.0.1' || domain === 'localhost' || !domain.includes('.')) return;
 
       hfPipe.sadd('threat:domains', domain);
-      hfRecords.push({ ioc_type: 'domain', ioc_value: domain, malware_family: 'Malware Distribution', source_feed: 'urlhaus' });
+      hfRecords.push({ ioc_type: 'domain', ioc_value: domain, malware_family: 'Malware Distribution', source_feed: 'urlhaus', confidence_level: 90, status: 'online' });
       hfCount++;
     }, { 'Auth-Key': apiKey.trim() });
 
