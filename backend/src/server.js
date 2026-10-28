@@ -175,6 +175,10 @@ app.use('/api/ingest', requireCentralServer, ingestRoutes); // Handles batch str
 const retentionRoutes = require('./routes/retentionRoutes');
 app.use('/api/retention', express.json(), retentionRoutes);
 
+// ── Threat Hunting & Threat Intelligence Feeds ──
+const threatHuntingRoutes = require('./routes/threatHuntingRoutes');
+app.use('/api/threat-hunting', express.json(), threatHuntingRoutes);
+
 // ── Aggregator Specific Modules ─────────────────────────────────
 const aggregatorSettingsRoutes = require('./modules/aggregator/routes/settingsRoutes');
 const fwSourceRoutes = require('./modules/aggregator/routes/fwSourceRoutes');
@@ -288,6 +292,7 @@ const { startCentralRetentionService } = require('./services/centralRetentionSer
 const { ensureCertificates } = require('./utils/certManager');
 const { startWorker } = require('./workers/bulkWorker');
 const { startCriticalAlertWorker } = require('./workers/criticalAlertWorker');
+const { startThreatIntelSync } = require('./workers/threatFeedWorker');
 
 const https = require('https');
 const http = require('http');
@@ -319,6 +324,7 @@ db.initDB().then(async () => {
     initSchedules().catch(console.error);
     startCriticalAlertWorker();
     startCentralRetentionService();
+    startThreatIntelSync();
   }
 
   // If running in Aggregator mode, start local syslog, watchers, and central sync

@@ -23,6 +23,7 @@ const ForcePasswordReset = lazy(() => import('./pages/ForcePasswordReset'));
 const Login = lazy(() => import('./pages/Login'));
 const MfaChallenge = lazy(() => import('./pages/MfaChallenge'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
+const ThreatHunting = lazy(() => import('./pages/ThreatHunting'));
 const AdAttacks = lazy(() => import('./pages/AdAttacks'));
 const MaliciousActivity = lazy(() => import('./pages/MaliciousActivity'));
 const UserAccounts = lazy(() => import('./pages/UserAccounts'));
@@ -165,6 +166,7 @@ function App() {
                           </ProtectedRoute>
                         } />
                         <Route path="aggregator-settings" element={<AggregatorSettings />} />
+                        <Route path="threat-hunting" element={<ThreatHunting />} />
                         <Route path="ad-attacks" element={<AdAttacks />} />
                         <Route path="malicious-activity" element={<MaliciousActivity />} />
                         <Route path="user-accounts" element={<UserAccounts />} />

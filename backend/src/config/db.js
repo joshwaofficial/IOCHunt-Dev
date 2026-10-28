@@ -319,6 +319,20 @@ function getTableSchemaSQL() {
       created_at BIGINT DEFAULT EXTRACT(EPOCH FROM NOW())
     );
 
+    CREATE TABLE IF NOT EXISTS threat_intel_iocs (
+      id BIGSERIAL PRIMARY KEY,
+      ioc_type VARCHAR(20) NOT NULL,
+      ioc_value VARCHAR(255) NOT NULL,
+      malware_family VARCHAR(100) DEFAULT '',
+      source_feed VARCHAR(50) NOT NULL,
+      first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      hit_count INTEGER DEFAULT 0,
+      CONSTRAINT unique_ioc_type_value UNIQUE (ioc_type, ioc_value)
+    );
+    CREATE INDEX IF NOT EXISTS idx_threat_type_val ON threat_intel_iocs (ioc_type, ioc_value);
+    CREATE INDEX IF NOT EXISTS idx_threat_last_seen ON threat_intel_iocs (last_seen);
+
     CREATE TABLE IF NOT EXISTS settings (
       id INTEGER PRIMARY KEY DEFAULT 1,
       central_server_url VARCHAR(255),
@@ -416,6 +430,20 @@ const initDB = async (retries = 10, delay = 3000) => {
           ALTER TABLE settings ADD COLUMN IF NOT EXISTS retention_fw_days INTEGER DEFAULT 30;
           ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_cleanup_at TIMESTAMP;
           ALTER TABLE settings ADD COLUMN IF NOT EXISTS last_cleanup_count INTEGER DEFAULT 0;
+          ALTER TABLE settings ADD COLUMN IF NOT EXISTS threat_intel_config TEXT DEFAULT '{}';
+          CREATE TABLE IF NOT EXISTS threat_intel_iocs (
+            id BIGSERIAL PRIMARY KEY,
+            ioc_type VARCHAR(20) NOT NULL,
+            ioc_value VARCHAR(255) NOT NULL,
+            malware_family VARCHAR(100) DEFAULT '',
+            source_feed VARCHAR(50) NOT NULL,
+            first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            hit_count INTEGER DEFAULT 0,
+            CONSTRAINT unique_ioc_type_value UNIQUE (ioc_type, ioc_value)
+          );
+          CREATE INDEX IF NOT EXISTS idx_threat_type_val ON threat_intel_iocs (ioc_type, ioc_value);
+          CREATE INDEX IF NOT EXISTS idx_threat_last_seen ON threat_intel_iocs (last_seen);
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT '';
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 0;
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS aggregator_name VARCHAR(255) DEFAULT NULL;
