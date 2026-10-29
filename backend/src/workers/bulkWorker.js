@@ -210,6 +210,9 @@ async function processBatch(streamKey, messages) {
           if (rawDomain.startsWith('http://') || rawDomain.startsWith('https://')) {
             try { rawDomain = new URL(rawDomain).hostname.toLowerCase(); } catch (_) {}
           }
+          if (rawDomain && !event.cfgobj) {
+            event.cfgobj = rawDomain;
+          }
 
           const isDstBad = dstIp ? (threatCache.ips.has(dstIp) || threatCache.ips.has(rawDst)) : false;
           const isSrcBad = srcIp ? (threatCache.ips.has(srcIp) || threatCache.ips.has(rawSrc)) : false;

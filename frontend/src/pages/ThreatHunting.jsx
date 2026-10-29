@@ -10,11 +10,29 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import PremiumCard from '../components/PremiumCard';
 
+// Helper to extract the genuine malicious indicator if an event recorded a DNS resolver (e.g. 8.8.8.8) as dst_ip
+export const getRealIndicator = (item) => {
+  if (!item) return '';
+  const val = String(item.indicator || item.ioc_value || '').trim();
+  const type = String(item.indicator_type || item.ioc_type || '').toLowerCase();
+  
+  // If flagged as domain but value is an IP address (like Google DNS 8.8.8.8 or Cloudflare 1.1.1.1)
+  if (type === 'domain' && (/^\d+\.\d+\.\d+\.\d+$/.test(val) || val === '8.8.8.8' || val === '1.1.1.1')) {
+    const raw = String(item.details || item.msg || item.logdesc || '');
+    const match = raw.match(/\[THREAT DANGER\] Matched Known Threat:\s*([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
+    if (match && match[1]) return match[1].trim();
+    if (item.cfgobj && item.cfgobj.trim() && !/^\d+\.\d+\.\d+\.\d+$/.test(item.cfgobj.trim())) {
+      return item.cfgobj.trim();
+    }
+  }
+  return val;
+};
+
 // Smart VirusTotal direct URL generator: Routes hashes to /gui/file/, IPs to /gui/ip-address/, domains to /gui/domain/
 const getVirusTotalUrl = (detail) => {
   if (!detail || !detail.data) return 'https://www.virustotal.com';
 
-  const rawVal = detail.type === 'match' ? detail.data.indicator : detail.data.ioc_value;
+  const rawVal = detail.type === 'match' ? getRealIndicator(detail.data) : detail.data.ioc_value;
   if (!rawVal) return 'https://www.virustotal.com';
 
   const val = String(rawVal).trim();
@@ -54,7 +72,7 @@ const getVirusTotalUrl = (detail) => {
 // Multi-Source External Threat Reputation Links
 const getReputationLinks = (detail) => {
   if (!detail || !detail.data) return [];
-  const rawVal = detail.type === 'match' ? detail.data.indicator : detail.data.ioc_value;
+  const rawVal = detail.type === 'match' ? getRealIndicator(detail.data) : detail.data.ioc_value;
   if (!rawVal) return [];
 
   const val = String(rawVal).trim();
@@ -1232,17 +1250,20 @@ export default function ThreatHunting() {
                               borderRadius: '4px',
                               fontSize: '12px'
                             }}>
-                              {item.indicator && item.indicator.length > 28 ? `${item.indicator.slice(0, 24)}...` : item.indicator}
+                              {(() => {
+                                const ind = getRealIndicator(item);
+                                return ind && ind.length > 28 ? `${ind.slice(0, 24)}...` : ind;
+                              })()}
                             </span>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                copyIndicator(item.indicator);
+                                copyIndicator(getRealIndicator(item));
                               }}
                               title="Copy Indicator"
                               style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '2px' }}
                             >
-                              {copiedItem === item.indicator ? <Check size={14} color="#22c55e" /> : <Copy size={14} />}
+                              {copiedItem === getRealIndicator(item) ? <Check size={14} color="#22c55e" /> : <Copy size={14} />}
                             </button>
                           </div>
                           <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)' }}>
@@ -1735,8 +1756,9 @@ export default function ThreatHunting() {
         <div style={{
           position: 'fixed',
           inset: 0,
-          background: 'rgba(0,0,0,0.5)',
-          backdropFilter: 'blur(4px)',
+          background: 'rgba(15, 23, 42, 0.4)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -1868,7 +1890,7 @@ export default function ThreatHunting() {
       {/* ════════════════════════════════════════════════════════════════
           FULL DETAIL POPUP MODAL (Row Click on Match or Indicator)
           ════════════════════════════════════════════════════════════════ */}
-      {selectedDetail && (
+      {selectedDetail && !showBlastRadiusModal && !showSuppressModal && (
         <div
           onClick={() => setSelectedDetail(null)}
           style={{
@@ -1877,12 +1899,13 @@ export default function ThreatHunting() {
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(0,0,0,0.65)',
+            background: 'rgba(15, 23, 42, 0.4)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
             zIndex: 10000,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            backdropFilter: 'blur(5px)',
             padding: '20px'
           }}
         >
@@ -1984,10 +2007,10 @@ export default function ThreatHunting() {
                       fontFamily: 'var(--mono)',
                       wordBreak: 'break-all'
                     }}>
-                      {selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value}
+                      {selectedDetail.type === 'match' ? getRealIndicator(selectedDetail.data) : selectedDetail.data.ioc_value}
                     </span>
                     <button
-                      onClick={() => copyIndicator(selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value)}
+                      onClick={() => copyIndicator(selectedDetail.type === 'match' ? getRealIndicator(selectedDetail.data) : selectedDetail.data.ioc_value)}
                       title="Copy Indicator"
                       style={{
                         background: 'none',
@@ -1999,7 +2022,7 @@ export default function ThreatHunting() {
                         alignItems: 'center'
                       }}
                     >
-                      {copiedItem === (selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value)
+                      {copiedItem === (selectedDetail.type === 'match' ? getRealIndicator(selectedDetail.data) : selectedDetail.data.ioc_value)
                         ? <Check size={16} color="#22c55e" />
                         : <Copy size={16} />}
                     </button>
@@ -2041,7 +2064,7 @@ export default function ThreatHunting() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', paddingTop: '4px' }}>
                     <button
                       onClick={() => {
-                        const indVal = selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value;
+                        const indVal = selectedDetail.type === 'match' ? getRealIndicator(selectedDetail.data) : selectedDetail.data.ioc_value;
                         const indType = selectedDetail.type === 'match' ? selectedDetail.data.indicator_type : selectedDetail.data.ioc_type;
                         handleOpenBlastRadius(indVal, indType);
                       }}
@@ -2067,7 +2090,7 @@ export default function ThreatHunting() {
 
                     <button
                       onClick={() => {
-                        const indVal = selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value;
+                        const indVal = selectedDetail.type === 'match' ? getRealIndicator(selectedDetail.data) : selectedDetail.data.ioc_value;
                         const indType = selectedDetail.type === 'match' ? selectedDetail.data.indicator_type : selectedDetail.data.ioc_type;
                         handleOpenSuppressModal(indVal, indType);
                       }}
@@ -2348,8 +2371,9 @@ export default function ThreatHunting() {
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(0,0,0,0.65)',
-            backdropFilter: 'blur(4px)',
+            background: 'rgba(15, 23, 42, 0.4)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -2516,8 +2540,9 @@ export default function ThreatHunting() {
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(0,0,0,0.65)',
-            backdropFilter: 'blur(4px)',
+            background: 'rgba(15, 23, 42, 0.4)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -2702,8 +2727,9 @@ export default function ThreatHunting() {
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(0,0,0,0.7)',
-            backdropFilter: 'blur(5px)',
+            background: 'rgba(15, 23, 42, 0.4)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -2991,8 +3017,9 @@ export default function ThreatHunting() {
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(0,0,0,0.7)',
-            backdropFilter: 'blur(5px)',
+            background: 'rgba(15, 23, 42, 0.4)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',

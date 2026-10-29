@@ -350,6 +350,11 @@ function getTableSchemaSQL() {
     CREATE INDEX IF NOT EXISTS idx_fw_events_dst_ip ON fw_events (dst_ip, ts DESC);
     CREATE INDEX IF NOT EXISTS idx_fw_events_cfgobj ON fw_events (cfgobj, ts DESC);
     CREATE INDEX IF NOT EXISTS idx_fw_events_ts ON fw_events (ts DESC);
+    UPDATE fw_events
+    SET cfgobj = SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)')
+    WHERE (cfgobj IS NULL OR cfgobj = '')
+      AND logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %'
+      AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]';
 
     CREATE TABLE IF NOT EXISTS settings (
       id INTEGER PRIMARY KEY DEFAULT 1,
@@ -478,6 +483,11 @@ const initDB = async (retries = 10, delay = 3000) => {
           CREATE INDEX IF NOT EXISTS idx_fw_events_dst_ip ON fw_events (dst_ip, ts DESC);
           CREATE INDEX IF NOT EXISTS idx_fw_events_cfgobj ON fw_events (cfgobj, ts DESC);
           CREATE INDEX IF NOT EXISTS idx_fw_events_ts ON fw_events (ts DESC);
+          UPDATE fw_events
+          SET cfgobj = SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)')
+          WHERE (cfgobj IS NULL OR cfgobj = '')
+            AND logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %'
+            AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]';
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT '';
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 0;
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS aggregator_name VARCHAR(255) DEFAULT NULL;

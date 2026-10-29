@@ -346,9 +346,9 @@ exports.getMatches = async (req, res) => {
       // Query fw_events only
       let typeCond = '';
       if (type === 'domain') {
-        typeCond = " AND (cfgobj IS NOT NULL AND cfgobj != '')";
+        typeCond = " AND (cfgobj IS NOT NULL AND cfgobj != '' OR (logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]'))";
       } else if (type === 'ip') {
-        typeCond = " AND (cfgobj IS NULL OR cfgobj = '')";
+        typeCond = " AND (cfgobj IS NULL OR cfgobj = '') AND (logdesc NOT LIKE '%[THREAT DANGER] Matched Known Threat: %' OR SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') !~* '[a-zA-Z]')";
       }
 
       const countRes = await qTenant(`SELECT COUNT(*) AS total FROM fw_events WHERE ${fwConds.join(' AND ')}${typeCond}`, fwParams).catch(() => ({ rows: [{ total: 0 }] }));
@@ -359,8 +359,21 @@ exports.getMatches = async (req, res) => {
           id, 'firewall' AS source_type, ts, aggregator_name,
           COALESCE(NULLIF(devname, ''), 'Firewall') AS endpoint,
           src_ip,
-          COALESCE(NULLIF(dst_ip, ''), cfgobj, 'THREAT') AS indicator,
-          CASE WHEN cfgobj IS NOT NULL AND cfgobj != '' THEN 'domain' ELSE 'ip' END AS indicator_type,
+          dst_ip,
+          CASE 
+            WHEN cfgobj IS NOT NULL AND cfgobj != '' THEN cfgobj
+            WHEN logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' 
+                 AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]'
+              THEN SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)')
+            ELSE COALESCE(NULLIF(dst_ip, ''), 'THREAT')
+          END AS indicator,
+          CASE 
+            WHEN cfgobj IS NOT NULL AND cfgobj != '' THEN 'domain'
+            WHEN logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' 
+                 AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]'
+              THEN 'domain'
+            ELSE 'ip'
+          END AS indicator_type,
           severity,
           COALESCE(NULLIF(logdesc, ''), msg, 'Threat connection detected') AS details
         FROM fw_events
@@ -387,8 +400,21 @@ exports.getMatches = async (req, res) => {
             id, 'firewall' AS source_type, ts, aggregator_name,
             COALESCE(NULLIF(devname, ''), 'Firewall') AS endpoint,
             src_ip,
-            COALESCE(NULLIF(dst_ip, ''), cfgobj, 'THREAT') AS indicator,
-            CASE WHEN cfgobj IS NOT NULL AND cfgobj != '' THEN 'domain' ELSE 'ip' END AS indicator_type,
+            dst_ip,
+            CASE 
+              WHEN cfgobj IS NOT NULL AND cfgobj != '' THEN cfgobj
+              WHEN logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' 
+                   AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]'
+                THEN SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)')
+              ELSE COALESCE(NULLIF(dst_ip, ''), 'THREAT')
+            END AS indicator,
+            CASE 
+              WHEN cfgobj IS NOT NULL AND cfgobj != '' THEN 'domain'
+              WHEN logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' 
+                   AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]'
+                THEN 'domain'
+              ELSE 'ip'
+            END AS indicator_type,
             severity,
             COALESCE(NULLIF(logdesc, ''), msg, 'Threat connection detected') AS details
           FROM fw_events
@@ -401,6 +427,7 @@ exports.getMatches = async (req, res) => {
             id, 'endpoint' AS source_type, ts, aggregator_name,
             COALESCE(NULLIF(machine, ''), 'Endpoint') AS endpoint,
             'local' AS src_ip,
+            '' AS dst_ip,
             COALESCE(SUBSTRING(message FROM '([a-fA-F0-9]{64})'), 'MALWARE-EXE') AS indicator,
             'sha256' AS indicator_type,
             severity,
@@ -602,16 +629,17 @@ exports.runRetrohunt = async (req, res) => {
 
     const retroHits = [];
 
-    // 2. Query historical fw_events for matching IPs
+    // 2. Query historical fw_events for matching IPs (Method 1: Unflagged stealth connections)
     if (ipList.length > 0) {
       const fwIpMatches = await qTenant(`
         SELECT id, ts, devname AS endpoint, src_ip, dst_ip AS indicator, 'ip' AS indicator_type,
                'firewall' AS source_type, aggregator_name, 
-               COALESCE(NULLIF(logdesc, ''), msg, 'Historical C2 connection detected') AS details,
+               COALESCE(NULLIF(logdesc, ''), msg, 'Historical C2 connection (Unflagged at time of event)') AS details,
                severity
         FROM fw_events
         WHERE ts >= NOW() - ${intervalClause}
           AND dst_ip = ANY($1::varchar[])
+          AND (logdesc NOT LIKE '%[THREAT DANGER]%' AND msg NOT LIKE '%[THREAT DANGER]%')
         ORDER BY ts DESC
         LIMIT 100
       `, [ipList]).catch(() => ({ rows: [] }));
@@ -628,16 +656,22 @@ exports.runRetrohunt = async (req, res) => {
       }
     }
 
-    // 3. Query historical fw_events for matching Domains
+    // 3. Query historical fw_events for matching Domains (Method 1: Unflagged stealth queries)
     if (domainList.length > 0) {
       const fwDomainMatches = await qTenant(`
-        SELECT id, ts, devname AS endpoint, src_ip, cfgobj AS indicator, 'domain' AS indicator_type,
+        SELECT id, ts, devname AS endpoint, src_ip, 
+               CASE 
+                 WHEN cfgobj IS NOT NULL AND cfgobj != '' THEN cfgobj
+                 ELSE dst_ip 
+               END AS indicator, 
+               'domain' AS indicator_type,
                'firewall' AS source_type, aggregator_name,
-               COALESCE(NULLIF(logdesc, ''), msg, 'Historical malicious domain query detected') AS details,
+               COALESCE(NULLIF(logdesc, ''), msg, 'Historical domain query (Unflagged at time of event)') AS details,
                severity
         FROM fw_events
         WHERE ts >= NOW() - ${intervalClause}
           AND LOWER(cfgobj) = ANY($1::varchar[])
+          AND (logdesc NOT LIKE '%[THREAT DANGER]%' AND msg NOT LIKE '%[THREAT DANGER]%')
         ORDER BY ts DESC
         LIMIT 100
       `, [domainList]).catch(() => ({ rows: [] }));
@@ -654,28 +688,31 @@ exports.runRetrohunt = async (req, res) => {
       }
     }
 
-    // 4. Query historical endpoint events
-    const evMatches = await qTenant(`
-      SELECT id, ts, COALESCE(NULLIF(machine, ''), 'Endpoint') AS endpoint, 'local' AS src_ip,
-             COALESCE(SUBSTRING(message FROM '([a-fA-F0-9]{64})'), 'MALWARE-EXE') AS indicator,
-             'sha256' AS indicator_type, 'endpoint' AS source_type, aggregator_name,
-             message AS details, severity
-      FROM events
-      WHERE ts >= NOW() - ${intervalClause}
-        AND (tag = 'MALWARE-EXE-DETECTED' OR message LIKE '%[THREAT DANGER]%')
-      ORDER BY ts DESC
-      LIMIT 100
-    `).catch(() => ({ rows: [] }));
+    // 4. Query historical endpoint events (Method 1: Unflagged stealth execution)
+    if (hashList.length > 0) {
+      const evMatches = await qTenant(`
+        SELECT id, ts, COALESCE(NULLIF(machine, ''), 'Endpoint') AS endpoint, 'local' AS src_ip,
+               COALESCE(SUBSTRING(message FROM '([a-fA-F0-9]{64})'), 'MALWARE-EXE') AS indicator,
+               'sha256' AS indicator_type, 'endpoint' AS source_type, aggregator_name,
+               message AS details, severity
+        FROM events
+        WHERE ts >= NOW() - ${intervalClause}
+          AND (tag != 'MALWARE-EXE-DETECTED' AND message NOT LIKE '%[THREAT DANGER]%')
+          AND SUBSTRING(LOWER(message) FROM '([a-fA-F0-9]{64})') = ANY($1::varchar[])
+        ORDER BY ts DESC
+        LIMIT 100
+      `, [hashList]).catch(() => ({ rows: [] }));
 
-    for (const row of evMatches.rows || []) {
-      const intel = iocLookup.get(`sha256:${row.indicator.toLowerCase()}`) || {};
-      retroHits.push({
-        ...row,
-        malware_family: intel.malware_family || 'Malware Executable',
-        source_feed: intel.source_feed || 'MalwareBazaar',
-        confidence_level: intel.confidence_level || 100,
-        is_retroactive: true
-      });
+      for (const row of evMatches.rows || []) {
+        const intel = iocLookup.get(`sha256:${row.indicator.toLowerCase()}`) || {};
+        retroHits.push({
+          ...row,
+          malware_family: intel.malware_family || 'Malware Executable',
+          source_feed: intel.source_feed || 'MalwareBazaar',
+          confidence_level: intel.confidence_level || 100,
+          is_retroactive: true
+        });
+      }
     }
 
     // Sort by timestamp descending
