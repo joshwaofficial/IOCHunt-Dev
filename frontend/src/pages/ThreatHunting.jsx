@@ -91,11 +91,11 @@ const getReputationLinks = (detail) => {
     });
     links.push({
       name: 'Hybrid Analysis',
-      url: `https://www.hybrid-analysis.com/search?query=${encodeURIComponent(val)}`,
+      url: `https://www.hybrid-analysis.com/sample/${encodeURIComponent(val.toLowerCase())}`,
       color: '#06b6d4',
       bg: 'rgba(6,182,212,0.12)',
       border: 'rgba(6,182,212,0.3)',
-      title: 'Search sandbox analysis on Hybrid Analysis'
+      title: 'View Falcon Sandbox report on Hybrid Analysis'
     });
     links.push({
       name: 'ThreatFox',
@@ -236,7 +236,7 @@ export default function ThreatHunting() {
   const handleRunRetrohunt = async (range = retrohuntRange) => {
     try {
       setIsRetrohunting(true);
-      const res = await axios.post('/api/threat-hunting/retrohunt', { timeRange: range });
+      const res = await axios.post('/api/threat-hunting/retrohunt', { timeRange: range, limit: 50000 });
       setRetrohuntResult(res.data);
       setShowRetrohuntModal(true);
       if (res.data.matches_found > 0) {

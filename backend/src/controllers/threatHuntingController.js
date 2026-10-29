@@ -236,6 +236,7 @@ exports.syncNow = async (req, res) => {
 exports.getMatches = async (req, res) => {
   try {
     const qTenant = req.queryTenant || db.query.bind(db);
+    const qControl = req.queryControlPlane || db.query.bind(db);
     const {
       search = '',
       type = 'all',
@@ -259,9 +260,7 @@ exports.getMatches = async (req, res) => {
 
     const fwConds = [
       `ts >= NOW() - ${intervalClause}`,
-      `(logdesc LIKE '%[THREAT DANGER]%' OR msg LIKE '%[THREAT DANGER]%')`,
-      `(dst_ip NOT IN (SELECT ioc_value FROM threat_intel_whitelist WHERE ioc_type = 'ip') OR dst_ip IS NULL)`,
-      `(cfgobj NOT IN (SELECT ioc_value FROM threat_intel_whitelist WHERE ioc_type = 'domain') OR cfgobj IS NULL OR cfgobj = '')`
+      `(logdesc LIKE '%[THREAT DANGER]%' OR msg LIKE '%[THREAT DANGER]%')`
     ];
     const evConds = [
       `ts >= NOW() - ${intervalClause}`,
@@ -272,6 +271,27 @@ exports.getMatches = async (req, res) => {
     const evParams = [];
     let fwIdx = 1;
     let evIdx = 1;
+
+    // Safely load whitelist entries in memory without breaking queries if table is empty or does not exist
+    try {
+      const wlRes = await qControl('SELECT ioc_type, ioc_value FROM threat_intel_whitelist');
+      const whitelistedIps = [];
+      const whitelistedDomains = [];
+      for (const row of (wlRes.rows || [])) {
+        if (row.ioc_type === 'ip' && row.ioc_value) whitelistedIps.push(row.ioc_value.trim());
+        if (row.ioc_type === 'domain' && row.ioc_value) whitelistedDomains.push(row.ioc_value.trim().toLowerCase());
+      }
+      if (whitelistedIps.length > 0) {
+        fwConds.push(`NOT (dst_ip = ANY($${fwIdx++}::varchar[]))`);
+        fwParams.push(whitelistedIps);
+      }
+      if (whitelistedDomains.length > 0) {
+        fwConds.push(`NOT (LOWER(cfgobj) = ANY($${fwIdx++}::varchar[]))`);
+        fwParams.push(whitelistedDomains);
+      }
+    } catch (_) {
+      // Safe fallback if whitelist table does not exist yet
+    }
 
     if (severity && severity !== 'all') {
       fwConds.push(`severity ILIKE $${fwIdx++}`);
@@ -531,25 +551,36 @@ exports.runRetrohunt = async (req, res) => {
   try {
     const qControl = req.queryControlPlane || db.query.bind(db);
     const qTenant = req.queryTenant || db.query.bind(db);
-    const { timeRange = '7d', limit = 500 } = req.body;
+    const { timeRange = '7d', limit } = req.body;
 
     let intervalClause = "INTERVAL '7 days'";
     if (timeRange === '14d') intervalClause = "INTERVAL '14 days'";
     if (timeRange === '30d') intervalClause = "INTERVAL '30 days'";
     if (timeRange === '24h') intervalClause = "INTERVAL '24 hours'";
 
-    // 1. Fetch active threat indicators (excluding any whitelisted ones)
+    // Safely collect whitelisted IOCs in memory
+    const whitelistedSet = new Set();
+    try {
+      const wlRes = await qControl('SELECT ioc_type, ioc_value FROM threat_intel_whitelist');
+      for (const row of (wlRes.rows || [])) {
+        whitelistedSet.add(`${row.ioc_type}:${(row.ioc_value || '').toLowerCase().trim()}`);
+      }
+    } catch (_) {}
+
+    // 1. Fetch active threat indicators — scans ALL active indicators (up to 50,000)
+    const scanLimit = Math.min(100000, Math.max(100, parseInt(limit, 10) || 50000));
     const iocRes = await qControl(`
       SELECT ioc_type, ioc_value, malware_family, source_feed, confidence_level
       FROM threat_intel_iocs
       WHERE status IN ('online', 'active')
         AND (confidence_level IS NULL OR confidence_level >= 70)
-        AND (ioc_type, ioc_value) NOT IN (SELECT ioc_type, ioc_value FROM threat_intel_whitelist)
       ORDER BY last_seen DESC
       LIMIT $1
-    `, [Math.min(2000, Math.max(50, parseInt(limit, 10) || 500))]);
+    `, [scanLimit]);
 
-    const iocs = iocRes.rows || [];
+    const allIocs = iocRes.rows || [];
+    const iocs = allIocs.filter(ioc => !whitelistedSet.has(`${ioc.ioc_type}:${ioc.ioc_value.toLowerCase().trim()}`));
+
     if (iocs.length === 0) {
       return res.json({
         ok: true,
@@ -581,7 +612,6 @@ exports.runRetrohunt = async (req, res) => {
         FROM fw_events
         WHERE ts >= NOW() - ${intervalClause}
           AND dst_ip = ANY($1::varchar[])
-          AND (dst_ip NOT IN (SELECT ioc_value FROM threat_intel_whitelist WHERE ioc_type = 'ip') OR dst_ip IS NULL)
         ORDER BY ts DESC
         LIMIT 100
       `, [ipList]).catch(() => ({ rows: [] }));
@@ -608,7 +638,6 @@ exports.runRetrohunt = async (req, res) => {
         FROM fw_events
         WHERE ts >= NOW() - ${intervalClause}
           AND LOWER(cfgobj) = ANY($1::varchar[])
-          AND (cfgobj NOT IN (SELECT ioc_value FROM threat_intel_whitelist WHERE ioc_type = 'domain') OR cfgobj IS NULL)
         ORDER BY ts DESC
         LIMIT 100
       `, [domainList]).catch(() => ({ rows: [] }));
@@ -771,6 +800,17 @@ exports.getBlastRadius = async (req, res) => {
 exports.getWhitelist = async (req, res) => {
   try {
     const qControl = req.queryControlPlane || db.query.bind(db);
+    await qControl(`
+      CREATE TABLE IF NOT EXISTS threat_intel_whitelist (
+        id BIGSERIAL PRIMARY KEY,
+        ioc_type VARCHAR(20) NOT NULL,
+        ioc_value VARCHAR(255) NOT NULL,
+        reason TEXT DEFAULT '',
+        added_by VARCHAR(100) DEFAULT 'admin',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT unique_whitelist_type_value UNIQUE (ioc_type, ioc_value)
+      );
+    `).catch(() => {});
     const result = await qControl(`
       SELECT id, ioc_type, ioc_value, reason, added_by, created_at
       FROM threat_intel_whitelist
@@ -798,6 +838,18 @@ exports.addToWhitelist = async (req, res) => {
     if (!cleanVal) {
       return res.status(400).json({ error: 'Indicator value is required' });
     }
+
+    await qControl(`
+      CREATE TABLE IF NOT EXISTS threat_intel_whitelist (
+        id BIGSERIAL PRIMARY KEY,
+        ioc_type VARCHAR(20) NOT NULL,
+        ioc_value VARCHAR(255) NOT NULL,
+        reason TEXT DEFAULT '',
+        added_by VARCHAR(100) DEFAULT 'admin',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT unique_whitelist_type_value UNIQUE (ioc_type, ioc_value)
+      );
+    `).catch(() => {});
 
     const addedBy = req.user?.username || req.user?.email || 'admin';
 
