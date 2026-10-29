@@ -608,6 +608,17 @@ async function syncAllFeeds() {
     if (typeof bulkWorker.reloadThreatCache === 'function') {
       await bulkWorker.reloadThreatCache();
     }
+
+    // 🚀 Automatic Retroactive Back-Testing across past telemetry
+    try {
+      console.log('[ThreatIntel] Triggering automated background retrohunt (7d historical window)...');
+      const threatHuntingController = require('../controllers/threatHuntingController');
+      if (typeof threatHuntingController.executeAutoRetrohunt === 'function') {
+        await threatHuntingController.executeAutoRetrohunt('7d');
+      }
+    } catch (autoRetroErr) {
+      console.warn('[ThreatIntel] Auto-retrohunt warning:', autoRetroErr.message);
+    }
   } finally {
     isSyncing = false;
   }

@@ -133,6 +133,17 @@ exports.getStatus = async (req, res) => {
       console.warn('[ThreatHunting] Matches count warning:', err.message);
     }
 
+    // 4. Retrohunt back-tested matches persisted in database
+    let retrohuntMatchesCount = 0;
+    let lastRetrohuntAt = null;
+    try {
+      const retroCountRes = await qTenant('SELECT COUNT(*) as cnt, MAX(discovered_at) as latest FROM threat_retrohunt_matches');
+      if (retroCountRes.rows.length > 0) {
+        retrohuntMatchesCount = parseInt(retroCountRes.rows[0]?.cnt, 10) || 0;
+        lastRetrohuntAt = retroCountRes.rows[0]?.latest || null;
+      }
+    } catch (_) {}
+
     res.json({
       configured: hasKey,
       feeds,
@@ -141,7 +152,9 @@ exports.getStatus = async (req, res) => {
         ips: ipCount,
         domains: domainCount,
         hashes: hashCount,
-        matches_today: matchesToday
+        matches_today: matchesToday,
+        retrohunt_matches: retrohuntMatchesCount,
+        last_retrohunt_at: lastRetrohuntAt
       },
       last_sync: lastSeenMax || config.lastSync || null
     });
@@ -346,9 +359,9 @@ exports.getMatches = async (req, res) => {
       // Query fw_events only
       let typeCond = '';
       if (type === 'domain') {
-        typeCond = " AND (cfgobj IS NOT NULL AND cfgobj != '' OR (logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]'))";
+        typeCond = " AND ((cfgobj IS NOT NULL AND cfgobj != '' AND cfgobj !~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$') OR (logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]'))";
       } else if (type === 'ip') {
-        typeCond = " AND (cfgobj IS NULL OR cfgobj = '') AND (logdesc NOT LIKE '%[THREAT DANGER] Matched Known Threat: %' OR SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') !~* '[a-zA-Z]')";
+        typeCond = " AND NOT ((cfgobj IS NOT NULL AND cfgobj != '' AND cfgobj !~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$') OR (logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]'))";
       }
 
       const countRes = await qTenant(`SELECT COUNT(*) AS total FROM fw_events WHERE ${fwConds.join(' AND ')}${typeCond}`, fwParams).catch(() => ({ rows: [{ total: 0 }] }));
@@ -361,17 +374,16 @@ exports.getMatches = async (req, res) => {
           src_ip,
           dst_ip,
           CASE 
-            WHEN cfgobj IS NOT NULL AND cfgobj != '' THEN cfgobj
             WHEN logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' 
-                 AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]'
               THEN SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)')
+            WHEN cfgobj IS NOT NULL AND cfgobj != '' AND cfgobj !~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$' THEN cfgobj
             ELSE COALESCE(NULLIF(dst_ip, ''), 'THREAT')
           END AS indicator,
           CASE 
-            WHEN cfgobj IS NOT NULL AND cfgobj != '' THEN 'domain'
             WHEN logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' 
                  AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]'
               THEN 'domain'
+            WHEN cfgobj IS NOT NULL AND cfgobj != '' AND cfgobj !~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$' THEN 'domain'
             ELSE 'ip'
           END AS indicator_type,
           severity,
@@ -402,17 +414,16 @@ exports.getMatches = async (req, res) => {
             src_ip,
             dst_ip,
             CASE 
-              WHEN cfgobj IS NOT NULL AND cfgobj != '' THEN cfgobj
               WHEN logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' 
-                   AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]'
                 THEN SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)')
+              WHEN cfgobj IS NOT NULL AND cfgobj != '' AND cfgobj !~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$' THEN cfgobj
               ELSE COALESCE(NULLIF(dst_ip, ''), 'THREAT')
             END AS indicator,
             CASE 
-              WHEN cfgobj IS NOT NULL AND cfgobj != '' THEN 'domain'
               WHEN logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' 
                    AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]'
                 THEN 'domain'
+              WHEN cfgobj IS NOT NULL AND cfgobj != '' AND cfgobj !~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$' THEN 'domain'
               ELSE 'ip'
             END AS indicator_type,
             severity,
@@ -571,8 +582,223 @@ exports.getIndicators = async (req, res) => {
 };
 
 /**
+ * Helper to execute retroactive threat hunting logic across all threat intelligence indicators.
+ * Scans ALL indicators (online, active, and offline indicators — 17,386+).
+ * Automatically persists discovered hits permanently into threat_retrohunt_matches table.
+ */
+async function performRetrohunt({ qControl, qTenant, timeRange = '7d', limit = 100000 }) {
+  let intervalClause = "INTERVAL '7 days'";
+  if (timeRange === '14d') intervalClause = "INTERVAL '14 days'";
+  if (timeRange === '30d') intervalClause = "INTERVAL '30 days'";
+  if (timeRange === '24h') intervalClause = "INTERVAL '24 hours'";
+  if (timeRange === 'all') intervalClause = "INTERVAL '90 days'";
+
+  // Safely collect whitelisted IOCs in memory
+  const whitelistedSet = new Set();
+  try {
+    const wlRes = await qControl('SELECT ioc_type, ioc_value FROM threat_intel_whitelist');
+    for (const row of (wlRes.rows || [])) {
+      whitelistedSet.add(`${row.ioc_type}:${(row.ioc_value || '').toLowerCase().trim()}`);
+    }
+  } catch (_) {}
+
+  // 1. Fetch threat indicators — scans ALL indicators (online, active, and offline C2s up to 100,000)
+  const scanLimit = Math.min(100000, Math.max(100, parseInt(limit, 10) || 100000));
+  const iocRes = await qControl(`
+    SELECT ioc_type, ioc_value, malware_family, source_feed, confidence_level
+    FROM threat_intel_iocs
+    ORDER BY last_seen DESC
+    LIMIT $1
+  `, [scanLimit]);
+
+  const allIocs = iocRes.rows || [];
+  const iocs = allIocs.filter(ioc => !whitelistedSet.has(`${ioc.ioc_type}:${ioc.ioc_value.toLowerCase().trim()}`));
+
+  if (iocs.length === 0) {
+    return {
+      scanned_iocs: 0,
+      time_range: timeRange,
+      new_hits_found: 0,
+      total_persisted: 0,
+      matches: []
+    };
+  }
+
+  const ipList = iocs.filter(r => r.ioc_type === 'ip').map(r => r.ioc_value);
+  const domainList = iocs.filter(r => r.ioc_type === 'domain').map(r => r.ioc_value.toLowerCase());
+  const hashList = iocs.filter(r => r.ioc_type === 'sha256').map(r => r.ioc_value.toLowerCase());
+
+  const iocLookup = new Map();
+  for (const ioc of iocs) {
+    iocLookup.set(`${ioc.ioc_type}:${ioc.ioc_value.toLowerCase()}`, ioc);
+  }
+
+  const retroHits = [];
+
+  // 2. Query historical fw_events for matching IPs (Method 1: Unflagged stealth connections)
+  if (ipList.length > 0) {
+    const fwIpMatches = await qTenant(`
+      SELECT id, ts, devname AS endpoint, src_ip, dst_ip, dst_ip AS indicator, 'ip' AS indicator_type,
+             'firewall' AS source_type, aggregator_name, 
+             COALESCE(NULLIF(logdesc, ''), msg, 'Historical C2 connection (Unflagged at time of event)') AS details,
+             severity
+      FROM fw_events
+      WHERE ts >= NOW() - ${intervalClause}
+        AND dst_ip = ANY($1::varchar[])
+        AND (logdesc NOT LIKE '%[THREAT DANGER]%' AND msg NOT LIKE '%[THREAT DANGER]%')
+      ORDER BY ts DESC
+      LIMIT 250
+    `, [ipList]).catch(() => ({ rows: [] }));
+
+    for (const row of fwIpMatches.rows || []) {
+      const intel = iocLookup.get(`ip:${row.indicator.toLowerCase()}`) || {};
+      retroHits.push({
+        ...row,
+        malware_family: intel.malware_family || 'Malicious C2',
+        source_feed: intel.source_feed || 'ThreatFox',
+        confidence_level: intel.confidence_level || 100,
+        is_retroactive: true
+      });
+    }
+  }
+
+  // 3. Query historical fw_events for matching Domains (Method 1: Unflagged stealth queries)
+  if (domainList.length > 0) {
+    const fwDomainMatches = await qTenant(`
+      SELECT id, ts, devname AS endpoint, src_ip, dst_ip,
+             CASE 
+               WHEN cfgobj IS NOT NULL AND cfgobj != '' AND cfgobj !~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$' THEN cfgobj
+               ELSE dst_ip 
+             END AS indicator, 
+             'domain' AS indicator_type,
+             'firewall' AS source_type, aggregator_name,
+             COALESCE(NULLIF(logdesc, ''), msg, 'Historical domain query (Unflagged at time of event)') AS details,
+             severity
+      FROM fw_events
+      WHERE ts >= NOW() - ${intervalClause}
+        AND (
+          LOWER(cfgobj) = ANY($1::varchar[])
+          OR (
+            dst_ip = '8.8.8.8' AND EXISTS (
+              SELECT 1 FROM unnest($1::varchar[]) AS d 
+              WHERE msg ILIKE '%' || d || '%'
+            )
+          )
+        )
+        AND (logdesc NOT LIKE '%[THREAT DANGER]%' AND msg NOT LIKE '%[THREAT DANGER]%')
+      ORDER BY ts DESC
+      LIMIT 250
+    `, [domainList]).catch(() => ({ rows: [] }));
+
+    for (const row of fwDomainMatches.rows || []) {
+      const intel = iocLookup.get(`domain:${row.indicator.toLowerCase()}`) || {};
+      retroHits.push({
+        ...row,
+        malware_family: intel.malware_family || 'Malicious Domain',
+        source_feed: intel.source_feed || 'URLhaus',
+        confidence_level: intel.confidence_level || 100,
+        is_retroactive: true
+      });
+    }
+  }
+
+  // 4. Query historical endpoint events (Method 1: Unflagged stealth execution)
+  if (hashList.length > 0) {
+    const evMatches = await qTenant(`
+      SELECT id, ts, COALESCE(NULLIF(machine, ''), 'Endpoint') AS endpoint, 'local' AS src_ip, '' AS dst_ip,
+             COALESCE(SUBSTRING(message FROM '([a-fA-F0-9]{64})'), 'MALWARE-EXE') AS indicator,
+             'sha256' AS indicator_type, 'endpoint' AS source_type, aggregator_name,
+             message AS details, severity
+      FROM events
+      WHERE ts >= NOW() - ${intervalClause}
+        AND (tag != 'MALWARE-EXE-DETECTED' AND message NOT LIKE '%[THREAT DANGER]%')
+        AND SUBSTRING(LOWER(message) FROM '([a-fA-F0-9]{64})') = ANY($1::varchar[])
+      ORDER BY ts DESC
+      LIMIT 250
+    `, [hashList]).catch(() => ({ rows: [] }));
+
+    for (const row of evMatches.rows || []) {
+      const intel = iocLookup.get(`sha256:${row.indicator.toLowerCase()}`) || {};
+      retroHits.push({
+        ...row,
+        malware_family: intel.malware_family || 'Malware Executable',
+        source_feed: intel.source_feed || 'MalwareBazaar',
+        confidence_level: intel.confidence_level || 100,
+        is_retroactive: true
+      });
+    }
+  }
+
+  // Sort by timestamp descending
+  retroHits.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+
+  // 5. Persist all discovered hits into threat_retrohunt_matches table permanently
+  let newHitsCount = 0;
+  if (retroHits.length > 0) {
+    for (const hit of retroHits) {
+      try {
+        const insRes = await qTenant(`
+          INSERT INTO threat_retrohunt_matches (
+            ts, source_type, aggregator_name, endpoint, src_ip, dst_ip,
+            indicator, indicator_type, malware_family, source_feed, confidence_level, severity, details, discovered_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP)
+          ON CONFLICT (ts, endpoint, indicator) DO NOTHING
+        `, [
+          hit.ts,
+          hit.source_type || 'firewall',
+          hit.aggregator_name || 'syslog',
+          hit.endpoint || 'Unknown Device',
+          hit.src_ip || '',
+          hit.dst_ip || '',
+          hit.indicator,
+          hit.indicator_type || 'ip',
+          hit.malware_family || 'Malicious Threat',
+          hit.source_feed || 'ThreatFox',
+          hit.confidence_level || 100,
+          hit.severity || 'critical',
+          hit.details || ''
+        ]);
+        if (insRes && insRes.rowCount > 0) {
+          newHitsCount++;
+        }
+      } catch (insErr) {
+        // Safe skip on constraint warning
+      }
+    }
+  }
+
+  const countRes = await qTenant('SELECT COUNT(*) AS total FROM threat_retrohunt_matches').catch(() => ({ rows: [{ total: 0 }] }));
+  const totalPersisted = parseInt(countRes.rows[0]?.total, 10) || 0;
+
+  return {
+    scanned_iocs: iocs.length,
+    time_range: timeRange,
+    new_hits_found: newHitsCount,
+    total_persisted: totalPersisted,
+    matches: retroHits
+  };
+}
+
+/**
+ * Background auto-retrohunt executed automatically after threat intelligence feed synchronization.
+ */
+exports.executeAutoRetrohunt = async (timeRange = '7d') => {
+  try {
+    const qControl = db.query.bind(db);
+    const qTenant = db.query.bind(db);
+    const result = await performRetrohunt({ qControl, qTenant, timeRange, limit: 100000 });
+    console.log(`[ThreatIntel] Auto-Retrohunt complete: scanned ${result.scanned_iocs} indicators, identified ${result.new_hits_found} new historical hits (${result.total_persisted} total persisted).`);
+    return result;
+  } catch (err) {
+    console.error('[ThreatIntel] Auto-Retrohunt error:', err.message);
+  }
+};
+
+/**
  * POST /api/threat-hunting/retrohunt
- * Runs a retroactive scan back-testing past events (default 7 days) against active threat intelligence indicators.
+ * Runs an on-demand retroactive scan back-testing past events against ALL threat intelligence indicators (17,386+).
+ * Discovered hits are automatically saved permanently into threat_retrohunt_matches table.
  */
 exports.runRetrohunt = async (req, res) => {
   try {
@@ -580,154 +806,122 @@ exports.runRetrohunt = async (req, res) => {
     const qTenant = req.queryTenant || db.query.bind(db);
     const { timeRange = '7d', limit } = req.body;
 
-    let intervalClause = "INTERVAL '7 days'";
-    if (timeRange === '14d') intervalClause = "INTERVAL '14 days'";
-    if (timeRange === '30d') intervalClause = "INTERVAL '30 days'";
-    if (timeRange === '24h') intervalClause = "INTERVAL '24 hours'";
-
-    // Safely collect whitelisted IOCs in memory
-    const whitelistedSet = new Set();
-    try {
-      const wlRes = await qControl('SELECT ioc_type, ioc_value FROM threat_intel_whitelist');
-      for (const row of (wlRes.rows || [])) {
-        whitelistedSet.add(`${row.ioc_type}:${(row.ioc_value || '').toLowerCase().trim()}`);
-      }
-    } catch (_) {}
-
-    // 1. Fetch active threat indicators — scans ALL active indicators (up to 50,000)
-    const scanLimit = Math.min(100000, Math.max(100, parseInt(limit, 10) || 50000));
-    const iocRes = await qControl(`
-      SELECT ioc_type, ioc_value, malware_family, source_feed, confidence_level
-      FROM threat_intel_iocs
-      WHERE status IN ('online', 'active')
-        AND (confidence_level IS NULL OR confidence_level >= 70)
-      ORDER BY last_seen DESC
-      LIMIT $1
-    `, [scanLimit]);
-
-    const allIocs = iocRes.rows || [];
-    const iocs = allIocs.filter(ioc => !whitelistedSet.has(`${ioc.ioc_type}:${ioc.ioc_value.toLowerCase().trim()}`));
-
-    if (iocs.length === 0) {
-      return res.json({
-        ok: true,
-        scanned_iocs: 0,
-        time_range: timeRange,
-        matches_found: 0,
-        matches: []
-      });
-    }
-
-    const ipList = iocs.filter(r => r.ioc_type === 'ip').map(r => r.ioc_value);
-    const domainList = iocs.filter(r => r.ioc_type === 'domain').map(r => r.ioc_value.toLowerCase());
-    const hashList = iocs.filter(r => r.ioc_type === 'sha256').map(r => r.ioc_value.toLowerCase());
-
-    const iocLookup = new Map();
-    for (const ioc of iocs) {
-      iocLookup.set(`${ioc.ioc_type}:${ioc.ioc_value.toLowerCase()}`, ioc);
-    }
-
-    const retroHits = [];
-
-    // 2. Query historical fw_events for matching IPs (Method 1: Unflagged stealth connections)
-    if (ipList.length > 0) {
-      const fwIpMatches = await qTenant(`
-        SELECT id, ts, devname AS endpoint, src_ip, dst_ip AS indicator, 'ip' AS indicator_type,
-               'firewall' AS source_type, aggregator_name, 
-               COALESCE(NULLIF(logdesc, ''), msg, 'Historical C2 connection (Unflagged at time of event)') AS details,
-               severity
-        FROM fw_events
-        WHERE ts >= NOW() - ${intervalClause}
-          AND dst_ip = ANY($1::varchar[])
-          AND (logdesc NOT LIKE '%[THREAT DANGER]%' AND msg NOT LIKE '%[THREAT DANGER]%')
-        ORDER BY ts DESC
-        LIMIT 100
-      `, [ipList]).catch(() => ({ rows: [] }));
-
-      for (const row of fwIpMatches.rows || []) {
-        const intel = iocLookup.get(`ip:${row.indicator.toLowerCase()}`) || {};
-        retroHits.push({
-          ...row,
-          malware_family: intel.malware_family || 'Malicious C2',
-          source_feed: intel.source_feed || 'ThreatFox',
-          confidence_level: intel.confidence_level || 100,
-          is_retroactive: true
-        });
-      }
-    }
-
-    // 3. Query historical fw_events for matching Domains (Method 1: Unflagged stealth queries)
-    if (domainList.length > 0) {
-      const fwDomainMatches = await qTenant(`
-        SELECT id, ts, devname AS endpoint, src_ip, 
-               CASE 
-                 WHEN cfgobj IS NOT NULL AND cfgobj != '' THEN cfgobj
-                 ELSE dst_ip 
-               END AS indicator, 
-               'domain' AS indicator_type,
-               'firewall' AS source_type, aggregator_name,
-               COALESCE(NULLIF(logdesc, ''), msg, 'Historical domain query (Unflagged at time of event)') AS details,
-               severity
-        FROM fw_events
-        WHERE ts >= NOW() - ${intervalClause}
-          AND LOWER(cfgobj) = ANY($1::varchar[])
-          AND (logdesc NOT LIKE '%[THREAT DANGER]%' AND msg NOT LIKE '%[THREAT DANGER]%')
-        ORDER BY ts DESC
-        LIMIT 100
-      `, [domainList]).catch(() => ({ rows: [] }));
-
-      for (const row of fwDomainMatches.rows || []) {
-        const intel = iocLookup.get(`domain:${row.indicator.toLowerCase()}`) || {};
-        retroHits.push({
-          ...row,
-          malware_family: intel.malware_family || 'Malicious Domain',
-          source_feed: intel.source_feed || 'URLhaus',
-          confidence_level: intel.confidence_level || 100,
-          is_retroactive: true
-        });
-      }
-    }
-
-    // 4. Query historical endpoint events (Method 1: Unflagged stealth execution)
-    if (hashList.length > 0) {
-      const evMatches = await qTenant(`
-        SELECT id, ts, COALESCE(NULLIF(machine, ''), 'Endpoint') AS endpoint, 'local' AS src_ip,
-               COALESCE(SUBSTRING(message FROM '([a-fA-F0-9]{64})'), 'MALWARE-EXE') AS indicator,
-               'sha256' AS indicator_type, 'endpoint' AS source_type, aggregator_name,
-               message AS details, severity
-        FROM events
-        WHERE ts >= NOW() - ${intervalClause}
-          AND (tag != 'MALWARE-EXE-DETECTED' AND message NOT LIKE '%[THREAT DANGER]%')
-          AND SUBSTRING(LOWER(message) FROM '([a-fA-F0-9]{64})') = ANY($1::varchar[])
-        ORDER BY ts DESC
-        LIMIT 100
-      `, [hashList]).catch(() => ({ rows: [] }));
-
-      for (const row of evMatches.rows || []) {
-        const intel = iocLookup.get(`sha256:${row.indicator.toLowerCase()}`) || {};
-        retroHits.push({
-          ...row,
-          malware_family: intel.malware_family || 'Malware Executable',
-          source_feed: intel.source_feed || 'MalwareBazaar',
-          confidence_level: intel.confidence_level || 100,
-          is_retroactive: true
-        });
-      }
-    }
-
-    // Sort by timestamp descending
-    retroHits.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+    const result = await performRetrohunt({ qControl, qTenant, timeRange, limit });
 
     res.json({
       ok: true,
-      scanned_iocs: iocs.length,
-      time_range: timeRange,
-      matches_found: retroHits.length,
-      matches: retroHits.slice(0, 100)
+      scanned_iocs: result.scanned_iocs,
+      time_range: result.time_range,
+      new_hits_found: result.new_hits_found,
+      total_persisted: result.total_persisted,
+      matches_found: result.matches.length,
+      matches: result.matches.slice(0, 100)
     });
   } catch (err) {
     console.error('[ThreatHunting] runRetrohunt error:', err);
     res.status(500).json({ error: 'Failed to run retroactive threat hunt', details: err.message });
+  }
+};
+
+/**
+ * GET /api/threat-hunting/retrohunt-matches
+ * Retrieves persisted retroactive threat detections stored in threat_retrohunt_matches.
+ * Follows system Data Retention & Expiration policy.
+ */
+exports.getRetrohuntMatches = async (req, res) => {
+  try {
+    const qTenant = req.queryTenant || db.query.bind(db);
+    const {
+      page = 1,
+      limit = 20,
+      search = '',
+      type = 'all',
+      timeRange = 'all'
+    } = req.query;
+
+    const pageNum = Math.max(1, parseSafeInt(page, 1));
+    const limitNum = Math.min(100, Math.max(1, parseSafeInt(limit, 20)));
+    const offset = (pageNum - 1) * limitNum;
+
+    const conds = ['1=1'];
+    const params = [];
+    let pIdx = 1;
+
+    // Filter by indicator type
+    if (type && type !== 'all') {
+      conds.push(`indicator_type = $${pIdx++}`);
+      params.push(type.toLowerCase());
+    }
+
+    // Filter by time range
+    if (timeRange === '24h') {
+      conds.push(`ts >= NOW() - INTERVAL '24 hours'`);
+    } else if (timeRange === '7d') {
+      conds.push(`ts >= NOW() - INTERVAL '7 days'`);
+    } else if (timeRange === '14d') {
+      conds.push(`ts >= NOW() - INTERVAL '14 days'`);
+    } else if (timeRange === '30d') {
+      conds.push(`ts >= NOW() - INTERVAL '30 days'`);
+    }
+
+    // Search filter
+    if (search && search.trim()) {
+      const term = `%${search.trim().toLowerCase()}%`;
+      conds.push(`(
+        LOWER(indicator) LIKE $${pIdx} 
+        OR LOWER(endpoint) LIKE $${pIdx} 
+        OR LOWER(COALESCE(src_ip, '')) LIKE $${pIdx} 
+        OR LOWER(COALESCE(malware_family, '')) LIKE $${pIdx}
+        OR LOWER(COALESCE(details, '')) LIKE $${pIdx}
+      )`);
+      params.push(term);
+      pIdx++;
+    }
+
+    const whereClause = conds.join(' AND ');
+
+    // Total count
+    const countSql = `SELECT COUNT(*) AS total FROM threat_retrohunt_matches WHERE ${whereClause}`;
+    const countRes = await qTenant(countSql, params).catch(() => ({ rows: [{ total: 0 }] }));
+    const total = parseInt(countRes.rows[0]?.total, 10) || 0;
+
+    // Query rows
+    const dataSql = `
+      SELECT id, ts, source_type, aggregator_name, endpoint, src_ip, dst_ip,
+             indicator, indicator_type, malware_family, source_feed, confidence_level,
+             severity, details, discovered_at, created_at
+      FROM threat_retrohunt_matches
+      WHERE ${whereClause}
+      ORDER BY ts DESC
+      LIMIT $${pIdx++} OFFSET $${pIdx++}
+    `;
+    const dataRes = await qTenant(dataSql, [...params, limitNum, offset]).catch(() => ({ rows: [] }));
+
+    res.json({
+      matches: dataRes.rows || [],
+      total,
+      page: pageNum,
+      totalPages: Math.ceil(total / limitNum) || 1
+    });
+  } catch (err) {
+    console.error('[ThreatHunting] getRetrohuntMatches error:', err);
+    res.status(500).json({ error: 'Failed to retrieve retroactive threat matches' });
+  }
+};
+
+/**
+ * DELETE /api/threat-hunting/retrohunt-matches/:id
+ * Dismisses/deletes an individual retroactive detection.
+ */
+exports.deleteRetrohuntMatch = async (req, res) => {
+  try {
+    const qTenant = req.queryTenant || db.query.bind(db);
+    const { id } = req.params;
+    await qTenant('DELETE FROM threat_retrohunt_matches WHERE id = $1', [id]);
+    res.json({ ok: true, message: 'Retroactive match dismissed' });
+  } catch (err) {
+    console.error('[ThreatHunting] deleteRetrohuntMatch error:', err);
+    res.status(500).json({ error: 'Failed to delete retroactive match' });
   }
 };
 

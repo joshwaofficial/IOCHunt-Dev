@@ -12,6 +12,8 @@ router.get('/indicators', threatHuntingController.getIndicators);
 
 // Retroactive Threat Hunting & Blast Radius Analytics
 router.post('/retrohunt', threatHuntingController.runRetrohunt);
+router.get('/retrohunt-matches', threatHuntingController.getRetrohuntMatches);
+router.delete('/retrohunt-matches/:id', threatHuntingController.deleteRetrohuntMatch);
 router.get('/blast-radius', threatHuntingController.getBlastRadius);
 
 // False Positive Suppression & Whitelist Management

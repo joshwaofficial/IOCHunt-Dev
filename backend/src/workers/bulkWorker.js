@@ -223,6 +223,9 @@ async function processBatch(streamKey, messages) {
             event.severity = 'critical';
             event.logdesc = `[THREAT DANGER] Matched Known Threat: ${hit}`;
             event.msg = `CRITICAL THREAT: Connection to verified malicious indicator (${hit})! ${event.msg || ''}`;
+            if (isDomainBad && hit) {
+              event.cfgobj = hit;
+            }
           }
 
           fwValues.push(`($${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++}, $${pIdx++})`);

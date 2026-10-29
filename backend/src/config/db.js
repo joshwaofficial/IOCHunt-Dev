@@ -352,9 +352,32 @@ function getTableSchemaSQL() {
     CREATE INDEX IF NOT EXISTS idx_fw_events_ts ON fw_events (ts DESC);
     UPDATE fw_events
     SET cfgobj = SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)')
-    WHERE (cfgobj IS NULL OR cfgobj = '')
+    WHERE (cfgobj IS NULL OR cfgobj = '' OR cfgobj ~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$')
       AND logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %'
       AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]';
+
+    CREATE TABLE IF NOT EXISTS threat_retrohunt_matches (
+      id BIGSERIAL PRIMARY KEY,
+      ts TIMESTAMP NOT NULL,
+      source_type VARCHAR(50) DEFAULT 'firewall',
+      aggregator_name VARCHAR(255) DEFAULT 'syslog',
+      endpoint VARCHAR(255) NOT NULL,
+      src_ip VARCHAR(100),
+      dst_ip VARCHAR(100),
+      indicator VARCHAR(255) NOT NULL,
+      indicator_type VARCHAR(20) NOT NULL,
+      malware_family VARCHAR(255) DEFAULT 'Malicious C2',
+      source_feed VARCHAR(100) DEFAULT 'ThreatFox',
+      confidence_level INTEGER DEFAULT 100,
+      severity VARCHAR(50) DEFAULT 'critical',
+      details TEXT,
+      discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT unique_retrohunt_match UNIQUE (ts, endpoint, indicator)
+    );
+    CREATE INDEX IF NOT EXISTS idx_retrohunt_ts ON threat_retrohunt_matches (ts DESC);
+    CREATE INDEX IF NOT EXISTS idx_retrohunt_indicator ON threat_retrohunt_matches (indicator);
+    CREATE INDEX IF NOT EXISTS idx_retrohunt_endpoint ON threat_retrohunt_matches (endpoint);
 
     CREATE TABLE IF NOT EXISTS settings (
       id INTEGER PRIMARY KEY DEFAULT 1,
@@ -597,6 +620,28 @@ const initDB = async (retries = 10, delay = 3000) => {
                 ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS cfgobj VARCHAR(255) DEFAULT '';
                 ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS cfgattr TEXT DEFAULT '';
                 ALTER TABLE fw_events ADD COLUMN IF NOT EXISTS logdesc VARCHAR(500) DEFAULT '';
+                CREATE TABLE IF NOT EXISTS threat_retrohunt_matches (
+                  id BIGSERIAL PRIMARY KEY,
+                  ts TIMESTAMP NOT NULL,
+                  source_type VARCHAR(50) DEFAULT 'firewall',
+                  aggregator_name VARCHAR(255) DEFAULT 'syslog',
+                  endpoint VARCHAR(255) NOT NULL,
+                  src_ip VARCHAR(100),
+                  dst_ip VARCHAR(100),
+                  indicator VARCHAR(255) NOT NULL,
+                  indicator_type VARCHAR(20) NOT NULL,
+                  malware_family VARCHAR(255) DEFAULT 'Malicious C2',
+                  source_feed VARCHAR(100) DEFAULT 'ThreatFox',
+                  confidence_level INTEGER DEFAULT 100,
+                  severity VARCHAR(50) DEFAULT 'critical',
+                  details TEXT,
+                  discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                  CONSTRAINT unique_retrohunt_match UNIQUE (ts, endpoint, indicator)
+                );
+                CREATE INDEX IF NOT EXISTS idx_retrohunt_ts ON threat_retrohunt_matches (ts DESC);
+                CREATE INDEX IF NOT EXISTS idx_retrohunt_indicator ON threat_retrohunt_matches (indicator);
+                CREATE INDEX IF NOT EXISTS idx_retrohunt_endpoint ON threat_retrohunt_matches (endpoint);
                 UPDATE events SET severity = 'medium' WHERE (tag ILIKE '%BEHAVIORAL-IOC%' OR tag ILIKE '%BEHAVIORAL%' OR message ILIKE '%BEHAVIORAL-IOC%') AND LOWER(severity) != 'medium';
                 GRANT ALL ON ALL TABLES IN SCHEMA public TO "${t.db_user}";
                 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "${t.db_user}";

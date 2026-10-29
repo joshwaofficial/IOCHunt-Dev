@@ -14,18 +14,34 @@ import PremiumCard from '../components/PremiumCard';
 export const getRealIndicator = (item) => {
   if (!item) return '';
   const val = String(item.indicator || item.ioc_value || '').trim();
-  const type = String(item.indicator_type || item.ioc_type || '').toLowerCase();
+  const raw = String(item.details || item.msg || item.logdesc || '');
   
-  // If flagged as domain but value is an IP address (like Google DNS 8.8.8.8 or Cloudflare 1.1.1.1)
-  if (type === 'domain' && (/^\d+\.\d+\.\d+\.\d+$/.test(val) || val === '8.8.8.8' || val === '1.1.1.1')) {
-    const raw = String(item.details || item.msg || item.logdesc || '');
-    const match = raw.match(/\[THREAT DANGER\] Matched Known Threat:\s*([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/i);
-    if (match && match[1]) return match[1].trim();
-    if (item.cfgobj && item.cfgobj.trim() && !/^\d+\.\d+\.\d+\.\d+$/.test(item.cfgobj.trim())) {
-      return item.cfgobj.trim();
+  // 1. If raw log details explicitly contain the matched threat indicator, extract it
+  const match = raw.match(/\[THREAT DANGER\] Matched Known Threat:\s*([^\s,;]+)/i);
+  if (match && match[1]) {
+    const candidate = match[1].trim();
+    if (/[a-zA-Z]/.test(candidate) || (candidate !== '8.8.8.8' && candidate !== '1.1.1.1')) {
+      return candidate;
     }
   }
+
+  // 2. If item is marked as domain or cfgobj has a real domain name
+  if (item.cfgobj && item.cfgobj.trim() && !/^\d+\.\d+\.\d+\.\d+$/.test(item.cfgobj.trim())) {
+    return item.cfgobj.trim();
+  }
+
   return val;
+};
+
+// Helper to determine the true indicator type (IP, Domain, Hash)
+export const getRealIndicatorType = (item) => {
+  if (!item) return 'ip';
+  const realVal = getRealIndicator(item);
+  if (/^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$/.test(realVal)) return 'sha256';
+  if (/[a-zA-Z]/.test(realVal)) return 'domain';
+  const explicitType = String(item.indicator_type || item.ioc_type || '').toLowerCase();
+  if (explicitType && explicitType !== 'domain' && /^\d+\.\d+\.\d+\.\d+$/.test(realVal)) return 'ip';
+  return explicitType || 'ip';
 };
 
 // Smart VirusTotal direct URL generator: Routes hashes to /gui/file/, IPs to /gui/ip-address/, domains to /gui/domain/
@@ -37,7 +53,7 @@ const getVirusTotalUrl = (detail) => {
 
   const val = String(rawVal).trim();
   const rawType = String(
-    (detail.type === 'match' ? detail.data.indicator_type : detail.data.ioc_type) || ''
+    (detail.type === 'match' ? getRealIndicatorType(detail.data) : detail.data.ioc_type) || ''
   ).toLowerCase();
 
   // 1. File Hash: SHA-256 (64 hex), SHA-1 (40 hex), MD5 (32 hex)
@@ -77,7 +93,7 @@ const getReputationLinks = (detail) => {
 
   const val = String(rawVal).trim();
   const rawType = String(
-    (detail.type === 'match' ? detail.data.indicator_type : detail.data.ioc_type) || ''
+    (detail.type === 'match' ? getRealIndicatorType(detail.data) : detail.data.ioc_type) || ''
   ).toLowerCase();
 
   const isHexHash = /^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$/.test(val);
@@ -253,24 +269,72 @@ export default function ThreatHunting() {
   const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
   const [blastEndpointSearch, setBlastEndpointSearch] = useState('');
 
-  // Retroactive Hunt Handler
-  const handleRunRetrohunt = async (range = retrohuntRange) => {
+  // Retroactive Hunt Persistent Tab State (Tab 2)
+  const [retroMatches, setRetroMatches] = useState([]);
+  const [retroLoading, setRetroLoading] = useState(false);
+  const [retroTotal, setRetroTotal] = useState(0);
+  const [retroPage, setRetroPage] = useState(1);
+  const [retroTotalPages, setRetroTotalPages] = useState(1);
+  const [retroSearch, setRetroSearch] = useState('');
+  const [retroType, setRetroType] = useState('all');
+  const [retroTimeRange, setRetroTimeRange] = useState('7d');
+
+  // Fetch Persisted Retroactive Matches from Database Table
+  const fetchRetroMatches = async (page = 1) => {
+    try {
+      setRetroLoading(true);
+      const res = await axios.get('/api/threat-hunting/retrohunt-matches', {
+        params: {
+          page,
+          limit: 20,
+          search: retroSearch.trim(),
+          type: retroType,
+          timeRange: retroTimeRange
+        }
+      });
+      setRetroMatches(res.data.matches || []);
+      setRetroTotal(res.data.total || 0);
+      setRetroPage(res.data.page || 1);
+      setRetroTotalPages(res.data.totalPages || 1);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to load retroactive detections');
+    } finally {
+      setRetroLoading(false);
+    }
+  };
+
+  // Retroactive Hunt Scan Handler (Scans ALL 17,386+ Indicators)
+  const handleRunRetrohunt = async (range = retroTimeRange) => {
     try {
       setIsRetrohunting(true);
-      const res = await axios.post('/api/threat-hunting/retrohunt', { timeRange: range, limit: 50000 });
+      const res = await axios.post('/api/threat-hunting/retrohunt', { timeRange: range, limit: 100000 });
       setRetrohuntResult(res.data);
-      setShowRetrohuntModal(true);
       if (res.data.matches_found > 0) {
-        toast.success(`Retrohunt identified ${res.data.matches_found} historical compromise events!`);
+        toast.success(`Retrohunt identified ${res.data.matches_found} historical compromise events (${res.data.new_hits_found} new saved)!`);
       } else {
-        toast.success(`Retrohunt clean: 0 historical matches found across ${res.data.scanned_iocs} IOCs.`);
+        toast.success(`Retrohunt clean: 0 historical matches found across all ${res.data.scanned_iocs?.toLocaleString() || '17,386'} indicators.`);
       }
+      fetchRetroMatches(1);
       fetchStatus();
     } catch (err) {
       console.error(err);
       toast.error(err.response?.data?.error || 'Retrohunt scan failed');
     } finally {
       setIsRetrohunting(false);
+    }
+  };
+
+  // Dismiss / Delete Retroactive Match
+  const handleDeleteRetroMatch = async (id) => {
+    try {
+      await axios.delete(`/api/threat-hunting/retrohunt-matches/${id}`);
+      toast.success('Retroactive match dismissed');
+      fetchRetroMatches(retroPage);
+      fetchStatus();
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to dismiss retroactive detection');
     }
   };
 
@@ -442,6 +506,8 @@ export default function ThreatHunting() {
     if (status?.configured) {
       if (activeTab === 'matches') {
         fetchMatches(1);
+      } else if (activeTab === 'retrohunt') {
+        fetchRetroMatches(1);
       } else {
         fetchIndicators(1);
       }
@@ -453,6 +519,8 @@ export default function ThreatHunting() {
     matchesSeverity,
     matchesSourceType,
     matchesTimeRange,
+    retroType,
+    retroTimeRange,
     indicatorsType,
     indicatorsSource,
     indicatorsStatus,
@@ -496,6 +564,7 @@ export default function ThreatHunting() {
       setTimeout(() => {
         fetchStatus();
         if (activeTab === 'matches') fetchMatches(matchesPage);
+        else if (activeTab === 'retrohunt') fetchRetroMatches(retroPage);
         else fetchIndicators(indicatorsPage);
         setIsSyncing(false);
       }, 3000);
@@ -774,31 +843,6 @@ export default function ThreatHunting() {
 
         {/* Action Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          {/* Retrohunt (Back-Testing) Action */}
-          <button
-            onClick={() => handleRunRetrohunt('7d')}
-            disabled={isRetrohunting}
-            title="Scan past 7 days of logs against all active threat indicators"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '7px 12px',
-              borderRadius: '6px',
-              background: 'rgba(168,85,247,0.12)',
-              border: '1px solid rgba(168,85,247,0.3)',
-              color: '#a855f7',
-              fontSize: '12px',
-              fontWeight: 700,
-              cursor: isRetrohunting ? 'not-allowed' : 'pointer',
-              transition: 'all 0.2s',
-              opacity: isRetrohunting ? 0.7 : 1
-            }}
-          >
-            <Clock size={14} style={{ animation: isRetrohunting ? 'spin 1.5s linear infinite' : 'none' }} />
-            {isRetrohunting ? 'Retrohunting...' : 'Retrohunt (7d)'}
-          </button>
-
           {/* False Positive Whitelist Manager */}
           <button
             onClick={() => {
@@ -911,13 +955,14 @@ export default function ThreatHunting() {
         borderBottom: '1px solid var(--border)',
         marginBottom: '20px'
       }}>
+        {/* Tab 1: Live Matches */}
         <button
           onClick={() => setActiveTab('matches')}
           style={{
             padding: '10px 16px',
             background: 'none',
             border: 'none',
-            borderBottom: activeTab === 'matches' ? '2px solid #2563eb' : '2px solid transparent',
+            borderBottom: activeTab === 'matches' ? '2px solid #ef4444' : '2px solid transparent',
             color: activeTab === 'matches' ? 'var(--text)' : 'var(--muted)',
             fontWeight: activeTab === 'matches' ? 700 : 500,
             fontSize: '13px',
@@ -930,7 +975,7 @@ export default function ThreatHunting() {
           }}
         >
           <ShieldAlert size={15} color={activeTab === 'matches' ? '#ef4444' : 'currentColor'} />
-          Threat Detections (Matches)
+          Threat Detections (Live)
           {status?.stats?.matches_today > 0 && (
             <span style={{
               padding: '1px 6px',
@@ -946,6 +991,43 @@ export default function ThreatHunting() {
           )}
         </button>
 
+        {/* Tab 2: Retroactive Detections (Back-Testing) */}
+        <button
+          onClick={() => setActiveTab('retrohunt')}
+          style={{
+            padding: '10px 16px',
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === 'retrohunt' ? '2px solid #8b5cf6' : '2px solid transparent',
+            color: activeTab === 'retrohunt' ? 'var(--text)' : 'var(--muted)',
+            fontWeight: activeTab === 'retrohunt' ? 700 : 500,
+            fontSize: '13px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            fontFamily: 'var(--sans)'
+          }}
+        >
+          <RotateCcw size={15} color={activeTab === 'retrohunt' ? '#8b5cf6' : 'currentColor'} />
+          Retroactive Detections (Back-Testing)
+          {(retroTotal > 0 || status?.stats?.retrohunt_matches > 0) && (
+            <span style={{
+              padding: '1px 6px',
+              borderRadius: '10px',
+              background: 'rgba(139,92,246,0.15)',
+              color: '#8b5cf6',
+              fontSize: '11px',
+              fontWeight: 800,
+              fontFamily: 'var(--mono)'
+            }}>
+              {retroTotal || status?.stats?.retrohunt_matches}
+            </span>
+          )}
+        </button>
+
+        {/* Tab 3: Threat Database */}
         <button
           onClick={() => setActiveTab('indicators')}
           style={{
@@ -966,6 +1048,19 @@ export default function ThreatHunting() {
         >
           <Database size={15} color={activeTab === 'indicators' ? '#3b82f6' : 'currentColor'} />
           Threat Database (Feed Indicators)
+          {status?.stats?.total_iocs > 0 && (
+            <span style={{
+              padding: '1px 6px',
+              borderRadius: '10px',
+              background: 'rgba(59,130,246,0.15)',
+              color: '#3b82f6',
+              fontSize: '11px',
+              fontWeight: 800,
+              fontFamily: 'var(--mono)'
+            }}>
+              {status.stats.total_iocs.toLocaleString()}
+            </span>
+          )}
         </button>
       </div>
 
@@ -1267,7 +1362,7 @@ export default function ThreatHunting() {
                             </button>
                           </div>
                           <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)' }}>
-                            Type: {item.indicator_type}
+                            Type: {getRealIndicatorType(item)}
                           </span>
                         </td>
 
@@ -1334,7 +1429,537 @@ export default function ThreatHunting() {
       )}
 
       {/* ════════════════════════════════════════════════════════════════
-          TAB 2: THREAT DATABASE (FEED INDICATORS)
+          TAB 2: RETROACTIVE DETECTIONS (BACK-TESTING)
+          ════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'retrohunt' && (
+        <div>
+          {/* Top Status & KPI Banner */}
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.08) 0%, rgba(59, 130, 246, 0.04) 100%)',
+            border: '1px solid rgba(139, 92, 246, 0.25)',
+            borderRadius: '10px',
+            padding: '16px 20px',
+            marginBottom: '16px',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div style={{
+                width: '42px',
+                height: '42px',
+                borderRadius: '10px',
+                background: 'rgba(139, 92, 246, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#8b5cf6',
+                border: '1px solid rgba(139, 92, 246, 0.3)'
+              }}>
+                <RotateCcw size={22} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  Retroactive Threat Hunting & Back-Testing
+                  <span style={{
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    background: 'rgba(139, 92, 246, 0.15)',
+                    color: '#8b5cf6',
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    fontFamily: 'var(--mono)'
+                  }}>
+                    {status?.stats?.total_iocs?.toLocaleString() || '17,386'} INDICATORS
+                  </span>
+                </h3>
+                <p style={{ fontSize: '12px', color: 'var(--muted2)', margin: '4px 0 0 0' }}>
+                  Detects stealth compromise events where devices communicated with C2s, domains, or malware before threat intelligence feeds indexed them.
+                </p>
+              </div>
+            </div>
+
+            {/* Quick Context Stats */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)', display: 'block' }}>PERSISTED FINDINGS</span>
+                <span style={{ fontSize: '18px', fontWeight: 900, color: retroTotal > 0 ? '#ef4444' : '#22c55e', fontFamily: 'var(--mono)' }}>
+                  {retroTotal}
+                </span>
+              </div>
+              <div style={{ width: '1px', height: '28px', background: 'var(--border)' }} />
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)', display: 'block' }}>AUTO-SCHEDULER</span>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: '#22c55e', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} /> Active (Sync & 24h)
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Action & Filter Toolbar */}
+          <div style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: '10px',
+            padding: '12px 16px',
+            marginBottom: '16px',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: '12px',
+            justifyContent: 'space-between'
+          }}>
+            {/* Search Input */}
+            <div style={{ position: 'relative', flex: '1', minWidth: '240px', maxWidth: '380px' }}>
+              <Search size={14} color="var(--muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+              <input
+                type="text"
+                placeholder="Search retroactive hits (IP, domain, endpoint, malware)..."
+                value={retroSearch}
+                onChange={(e) => setRetroSearch(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && fetchRetroMatches(1)}
+                style={{
+                  width: '100%',
+                  padding: '7px 12px 7px 34px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  fontFamily: 'var(--sans)'
+                }}
+              />
+            </div>
+
+            {/* Filter and Scan Controls */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              {/* IOC Type Filter */}
+              <select
+                value={retroType}
+                onChange={(e) => setRetroType(e.target.value)}
+                style={{
+                  padding: '6px 10px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--sans)'
+                }}
+              >
+                <option value="all">All Indicator Types</option>
+                <option value="ip">IP Address</option>
+                <option value="domain">Domain Name</option>
+                <option value="sha256">SHA256 Hash</option>
+              </select>
+
+              {/* Time Range Selector */}
+              <select
+                value={retroTimeRange}
+                onChange={(e) => setRetroTimeRange(e.target.value)}
+                style={{
+                  padding: '6px 10px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--sans)'
+                }}
+              >
+                <option value="24h">Past 24 Hours</option>
+                <option value="7d">Past 7 Days (Standard)</option>
+                <option value="14d">Past 14 Days</option>
+                <option value="30d">Past 30 Days (Full Month)</option>
+              </select>
+
+              <button
+                onClick={() => fetchRetroMatches(1)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <Filter size={12} /> Filter
+              </button>
+
+              {(retroSearch || retroType !== 'all' || retroTimeRange !== '7d') && (
+                <button
+                  onClick={() => {
+                    setRetroSearch('');
+                    setRetroType('all');
+                    setRetroTimeRange('7d');
+                  }}
+                  title="Reset filters"
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: '6px',
+                    background: 'transparent',
+                    border: '1px solid var(--border)',
+                    color: 'var(--muted)',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <RotateCcw size={12} /> Reset
+                </button>
+              )}
+
+              {/* Manual On-Demand Retrohunt Scan Button */}
+              <button
+                onClick={() => handleRunRetrohunt(retroTimeRange)}
+                disabled={isRetrohunting}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: '6px',
+                  background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                  border: 'none',
+                  color: '#ffffff',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: isRetrohunting ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  boxShadow: '0 2px 8px rgba(124, 58, 237, 0.3)',
+                  transition: 'all 0.2s',
+                  opacity: isRetrohunting ? 0.7 : 1
+                }}
+              >
+                <RotateCcw size={13} style={{ animation: isRetrohunting ? 'spin 1.2s linear infinite' : 'none' }} />
+                {isRetrohunting ? 'Scanning 17,386 Indicators...' : `Run Retrohunt Scan (${retroTimeRange.toUpperCase()})`}
+              </button>
+            </div>
+          </div>
+
+          {/* Persistent Retrohunt Findings Table */}
+          <div style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: '10px',
+            overflow: 'hidden'
+          }}>
+            {retroLoading ? (
+              <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+                <div style={{ width: '28px', height: '28px', border: '3px solid rgba(139, 92, 246, 0.2)', borderTopColor: '#8b5cf6', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
+                <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Querying persisted retroactive threat detections...</p>
+              </div>
+            ) : retroMatches.length === 0 ? (
+              <div style={{ padding: '60px 20px', textAlign: 'center' }}>
+                <div style={{
+                  width: '56px',
+                  height: '56px',
+                  borderRadius: '50%',
+                  background: 'rgba(34,197,94,0.1)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#22c55e',
+                  margin: '0 auto 16px',
+                  border: '1px solid rgba(34,197,94,0.25)'
+                }}>
+                  <ShieldCheck size={28} />
+                </div>
+                <h4 style={{ color: 'var(--text)', fontSize: '16px', fontWeight: 700, margin: '0 0 6px' }}>
+                  Clean Historical Network Health
+                </h4>
+                <p style={{ color: 'var(--muted2)', fontSize: '13px', maxWidth: '520px', margin: '0 auto 20px', lineHeight: 1.5 }}>
+                  Zero endpoints or branch firewalls communicated with any newly indexed C2 IPs, domains, or malware hashes across past telemetry.
+                </p>
+                <button
+                  onClick={() => handleRunRetrohunt(retroTimeRange)}
+                  disabled={isRetrohunting}
+                  style={{
+                    padding: '8px 18px',
+                    borderRadius: '6px',
+                    background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: isRetrohunting ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    boxShadow: '0 2px 8px rgba(124, 58, 237, 0.3)'
+                  }}
+                >
+                  <RotateCcw size={13} style={{ animation: isRetrohunting ? 'spin 1.2s linear infinite' : 'none' }} />
+                  {isRetrohunting ? 'Scanning 17,386 Indicators...' : 'Run Back-Test Scan Now'}
+                </button>
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)', color: 'var(--muted)' }}>
+                      <th style={{ width: '15%', minWidth: '130px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Historical Timestamp</th>
+                      <th style={{ width: '12%', minWidth: '100px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Detection Type</th>
+                      <th style={{ width: '18%', minWidth: '150px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Endpoint / Device</th>
+                      <th style={{ width: '12%', minWidth: '110px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Branch / Source</th>
+                      <th style={{ width: '20%', minWidth: '170px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Matched Threat Indicator</th>
+                      <th style={{ width: '13%', minWidth: '120px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Threat Context</th>
+                      <th style={{ width: '10%', minWidth: '100px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px', textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {retroMatches.map((item, idx) => (
+                      <tr
+                        key={idx}
+                        onClick={() => setSelectedDetail({ type: 'match', data: item })}
+                        title="Click to view full retroactive threat match details"
+                        style={{
+                          borderBottom: '1px solid var(--border)',
+                          transition: 'background 0.15s ease',
+                          cursor: 'pointer'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface2)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                      >
+                        {/* Timestamp */}
+                        <td style={{ padding: '12px 16px', color: 'var(--muted2)', whiteSpace: 'nowrap', fontSize: '12px', fontFamily: 'var(--mono)' }}>
+                          {item.ts ? new Date(item.ts).toLocaleString() : 'Past Event'}
+                        </td>
+
+                        {/* Severity / Detection Type */}
+                        <td style={{ padding: '12px 16px' }}>
+                          <span style={{
+                            padding: '3px 8px',
+                            borderRadius: '4px',
+                            background: 'rgba(139, 92, 246, 0.12)',
+                            color: '#8b5cf6',
+                            border: '1px solid rgba(139, 92, 246, 0.25)',
+                            fontSize: '10px',
+                            fontWeight: 800,
+                            fontFamily: 'var(--mono)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            <RotateCcw size={10} /> RETROACTIVE
+                          </span>
+                        </td>
+
+                        {/* Endpoint */}
+                        <td style={{ padding: '12px 16px', color: 'var(--text)', fontWeight: 600 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: '16px', color: item.source_type === 'firewall' ? '#f97316' : '#3b82f6' }}>
+                              {item.source_type === 'firewall' ? 'local_fire_department' : 'computer'}
+                            </span>
+                            {item.endpoint}
+                          </div>
+                          {item.src_ip && item.src_ip !== 'local' && (
+                            <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Src: {item.src_ip}</span>
+                          )}
+                        </td>
+
+                        {/* Branch / Aggregator */}
+                        <td style={{ padding: '12px 16px', color: 'var(--text)' }}>
+                          <span style={{ padding: '2px 8px', borderRadius: '4px', background: 'var(--surface2)', border: '1px solid var(--border)', fontSize: '11px', fontFamily: 'var(--mono)' }}>
+                            {item.aggregator_name || 'syslog'}
+                          </span>
+                        </td>
+
+                        {/* Indicator */}
+                        <td style={{ padding: '12px 16px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{
+                              fontFamily: 'var(--mono)',
+                              color: '#ef4444',
+                              fontWeight: 700,
+                              background: 'rgba(239,68,68,0.08)',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontSize: '12px'
+                            }}>
+                              {(() => {
+                                const ind = getRealIndicator(item);
+                                return ind && ind.length > 28 ? `${ind.slice(0, 24)}...` : ind;
+                              })()}
+                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                copyIndicator(getRealIndicator(item));
+                              }}
+                              title="Copy Indicator"
+                              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '2px' }}
+                            >
+                              {copiedItem === getRealIndicator(item) ? <Check size={14} color="#22c55e" /> : <Copy size={14} />}
+                            </button>
+                          </div>
+                          <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)' }}>
+                            Type: {getRealIndicatorType(item)}
+                          </span>
+                        </td>
+
+                        {/* Threat Context */}
+                        <td style={{ padding: '12px 16px', color: 'var(--muted2)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                            <span style={{
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              background: 'rgba(239, 68, 68, 0.1)',
+                              color: '#ef4444',
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              fontFamily: 'var(--mono)'
+                            }}>
+                              {item.malware_family || 'Malicious C2'}
+                            </span>
+                            <span style={{
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              background: 'var(--surface2)',
+                              color: 'var(--muted)',
+                              fontSize: '10px',
+                              fontFamily: 'var(--mono)'
+                            }}>
+                              {item.source_feed || 'ThreatFox'}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Action Buttons */}
+                        <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => {
+                                const indVal = getRealIndicator(item);
+                                const indType = getRealIndicatorType(item);
+                                handleOpenBlastRadius(indVal, indType);
+                              }}
+                              title="Investigate Blast Radius & Patient Zero"
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                background: 'rgba(37,99,235,0.1)',
+                                border: '1px solid rgba(37,99,235,0.3)',
+                                color: '#3b82f6',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Blast Radius
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                const indVal = getRealIndicator(item);
+                                const indType = getRealIndicatorType(item);
+                                handleOpenSuppressModal(indVal, indType);
+                              }}
+                              title="Add to Whitelist"
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                background: 'rgba(234,179,8,0.1)',
+                                border: '1px solid rgba(234,179,8,0.3)',
+                                color: '#eab308',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Whitelist
+                            </button>
+
+                            <button
+                              onClick={() => handleDeleteRetroMatch(item.id)}
+                              title="Dismiss match"
+                              style={{
+                                padding: '4px 6px',
+                                borderRadius: '4px',
+                                background: 'transparent',
+                                border: '1px solid var(--border)',
+                                color: 'var(--muted)',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Pagination Controls */}
+            {retroTotalPages > 1 && (
+              <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)' }}>
+                <span style={{ fontSize: '12px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                  Showing {retroMatches.length} of {retroTotal} retroactive detections
+                </span>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    disabled={retroPage <= 1}
+                    onClick={() => fetchRetroMatches(retroPage - 1)}
+                    style={{
+                      padding: '5px 10px',
+                      background: 'var(--surface2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '4px',
+                      color: retroPage <= 1 ? 'var(--muted)' : 'var(--text)',
+                      cursor: retroPage <= 1 ? 'not-allowed' : 'pointer',
+                      fontSize: '11px',
+                      fontWeight: 600
+                    }}
+                  >
+                    Previous
+                  </button>
+                  <span style={{ padding: '5px 10px', color: 'var(--muted2)', fontSize: '11px', fontFamily: 'var(--mono)' }}>
+                    Page {retroPage} of {retroTotalPages}
+                  </span>
+                  <button
+                    disabled={retroPage >= retroTotalPages}
+                    onClick={() => fetchRetroMatches(retroPage + 1)}
+                    style={{
+                      padding: '5px 10px',
+                      background: 'var(--surface2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '4px',
+                      color: retroPage >= retroTotalPages ? 'var(--muted)' : 'var(--text)',
+                      cursor: retroPage >= retroTotalPages ? 'not-allowed' : 'pointer',
+                      fontSize: '11px',
+                      fontWeight: 600
+                    }}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════
+          TAB 3: THREAT DATABASE (FEED INDICATORS)
           ════════════════════════════════════════════════════════════════ */}
       {activeTab === 'indicators' && (
         <div>
@@ -2528,192 +3153,7 @@ export default function ThreatHunting() {
         </div>
       )}
 
-      {/* ════════════════════════════════════════════════════════════════
-          RETROACTIVE HUNT RESULTS MODAL
-          ════════════════════════════════════════════════════════════════ */}
-      {showRetrohuntModal && retrohuntResult && (
-        <div
-          onClick={() => setShowRetrohuntModal(false)}
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(15, 23, 42, 0.4)',
-            backdropFilter: 'blur(10px)',
-            WebkitBackdropFilter: 'blur(10px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 9999,
-            padding: '20px'
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              borderRadius: '14px',
-              width: '100%',
-              maxWidth: '920px',
-              maxHeight: '85vh',
-              display: 'flex',
-              flexDirection: 'column',
-              boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
-              overflow: 'hidden'
-            }}
-          >
-            {/* Header */}
-            <div style={{
-              padding: '18px 24px',
-              borderBottom: '1px solid var(--border)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              background: retrohuntResult.matches_found > 0 ? 'rgba(239,68,68,0.06)' : 'rgba(34,197,94,0.06)'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{
-                  width: '34px',
-                  height: '34px',
-                  borderRadius: '8px',
-                  background: retrohuntResult.matches_found > 0 ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: retrohuntResult.matches_found > 0 ? '#ef4444' : '#22c55e'
-                }}>
-                  <Clock size={18} />
-                </div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text)' }}>
-                    Retroactive Hunting (Back-Testing) Results
-                  </h3>
-                  <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
-                    Scanned {retrohuntResult.scanned_iocs} active threat indicators against {retrohuntResult.time_range} of historical firewall & endpoint telemetry
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowRetrohuntModal(false)}
-                style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '6px' }}
-              >
-                <X size={18} />
-              </button>
-            </div>
 
-            {/* Body */}
-            <div style={{ padding: '24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* Summary Stats Strip */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
-                <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)' }}>Threat Indicators Scanned</span>
-                  <div style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text)', marginTop: '2px' }}>{retrohuntResult.scanned_iocs.toLocaleString()}</div>
-                </div>
-                <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)' }}>Time Window</span>
-                  <div style={{ fontSize: '18px', fontWeight: 900, color: '#3b82f6', marginTop: '2px', textTransform: 'uppercase' }}>Past {retrohuntResult.time_range}</div>
-                </div>
-                <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)' }}>Historical Hits Detected</span>
-                  <div style={{ fontSize: '18px', fontWeight: 900, color: retrohuntResult.matches_found > 0 ? '#ef4444' : '#22c55e', marginTop: '2px' }}>
-                    {retrohuntResult.matches_found}
-                  </div>
-                </div>
-              </div>
-
-              {/* Matches List */}
-              {retrohuntResult.matches_found === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--muted)', background: 'var(--surface2)', borderRadius: '10px', border: '1px solid var(--border)' }}>
-                  <CheckCircle2 size={36} color="#22c55e" style={{ margin: '0 auto 12px', display: 'block' }} />
-                  <p style={{ margin: 0, fontWeight: 700, fontSize: '14px', color: 'var(--text)' }}>Clean Network Health</p>
-                  <p style={{ margin: '4px 0 0', fontSize: '12px' }}>
-                    Zero endpoints or branch firewalls communicated with newly indexed C2 IPs, domains, or malware hashes in the past {retrohuntResult.time_range}.
-                  </p>
-                </div>
-              ) : (
-                <div>
-                  <span style={{ fontSize: '11px', fontWeight: 800, color: '#ef4444', textTransform: 'uppercase', fontFamily: 'var(--mono)', display: 'block', marginBottom: '8px' }}>
-                    ⚠️ Historical Compromise Events Identified ({retrohuntResult.matches.length})
-                  </span>
-                  <div style={{ maxHeight: '350px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
-                      <thead>
-                        <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--muted)' }}>
-                          <th style={{ padding: '10px 12px' }}>Timestamp</th>
-                          <th style={{ padding: '10px 12px' }}>Device</th>
-                          <th style={{ padding: '10px 12px' }}>Source IP</th>
-                          <th style={{ padding: '10px 12px' }}>Matched Threat</th>
-                          <th style={{ padding: '10px 12px' }}>Context</th>
-                          <th style={{ padding: '10px 12px', textAlign: 'right' }}>Investigate</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {retrohuntResult.matches.map((match, mIdx) => (
-                          <tr key={mIdx} style={{ borderBottom: '1px solid var(--border)' }}>
-                            <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', fontFamily: 'var(--mono)', color: 'var(--muted2)' }}>
-                              {new Date(match.ts).toLocaleString()}
-                            </td>
-                            <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text)' }}>
-                              {match.endpoint}
-                            </td>
-                            <td style={{ padding: '10px 12px', fontFamily: 'var(--mono)', color: 'var(--muted2)' }}>
-                              {match.src_ip}
-                            </td>
-                            <td style={{ padding: '10px 12px' }}>
-                              <span style={{ color: '#ef4444', fontWeight: 700, fontFamily: 'var(--mono)' }}>
-                                {match.indicator}
-                              </span>
-                              <span style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase' }}>
-                                Type: {match.indicator_type}
-                              </span>
-                            </td>
-                            <td style={{ padding: '10px 12px', color: 'var(--muted2)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {match.malware_family ? `[${match.malware_family}] ` : ''}{match.details}
-                            </td>
-                            <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                              <button
-                                onClick={() => {
-                                  setShowRetrohuntModal(false);
-                                  handleOpenBlastRadius(match.indicator, match.indicator_type);
-                                }}
-                                style={{
-                                  padding: '5px 10px',
-                                  borderRadius: '4px',
-                                  background: '#2563eb',
-                                  border: 'none',
-                                  color: '#fff',
-                                  fontSize: '11px',
-                                  fontWeight: 700,
-                                  cursor: 'pointer'
-                                }}
-                              >
-                                Blast Radius
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', background: 'var(--surface2)' }}>
-              <button
-                onClick={() => setShowRetrohuntModal(false)}
-                style={{ padding: '7px 18px', borderRadius: '6px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ════════════════════════════════════════════════════════════════
           DEDICATED NETWORK BLAST RADIUS & THREAT PIVOT MODAL

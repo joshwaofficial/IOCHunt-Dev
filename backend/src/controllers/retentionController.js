@@ -481,6 +481,10 @@ const purgeExpiredData = async (req, res) => {
             "DELETE FROM fw_events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
             [days]
           );
+          await req.queryTenant(
+            "DELETE FROM threat_retrohunt_matches WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
+            [days]
+          ).catch(() => {});
           deletedFw += fwRes.rowCount || 0;
         }
       } catch (err) {

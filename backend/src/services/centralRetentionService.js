@@ -46,6 +46,10 @@ async function runCentralRetentionPurge() {
             "DELETE FROM fw_events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
             [fwDays]
           );
+          await tPool.query(
+            "DELETE FROM threat_retrohunt_matches WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
+            [fwDays]
+          ).catch(() => {});
           totalDeletedEvents += tEv.rowCount || 0;
           totalDeletedFw += tFw.rowCount || 0;
         } catch (tErr) {
@@ -66,6 +70,10 @@ async function runCentralRetentionPurge() {
         "DELETE FROM fw_events WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
         [fwDays]
       );
+      await db.query(
+        "DELETE FROM threat_retrohunt_matches WHERE ts < (NOW() - INTERVAL '1 day' * $1)",
+        [fwDays]
+      ).catch(() => {});
       totalDeletedEvents += defEv.rowCount || 0;
       totalDeletedFw += defFw.rowCount || 0;
     } catch (e) {
