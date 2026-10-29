@@ -337,6 +337,20 @@ function getTableSchemaSQL() {
     ALTER TABLE threat_intel_iocs ADD COLUMN IF NOT EXISTS confidence_level INTEGER DEFAULT 100;
     ALTER TABLE threat_intel_iocs ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'online';
 
+    CREATE TABLE IF NOT EXISTS threat_intel_whitelist (
+      id BIGSERIAL PRIMARY KEY,
+      ioc_type VARCHAR(20) NOT NULL,
+      ioc_value VARCHAR(255) NOT NULL,
+      reason TEXT DEFAULT '',
+      added_by VARCHAR(100) DEFAULT 'admin',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT unique_whitelist_type_value UNIQUE (ioc_type, ioc_value)
+    );
+    CREATE INDEX IF NOT EXISTS idx_whitelist_val ON threat_intel_whitelist (ioc_type, ioc_value);
+    CREATE INDEX IF NOT EXISTS idx_fw_events_dst_ip ON fw_events (dst_ip, ts DESC);
+    CREATE INDEX IF NOT EXISTS idx_fw_events_cfgobj ON fw_events (cfgobj, ts DESC);
+    CREATE INDEX IF NOT EXISTS idx_fw_events_ts ON fw_events (ts DESC);
+
     CREATE TABLE IF NOT EXISTS settings (
       id INTEGER PRIMARY KEY DEFAULT 1,
       central_server_url VARCHAR(255),
@@ -450,6 +464,20 @@ const initDB = async (retries = 10, delay = 3000) => {
           CREATE INDEX IF NOT EXISTS idx_threat_last_seen ON threat_intel_iocs (last_seen);
           ALTER TABLE threat_intel_iocs ADD COLUMN IF NOT EXISTS confidence_level INTEGER DEFAULT 100;
           ALTER TABLE threat_intel_iocs ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'online';
+
+          CREATE TABLE IF NOT EXISTS threat_intel_whitelist (
+            id BIGSERIAL PRIMARY KEY,
+            ioc_type VARCHAR(20) NOT NULL,
+            ioc_value VARCHAR(255) NOT NULL,
+            reason TEXT DEFAULT '',
+            added_by VARCHAR(100) DEFAULT 'admin',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT unique_whitelist_type_value UNIQUE (ioc_type, ioc_value)
+          );
+          CREATE INDEX IF NOT EXISTS idx_whitelist_val ON threat_intel_whitelist (ioc_type, ioc_value);
+          CREATE INDEX IF NOT EXISTS idx_fw_events_dst_ip ON fw_events (dst_ip, ts DESC);
+          CREATE INDEX IF NOT EXISTS idx_fw_events_cfgobj ON fw_events (cfgobj, ts DESC);
+          CREATE INDEX IF NOT EXISTS idx_fw_events_ts ON fw_events (ts DESC);
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT '';
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 0;
           ALTER TABLE sessions ADD COLUMN IF NOT EXISTS aggregator_name VARCHAR(255) DEFAULT NULL;

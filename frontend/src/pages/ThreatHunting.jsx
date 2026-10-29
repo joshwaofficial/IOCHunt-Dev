@@ -3,7 +3,8 @@ import axios from 'axios';
 import {
   Radar, Key, RefreshCw, Database,
   ExternalLink, Copy, Check, Eye, EyeOff, Search,
-  Server, CheckCircle2, ShieldAlert, X, Info, Activity, Filter, RotateCcw
+  Server, CheckCircle2, ShieldAlert, X, Info, Activity, Filter, RotateCcw,
+  Clock, ShieldCheck, Network, AlertTriangle, Trash2, ArrowRight, User, Globe, FileCode
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
@@ -48,6 +49,117 @@ const getVirusTotalUrl = (detail) => {
 
   // 4. Fallback search
   return `https://www.virustotal.com/gui/search/${encodeURIComponent(val)}`;
+};
+
+// Multi-Source External Threat Reputation Links
+const getReputationLinks = (detail) => {
+  if (!detail || !detail.data) return [];
+  const rawVal = detail.type === 'match' ? detail.data.indicator : detail.data.ioc_value;
+  if (!rawVal) return [];
+
+  const val = String(rawVal).trim();
+  const rawType = String(
+    (detail.type === 'match' ? detail.data.indicator_type : detail.data.ioc_type) || ''
+  ).toLowerCase();
+
+  const isHexHash = /^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$/.test(val);
+  const ipWithoutPort = val.replace(/:\d+$/, '');
+  const isIpv4 = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(ipWithoutPort);
+  const isIpv6 = ipWithoutPort.includes(':');
+
+  const links = [];
+
+  // VirusTotal Direct
+  links.push({
+    name: 'VirusTotal',
+    url: getVirusTotalUrl(detail),
+    color: '#3b82f6',
+    bg: 'rgba(59,130,246,0.12)',
+    border: 'rgba(59,130,246,0.3)',
+    title: 'Inspect on VirusTotal'
+  });
+
+  if (rawType.includes('sha') || rawType.includes('hash') || isHexHash) {
+    // Hash Sources
+    links.push({
+      name: 'MalwareBazaar',
+      url: `https://bazaar.abuse.ch/sample/${encodeURIComponent(val)}/`,
+      color: '#eab308',
+      bg: 'rgba(234,179,8,0.12)',
+      border: 'rgba(234,179,8,0.3)',
+      title: 'Analyze sample on MalwareBazaar'
+    });
+    links.push({
+      name: 'Hybrid Analysis',
+      url: `https://www.hybrid-analysis.com/search?query=${encodeURIComponent(val)}`,
+      color: '#06b6d4',
+      bg: 'rgba(6,182,212,0.12)',
+      border: 'rgba(6,182,212,0.3)',
+      title: 'Search sandbox analysis on Hybrid Analysis'
+    });
+    links.push({
+      name: 'ThreatFox',
+      url: `https://threatfox.abuse.ch/browse.php?search=ioc%3A${encodeURIComponent(val)}`,
+      color: '#a855f7',
+      bg: 'rgba(168,85,247,0.12)',
+      border: 'rgba(168,85,247,0.3)',
+      title: 'Search IOC on ThreatFox'
+    });
+  } else if (rawType === 'ip' || isIpv4 || isIpv6) {
+    // IP Sources
+    links.push({
+      name: 'AbuseIPDB',
+      url: `https://www.abuseipdb.com/check/${encodeURIComponent(ipWithoutPort)}`,
+      color: '#f97316',
+      bg: 'rgba(249,115,22,0.12)',
+      border: 'rgba(249,115,22,0.3)',
+      title: 'Check IP abuse confidence score on AbuseIPDB'
+    });
+    links.push({
+      name: 'Shodan',
+      url: `https://www.shodan.io/host/${encodeURIComponent(ipWithoutPort)}`,
+      color: '#ef4444',
+      bg: 'rgba(239,68,68,0.12)',
+      border: 'rgba(239,68,68,0.3)',
+      title: 'View exposed open ports and services on Shodan'
+    });
+    links.push({
+      name: 'ThreatFox',
+      url: `https://threatfox.abuse.ch/browse.php?search=ioc%3A${encodeURIComponent(val)}`,
+      color: '#a855f7',
+      bg: 'rgba(168,85,247,0.12)',
+      border: 'rgba(168,85,247,0.3)',
+      title: 'Search IOC on ThreatFox'
+    });
+  } else {
+    // Domain / URL Sources
+    links.push({
+      name: 'urlscan.io',
+      url: `https://urlscan.io/search/#${encodeURIComponent(val)}`,
+      color: '#10b981',
+      bg: 'rgba(16,185,129,0.12)',
+      border: 'rgba(16,185,129,0.3)',
+      title: 'View website scan and DOM on urlscan.io'
+    });
+    links.push({
+      name: 'URLhaus',
+      url: `https://urlhaus.abuse.ch/browse.php?search=${encodeURIComponent(val)}`,
+      color: '#eab308',
+      bg: 'rgba(234,179,8,0.12)',
+      border: 'rgba(234,179,8,0.3)',
+      title: 'Search URLhaus malware repository'
+    });
+    links.push({
+      name: 'ThreatFox',
+      url: `https://threatfox.abuse.ch/browse.php?search=ioc%3A${encodeURIComponent(val)}`,
+      color: '#a855f7',
+      bg: 'rgba(168,85,247,0.12)',
+      border: 'rgba(168,85,247,0.3)',
+      title: 'Search IOC on ThreatFox'
+    });
+  }
+
+  return links;
 };
 
 export default function ThreatHunting() {
@@ -100,6 +212,118 @@ export default function ThreatHunting() {
 
   // Copied indicator state for visual feedback
   const [copiedItem, setCopiedItem] = useState(null);
+
+  // Retroactive Hunting State
+  const [isRetrohunting, setIsRetrohunting] = useState(false);
+  const [showRetrohuntModal, setShowRetrohuntModal] = useState(false);
+  const [retrohuntResult, setRetrohuntResult] = useState(null);
+  const [retrohuntRange, setRetrohuntRange] = useState('7d');
+
+  // Whitelist / False Positive Suppression State
+  const [showWhitelistModal, setShowWhitelistModal] = useState(false);
+  const [whitelist, setWhitelist] = useState([]);
+  const [whitelistLoading, setWhitelistLoading] = useState(false);
+  const [showSuppressInput, setShowSuppressInput] = useState(false);
+  const [suppressReason, setSuppressReason] = useState('');
+  const [isSuppressing, setIsSuppressing] = useState(false);
+
+  // Blast Radius & Network Pivot State
+  const [showBlastRadius, setShowBlastRadius] = useState(false);
+  const [blastRadius, setBlastRadius] = useState(null);
+  const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
+
+  // Retroactive Hunt Handler
+  const handleRunRetrohunt = async (range = retrohuntRange) => {
+    try {
+      setIsRetrohunting(true);
+      const res = await axios.post('/api/threat-hunting/retrohunt', { timeRange: range });
+      setRetrohuntResult(res.data);
+      setShowRetrohuntModal(true);
+      if (res.data.matches_found > 0) {
+        toast.success(`Retrohunt identified ${res.data.matches_found} historical compromise events!`);
+      } else {
+        toast.success(`Retrohunt clean: 0 historical matches found across ${res.data.scanned_iocs} IOCs.`);
+      }
+      fetchStatus();
+    } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.error || 'Retrohunt scan failed');
+    } finally {
+      setIsRetrohunting(false);
+    }
+  };
+
+  // Load Whitelist
+  const fetchWhitelist = async () => {
+    try {
+      setWhitelistLoading(true);
+      const res = await axios.get('/api/threat-hunting/whitelist');
+      setWhitelist(res.data.whitelist || []);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to load whitelist');
+    } finally {
+      setWhitelistLoading(false);
+    }
+  };
+
+  // Add to Whitelist
+  const handleAddToWhitelist = async () => {
+    if (!selectedDetail || !selectedDetail.data) return;
+    const ioc_value = selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value;
+    const ioc_type = selectedDetail.type === 'match' ? selectedDetail.data.indicator_type : selectedDetail.data.ioc_type;
+    try {
+      setIsSuppressing(true);
+      await axios.post('/api/threat-hunting/whitelist', {
+        ioc_type: ioc_type || 'ip',
+        ioc_value,
+        reason: suppressReason || 'False positive / benign infrastructure'
+      });
+      toast.success(`Suppressed & whitelisted: ${ioc_value}`);
+      setShowSuppressInput(false);
+      setSuppressReason('');
+      setSelectedDetail(null);
+      fetchMatches();
+      fetchStatus();
+      if (showWhitelistModal) fetchWhitelist();
+    } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.error || 'Failed to whitelist indicator');
+    } finally {
+      setIsSuppressing(false);
+    }
+  };
+
+  // Remove from Whitelist
+  const handleRemoveFromWhitelist = async (id) => {
+    try {
+      await axios.delete(`/api/threat-hunting/whitelist/${id}`);
+      toast.success('Indicator removed from whitelist');
+      fetchWhitelist();
+      fetchStatus();
+      fetchMatches();
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to remove whitelist entry');
+    }
+  };
+
+  // Load Blast Radius
+  const handleLoadBlastRadius = async (indicator, type) => {
+    try {
+      setBlastRadiusLoading(true);
+      setShowBlastRadius(true);
+      const res = await axios.get('/api/threat-hunting/blast-radius', {
+        params: { indicator, type }
+      });
+      setBlastRadius(res.data);
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to compute blast radius');
+    } finally {
+      setBlastRadiusLoading(false);
+    }
+  };
 
   // 1. Fetch Status
   const fetchStatus = async () => {
@@ -512,7 +736,57 @@ export default function ThreatHunting() {
         </div>
 
         {/* Action Controls */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {/* Retrohunt (Back-Testing) Action */}
+          <button
+            onClick={() => handleRunRetrohunt('7d')}
+            disabled={isRetrohunting}
+            title="Scan past 7 days of logs against all active threat indicators"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '7px 12px',
+              borderRadius: '6px',
+              background: 'rgba(168,85,247,0.12)',
+              border: '1px solid rgba(168,85,247,0.3)',
+              color: '#a855f7',
+              fontSize: '12px',
+              fontWeight: 700,
+              cursor: isRetrohunting ? 'not-allowed' : 'pointer',
+              transition: 'all 0.2s',
+              opacity: isRetrohunting ? 0.7 : 1
+            }}
+          >
+            <Clock size={14} style={{ animation: isRetrohunting ? 'spin 1.5s linear infinite' : 'none' }} />
+            {isRetrohunting ? 'Retrohunting...' : 'Retrohunt (7d)'}
+          </button>
+
+          {/* False Positive Whitelist Manager */}
+          <button
+            onClick={() => {
+              fetchWhitelist();
+              setShowWhitelistModal(true);
+            }}
+            title="Manage suppressed false positive indicators"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '7px 12px',
+              borderRadius: '6px',
+              background: 'var(--surface2)',
+              border: '1px solid var(--border)',
+              color: 'var(--text)',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+          >
+            <ShieldCheck size={14} color="#22c55e" /> Whitelist
+          </button>
+
           {isAdmin && (
             <button
               onClick={() => setShowSettingsModal(true)}
@@ -1713,102 +1987,280 @@ export default function ThreatHunting() {
                   </div>
                 </div>
 
-                {/* External Actions / Search Links */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  {/* VirusTotal Direct Report Link */}
-                  <a
-                    href={getVirusTotalUrl(selectedDetail)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Inspect file hash, IP, or domain report on VirusTotal"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      background: 'rgba(59,130,246,0.12)',
+                {/* Multi-Source Threat Reputation Links & SOC Action Toolbar */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {/* External Multi-Source Links */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {getReputationLinks(selectedDetail).map((link, idx) => (
+                      <a
+                        key={idx}
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={link.title}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '6px 12px',
+                          borderRadius: '6px',
+                          background: link.bg,
+                          border: `1px solid ${link.border}`,
+                          color: link.color,
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          textDecoration: 'none',
+                          transition: 'opacity 0.15s'
+                        }}
+                      >
+                        <ExternalLink size={12} /> {link.name}
+                      </a>
+                    ))}
+                  </div>
+
+                  {/* SOC Analyst Investigation & Response Actions */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', paddingTop: '4px' }}>
+                    <button
+                      onClick={() => {
+                        const indVal = selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value;
+                        const indType = selectedDetail.type === 'match' ? selectedDetail.data.indicator_type : selectedDetail.data.ioc_type;
+                        if (!showBlastRadius) {
+                          handleLoadBlastRadius(indVal, indType);
+                        } else {
+                          setShowBlastRadius(false);
+                        }
+                      }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 14px',
+                        borderRadius: '6px',
+                        background: showBlastRadius ? '#2563eb' : 'var(--surface)',
+                        border: `1px solid ${showBlastRadius ? '#2563eb' : 'var(--border)'}`,
+                        color: showBlastRadius ? '#ffffff' : 'var(--text)',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <Network size={13} /> {showBlastRadius ? 'Hide Blast Radius' : 'Blast Radius & Network Pivot'}
+                    </button>
+
+                    <button
+                      onClick={() => setShowSuppressInput(!showSuppressInput)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 14px',
+                        borderRadius: '6px',
+                        background: showSuppressInput ? '#eab308' : 'var(--surface)',
+                        border: `1px solid ${showSuppressInput ? '#eab308' : 'var(--border)'}`,
+                        color: showSuppressInput ? '#000000' : 'var(--text)',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <ShieldCheck size={13} /> Suppress / Whitelist
+                    </button>
+                  </div>
+
+                  {/* Inline Suppress / Whitelist Form */}
+                  {showSuppressInput && (
+                    <div style={{
+                      marginTop: '8px',
+                      padding: '12px 14px',
+                      background: 'rgba(234,179,8,0.08)',
+                      border: '1px solid rgba(234,179,8,0.25)',
+                      borderRadius: '8px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#eab308' }}>
+                          Suppress Alerts for this Indicator (False Positive)
+                        </span>
+                        <button onClick={() => setShowSuppressInput(false)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}>
+                          <X size={14} />
+                        </button>
+                      </div>
+                      <p style={{ margin: 0, fontSize: '11px', color: 'var(--muted2)' }}>
+                        This will mute critical alert generation across all firewalls and endpoints for this indicator.
+                      </p>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <input
+                          type="text"
+                          value={suppressReason}
+                          onChange={(e) => setSuppressReason(e.target.value)}
+                          placeholder="Reason (e.g. Benign internal CDN / Approved monitoring tool)"
+                          style={{
+                            flex: 1,
+                            minWidth: '220px',
+                            padding: '6px 10px',
+                            borderRadius: '6px',
+                            background: 'var(--surface)',
+                            border: '1px solid var(--border)',
+                            color: 'var(--text)',
+                            fontSize: '12px'
+                          }}
+                        />
+                        <button
+                          onClick={handleAddToWhitelist}
+                          disabled={isSuppressing}
+                          style={{
+                            padding: '6px 14px',
+                            borderRadius: '6px',
+                            background: '#eab308',
+                            border: 'none',
+                            color: '#000',
+                            fontWeight: 700,
+                            fontSize: '11px',
+                            cursor: isSuppressing ? 'not-allowed' : 'pointer',
+                            opacity: isSuppressing ? 0.7 : 1
+                          }}
+                        >
+                          {isSuppressing ? 'Saving...' : 'Confirm Suppress'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Blast Radius & Pivot Analysis Card */}
+                  {showBlastRadius && (
+                    <div style={{
+                      marginTop: '8px',
+                      padding: '16px',
+                      background: 'var(--surface)',
                       border: '1px solid rgba(59,130,246,0.25)',
-                      color: '#3b82f6',
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      textDecoration: 'none'
-                    }}
-                  >
-                    <ExternalLink size={12} /> VirusTotal
-                  </a>
+                      borderRadius: '10px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '14px'
+                    }}>
+                      {blastRadiusLoading ? (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', gap: '8px', color: 'var(--muted)' }}>
+                          <div style={{ width: '16px', height: '16px', border: '2px solid rgba(59,130,246,0.3)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                          <span style={{ fontSize: '12px', fontWeight: 600 }}>Analyzing network blast radius and patient zero...</span>
+                        </div>
+                      ) : blastRadius ? (
+                        <>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <Network size={16} color="#3b82f6" />
+                              <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text)' }}>
+                                Network Blast Radius & Spread Analysis
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                              Target: {blastRadius.indicator}
+                            </span>
+                          </div>
 
-                  {/* Feed Direct Link */}
-                  {selectedDetail.data.source_feed === 'malwarebazaar' && (
-                    <a
-                      href={`https://bazaar.abuse.ch/sample/${selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value}/`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="View malware sample on MalwareBazaar"
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        padding: '6px 12px',
-                        borderRadius: '6px',
-                        background: 'var(--surface)',
-                        border: '1px solid var(--border)',
-                        color: 'var(--text)',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        textDecoration: 'none'
-                      }}
-                    >
-                      <ExternalLink size={12} /> Bazaar Sample
-                    </a>
-                  )}
+                          {/* 4 Stat Metrics */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px' }}>
+                            <div style={{ padding: '8px 12px', borderRadius: '6px', background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+                              <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700, fontFamily: 'var(--mono)' }}>Total Connections</span>
+                              <div style={{ fontSize: '16px', fontWeight: 800, color: '#ef4444', marginTop: '2px' }}>{blastRadius.total_hits}</div>
+                            </div>
+                            <div style={{ padding: '8px 12px', borderRadius: '6px', background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+                              <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700, fontFamily: 'var(--mono)' }}>Affected Devices</span>
+                              <div style={{ fontSize: '16px', fontWeight: 800, color: '#f97316', marginTop: '2px' }}>{blastRadius.unique_endpoints_count}</div>
+                            </div>
+                            <div style={{ padding: '8px 12px', borderRadius: '6px', background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+                              <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700, fontFamily: 'var(--mono)' }}>First Activity</span>
+                              <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)', marginTop: '4px', fontFamily: 'var(--mono)' }}>
+                                {blastRadius.patient_zero ? new Date(blastRadius.patient_zero.first_seen).toLocaleDateString() : 'N/A'}
+                              </div>
+                            </div>
+                            <div style={{ padding: '8px 12px', borderRadius: '6px', background: 'var(--surface2)', border: '1px solid var(--border)' }}>
+                              <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700, fontFamily: 'var(--mono)' }}>Latest Activity</span>
+                              <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)', marginTop: '4px', fontFamily: 'var(--mono)' }}>
+                                {blastRadius.last_seen ? new Date(blastRadius.last_seen).toLocaleDateString() : 'N/A'}
+                              </div>
+                            </div>
+                          </div>
 
-                  {selectedDetail.data.source_feed === 'threatfox' && (
-                    <a
-                      href={`https://threatfox.abuse.ch/browse.php?search=ioc%3A${encodeURIComponent(selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Search this IOC on ThreatFox"
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        padding: '6px 12px',
-                        borderRadius: '6px',
-                        background: 'var(--surface)',
-                        border: '1px solid var(--border)',
-                        color: 'var(--text)',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        textDecoration: 'none'
-                      }}
-                    >
-                      <ExternalLink size={12} /> ThreatFox Intel
-                    </a>
-                  )}
+                          {/* Patient Zero Callout */}
+                          {blastRadius.patient_zero && (
+                            <div style={{
+                              padding: '10px 14px',
+                              borderRadius: '8px',
+                              background: 'rgba(249,115,22,0.1)',
+                              border: '1px solid rgba(249,115,22,0.3)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              flexWrap: 'wrap',
+                              gap: '8px'
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{
+                                  padding: '2px 8px',
+                                  borderRadius: '4px',
+                                  background: '#f97316',
+                                  color: '#ffffff',
+                                  fontSize: '10px',
+                                  fontWeight: 800,
+                                  fontFamily: 'var(--mono)'
+                                }}>
+                                  PATIENT ZERO
+                                </span>
+                                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>
+                                  {blastRadius.patient_zero.endpoint} ({blastRadius.patient_zero.src_ip})
+                                </span>
+                              </div>
+                              <span style={{ fontSize: '11px', color: 'var(--muted2)', fontFamily: 'var(--mono)' }}>
+                                Initial Breach: {new Date(blastRadius.patient_zero.first_seen).toLocaleString()}
+                              </span>
+                            </div>
+                          )}
 
-                  {selectedDetail.data.source_feed === 'urlhaus' && (
-                    <a
-                      href={`https://urlhaus.abuse.ch/browse.php?search=${encodeURIComponent(selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Search this IOC on URLhaus"
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '5px',
-                        padding: '6px 12px',
-                        borderRadius: '6px',
-                        background: 'var(--surface)',
-                        border: '1px solid var(--border)',
-                        color: 'var(--text)',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        textDecoration: 'none'
-                      }}
-                    >
-                      <ExternalLink size={12} /> URLhaus Search
-                    </a>
+                          {/* Endpoints Table */}
+                          {blastRadius.endpoints && blastRadius.endpoints.length > 0 && (
+                            <div>
+                              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)', display: 'block', marginBottom: '6px' }}>
+                                Compromised Network Endpoints ({blastRadius.endpoints.length})
+                              </span>
+                              <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                                  <thead>
+                                    <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--muted)' }}>
+                                      <th style={{ padding: '6px 10px' }}>Endpoint</th>
+                                      <th style={{ padding: '6px 10px' }}>IP</th>
+                                      <th style={{ padding: '6px 10px' }}>Aggregator</th>
+                                      <th style={{ padding: '6px 10px' }}>First Contact</th>
+                                      <th style={{ padding: '6px 10px' }}>Hits</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {blastRadius.endpoints.map((ep, eIdx) => (
+                                      <tr key={eIdx} style={{ borderBottom: '1px solid var(--border)', background: ep.is_patient_zero ? 'rgba(249,115,22,0.05)' : 'transparent' }}>
+                                        <td style={{ padding: '6px 10px', fontWeight: 600, color: 'var(--text)' }}>
+                                          {ep.endpoint} {ep.is_patient_zero && <span style={{ color: '#f97316', fontSize: '9px', fontWeight: 800 }}>★</span>}
+                                        </td>
+                                        <td style={{ padding: '6px 10px', fontFamily: 'var(--mono)', color: 'var(--muted2)' }}>{ep.src_ip}</td>
+                                        <td style={{ padding: '6px 10px' }}>{ep.aggregator_name || 'Central'}</td>
+                                        <td style={{ padding: '6px 10px', fontFamily: 'var(--mono)', color: 'var(--muted2)' }}>{new Date(ep.first_seen).toLocaleString()}</td>
+                                        <td style={{ padding: '6px 10px', fontWeight: 700, color: '#ef4444' }}>{ep.count}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div style={{ fontSize: '12px', color: 'var(--muted)', textAlign: 'center', padding: '12px' }}>
+                          No correlated historical activity found across connected branch firewalls.
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -2036,6 +2488,361 @@ export default function ThreatHunting() {
                   fontWeight: 600,
                   cursor: 'pointer'
                 }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════
+          FALSE POSITIVES WHITELIST MANAGER MODAL
+          ════════════════════════════════════════════════════════════════ */}
+      {showWhitelistModal && (
+        <div
+          onClick={() => setShowWhitelistModal(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '20px'
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: '14px',
+              width: '100%',
+              maxWidth: '850px',
+              maxHeight: '85vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
+              overflow: 'hidden'
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{
+              padding: '18px 24px',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'var(--surface2)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '8px',
+                  background: 'rgba(34,197,94,0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#22c55e'
+                }}>
+                  <ShieldCheck size={18} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text)' }}>
+                    False Positive Suppression & Whitelist
+                  </h3>
+                  <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                    Benign indicators excluded from real-time threat detection across all firewalls and endpoints
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowWhitelistModal(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '6px' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+              {whitelistLoading ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--muted)' }}>
+                  Loading whitelisted indicators...
+                </div>
+              ) : whitelist.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--muted)' }}>
+                  <ShieldCheck size={36} color="var(--muted)" style={{ margin: '0 auto 12px', display: 'block', opacity: 0.5 }} />
+                  <p style={{ margin: 0, fontWeight: 600, fontSize: '13px', color: 'var(--text)' }}>No Suppressed False Positives</p>
+                  <p style={{ margin: '4px 0 0', fontSize: '12px' }}>
+                    You can suppress any benign IP, domain, or hash directly from its indicator details popup.
+                  </p>
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--muted)' }}>
+                      <th style={{ padding: '10px 14px' }}>Type</th>
+                      <th style={{ padding: '10px 14px' }}>Indicator Value</th>
+                      <th style={{ padding: '10px 14px' }}>Suppression Reason</th>
+                      <th style={{ padding: '10px 14px' }}>Added By</th>
+                      <th style={{ padding: '10px 14px' }}>Date</th>
+                      <th style={{ padding: '10px 14px', textAlign: 'right' }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {whitelist.map((item) => (
+                      <tr key={item.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span style={{
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            background: item.ioc_type === 'ip' ? 'rgba(59,130,246,0.1)' : item.ioc_type === 'domain' ? 'rgba(168,85,247,0.1)' : 'rgba(234,179,8,0.1)',
+                            color: item.ioc_type === 'ip' ? '#3b82f6' : item.ioc_type === 'domain' ? '#a855f7' : '#eab308',
+                            fontSize: '10px',
+                            fontWeight: 800,
+                            fontFamily: 'var(--mono)',
+                            textTransform: 'uppercase'
+                          }}>
+                            {item.ioc_type}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'var(--mono)', fontWeight: 700, color: 'var(--text)' }}>
+                          {item.ioc_value}
+                        </td>
+                        <td style={{ padding: '10px 14px', color: 'var(--muted2)' }}>
+                          {item.reason || 'False alarm'}
+                        </td>
+                        <td style={{ padding: '10px 14px', color: 'var(--muted)' }}>
+                          {item.added_by || 'admin'}
+                        </td>
+                        <td style={{ padding: '10px 14px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                          {item.created_at ? new Date(item.created_at).toLocaleDateString() : 'N/A'}
+                        </td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                          <button
+                            onClick={() => handleRemoveFromWhitelist(item.id)}
+                            title="Remove suppression rule and restore threat alerting"
+                            style={{
+                              padding: '5px 10px',
+                              borderRadius: '4px',
+                              background: 'rgba(239,68,68,0.1)',
+                              border: '1px solid rgba(239,68,68,0.25)',
+                              color: '#ef4444',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Restore
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', background: 'var(--surface2)' }}>
+              <button
+                onClick={() => setShowWhitelistModal(false)}
+                style={{ padding: '7px 18px', borderRadius: '6px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════
+          RETROACTIVE HUNT RESULTS MODAL
+          ════════════════════════════════════════════════════════════════ */}
+      {showRetrohuntModal && retrohuntResult && (
+        <div
+          onClick={() => setShowRetrohuntModal(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            padding: '20px'
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: '14px',
+              width: '100%',
+              maxWidth: '920px',
+              maxHeight: '85vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
+              overflow: 'hidden'
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              padding: '18px 24px',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: retrohuntResult.matches_found > 0 ? 'rgba(239,68,68,0.06)' : 'rgba(34,197,94,0.06)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '8px',
+                  background: retrohuntResult.matches_found > 0 ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: retrohuntResult.matches_found > 0 ? '#ef4444' : '#22c55e'
+                }}>
+                  <Clock size={18} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text)' }}>
+                    Retroactive Hunting (Back-Testing) Results
+                  </h3>
+                  <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                    Scanned {retrohuntResult.scanned_iocs} active threat indicators against {retrohuntResult.time_range} of historical firewall & endpoint telemetry
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowRetrohuntModal(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '6px' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Summary Stats Strip */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+                <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)' }}>Threat Indicators Scanned</span>
+                  <div style={{ fontSize: '18px', fontWeight: 900, color: 'var(--text)', marginTop: '2px' }}>{retrohuntResult.scanned_iocs.toLocaleString()}</div>
+                </div>
+                <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)' }}>Time Window</span>
+                  <div style={{ fontSize: '18px', fontWeight: 900, color: '#3b82f6', marginTop: '2px', textTransform: 'uppercase' }}>Past {retrohuntResult.time_range}</div>
+                </div>
+                <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)' }}>Historical Hits Detected</span>
+                  <div style={{ fontSize: '18px', fontWeight: 900, color: retrohuntResult.matches_found > 0 ? '#ef4444' : '#22c55e', marginTop: '2px' }}>
+                    {retrohuntResult.matches_found}
+                  </div>
+                </div>
+              </div>
+
+              {/* Matches List */}
+              {retrohuntResult.matches_found === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--muted)', background: 'var(--surface2)', borderRadius: '10px', border: '1px solid var(--border)' }}>
+                  <CheckCircle2 size={36} color="#22c55e" style={{ margin: '0 auto 12px', display: 'block' }} />
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: '14px', color: 'var(--text)' }}>Clean Network Health</p>
+                  <p style={{ margin: '4px 0 0', fontSize: '12px' }}>
+                    Zero endpoints or branch firewalls communicated with newly indexed C2 IPs, domains, or malware hashes in the past {retrohuntResult.time_range}.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <span style={{ fontSize: '11px', fontWeight: 800, color: '#ef4444', textTransform: 'uppercase', fontFamily: 'var(--mono)', display: 'block', marginBottom: '8px' }}>
+                    ⚠️ Historical Compromise Events Identified ({retrohuntResult.matches.length})
+                  </span>
+                  <div style={{ maxHeight: '350px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                      <thead>
+                        <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--muted)' }}>
+                          <th style={{ padding: '10px 12px' }}>Timestamp</th>
+                          <th style={{ padding: '10px 12px' }}>Device</th>
+                          <th style={{ padding: '10px 12px' }}>Source IP</th>
+                          <th style={{ padding: '10px 12px' }}>Matched Threat</th>
+                          <th style={{ padding: '10px 12px' }}>Context</th>
+                          <th style={{ padding: '10px 12px', textAlign: 'right' }}>Investigate</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {retrohuntResult.matches.map((match, mIdx) => (
+                          <tr key={mIdx} style={{ borderBottom: '1px solid var(--border)' }}>
+                            <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', fontFamily: 'var(--mono)', color: 'var(--muted2)' }}>
+                              {new Date(match.ts).toLocaleString()}
+                            </td>
+                            <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text)' }}>
+                              {match.endpoint}
+                            </td>
+                            <td style={{ padding: '10px 12px', fontFamily: 'var(--mono)', color: 'var(--muted2)' }}>
+                              {match.src_ip}
+                            </td>
+                            <td style={{ padding: '10px 12px' }}>
+                              <span style={{ color: '#ef4444', fontWeight: 700, fontFamily: 'var(--mono)' }}>
+                                {match.indicator}
+                              </span>
+                              <span style={{ display: 'block', fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase' }}>
+                                Type: {match.indicator_type}
+                              </span>
+                            </td>
+                            <td style={{ padding: '10px 12px', color: 'var(--muted2)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {match.malware_family ? `[${match.malware_family}] ` : ''}{match.details}
+                            </td>
+                            <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                              <button
+                                onClick={() => {
+                                  setShowRetrohuntModal(false);
+                                  setSelectedDetail({ type: 'match', data: match });
+                                  handleLoadBlastRadius(match.indicator, match.indicator_type);
+                                }}
+                                style={{
+                                  padding: '5px 10px',
+                                  borderRadius: '4px',
+                                  background: '#2563eb',
+                                  border: 'none',
+                                  color: '#fff',
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                Blast Radius
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', background: 'var(--surface2)' }}>
+              <button
+                onClick={() => setShowRetrohuntModal(false)}
+                style={{ padding: '7px 18px', borderRadius: '6px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
               >
                 Close
               </button>

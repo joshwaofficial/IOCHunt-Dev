@@ -259,7 +259,9 @@ exports.getMatches = async (req, res) => {
 
     const fwConds = [
       `ts >= NOW() - ${intervalClause}`,
-      `(logdesc LIKE '%[THREAT DANGER]%' OR msg LIKE '%[THREAT DANGER]%')`
+      `(logdesc LIKE '%[THREAT DANGER]%' OR msg LIKE '%[THREAT DANGER]%')`,
+      `(dst_ip NOT IN (SELECT ioc_value FROM threat_intel_whitelist WHERE ioc_type = 'ip') OR dst_ip IS NULL)`,
+      `(cfgobj NOT IN (SELECT ioc_value FROM threat_intel_whitelist WHERE ioc_type = 'domain') OR cfgobj IS NULL OR cfgobj = '')`
     ];
     const evConds = [
       `ts >= NOW() - ${intervalClause}`,
@@ -518,5 +520,351 @@ exports.getIndicators = async (req, res) => {
   } catch (err) {
     console.error('[ThreatHunting] getIndicators error:', err);
     res.status(500).json({ error: 'Failed to retrieve threat indicators' });
+  }
+};
+
+/**
+ * POST /api/threat-hunting/retrohunt
+ * Runs a retroactive scan back-testing past events (default 7 days) against active threat intelligence indicators.
+ */
+exports.runRetrohunt = async (req, res) => {
+  try {
+    const qControl = req.queryControlPlane || db.query.bind(db);
+    const qTenant = req.queryTenant || db.query.bind(db);
+    const { timeRange = '7d', limit = 500 } = req.body;
+
+    let intervalClause = "INTERVAL '7 days'";
+    if (timeRange === '14d') intervalClause = "INTERVAL '14 days'";
+    if (timeRange === '30d') intervalClause = "INTERVAL '30 days'";
+    if (timeRange === '24h') intervalClause = "INTERVAL '24 hours'";
+
+    // 1. Fetch active threat indicators (excluding any whitelisted ones)
+    const iocRes = await qControl(`
+      SELECT ioc_type, ioc_value, malware_family, source_feed, confidence_level
+      FROM threat_intel_iocs
+      WHERE status IN ('online', 'active')
+        AND (confidence_level IS NULL OR confidence_level >= 70)
+        AND (ioc_type, ioc_value) NOT IN (SELECT ioc_type, ioc_value FROM threat_intel_whitelist)
+      ORDER BY last_seen DESC
+      LIMIT $1
+    `, [Math.min(2000, Math.max(50, parseInt(limit, 10) || 500))]);
+
+    const iocs = iocRes.rows || [];
+    if (iocs.length === 0) {
+      return res.json({
+        ok: true,
+        scanned_iocs: 0,
+        time_range: timeRange,
+        matches_found: 0,
+        matches: []
+      });
+    }
+
+    const ipList = iocs.filter(r => r.ioc_type === 'ip').map(r => r.ioc_value);
+    const domainList = iocs.filter(r => r.ioc_type === 'domain').map(r => r.ioc_value.toLowerCase());
+    const hashList = iocs.filter(r => r.ioc_type === 'sha256').map(r => r.ioc_value.toLowerCase());
+
+    const iocLookup = new Map();
+    for (const ioc of iocs) {
+      iocLookup.set(`${ioc.ioc_type}:${ioc.ioc_value.toLowerCase()}`, ioc);
+    }
+
+    const retroHits = [];
+
+    // 2. Query historical fw_events for matching IPs
+    if (ipList.length > 0) {
+      const fwIpMatches = await qTenant(`
+        SELECT id, ts, devname AS endpoint, src_ip, dst_ip AS indicator, 'ip' AS indicator_type,
+               'firewall' AS source_type, aggregator_name, 
+               COALESCE(NULLIF(logdesc, ''), msg, 'Historical C2 connection detected') AS details,
+               severity
+        FROM fw_events
+        WHERE ts >= NOW() - ${intervalClause}
+          AND dst_ip = ANY($1::varchar[])
+          AND (dst_ip NOT IN (SELECT ioc_value FROM threat_intel_whitelist WHERE ioc_type = 'ip') OR dst_ip IS NULL)
+        ORDER BY ts DESC
+        LIMIT 100
+      `, [ipList]).catch(() => ({ rows: [] }));
+
+      for (const row of fwIpMatches.rows || []) {
+        const intel = iocLookup.get(`ip:${row.indicator.toLowerCase()}`) || {};
+        retroHits.push({
+          ...row,
+          malware_family: intel.malware_family || 'Malicious C2',
+          source_feed: intel.source_feed || 'ThreatFox',
+          confidence_level: intel.confidence_level || 100,
+          is_retroactive: true
+        });
+      }
+    }
+
+    // 3. Query historical fw_events for matching Domains
+    if (domainList.length > 0) {
+      const fwDomainMatches = await qTenant(`
+        SELECT id, ts, devname AS endpoint, src_ip, cfgobj AS indicator, 'domain' AS indicator_type,
+               'firewall' AS source_type, aggregator_name,
+               COALESCE(NULLIF(logdesc, ''), msg, 'Historical malicious domain query detected') AS details,
+               severity
+        FROM fw_events
+        WHERE ts >= NOW() - ${intervalClause}
+          AND LOWER(cfgobj) = ANY($1::varchar[])
+          AND (cfgobj NOT IN (SELECT ioc_value FROM threat_intel_whitelist WHERE ioc_type = 'domain') OR cfgobj IS NULL)
+        ORDER BY ts DESC
+        LIMIT 100
+      `, [domainList]).catch(() => ({ rows: [] }));
+
+      for (const row of fwDomainMatches.rows || []) {
+        const intel = iocLookup.get(`domain:${row.indicator.toLowerCase()}`) || {};
+        retroHits.push({
+          ...row,
+          malware_family: intel.malware_family || 'Malicious Domain',
+          source_feed: intel.source_feed || 'URLhaus',
+          confidence_level: intel.confidence_level || 100,
+          is_retroactive: true
+        });
+      }
+    }
+
+    // 4. Query historical endpoint events
+    const evMatches = await qTenant(`
+      SELECT id, ts, COALESCE(NULLIF(machine, ''), 'Endpoint') AS endpoint, 'local' AS src_ip,
+             COALESCE(SUBSTRING(message FROM '([a-fA-F0-9]{64})'), 'MALWARE-EXE') AS indicator,
+             'sha256' AS indicator_type, 'endpoint' AS source_type, aggregator_name,
+             message AS details, severity
+      FROM events
+      WHERE ts >= NOW() - ${intervalClause}
+        AND (tag = 'MALWARE-EXE-DETECTED' OR message LIKE '%[THREAT DANGER]%')
+      ORDER BY ts DESC
+      LIMIT 100
+    `).catch(() => ({ rows: [] }));
+
+    for (const row of evMatches.rows || []) {
+      const intel = iocLookup.get(`sha256:${row.indicator.toLowerCase()}`) || {};
+      retroHits.push({
+        ...row,
+        malware_family: intel.malware_family || 'Malware Executable',
+        source_feed: intel.source_feed || 'MalwareBazaar',
+        confidence_level: intel.confidence_level || 100,
+        is_retroactive: true
+      });
+    }
+
+    // Sort by timestamp descending
+    retroHits.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+
+    res.json({
+      ok: true,
+      scanned_iocs: iocs.length,
+      time_range: timeRange,
+      matches_found: retroHits.length,
+      matches: retroHits.slice(0, 100)
+    });
+  } catch (err) {
+    console.error('[ThreatHunting] runRetrohunt error:', err);
+    res.status(500).json({ error: 'Failed to run retroactive threat hunt', details: err.message });
+  }
+};
+
+/**
+ * GET /api/threat-hunting/blast-radius
+ * Calculates the blast radius, affected endpoints, timeline, and Patient Zero for an indicator.
+ */
+exports.getBlastRadius = async (req, res) => {
+  try {
+    const qTenant = req.queryTenant || db.query.bind(db);
+    const qControl = req.queryControlPlane || db.query.bind(db);
+    const { indicator = '', type = '' } = req.query;
+
+    const cleanVal = (indicator || '').trim();
+    if (!cleanVal) {
+      return res.status(400).json({ error: 'Indicator parameter is required' });
+    }
+
+    // Lookup metadata from threat_intel_iocs
+    const intelRes = await qControl(`
+      SELECT ioc_type, ioc_value, malware_family, source_feed, confidence_level, status, first_seen, last_seen
+      FROM threat_intel_iocs
+      WHERE ioc_value = $1 OR ioc_value = $2
+      LIMIT 1
+    `, [cleanVal, cleanVal.toLowerCase()]).catch(() => ({ rows: [] }));
+
+    const intel = intelRes.rows[0] || {
+      ioc_value: cleanVal,
+      ioc_type: type || 'ip',
+      malware_family: 'Generic Threat Indicator',
+      confidence_level: 100
+    };
+
+    // Query firewall events for this indicator
+    const fwRes = await qTenant(`
+      SELECT id, ts, devname AS endpoint, src_ip, dst_ip, cfgobj, aggregator_name,
+             COALESCE(NULLIF(logdesc, ''), msg, 'Connection Attempt') AS details,
+             action, severity
+      FROM fw_events
+      WHERE dst_ip = $1 OR cfgobj = $1 OR cfgobj ILIKE $2
+      ORDER BY ts ASC
+      LIMIT 500
+    `, [cleanVal, `%${cleanVal}%`]).catch(() => ({ rows: [] }));
+
+    // Query endpoint events
+    const evRes = await qTenant(`
+      SELECT id, ts, machine AS endpoint, 'local' AS src_ip, aggregator_name,
+             message AS details, tag, severity
+      FROM events
+      WHERE message ILIKE $1 OR tag ILIKE $1
+      ORDER BY ts ASC
+      LIMIT 500
+    `, [`%${cleanVal}%`]).catch(() => ({ rows: [] }));
+
+    const allEvents = [...(fwRes.rows || []), ...(evRes.rows || [])];
+    allEvents.sort((a, b) => new Date(a.ts) - new Date(b.ts));
+
+    const endpointMap = new Map();
+    for (const ev of allEvents) {
+      const epKey = ev.src_ip && ev.src_ip !== 'local' ? ev.src_ip : (ev.endpoint || 'unknown');
+      if (!endpointMap.has(epKey)) {
+        endpointMap.set(epKey, {
+          key: epKey,
+          endpoint: ev.endpoint || 'Unknown Device',
+          src_ip: ev.src_ip || 'local',
+          aggregator_name: ev.aggregator_name || 'Central',
+          first_seen: ev.ts,
+          last_seen: ev.ts,
+          count: 0
+        });
+      }
+      const record = endpointMap.get(epKey);
+      record.count++;
+      record.last_seen = ev.ts;
+    }
+
+    const uniqueEndpoints = Array.from(endpointMap.values());
+    uniqueEndpoints.sort((a, b) => new Date(a.first_seen) - new Date(b.first_seen));
+
+    // Patient zero is the earliest recorded endpoint
+    const patientZero = uniqueEndpoints.length > 0 ? {
+      ...uniqueEndpoints[0],
+      is_patient_zero: true
+    } : null;
+
+    res.json({
+      indicator: cleanVal,
+      type: intel.ioc_type || type || 'ip',
+      total_hits: allEvents.length,
+      unique_endpoints_count: uniqueEndpoints.length,
+      patient_zero: patientZero,
+      last_seen: allEvents.length > 0 ? allEvents[allEvents.length - 1].ts : null,
+      endpoints: uniqueEndpoints,
+      timeline: allEvents.slice(0, 50),
+      intel
+    });
+  } catch (err) {
+    console.error('[ThreatHunting] getBlastRadius error:', err);
+    res.status(500).json({ error: 'Failed to compute blast radius', details: err.message });
+  }
+};
+
+/**
+ * GET /api/threat-hunting/whitelist
+ * Retrieves active false positive suppression rules.
+ */
+exports.getWhitelist = async (req, res) => {
+  try {
+    const qControl = req.queryControlPlane || db.query.bind(db);
+    const result = await qControl(`
+      SELECT id, ioc_type, ioc_value, reason, added_by, created_at
+      FROM threat_intel_whitelist
+      ORDER BY id DESC
+    `);
+    res.json({ whitelist: result.rows || [] });
+  } catch (err) {
+    console.error('[ThreatHunting] getWhitelist error:', err);
+    res.status(500).json({ error: 'Failed to load threat whitelist' });
+  }
+};
+
+/**
+ * POST /api/threat-hunting/whitelist
+ * Adds an indicator to the whitelist to suppress false positive alerts.
+ */
+exports.addToWhitelist = async (req, res) => {
+  try {
+    const qControl = req.queryControlPlane || db.query.bind(db);
+    const { ioc_type, ioc_value, reason = 'False positive / benign infrastructure' } = req.body;
+
+    const cleanType = (ioc_type || 'ip').toLowerCase().trim();
+    const cleanVal = (ioc_value || '').trim();
+
+    if (!cleanVal) {
+      return res.status(400).json({ error: 'Indicator value is required' });
+    }
+
+    const addedBy = req.user?.username || req.user?.email || 'admin';
+
+    await qControl(`
+      INSERT INTO threat_intel_whitelist (ioc_type, ioc_value, reason, added_by)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (ioc_type, ioc_value) DO UPDATE SET
+        reason = EXCLUDED.reason,
+        added_by = EXCLUDED.added_by,
+        created_at = NOW()
+    `, [cleanType, cleanVal, reason.trim(), addedBy]);
+
+    // Remove from in-memory Redis cache so real-time alerts cease immediately
+    try {
+      const { getRedisClient } = require('../config/redisClient');
+      const redis = getRedisClient();
+      if (redis) {
+        if (cleanType === 'ip') await redis.srem('threat:ips', cleanVal);
+        if (cleanType === 'domain') await redis.srem('threat:domains', cleanVal);
+        if (cleanType === 'sha256') await redis.srem('threat:hashes', cleanVal);
+      }
+    } catch (rErr) {
+      console.warn('[ThreatHunting] Redis whitelist srem notice:', rErr.message);
+    }
+
+    res.json({ ok: true, message: `Indicator ${cleanVal} added to suppression whitelist.` });
+  } catch (err) {
+    console.error('[ThreatHunting] addToWhitelist error:', err);
+    res.status(500).json({ error: 'Failed to whitelist indicator', details: err.message });
+  }
+};
+
+/**
+ * DELETE /api/threat-hunting/whitelist/:id
+ * Removes an indicator from the whitelist, restoring real-time detection.
+ */
+exports.removeFromWhitelist = async (req, res) => {
+  try {
+    const qControl = req.queryControlPlane || db.query.bind(db);
+    const { id } = req.params;
+
+    const selRes = await qControl('SELECT ioc_type, ioc_value FROM threat_intel_whitelist WHERE id = $1', [id]);
+    if (selRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Whitelist entry not found' });
+    }
+
+    const { ioc_type, ioc_value } = selRes.rows[0];
+
+    await qControl('DELETE FROM threat_intel_whitelist WHERE id = $1', [id]);
+
+    // If this item was originally in threat_intel_iocs, restore it to Redis
+    try {
+      const chkRes = await qControl('SELECT id FROM threat_intel_iocs WHERE ioc_type = $1 AND ioc_value = $2 AND status = $3', [ioc_type, ioc_value, 'online']);
+      if (chkRes.rows.length > 0) {
+        const { getRedisClient } = require('../config/redisClient');
+        const redis = getRedisClient();
+        if (redis) {
+          if (ioc_type === 'ip') await redis.sadd('threat:ips', ioc_value);
+          if (ioc_type === 'domain') await redis.sadd('threat:domains', ioc_value);
+          if (ioc_type === 'sha256') await redis.sadd('threat:hashes', ioc_value);
+        }
+      }
+    } catch (_) {}
+
+    res.json({ ok: true, message: `Indicator ${ioc_value} restored to active detection.` });
+  } catch (err) {
+    console.error('[ThreatHunting] removeFromWhitelist error:', err);
+    res.status(500).json({ error: 'Failed to remove whitelist entry' });
   }
 };
