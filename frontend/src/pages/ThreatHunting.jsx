@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { 
-  Radar, Key, RefreshCw, Database, 
+import {
+  Radar, Key, RefreshCw, Database,
   ExternalLink, Copy, Check, Eye, EyeOff, Search,
   Server, CheckCircle2, ShieldAlert, X, Info, Activity, Filter, RotateCcw
 } from 'lucide-react';
@@ -145,15 +145,15 @@ export default function ThreatHunting() {
       }
     }
   }, [
-    status?.configured, 
-    activeTab, 
-    matchesType, 
-    matchesSeverity, 
-    matchesSourceType, 
-    matchesTimeRange, 
-    indicatorsType, 
-    indicatorsSource, 
-    indicatorsStatus, 
+    status?.configured,
+    activeTab,
+    matchesType,
+    matchesSeverity,
+    matchesSourceType,
+    matchesTimeRange,
+    indicatorsType,
+    indicatorsSource,
+    indicatorsStatus,
     indicatorsConfidence
   ]);
 
@@ -229,13 +229,13 @@ export default function ThreatHunting() {
       <div style={{ maxWidth: '820px', margin: '40px auto', padding: '0 20px', width: '100%' }}>
         {/* Header Hero */}
         <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-          <div style={{ 
-            display: 'inline-flex', 
-            padding: '16px', 
-            borderRadius: '20px', 
-            background: 'rgba(37,99,235,0.08)', 
-            border: '1px solid rgba(37,99,235,0.2)', 
-            marginBottom: '16px' 
+          <div style={{
+            display: 'inline-flex',
+            padding: '16px',
+            borderRadius: '20px',
+            background: 'rgba(37,99,235,0.08)',
+            border: '1px solid rgba(37,99,235,0.2)',
+            marginBottom: '16px'
           }}>
             <Radar size={40} color="#3b82f6" />
           </div>
@@ -243,7 +243,7 @@ export default function ThreatHunting() {
             Automated Threat Intelligence & Hunting
           </h1>
           <p style={{ color: 'var(--muted2)', fontSize: '14px', maxWidth: '620px', margin: '0 auto', lineHeight: '1.6' }}>
-            Connect verified threat feeds to automatically scan network logs and endpoint processes across all 500+ systems in real-time with nanosecond in-memory matching.
+            Connect verified threat feeds to automatically scan network logs and endpoint processes across all systems in real-time.
           </p>
         </div>
 
@@ -263,9 +263,9 @@ export default function ThreatHunting() {
                 <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   <Key size={16} color="#3b82f6" /> Abuse.ch ThreatFox Auth-Key
                 </label>
-                <a 
-                  href="https://threatfox.abuse.ch/" 
-                  target="_blank" 
+                <a
+                  href="https://threatfox.abuse.ch/"
+                  target="_blank"
                   rel="noreferrer"
                   style={{ fontSize: '12px', color: '#3b82f6', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}
                 >
@@ -320,7 +320,7 @@ export default function ThreatHunting() {
               <label style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text)', display: 'block', marginBottom: '12px', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 Feeds Included in Real-Time Engine
               </label>
-              
+
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
                 {/* ThreatFox */}
                 <div style={{
@@ -379,7 +379,7 @@ export default function ThreatHunting() {
             }}>
               <Server size={18} color="#3b82f6" style={{ flexShrink: 0, marginTop: '2px' }} />
               <div style={{ fontSize: '12px', color: 'var(--muted2)', lineHeight: '1.5' }}>
-                <strong style={{ color: 'var(--text)' }}>Single-Point Architecture:</strong> Entered once here on Central Server. Branch Aggregators do not need an API key; they forward compressed syslog and endpoint logs to Central where they are matched against Node.js process RAM in 5 nanoseconds.
+                <strong style={{ color: 'var(--text)' }}>Single-Point Architecture:</strong> Configured on the Central Server. Branch Aggregators forward syslog and endpoint telemetry to Central for automated real-time threat detection.
               </div>
             </div>
 
@@ -435,13 +435,13 @@ export default function ThreatHunting() {
   return (
     <div style={{ width: '100%', paddingBottom: '40px', position: 'relative' }}>
       {/* Top Header */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'flex-start', 
-        flexWrap: 'wrap', 
-        gap: '16px', 
-        marginBottom: '20px' 
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        flexWrap: 'wrap',
+        gap: '16px',
+        marginBottom: '20px'
       }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -466,7 +466,7 @@ export default function ThreatHunting() {
             </div>
           </div>
           <p style={{ color: 'var(--muted2)', fontSize: '13px', marginTop: '4px', marginBottom: 0 }}>
-            Real-time ThreatFox, MalwareBazaar & URLhaus matching across all 500+ endpoints & branch firewalls.
+            Real-time ThreatFox, MalwareBazaar & URLhaus matching across all endpoints & branch firewalls.
           </p>
         </div>
 
@@ -523,11 +523,11 @@ export default function ThreatHunting() {
       {/* 4 Premium Metric Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '24px' }}>
         <PremiumCard
-          label="RAM Indicators Cached"
+          label="Active Threat Indicators"
           value={status?.stats?.total_iocs?.toLocaleString() || '0'}
           color="#3b82f6"
           icon="memory"
-          subtitle="0.000005 ms per event lookup (~8 MB RAM)"
+          subtitle="Real-time multi-feed threat intelligence"
         />
         <PremiumCard
           label="Threat Matches (24h)"
@@ -553,11 +553,11 @@ export default function ThreatHunting() {
       </div>
 
       {/* Tabs Navigation */}
-      <div style={{ 
-        display: 'flex', 
-        gap: '4px', 
-        borderBottom: '1px solid var(--border)', 
-        marginBottom: '20px' 
+      <div style={{
+        display: 'flex',
+        gap: '4px',
+        borderBottom: '1px solid var(--border)',
+        marginBottom: '20px'
       }}>
         <button
           onClick={() => setActiveTab('matches')}
@@ -580,12 +580,12 @@ export default function ThreatHunting() {
           <ShieldAlert size={15} color={activeTab === 'matches' ? '#ef4444' : 'currentColor'} />
           Threat Detections (Matches)
           {status?.stats?.matches_today > 0 && (
-            <span style={{ 
-              padding: '1px 6px', 
-              borderRadius: '10px', 
-              background: 'rgba(239,68,68,0.15)', 
-              color: '#ef4444', 
-              fontSize: '11px', 
+            <span style={{
+              padding: '1px 6px',
+              borderRadius: '10px',
+              background: 'rgba(239,68,68,0.15)',
+              color: '#ef4444',
+              fontSize: '11px',
               fontWeight: 800,
               fontFamily: 'var(--mono)'
             }}>
@@ -833,11 +833,11 @@ export default function ThreatHunting() {
                   </thead>
                   <tbody>
                     {matches.map((item, idx) => (
-                      <tr 
+                      <tr
                         key={idx}
                         onClick={() => setSelectedDetail({ type: 'match', data: item })}
                         title="Click to view full threat match details"
-                        style={{ 
+                        style={{
                           borderBottom: '1px solid var(--border)',
                           transition: 'background 0.15s ease',
                           cursor: 'pointer'
@@ -1195,11 +1195,11 @@ export default function ThreatHunting() {
                   </thead>
                   <tbody>
                     {indicators.map((ioc, idx) => (
-                      <tr 
+                      <tr
                         key={idx}
                         onClick={() => setSelectedDetail({ type: 'indicator', data: ioc })}
                         title="Click to view full threat intelligence details"
-                        style={{ 
+                        style={{
                           borderBottom: '1px solid var(--border)',
                           transition: 'background 0.15s ease',
                           cursor: 'pointer'
@@ -1210,12 +1210,12 @@ export default function ThreatHunting() {
                         {/* Indicator Value */}
                         <td style={{ padding: '12px 16px', verticalAlign: 'middle' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span 
+                            <span
                               title={ioc.ioc_value}
-                              style={{ 
-                                fontFamily: 'var(--mono)', 
-                                color: 'var(--text)', 
-                                fontWeight: 600, 
+                              style={{
+                                fontFamily: 'var(--mono)',
+                                color: 'var(--text)',
+                                fontWeight: 600,
                                 fontSize: '12px',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
@@ -1280,14 +1280,14 @@ export default function ThreatHunting() {
 
                         {/* Malware Family */}
                         <td style={{ padding: '12px 16px', color: 'var(--text)', verticalAlign: 'middle' }}>
-                          <span 
+                          <span
                             title={ioc.malware_family || 'Generic C2 / Malware'}
-                            style={{ 
-                              padding: '2px 8px', 
-                              borderRadius: '4px', 
-                              background: 'var(--surface2)', 
-                              border: '1px solid var(--border)', 
-                              fontSize: '11px', 
+                            style={{
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              background: 'var(--surface2)',
+                              border: '1px solid var(--border)',
+                              fontSize: '11px',
                               fontWeight: 600,
                               maxWidth: '190px',
                               overflow: 'hidden',
@@ -1311,11 +1311,11 @@ export default function ThreatHunting() {
                         {/* Confidence */}
                         <td style={{ padding: '12px 16px', verticalAlign: 'middle' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                            <span style={{ 
-                              color: (ioc.confidence_level || 100) >= 90 ? '#22c55e' : (ioc.confidence_level || 100) >= 75 ? '#eab308' : '#ef4444', 
-                              fontWeight: 700, 
-                              fontFamily: 'var(--mono)', 
-                              fontSize: '12px' 
+                            <span style={{
+                              color: (ioc.confidence_level || 100) >= 90 ? '#22c55e' : (ioc.confidence_level || 100) >= 75 ? '#eab308' : '#ef4444',
+                              fontWeight: 700,
+                              fontFamily: 'var(--mono)',
+                              fontSize: '12px'
                             }}>
                               {ioc.confidence_level || 100}%
                             </span>
@@ -1535,47 +1535,47 @@ export default function ThreatHunting() {
           FULL DETAIL POPUP MODAL (Row Click on Match or Indicator)
           ════════════════════════════════════════════════════════════════ */}
       {selectedDetail && (
-        <div 
-          onClick={() => setSelectedDetail(null)} 
-          style={{ 
-            position: 'fixed', 
-            top: 0, 
-            left: 0, 
-            right: 0, 
-            bottom: 0, 
-            background: 'rgba(0,0,0,0.65)', 
-            zIndex: 10000, 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center', 
+        <div
+          onClick={() => setSelectedDetail(null)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.65)',
+            zIndex: 10000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
             backdropFilter: 'blur(5px)',
             padding: '20px'
           }}
         >
-          <div 
-            onClick={(e) => e.stopPropagation()} 
-            style={{ 
-              background: 'var(--surface-solid, var(--surface))', 
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--surface-solid, var(--surface))',
               border: '1px solid var(--border)',
-              borderRadius: '16px', 
-              width: '100%', 
-              maxWidth: '740px', 
-              maxHeight: '88vh', 
-              display: 'flex', 
-              flexDirection: 'column', 
-              boxShadow: '0 24px 60px rgba(0,0,0,0.35)', 
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '740px',
+              maxHeight: '88vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
               overflow: 'hidden'
             }}
           >
             {/* Modal Header */}
-            <div style={{ 
-              padding: '18px 24px', 
-              borderBottom: '1px solid var(--border)', 
-              display: 'flex', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
-              background: selectedDetail.type === 'match' ? 'rgba(239,68,68,0.06)' : 'rgba(37,99,235,0.04)', 
-              flexShrink: 0 
+            <div style={{
+              padding: '18px 24px',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: selectedDetail.type === 'match' ? 'rgba(239,68,68,0.06)' : 'rgba(37,99,235,0.04)',
+              flexShrink: 0
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div style={{
@@ -1595,24 +1595,24 @@ export default function ThreatHunting() {
                     {selectedDetail.type === 'match' ? 'Threat Detection Match Details' : 'Threat Intelligence Indicator Details'}
                   </h3>
                   <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-                    {selectedDetail.type === 'match' 
-                      ? 'Live event match against ThreatFox / MalwareBazaar / URLhaus feed' 
+                    {selectedDetail.type === 'match'
+                      ? 'Live event match against ThreatFox / MalwareBazaar / URLhaus feed'
                       : `Ingested from ${selectedDetail.data.source_feed || selectedDetail.data.source || 'Abuse.ch'}`}
                   </span>
                 </div>
               </div>
 
-              <button 
-                onClick={() => setSelectedDetail(null)} 
+              <button
+                onClick={() => setSelectedDetail(null)}
                 title="Close"
-                style={{ 
-                  background: 'none', 
-                  border: 'none', 
-                  color: 'var(--muted)', 
-                  cursor: 'pointer', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center', 
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--muted)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                   padding: '6px',
                   borderRadius: '6px',
                   transition: 'background 0.15s'
@@ -1643,10 +1643,10 @@ export default function ThreatHunting() {
                     {selectedDetail.type === 'match' ? 'Triggered Indicator' : 'Indicator Value'}
                   </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ 
-                      fontSize: '14px', 
-                      fontWeight: 700, 
-                      color: selectedDetail.type === 'match' ? '#ef4444' : 'var(--text)', 
+                    <span style={{
+                      fontSize: '14px',
+                      fontWeight: 700,
+                      color: selectedDetail.type === 'match' ? '#ef4444' : 'var(--text)',
                       fontFamily: 'var(--mono)',
                       wordBreak: 'break-all'
                     }}>
@@ -1655,18 +1655,18 @@ export default function ThreatHunting() {
                     <button
                       onClick={() => copyIndicator(selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value)}
                       title="Copy Indicator"
-                      style={{ 
-                        background: 'none', 
-                        border: 'none', 
-                        color: 'var(--muted)', 
-                        cursor: 'pointer', 
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--muted)',
+                        cursor: 'pointer',
                         padding: '4px',
                         display: 'flex',
                         alignItems: 'center'
                       }}
                     >
-                      {copiedItem === (selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value) 
-                        ? <Check size={16} color="#22c55e" /> 
+                      {copiedItem === (selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value)
+                        ? <Check size={16} color="#22c55e" />
                         : <Copy size={16} />}
                     </button>
                   </div>
@@ -1918,11 +1918,11 @@ export default function ThreatHunting() {
                         Confidence Level
                       </span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ 
-                          fontSize: '13px', 
-                          fontWeight: 800, 
+                        <span style={{
+                          fontSize: '13px',
+                          fontWeight: 800,
                           color: (selectedDetail.data.confidence_level || 100) >= 90 ? '#22c55e' : '#eab308',
-                          fontFamily: 'var(--mono)' 
+                          fontFamily: 'var(--mono)'
                         }}>
                           {selectedDetail.data.confidence_level || 100}%
                         </span>
@@ -1968,10 +1968,10 @@ export default function ThreatHunting() {
                         selectedDetail.data.source_feed === 'malwarebazaar'
                           ? '100% confidence indicates confirmed malicious executable binary payload verified by Abuse.ch sandbox behavioral analysis.'
                           : selectedDetail.data.source_feed === 'urlhaus'
-                          ? selectedDetail.data.status === 'online'
-                            ? '100% confidence indicates actively serving malicious payload distribution URLs.'
-                            : '80% confidence indicates dormant or offline distribution point retained for retrospective forensics.'
-                          : 'Confidence is assessed by Abuse.ch security researchers and automated threat hunting sensors (ThreatFox).'
+                            ? selectedDetail.data.status === 'online'
+                              ? '100% confidence indicates actively serving malicious payload distribution URLs.'
+                              : '80% confidence indicates dormant or offline distribution point retained for retrospective forensics.'
+                            : 'Confidence is assessed by Abuse.ch security researchers and automated threat hunting sensors (ThreatFox).'
                       }
                     </div>
                   </div>

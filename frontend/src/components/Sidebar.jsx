@@ -67,7 +67,9 @@ export default function Sidebar({ collapsed, toggle }) {
 
         <div className="sidebar-section">
           <div className="sidebar-section-label">Detection</div>
-          <NavLink to="/threat-hunting" className={navClass}><span className="icon material-symbols-outlined">radar</span> Threat Hunting</NavLink>
+          {isCentral() && !isAggregator() && !user?.aggregator_name && user?.role !== 'AGGREGATOR_ADMIN' && (
+            <NavLink to="/threat-hunting" className={navClass}><span className="icon material-symbols-outlined">radar</span> Threat Hunting</NavLink>
+          )}
           <NavLink to="/ad-attacks" className={navClass}><span className="icon material-symbols-outlined">key</span> AD Attacks</NavLink>
           <NavLink to="/malicious-activity" className={navClass}><span className="icon material-symbols-outlined">warning</span> Malicious Activity</NavLink>
           <NavLink to="/user-accounts" className={navClass}><span className="icon material-symbols-outlined">person</span> User Accounts</NavLink>

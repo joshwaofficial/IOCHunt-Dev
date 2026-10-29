@@ -166,7 +166,11 @@ function App() {
                           </ProtectedRoute>
                         } />
                         <Route path="aggregator-settings" element={<AggregatorSettings />} />
-                        <Route path="threat-hunting" element={<ThreatHunting />} />
+                        <Route path="threat-hunting" element={
+                          <CentralOnlyRoute>
+                            <ThreatHunting />
+                          </CentralOnlyRoute>
+                        } />
                         <Route path="ad-attacks" element={<AdAttacks />} />
                         <Route path="malicious-activity" element={<MaliciousActivity />} />
                         <Route path="user-accounts" element={<UserAccounts />} />
