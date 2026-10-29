@@ -223,14 +223,17 @@ export default function ThreatHunting() {
   const [showWhitelistModal, setShowWhitelistModal] = useState(false);
   const [whitelist, setWhitelist] = useState([]);
   const [whitelistLoading, setWhitelistLoading] = useState(false);
-  const [showSuppressInput, setShowSuppressInput] = useState(false);
-  const [suppressReason, setSuppressReason] = useState('');
+  const [showSuppressModal, setShowSuppressModal] = useState(false);
+  const [suppressTarget, setSuppressTarget] = useState(null);
+  const [suppressReason, setSuppressReason] = useState('False Positive Feed Hit');
   const [isSuppressing, setIsSuppressing] = useState(false);
 
   // Blast Radius & Network Pivot State
-  const [showBlastRadius, setShowBlastRadius] = useState(false);
+  const [showBlastRadiusModal, setShowBlastRadiusModal] = useState(false);
+  const [blastRadiusTarget, setBlastRadiusTarget] = useState(null);
   const [blastRadius, setBlastRadius] = useState(null);
   const [blastRadiusLoading, setBlastRadiusLoading] = useState(false);
+  const [blastEndpointSearch, setBlastEndpointSearch] = useState('');
 
   // Retroactive Hunt Handler
   const handleRunRetrohunt = async (range = retrohuntRange) => {
@@ -267,20 +270,28 @@ export default function ThreatHunting() {
     }
   };
 
+  // Open Suppress Modal
+  const handleOpenSuppressModal = (indicator, type) => {
+    if (!indicator) return;
+    setSuppressTarget({ indicator, type: type || 'ip' });
+    setSuppressReason('False Positive Feed Hit');
+    setShowSuppressModal(true);
+  };
+
   // Add to Whitelist
   const handleAddToWhitelist = async () => {
-    if (!selectedDetail || !selectedDetail.data) return;
-    const ioc_value = selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value;
-    const ioc_type = selectedDetail.type === 'match' ? selectedDetail.data.indicator_type : selectedDetail.data.ioc_type;
+    if (!suppressTarget || !suppressTarget.indicator) return;
+    const { indicator, type } = suppressTarget;
     try {
       setIsSuppressing(true);
       await axios.post('/api/threat-hunting/whitelist', {
-        ioc_type: ioc_type || 'ip',
-        ioc_value,
-        reason: suppressReason || 'False positive / benign infrastructure'
+        ioc_type: type || 'ip',
+        ioc_value: indicator,
+        reason: suppressReason.trim() || 'False positive / benign infrastructure'
       });
-      toast.success(`Suppressed & whitelisted: ${ioc_value}`);
-      setShowSuppressInput(false);
+      toast.success(`Suppressed & whitelisted: ${indicator}`);
+      setShowSuppressModal(false);
+      setSuppressTarget(null);
       setSuppressReason('');
       setSelectedDetail(null);
       fetchMatches();
@@ -308,11 +319,19 @@ export default function ThreatHunting() {
     }
   };
 
+  // Open Dedicated Blast Radius Modal
+  const handleOpenBlastRadius = (indicator, type) => {
+    if (!indicator) return;
+    setBlastRadiusTarget({ indicator, type: type || 'ip' });
+    setBlastEndpointSearch('');
+    setShowBlastRadiusModal(true);
+    handleLoadBlastRadius(indicator, type || 'ip');
+  };
+
   // Load Blast Radius
   const handleLoadBlastRadius = async (indicator, type) => {
     try {
       setBlastRadiusLoading(true);
-      setShowBlastRadius(true);
       const res = await axios.get('/api/threat-hunting/blast-radius', {
         params: { indicator, type }
       });
@@ -2024,11 +2043,7 @@ export default function ThreatHunting() {
                       onClick={() => {
                         const indVal = selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value;
                         const indType = selectedDetail.type === 'match' ? selectedDetail.data.indicator_type : selectedDetail.data.ioc_type;
-                        if (!showBlastRadius) {
-                          handleLoadBlastRadius(indVal, indType);
-                        } else {
-                          setShowBlastRadius(false);
-                        }
+                        handleOpenBlastRadius(indVal, indType);
                       }}
                       style={{
                         display: 'inline-flex',
@@ -2036,232 +2051,46 @@ export default function ThreatHunting() {
                         gap: '6px',
                         padding: '6px 14px',
                         borderRadius: '6px',
-                        background: showBlastRadius ? '#2563eb' : 'var(--surface)',
-                        border: `1px solid ${showBlastRadius ? '#2563eb' : 'var(--border)'}`,
-                        color: showBlastRadius ? '#ffffff' : 'var(--text)',
+                        background: 'rgba(37,99,235,0.1)',
+                        border: '1px solid rgba(37,99,235,0.3)',
+                        color: '#3b82f6',
                         fontSize: '11px',
                         fontWeight: 700,
                         cursor: 'pointer',
-                        transition: 'all 0.2s'
+                        transition: 'all 0.15s'
                       }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(37,99,235,0.2)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(37,99,235,0.1)'}
                     >
-                      <Network size={13} /> {showBlastRadius ? 'Hide Blast Radius' : 'Blast Radius & Network Pivot'}
+                      <Network size={13} /> Blast Radius & Network Pivot
                     </button>
 
                     <button
-                      onClick={() => setShowSuppressInput(!showSuppressInput)}
+                      onClick={() => {
+                        const indVal = selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value;
+                        const indType = selectedDetail.type === 'match' ? selectedDetail.data.indicator_type : selectedDetail.data.ioc_type;
+                        handleOpenSuppressModal(indVal, indType);
+                      }}
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '6px',
                         padding: '6px 14px',
                         borderRadius: '6px',
-                        background: showSuppressInput ? '#eab308' : 'var(--surface)',
-                        border: `1px solid ${showSuppressInput ? '#eab308' : 'var(--border)'}`,
-                        color: showSuppressInput ? '#000000' : 'var(--text)',
+                        background: 'rgba(234,179,8,0.1)',
+                        border: '1px solid rgba(234,179,8,0.3)',
+                        color: '#eab308',
                         fontSize: '11px',
                         fontWeight: 700,
                         cursor: 'pointer',
-                        transition: 'all 0.2s'
+                        transition: 'all 0.15s'
                       }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(234,179,8,0.2)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(234,179,8,0.1)'}
                     >
                       <ShieldCheck size={13} /> Suppress / Whitelist
                     </button>
                   </div>
-
-                  {/* Inline Suppress / Whitelist Form */}
-                  {showSuppressInput && (
-                    <div style={{
-                      marginTop: '8px',
-                      padding: '12px 14px',
-                      background: 'rgba(234,179,8,0.08)',
-                      border: '1px solid rgba(234,179,8,0.25)',
-                      borderRadius: '8px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: '12px', fontWeight: 700, color: '#eab308' }}>
-                          Suppress Alerts for this Indicator (False Positive)
-                        </span>
-                        <button onClick={() => setShowSuppressInput(false)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}>
-                          <X size={14} />
-                        </button>
-                      </div>
-                      <p style={{ margin: 0, fontSize: '11px', color: 'var(--muted2)' }}>
-                        This will mute critical alert generation across all firewalls and endpoints for this indicator.
-                      </p>
-                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        <input
-                          type="text"
-                          value={suppressReason}
-                          onChange={(e) => setSuppressReason(e.target.value)}
-                          placeholder="Reason (e.g. Benign internal CDN / Approved monitoring tool)"
-                          style={{
-                            flex: 1,
-                            minWidth: '220px',
-                            padding: '6px 10px',
-                            borderRadius: '6px',
-                            background: 'var(--surface)',
-                            border: '1px solid var(--border)',
-                            color: 'var(--text)',
-                            fontSize: '12px'
-                          }}
-                        />
-                        <button
-                          onClick={handleAddToWhitelist}
-                          disabled={isSuppressing}
-                          style={{
-                            padding: '6px 14px',
-                            borderRadius: '6px',
-                            background: '#eab308',
-                            border: 'none',
-                            color: '#000',
-                            fontWeight: 700,
-                            fontSize: '11px',
-                            cursor: isSuppressing ? 'not-allowed' : 'pointer',
-                            opacity: isSuppressing ? 0.7 : 1
-                          }}
-                        >
-                          {isSuppressing ? 'Saving...' : 'Confirm Suppress'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Blast Radius & Pivot Analysis Card */}
-                  {showBlastRadius && (
-                    <div style={{
-                      marginTop: '8px',
-                      padding: '16px',
-                      background: 'var(--surface)',
-                      border: '1px solid rgba(59,130,246,0.25)',
-                      borderRadius: '10px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '14px'
-                    }}>
-                      {blastRadiusLoading ? (
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', gap: '8px', color: 'var(--muted)' }}>
-                          <div style={{ width: '16px', height: '16px', border: '2px solid rgba(59,130,246,0.3)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-                          <span style={{ fontSize: '12px', fontWeight: 600 }}>Analyzing network blast radius and patient zero...</span>
-                        </div>
-                      ) : blastRadius ? (
-                        <>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <Network size={16} color="#3b82f6" />
-                              <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text)' }}>
-                                Network Blast Radius & Spread Analysis
-                              </span>
-                            </div>
-                            <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-                              Target: {blastRadius.indicator}
-                            </span>
-                          </div>
-
-                          {/* 4 Stat Metrics */}
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px' }}>
-                            <div style={{ padding: '8px 12px', borderRadius: '6px', background: 'var(--surface2)', border: '1px solid var(--border)' }}>
-                              <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700, fontFamily: 'var(--mono)' }}>Total Connections</span>
-                              <div style={{ fontSize: '16px', fontWeight: 800, color: '#ef4444', marginTop: '2px' }}>{blastRadius.total_hits}</div>
-                            </div>
-                            <div style={{ padding: '8px 12px', borderRadius: '6px', background: 'var(--surface2)', border: '1px solid var(--border)' }}>
-                              <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700, fontFamily: 'var(--mono)' }}>Affected Devices</span>
-                              <div style={{ fontSize: '16px', fontWeight: 800, color: '#f97316', marginTop: '2px' }}>{blastRadius.unique_endpoints_count}</div>
-                            </div>
-                            <div style={{ padding: '8px 12px', borderRadius: '6px', background: 'var(--surface2)', border: '1px solid var(--border)' }}>
-                              <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700, fontFamily: 'var(--mono)' }}>First Activity</span>
-                              <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)', marginTop: '4px', fontFamily: 'var(--mono)' }}>
-                                {blastRadius.patient_zero ? new Date(blastRadius.patient_zero.first_seen).toLocaleDateString() : 'N/A'}
-                              </div>
-                            </div>
-                            <div style={{ padding: '8px 12px', borderRadius: '6px', background: 'var(--surface2)', border: '1px solid var(--border)' }}>
-                              <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700, fontFamily: 'var(--mono)' }}>Latest Activity</span>
-                              <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text)', marginTop: '4px', fontFamily: 'var(--mono)' }}>
-                                {blastRadius.last_seen ? new Date(blastRadius.last_seen).toLocaleDateString() : 'N/A'}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Patient Zero Callout */}
-                          {blastRadius.patient_zero && (
-                            <div style={{
-                              padding: '10px 14px',
-                              borderRadius: '8px',
-                              background: 'rgba(249,115,22,0.1)',
-                              border: '1px solid rgba(249,115,22,0.3)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              flexWrap: 'wrap',
-                              gap: '8px'
-                            }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{
-                                  padding: '2px 8px',
-                                  borderRadius: '4px',
-                                  background: '#f97316',
-                                  color: '#ffffff',
-                                  fontSize: '10px',
-                                  fontWeight: 800,
-                                  fontFamily: 'var(--mono)'
-                                }}>
-                                  PATIENT ZERO
-                                </span>
-                                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>
-                                  {blastRadius.patient_zero.endpoint} ({blastRadius.patient_zero.src_ip})
-                                </span>
-                              </div>
-                              <span style={{ fontSize: '11px', color: 'var(--muted2)', fontFamily: 'var(--mono)' }}>
-                                Initial Breach: {new Date(blastRadius.patient_zero.first_seen).toLocaleString()}
-                              </span>
-                            </div>
-                          )}
-
-                          {/* Endpoints Table */}
-                          {blastRadius.endpoints && blastRadius.endpoints.length > 0 && (
-                            <div>
-                              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)', display: 'block', marginBottom: '6px' }}>
-                                Compromised Network Endpoints ({blastRadius.endpoints.length})
-                              </span>
-                              <div style={{ maxHeight: '180px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '6px' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
-                                  <thead>
-                                    <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--muted)' }}>
-                                      <th style={{ padding: '6px 10px' }}>Endpoint</th>
-                                      <th style={{ padding: '6px 10px' }}>IP</th>
-                                      <th style={{ padding: '6px 10px' }}>Aggregator</th>
-                                      <th style={{ padding: '6px 10px' }}>First Contact</th>
-                                      <th style={{ padding: '6px 10px' }}>Hits</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {blastRadius.endpoints.map((ep, eIdx) => (
-                                      <tr key={eIdx} style={{ borderBottom: '1px solid var(--border)', background: ep.is_patient_zero ? 'rgba(249,115,22,0.05)' : 'transparent' }}>
-                                        <td style={{ padding: '6px 10px', fontWeight: 600, color: 'var(--text)' }}>
-                                          {ep.endpoint} {ep.is_patient_zero && <span style={{ color: '#f97316', fontSize: '9px', fontWeight: 800 }}>★</span>}
-                                        </td>
-                                        <td style={{ padding: '6px 10px', fontFamily: 'var(--mono)', color: 'var(--muted2)' }}>{ep.src_ip}</td>
-                                        <td style={{ padding: '6px 10px' }}>{ep.aggregator_name || 'Central'}</td>
-                                        <td style={{ padding: '6px 10px', fontFamily: 'var(--mono)', color: 'var(--muted2)' }}>{new Date(ep.first_seen).toLocaleString()}</td>
-                                        <td style={{ padding: '6px 10px', fontWeight: 700, color: '#ef4444' }}>{ep.count}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <div style={{ fontSize: '12px', color: 'var(--muted)', textAlign: 'center', padding: '12px' }}>
-                          No correlated historical activity found across connected branch firewalls.
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -2323,6 +2152,17 @@ export default function ThreatHunting() {
                         {selectedDetail.data.src_ip || 'local'}
                       </span>
                     </div>
+
+                    {selectedDetail.data.dst_ip && (
+                      <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '4px' }}>
+                          {selectedDetail.data.indicator_type === 'domain' ? 'DNS Server / Target IP' : 'Destination IP'}
+                        </span>
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--mono)' }}>
+                          {selectedDetail.data.dst_ip}
+                        </span>
+                      </div>
+                    )}
 
                     <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                       <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '4px' }}>
@@ -2812,8 +2652,7 @@ export default function ThreatHunting() {
                               <button
                                 onClick={() => {
                                   setShowRetrohuntModal(false);
-                                  setSelectedDetail({ type: 'match', data: match });
-                                  handleLoadBlastRadius(match.indicator, match.indicator_type);
+                                  handleOpenBlastRadius(match.indicator, match.indicator_type);
                                 }}
                                 style={{
                                   padding: '5px 10px',
@@ -2845,6 +2684,500 @@ export default function ThreatHunting() {
                 style={{ padding: '7px 18px', borderRadius: '6px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════
+          DEDICATED NETWORK BLAST RADIUS & THREAT PIVOT MODAL
+          ════════════════════════════════════════════════════════════════ */}
+      {showBlastRadiusModal && blastRadiusTarget && (
+        <div
+          onClick={() => setShowBlastRadiusModal(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.7)',
+            backdropFilter: 'blur(5px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10050,
+            padding: '20px'
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '920px',
+              maxHeight: '88vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.4)',
+              overflow: 'hidden'
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              padding: '18px 24px',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'var(--surface2)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  background: 'rgba(37,99,235,0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#3b82f6'
+                }}>
+                  <Network size={20} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--text)' }}>
+                    Network Blast Radius & Threat Pivot
+                  </h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--muted2)' }}>
+                      Target Indicator:
+                    </span>
+                    <span style={{
+                      fontFamily: 'var(--mono)',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      color: '#ef4444',
+                      background: 'rgba(239,68,68,0.1)',
+                      padding: '1px 6px',
+                      borderRadius: '4px'
+                    }}>
+                      {blastRadiusTarget.indicator}
+                    </span>
+                    <span style={{
+                      fontSize: '10px',
+                      textTransform: 'uppercase',
+                      fontFamily: 'var(--mono)',
+                      color: 'var(--muted)',
+                      background: 'var(--surface)',
+                      border: '1px solid var(--border)',
+                      padding: '1px 5px',
+                      borderRadius: '3px'
+                    }}>
+                      {blastRadiusTarget.type}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowBlastRadiusModal(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '6px' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '24px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {blastRadiusLoading ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 20px', gap: '12px' }}>
+                  <div style={{ width: '32px', height: '32px', border: '3px solid rgba(59,130,246,0.2)', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                  <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: 'var(--text)' }}>
+                    Calculating network blast radius & identifying patient zero...
+                  </p>
+                  <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                    Correlating across firewall logs and endpoint telemetry in real-time
+                  </span>
+                </div>
+              ) : blastRadius ? (
+                <>
+                  {/* Stat Cards Strip */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+                    <div style={{ padding: '14px', background: 'var(--surface2)', borderRadius: '10px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)' }}>Total Connections</span>
+                      <div style={{ fontSize: '20px', fontWeight: 900, color: '#ef4444', marginTop: '2px' }}>
+                        {blastRadius.total_hits?.toLocaleString() || 0}
+                      </div>
+                    </div>
+                    <div style={{ padding: '14px', background: 'var(--surface2)', borderRadius: '10px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)' }}>Affected Devices</span>
+                      <div style={{ fontSize: '20px', fontWeight: 900, color: '#f97316', marginTop: '2px' }}>
+                        {blastRadius.unique_endpoints_count?.toLocaleString() || 0}
+                      </div>
+                    </div>
+                    <div style={{ padding: '14px', background: 'var(--surface2)', borderRadius: '10px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)' }}>First Activity</span>
+                      <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', fontFamily: 'var(--mono)' }}>
+                        {blastRadius.patient_zero?.first_seen ? new Date(blastRadius.patient_zero.first_seen).toLocaleString() : 'N/A'}
+                      </div>
+                    </div>
+                    <div style={{ padding: '14px', background: 'var(--surface2)', borderRadius: '10px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)' }}>Latest Activity</span>
+                      <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', marginTop: '4px', fontFamily: 'var(--mono)' }}>
+                        {blastRadius.last_seen ? new Date(blastRadius.last_seen).toLocaleString() : 'N/A'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Patient Zero Banner */}
+                  {blastRadius.patient_zero && (
+                    <div style={{
+                      padding: '14px 18px',
+                      borderRadius: '10px',
+                      background: 'rgba(249,115,22,0.08)',
+                      border: '1px solid rgba(249,115,22,0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: '10px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{
+                          padding: '3px 8px',
+                          borderRadius: '5px',
+                          background: '#f97316',
+                          color: '#ffffff',
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          letterSpacing: '0.4px',
+                          fontFamily: 'var(--mono)'
+                        }}>
+                          ★ PATIENT ZERO
+                        </span>
+                        <div>
+                          <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text)' }}>
+                            {blastRadius.patient_zero.endpoint}
+                          </span>
+                          <span style={{ fontSize: '12px', color: 'var(--muted2)', fontFamily: 'var(--mono)', marginLeft: '8px' }}>
+                            ({blastRadius.patient_zero.src_ip})
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--muted2)', fontFamily: 'var(--mono)' }}>
+                        Initial Breach Time: <strong style={{ color: 'var(--text)' }}>{new Date(blastRadius.patient_zero.first_seen).toLocaleString()}</strong>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Compromised Endpoints Table with Search Filter */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text)', textTransform: 'uppercase', fontFamily: 'var(--mono)' }}>
+                        Compromised Network Endpoints ({blastRadius.endpoints?.length || 0})
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="Filter endpoints or IP..."
+                        value={blastEndpointSearch}
+                        onChange={(e) => setBlastEndpointSearch(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '6px',
+                          background: 'var(--surface2)',
+                          border: '1px solid var(--border)',
+                          fontSize: '12px',
+                          color: 'var(--text)',
+                          minWidth: '220px',
+                          outline: 'none'
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ maxHeight: '280px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                        <thead>
+                          <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--muted)' }}>
+                            <th style={{ padding: '10px 12px' }}>Endpoint</th>
+                            <th style={{ padding: '10px 12px' }}>Internal IP</th>
+                            <th style={{ padding: '10px 12px' }}>Aggregator / Branch</th>
+                            <th style={{ padding: '10px 12px' }}>First Contact</th>
+                            <th style={{ padding: '10px 12px' }}>Last Contact</th>
+                            <th style={{ padding: '10px 12px', textAlign: 'right' }}>Hits</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(blastRadius.endpoints || [])
+                            .filter(ep => {
+                              if (!blastEndpointSearch.trim()) return true;
+                              const s = blastEndpointSearch.toLowerCase();
+                              return (ep.endpoint || '').toLowerCase().includes(s) || (ep.src_ip || '').toLowerCase().includes(s) || (ep.aggregator_name || '').toLowerCase().includes(s);
+                            })
+                            .map((ep, eIdx) => (
+                              <tr
+                                key={eIdx}
+                                style={{
+                                  borderBottom: '1px solid var(--border)',
+                                  background: ep.is_patient_zero ? 'rgba(249,115,22,0.06)' : 'transparent'
+                                }}
+                              >
+                                <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text)' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    {ep.endpoint}
+                                    {ep.is_patient_zero && (
+                                      <span style={{
+                                        fontSize: '9px',
+                                        padding: '1px 5px',
+                                        borderRadius: '3px',
+                                        background: '#f97316',
+                                        color: '#fff',
+                                        fontWeight: 800
+                                      }}>
+                                        P0
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td style={{ padding: '10px 12px', fontFamily: 'var(--mono)', color: 'var(--muted2)' }}>{ep.src_ip}</td>
+                                <td style={{ padding: '10px 12px' }}>{ep.aggregator_name || 'Central'}</td>
+                                <td style={{ padding: '10px 12px', fontFamily: 'var(--mono)', color: 'var(--muted2)' }}>{new Date(ep.first_seen).toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px', fontFamily: 'var(--mono)', color: 'var(--muted2)' }}>{new Date(ep.last_seen).toLocaleString()}</td>
+                                <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#ef4444' }}>{ep.count}</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--muted)' }}>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: '13px', color: 'var(--text)' }}>No Network Telemetry Hits</p>
+                  <p style={{ margin: '4px 0 0', fontSize: '12px' }}>
+                    No endpoints or branch firewalls have communicated with this indicator.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface2)' }}>
+              <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
+                Target: {blastRadiusTarget.indicator}
+              </span>
+              <button
+                onClick={() => setShowBlastRadiusModal(false)}
+                style={{ padding: '7px 18px', borderRadius: '6px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════
+          DEDICATED SUPPRESS THREAT INDICATOR MODAL (FALSE POSITIVE)
+          ════════════════════════════════════════════════════════════════ */}
+      {showSuppressModal && suppressTarget && (
+        <div
+          onClick={() => setShowSuppressModal(false)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.7)',
+            backdropFilter: 'blur(5px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10050,
+            padding: '20px'
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '520px',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.4)',
+              overflow: 'hidden'
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              padding: '18px 24px',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'var(--surface2)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '8px',
+                  background: 'rgba(234,179,8,0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#eab308'
+                }}>
+                  <ShieldCheck size={18} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text)' }}>
+                    Suppress Threat Indicator
+                  </h3>
+                  <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                    Add to whitelist to mute future false-positive alerts
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowSuppressModal(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '6px' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Indicator Card */}
+              <div style={{
+                padding: '12px 16px',
+                borderRadius: '8px',
+                background: 'var(--surface2)',
+                border: '1px solid var(--border)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }}>
+                <div>
+                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '2px' }}>
+                    Target Indicator
+                  </span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: '13px', fontWeight: 700, color: '#ef4444' }}>
+                    {suppressTarget.indicator}
+                  </span>
+                </div>
+                <span style={{
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  background: 'rgba(59,130,246,0.1)',
+                  color: '#3b82f6',
+                  fontSize: '10px',
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  fontFamily: 'var(--mono)'
+                }}>
+                  {suppressTarget.type}
+                </span>
+              </div>
+
+              {/* Warning Callout */}
+              <p style={{ margin: 0, fontSize: '12px', color: 'var(--muted2)', lineHeight: '1.5' }}>
+                This will exclude this indicator from real-time threat detection and mute all future critical alerts across all firewalls and endpoints.
+              </p>
+
+              {/* Quick Reason Chips */}
+              <div>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)', display: 'block', marginBottom: '6px' }}>
+                  Quick Reason Presets:
+                </span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {[
+                    'False Positive Feed Hit',
+                    'Authorized SaaS',
+                    'Internal Infrastructure',
+                    'Approved Scanner',
+                    'Verified Clean CDN'
+                  ].map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      onClick={() => setSuppressReason(chip)}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: '14px',
+                        background: suppressReason === chip ? 'rgba(234,179,8,0.2)' : 'var(--surface2)',
+                        border: `1px solid ${suppressReason === chip ? '#eab308' : 'var(--border)'}`,
+                        color: suppressReason === chip ? '#eab308' : 'var(--muted2)',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reason Input */}
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
+                  Suppression Reason / Justification:
+                </label>
+                <input
+                  type="text"
+                  value={suppressReason}
+                  onChange={(e) => setSuppressReason(e.target.value)}
+                  placeholder="e.g. Approved corporate security scanner"
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    background: 'var(--surface2)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text)',
+                    fontSize: '12px',
+                    outline: 'none',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '8px', background: 'var(--surface2)' }}>
+              <button
+                onClick={() => setShowSuppressModal(false)}
+                style={{ padding: '7px 16px', borderRadius: '6px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddToWhitelist}
+                disabled={isSuppressing}
+                style={{
+                  padding: '7px 18px',
+                  borderRadius: '6px',
+                  background: '#eab308',
+                  border: 'none',
+                  color: '#000000',
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  cursor: isSuppressing ? 'not-allowed' : 'pointer',
+                  opacity: isSuppressing ? 0.7 : 1,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                {isSuppressing ? 'Saving Rule...' : 'Confirm Suppress'}
               </button>
             </div>
           </div>
