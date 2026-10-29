@@ -309,7 +309,7 @@ exports.getMatches = async (req, res) => {
           id, 'endpoint' AS source_type, ts, aggregator_name,
           COALESCE(NULLIF(machine, ''), 'Endpoint') AS endpoint,
           'local' AS src_ip,
-          'MALWARE-EXE' AS indicator,
+          COALESCE(SUBSTRING(message FROM '([a-fA-F0-9]{64})'), 'MALWARE-EXE') AS indicator,
           'sha256' AS indicator_type,
           severity,
           message AS details
@@ -379,7 +379,7 @@ exports.getMatches = async (req, res) => {
             id, 'endpoint' AS source_type, ts, aggregator_name,
             COALESCE(NULLIF(machine, ''), 'Endpoint') AS endpoint,
             'local' AS src_ip,
-            'MALWARE-EXE' AS indicator,
+            COALESCE(SUBSTRING(message FROM '([a-fA-F0-9]{64})'), 'MALWARE-EXE') AS indicator,
             'sha256' AS indicator_type,
             severity,
             message AS details

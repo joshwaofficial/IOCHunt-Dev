@@ -9,6 +9,47 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import PremiumCard from '../components/PremiumCard';
 
+// Smart VirusTotal direct URL generator: Routes hashes to /gui/file/, IPs to /gui/ip-address/, domains to /gui/domain/
+const getVirusTotalUrl = (detail) => {
+  if (!detail || !detail.data) return 'https://www.virustotal.com';
+
+  const rawVal = detail.type === 'match' ? detail.data.indicator : detail.data.ioc_value;
+  if (!rawVal) return 'https://www.virustotal.com';
+
+  const val = String(rawVal).trim();
+  const rawType = String(
+    (detail.type === 'match' ? detail.data.indicator_type : detail.data.ioc_type) || ''
+  ).toLowerCase();
+
+  // 1. File Hash: SHA-256 (64 hex), SHA-1 (40 hex), MD5 (32 hex)
+  const isHexHash = /^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$/.test(val);
+  if (
+    rawType.includes('sha') ||
+    rawType.includes('hash') ||
+    rawType.includes('md5') ||
+    isHexHash
+  ) {
+    return `https://www.virustotal.com/gui/file/${val.toLowerCase()}`;
+  }
+
+  // 2. IP Address (support IPv4 or IPv6, strip trailing port if present e.g. 1.2.3.4:443)
+  const ipWithoutPort = val.replace(/:\d+$/, '');
+  const isIpv4 = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(ipWithoutPort);
+  const isIpv6 = ipWithoutPort.includes(':');
+  if (rawType === 'ip' || isIpv4 || isIpv6) {
+    return `https://www.virustotal.com/gui/ip-address/${ipWithoutPort}`;
+  }
+
+  // 3. Domain Name
+  const isDomain = /^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/.test(val);
+  if (rawType === 'domain' || isDomain) {
+    return `https://www.virustotal.com/gui/domain/${encodeURIComponent(val)}`;
+  }
+
+  // 4. Fallback search
+  return `https://www.virustotal.com/gui/search/${encodeURIComponent(val)}`;
+};
+
 export default function ThreatHunting() {
   const { user } = useAuth();
   const isAdmin = user?.role?.toLowerCase().includes('admin') || user?.role?.toLowerCase().includes('superadmin');
@@ -1674,11 +1715,12 @@ export default function ThreatHunting() {
 
                 {/* External Actions / Search Links */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  {/* VirusTotal Link */}
+                  {/* VirusTotal Direct Report Link */}
                   <a
-                    href={`https://www.virustotal.com/gui/search/${encodeURIComponent(selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value)}`}
+                    href={getVirusTotalUrl(selectedDetail)}
                     target="_blank"
                     rel="noopener noreferrer"
+                    title="Inspect file hash, IP, or domain report on VirusTotal"
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -1699,9 +1741,10 @@ export default function ThreatHunting() {
                   {/* Feed Direct Link */}
                   {selectedDetail.data.source_feed === 'malwarebazaar' && (
                     <a
-                      href={`https://bazaar.abuse.ch/sample/${selectedDetail.data.ioc_value}/`}
+                      href={`https://bazaar.abuse.ch/sample/${selectedDetail.type === 'match' ? selectedDetail.data.indicator : selectedDetail.data.ioc_value}/`}
                       target="_blank"
                       rel="noopener noreferrer"
+                      title="View malware sample on MalwareBazaar"
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
