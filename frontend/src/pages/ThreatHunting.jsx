@@ -25,9 +25,17 @@ export const getRealIndicator = (item) => {
     }
   }
 
-  // 2. If item is marked as domain or cfgobj has a real domain name
+  // 2. If item has a genuine domain name in cfgobj
   if (item.cfgobj && item.cfgobj.trim() && !/^\d+\.\d+\.\d+\.\d+$/.test(item.cfgobj.trim())) {
     return item.cfgobj.trim();
+  }
+
+  // 3. If item indicator is a generic DNS resolver like 8.8.8.8, attempt extracting queried domain from raw details
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(val)) {
+    const msgDomainMatch = raw.match(/(?:domain|qname|host|url|query)[:=\s]+([a-zA-Z0-9][-a-zA-Z0-9.]+\.[a-zA-Z]{2,})/i);
+    if (msgDomainMatch && msgDomainMatch[1]) {
+      return msgDomainMatch[1].trim();
+    }
   }
 
   return val;
@@ -38,10 +46,13 @@ export const getRealIndicatorType = (item) => {
   if (!item) return 'ip';
   const realVal = getRealIndicator(item);
   if (/^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$/.test(realVal)) return 'sha256';
+  // Any IPv4 address (with optional port) is ALWAYS an IP, never a domain
+  if (/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::[0-9]+)?$/.test(realVal)) return 'ip';
   if (/[a-zA-Z]/.test(realVal)) return 'domain';
   const explicitType = String(item.indicator_type || item.ioc_type || '').toLowerCase();
-  if (explicitType && explicitType !== 'domain' && /^\d+\.\d+\.\d+\.\d+$/.test(realVal)) return 'ip';
-  return explicitType || 'ip';
+  if (explicitType === 'sha256' || explicitType === 'hash') return 'sha256';
+  if (explicitType === 'domain') return 'domain';
+  return 'ip';
 };
 
 // Smart VirusTotal direct URL generator: Routes hashes to /gui/file/, IPs to /gui/ip-address/, domains to /gui/domain/
@@ -277,7 +288,23 @@ export default function ThreatHunting() {
   const [retroTotalPages, setRetroTotalPages] = useState(1);
   const [retroSearch, setRetroSearch] = useState('');
   const [retroType, setRetroType] = useState('all');
-  const [retroTimeRange, setRetroTimeRange] = useState('7d');
+  const [retroTimeRange, setRetroTimeRange] = useState('all');
+
+  // Retroactive Hunt Scheduling State
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [retroSchedule, setRetroSchedule] = useState({
+    enabled: true,
+    frequency: 'daily',
+    runTime: '08:00',
+    lookbackWindow: '7d'
+  });
+  const [scheduleForm, setScheduleForm] = useState({
+    enabled: true,
+    frequency: 'daily',
+    runTime: '08:00',
+    lookbackWindow: '7d'
+  });
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
 
   // Fetch Persisted Retroactive Matches from Database Table
   const fetchRetroMatches = async (page = 1) => {
@@ -304,16 +331,47 @@ export default function ThreatHunting() {
     }
   };
 
-  // Retroactive Hunt Scan Handler (Scans ALL 17,386+ Indicators)
-  const handleRunRetrohunt = async (range = retroTimeRange) => {
+  // Open Schedule Configuration Modal
+  const handleOpenScheduleModal = () => {
+    setScheduleForm({
+      enabled: retroSchedule.enabled !== false,
+      frequency: retroSchedule.frequency || 'daily',
+      runTime: retroSchedule.runTime || '08:00',
+      lookbackWindow: ['7d', '14d', '30d'].includes(retroSchedule.lookbackWindow) ? retroSchedule.lookbackWindow : '7d'
+    });
+    setShowScheduleModal(true);
+  };
+
+  // Save Schedule Configuration
+  const handleSaveSchedule = async (e) => {
+    if (e) e.preventDefault();
+    try {
+      setIsSavingSchedule(true);
+      const res = await axios.post('/api/threat-hunting/schedule', scheduleForm);
+      setRetroSchedule(res.data.schedule);
+      setShowScheduleModal(false);
+      toast.success('Retroactive hunting schedule saved!');
+      fetchStatus();
+    } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.error || 'Failed to save schedule');
+    } finally {
+      setIsSavingSchedule(false);
+    }
+  };
+
+  // Retroactive Hunt Scan Handler (Scans ALL 17,492+ Indicators using Lookback)
+  const handleRunRetrohunt = async (range = retroSchedule?.lookbackWindow || '7d') => {
     try {
       setIsRetrohunting(true);
-      const res = await axios.post('/api/threat-hunting/retrohunt', { timeRange: range, limit: 100000 });
+      // Strictly prevent 24h
+      const lookback = ['7d', '14d', '30d'].includes(range) ? range : '7d';
+      const res = await axios.post('/api/threat-hunting/retrohunt', { timeRange: lookback, limit: 100000 });
       setRetrohuntResult(res.data);
       if (res.data.matches_found > 0) {
         toast.success(`Retrohunt identified ${res.data.matches_found} historical compromise events (${res.data.new_hits_found} new saved)!`);
       } else {
-        toast.success(`Retrohunt clean: 0 historical matches found across all ${res.data.scanned_iocs?.toLocaleString() || '17,386'} indicators.`);
+        toast.success(`Retrohunt clean: 0 historical matches found across all ${res.data.scanned_iocs?.toLocaleString() || '17,492'} indicators.`);
       }
       fetchRetroMatches(1);
       fetchStatus();
@@ -434,6 +492,9 @@ export default function ThreatHunting() {
       setStatus(res.data);
       if (res.data.feeds) {
         setSelectedFeeds(res.data.feeds);
+      }
+      if (res.data.retrohunt_schedule) {
+        setRetroSchedule(res.data.retrohunt_schedule);
       }
     } catch (err) {
       console.error(err);
@@ -1481,7 +1542,7 @@ export default function ThreatHunting() {
               </div>
             </div>
 
-            {/* Quick Context Stats */}
+            {/* Quick Context Stats & Action Controls */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
               <div style={{ textAlign: 'right' }}>
                 <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)', display: 'block' }}>PERSISTED FINDINGS</span>
@@ -1489,12 +1550,79 @@ export default function ThreatHunting() {
                   {retroTotal}
                 </span>
               </div>
+
               <div style={{ width: '1px', height: '28px', background: 'var(--border)' }} />
+
               <div style={{ textAlign: 'right' }}>
                 <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)', display: 'block' }}>AUTO-SCHEDULER</span>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: '#22c55e', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} /> Active (Sync & 24h)
+                <span style={{ fontSize: '12px', fontWeight: 700, color: retroSchedule?.enabled && retroSchedule?.frequency !== 'disabled' ? '#22c55e' : 'var(--muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: retroSchedule?.enabled && retroSchedule?.frequency !== 'disabled' ? '#22c55e' : 'var(--muted)', display: 'inline-block' }} />
+                  {(() => {
+                    if (!retroSchedule?.enabled || retroSchedule?.frequency === 'disabled') return 'Manual Only';
+                    const lookback = (retroSchedule?.lookbackWindow || '7d').toUpperCase();
+                    if (retroSchedule?.frequency === 'daily') return `Daily at ${retroSchedule?.runTime || '08:00'} (${lookback})`;
+                    if (retroSchedule?.frequency === '2days') return `Every 2 Days at ${retroSchedule?.runTime || '08:00'} (${lookback})`;
+                    if (retroSchedule?.frequency === '5days') return `Every 5 Days at ${retroSchedule?.runTime || '08:00'} (${lookback})`;
+                    if (retroSchedule?.frequency === 'every_6h') return `Every 6 Hours (${lookback})`;
+                    if (retroSchedule?.frequency === 'every_12h') return `Every 12 Hours (${lookback})`;
+                    if (retroSchedule?.frequency === 'on_sync') return `On Feed Sync (${lookback})`;
+                    return `Active (${lookback})`;
+                  })()}
                 </span>
+              </div>
+
+              <div style={{ width: '1px', height: '28px', background: 'var(--border)' }} />
+
+              {/* Action Buttons in Banner */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  onClick={handleOpenScheduleModal}
+                  title="Configure automated background hunting schedule & lookback window"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '7px 14px',
+                    borderRadius: '6px',
+                    background: 'var(--surface2)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.borderColor = '#8b5cf6'}
+                  onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border)'}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: '#8b5cf6' }}>schedule</span>
+                  Configure Schedule
+                </button>
+
+                <button
+                  onClick={() => handleRunRetrohunt(retroSchedule?.lookbackWindow || '7d')}
+                  disabled={isRetrohunting}
+                  title={`Run on-demand back-test scan across all indicators (${(retroSchedule?.lookbackWindow || '7d').toUpperCase()} Lookback)`}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '7px',
+                    padding: '7px 16px',
+                    borderRadius: '6px',
+                    background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: isRetrohunting ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 2px 8px rgba(124, 58, 237, 0.3)',
+                    transition: 'all 0.2s',
+                    opacity: isRetrohunting ? 0.7 : 1
+                  }}
+                >
+                  <RotateCcw size={13} style={{ animation: isRetrohunting ? 'spin 1.2s linear infinite' : 'none' }} />
+                  {isRetrohunting ? 'Scanning Indicators...' : `⚡ Run Retrohunt Now (${(retroSchedule?.lookbackWindow || '7d').toUpperCase()})`}
+                </button>
               </div>
             </div>
           </div>
@@ -1517,7 +1645,7 @@ export default function ThreatHunting() {
               <Search size={14} color="var(--muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
               <input
                 type="text"
-                placeholder="Search retroactive hits (IP, domain, endpoint, malware)..."
+                placeholder="Search retroactive detections (IP, domain, endpoint, malware)..."
                 value={retroSearch}
                 onChange={(e) => setRetroSearch(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && fetchRetroMatches(1)}
@@ -1536,7 +1664,7 @@ export default function ThreatHunting() {
               />
             </div>
 
-            {/* Filter and Scan Controls */}
+            {/* Filter Controls for Table */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               {/* IOC Type Filter */}
               <select
@@ -1560,7 +1688,7 @@ export default function ThreatHunting() {
                 <option value="sha256">SHA256 Hash</option>
               </select>
 
-              {/* Time Range Selector */}
+              {/* Table Time Filter (Strictly NO 24h) */}
               <select
                 value={retroTimeRange}
                 onChange={(e) => setRetroTimeRange(e.target.value)}
@@ -1576,10 +1704,10 @@ export default function ThreatHunting() {
                   fontFamily: 'var(--sans)'
                 }}
               >
-                <option value="24h">Past 24 Hours</option>
-                <option value="7d">Past 7 Days (Standard)</option>
-                <option value="14d">Past 14 Days</option>
-                <option value="30d">Past 30 Days (Full Month)</option>
+                <option value="all">All Persisted Detections</option>
+                <option value="7d">Events from Past 7 Days</option>
+                <option value="14d">Events from Past 14 Days</option>
+                <option value="30d">Events from Past 30 Days</option>
               </select>
 
               <button
@@ -1601,14 +1729,14 @@ export default function ThreatHunting() {
                 <Filter size={12} /> Filter
               </button>
 
-              {(retroSearch || retroType !== 'all' || retroTimeRange !== '7d') && (
+              {(retroSearch || retroType !== 'all' || retroTimeRange !== 'all') && (
                 <button
                   onClick={() => {
                     setRetroSearch('');
                     setRetroType('all');
-                    setRetroTimeRange('7d');
+                    setRetroTimeRange('all');
                   }}
-                  title="Reset filters"
+                  title="Reset table filters"
                   style={{
                     padding: '6px 10px',
                     borderRadius: '6px',
@@ -1625,31 +1753,6 @@ export default function ThreatHunting() {
                   <RotateCcw size={12} /> Reset
                 </button>
               )}
-
-              {/* Manual On-Demand Retrohunt Scan Button */}
-              <button
-                onClick={() => handleRunRetrohunt(retroTimeRange)}
-                disabled={isRetrohunting}
-                style={{
-                  padding: '7px 16px',
-                  borderRadius: '6px',
-                  background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
-                  border: 'none',
-                  color: '#ffffff',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  cursor: isRetrohunting ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  boxShadow: '0 2px 8px rgba(124, 58, 237, 0.3)',
-                  transition: 'all 0.2s',
-                  opacity: isRetrohunting ? 0.7 : 1
-                }}
-              >
-                <RotateCcw size={13} style={{ animation: isRetrohunting ? 'spin 1.2s linear infinite' : 'none' }} />
-                {isRetrohunting ? 'Scanning 17,386 Indicators...' : `Run Retrohunt Scan (${retroTimeRange.toUpperCase()})`}
-              </button>
             </div>
           </div>
 
@@ -1688,7 +1791,7 @@ export default function ThreatHunting() {
                   Zero endpoints or branch firewalls communicated with any newly indexed C2 IPs, domains, or malware hashes across past telemetry.
                 </p>
                 <button
-                  onClick={() => handleRunRetrohunt(retroTimeRange)}
+                  onClick={() => handleRunRetrohunt(retroSchedule?.lookbackWindow || '7d')}
                   disabled={isRetrohunting}
                   style={{
                     padding: '8px 18px',
@@ -1706,7 +1809,7 @@ export default function ThreatHunting() {
                   }}
                 >
                   <RotateCcw size={13} style={{ animation: isRetrohunting ? 'spin 1.2s linear infinite' : 'none' }} />
-                  {isRetrohunting ? 'Scanning 17,386 Indicators...' : 'Run Back-Test Scan Now'}
+                  {isRetrohunting ? 'Scanning Indicators...' : `⚡ Run Retrohunt Now (${(retroSchedule?.lookbackWindow || '7d').toUpperCase()})`}
                 </button>
               </div>
             ) : (
@@ -2375,6 +2478,239 @@ export default function ThreatHunting() {
       )}
 
       {/* ════════════════════════════════════════════════════════════════
+          AUTOMATED RETROHUNT SCHEDULER MODAL
+          ════════════════════════════════════════════════════════════════ */}
+      {showScheduleModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15, 23, 42, 0.4)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'var(--surface-solid)',
+            border: '1px solid var(--border)',
+            borderRadius: '16px',
+            padding: '28px',
+            maxWidth: '560px',
+            width: '100%',
+            boxShadow: '0 24px 60px rgba(0,0,0,0.25)',
+            maxHeight: '90vh',
+            overflowY: 'auto'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '8px',
+                  background: 'rgba(139, 92, 246, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#8b5cf6',
+                  border: '1px solid rgba(139, 92, 246, 0.3)'
+                }}>
+                  <RotateCcw size={18} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text)', margin: 0, letterSpacing: '-0.3px' }}>
+                    Automated Retrohunt Scheduler
+                  </h3>
+                  <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                    Background back-testing against all threat intelligence indicators
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowScheduleModal(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '6px' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p style={{ fontSize: '13px', color: 'var(--muted2)', marginBottom: '20px', lineHeight: '1.5' }}>
+              Customize how often the platform executes retroactive hunting across past telemetry. Discovered stealth hits are permanently committed to the database.
+            </p>
+
+            <form onSubmit={handleSaveSchedule}>
+              {/* Frequency Selection */}
+              <div style={{ marginBottom: '18px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', display: 'block', marginBottom: '6px', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>
+                  Background Hunt Frequency
+                </label>
+                <select
+                  value={scheduleForm.frequency}
+                  onChange={(e) => setScheduleForm(prev => ({ ...prev, frequency: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    padding: '9px 12px',
+                    background: 'var(--surface2)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '8px',
+                    color: 'var(--text)',
+                    fontSize: '13px',
+                    fontFamily: 'var(--sans)',
+                    outline: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="daily">Daily at Specified Time (Recommended SOC Routine)</option>
+                  <option value="2days">Every 2 Days at Specified Time</option>
+                  <option value="5days">Every 5 Days at Specified Time</option>
+                  <option value="every_6h">Every 6 Hours (Continuous Monitoring)</option>
+                  <option value="every_12h">Every 12 Hours (Twice Daily)</option>
+                  <option value="on_sync">On Every Threat Feed Sync (Triggered upon feed updates)</option>
+                  <option value="disabled">Disabled (Manual On-Demand Scans Only)</option>
+                </select>
+              </div>
+
+              {/* Specific Run Time (for Daily / 2-Day / 5-Day) */}
+              {['daily', '2days', '5days'].includes(scheduleForm.frequency) && (
+                <div style={{ marginBottom: '18px' }}>
+                  <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', display: 'block', marginBottom: '6px', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>
+                    Execution Time of Day (Server Time)
+                  </label>
+                  <input
+                    type="time"
+                    value={scheduleForm.runTime || '08:00'}
+                    onChange={(e) => setScheduleForm(prev => ({ ...prev, runTime: e.target.value }))}
+                    style={{
+                      width: '100%',
+                      padding: '9px 12px',
+                      background: 'var(--surface2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      color: 'var(--text)',
+                      fontSize: '13px',
+                      fontFamily: 'var(--mono)',
+                      outline: 'none',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => setScheduleForm(prev => ({ ...prev, runTime: '08:00' }))}
+                      style={{ padding: '3px 8px', borderRadius: '4px', background: scheduleForm.runTime === '08:00' ? '#8b5cf6' : 'var(--surface2)', border: '1px solid var(--border)', color: scheduleForm.runTime === '08:00' ? '#fff' : 'var(--muted)', fontSize: '11px', cursor: 'pointer' }}
+                    >
+                      08:00 AM (Morning Shift)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setScheduleForm(prev => ({ ...prev, runTime: '02:00' }))}
+                      style={{ padding: '3px 8px', borderRadius: '4px', background: scheduleForm.runTime === '02:00' ? '#8b5cf6' : 'var(--surface2)', border: '1px solid var(--border)', color: scheduleForm.runTime === '02:00' ? '#fff' : 'var(--muted)', fontSize: '11px', cursor: 'pointer' }}
+                    >
+                      02:00 AM (Off-Peak Nightly)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setScheduleForm(prev => ({ ...prev, runTime: '18:00' }))}
+                      style={{ padding: '3px 8px', borderRadius: '4px', background: scheduleForm.runTime === '18:00' ? '#8b5cf6' : 'var(--surface2)', border: '1px solid var(--border)', color: scheduleForm.runTime === '18:00' ? '#fff' : 'var(--muted)', fontSize: '11px', cursor: 'pointer' }}
+                    >
+                      06:00 PM (Evening Handover)
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Lookback Telemetry Window (Strictly NO 24 Hours) */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', display: 'block', marginBottom: '6px', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>
+                  Lookback Telemetry Window
+                </label>
+                <select
+                  value={['7d', '14d', '30d'].includes(scheduleForm.lookbackWindow) ? scheduleForm.lookbackWindow : '7d'}
+                  onChange={(e) => setScheduleForm(prev => ({ ...prev, lookbackWindow: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    padding: '9px 12px',
+                    background: 'var(--surface2)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '8px',
+                    color: 'var(--text)',
+                    fontSize: '13px',
+                    fontFamily: 'var(--sans)',
+                    outline: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="7d">Past 7 Days (Standard / Recommended SOC Horizon)</option>
+                  <option value="14d">Past 14 Days (Extended Audit)</option>
+                  <option value="30d">Past 30 Days (Maximum Monthly Horizon)</option>
+                </select>
+              </div>
+
+              {/* Informational Context Box */}
+              <div style={{
+                padding: '12px 14px',
+                borderRadius: '8px',
+                background: 'rgba(139, 92, 246, 0.08)',
+                border: '1px solid rgba(139, 92, 246, 0.25)',
+                marginBottom: '24px',
+                display: 'flex',
+                gap: '10px'
+              }}>
+                <Info size={16} color="#8b5cf6" style={{ flexShrink: 0, marginTop: '2px' }} />
+                <p style={{ margin: 0, fontSize: '12px', color: 'var(--text)', lineHeight: 1.5 }}>
+                  <strong>Why 7-Day or longer lookback?</strong> Threat intelligence feeds often take 2 to 4 days to research and index new malware C2s. Scanning at least past 7 days ensures stealth connections that occurred before feed publication are caught. All hits are saved permanently in the database with automatic deduplication.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowScheduleModal(false)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    background: 'var(--surface2)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text)',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingSchedule}
+                  style={{
+                    padding: '8px 20px',
+                    borderRadius: '8px',
+                    background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    cursor: isSavingSchedule ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 2px 8px rgba(124, 58, 237, 0.3)',
+                    opacity: isSavingSchedule ? 0.7 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {isSavingSchedule && <RotateCcw size={12} style={{ animation: 'spin 1s linear infinite' }} />}
+                  {isSavingSchedule ? 'Saving Schedule...' : 'Save Schedule Configuration'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════
           SETTINGS MODAL (Reconfigure Key or Feeds)
           ════════════════════════════════════════════════════════════════ */}
       {showSettingsModal && (
@@ -2690,7 +3026,7 @@ export default function ThreatHunting() {
                     <button
                       onClick={() => {
                         const indVal = selectedDetail.type === 'match' ? getRealIndicator(selectedDetail.data) : selectedDetail.data.ioc_value;
-                        const indType = selectedDetail.type === 'match' ? selectedDetail.data.indicator_type : selectedDetail.data.ioc_type;
+                        const indType = selectedDetail.type === 'match' ? getRealIndicatorType(selectedDetail.data) : selectedDetail.data.ioc_type;
                         handleOpenBlastRadius(indVal, indType);
                       }}
                       style={{
@@ -2716,7 +3052,7 @@ export default function ThreatHunting() {
                     <button
                       onClick={() => {
                         const indVal = selectedDetail.type === 'match' ? getRealIndicator(selectedDetail.data) : selectedDetail.data.ioc_value;
-                        const indType = selectedDetail.type === 'match' ? selectedDetail.data.indicator_type : selectedDetail.data.ioc_type;
+                        const indType = selectedDetail.type === 'match' ? getRealIndicatorType(selectedDetail.data) : selectedDetail.data.ioc_type;
                         handleOpenSuppressModal(indVal, indType);
                       }}
                       style={{
@@ -2804,7 +3140,7 @@ export default function ThreatHunting() {
                     {selectedDetail.data.dst_ip && (
                       <div style={{ padding: '12px', background: 'var(--surface2)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                         <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 800, fontFamily: 'var(--mono)', display: 'block', marginBottom: '4px' }}>
-                          {selectedDetail.data.indicator_type === 'domain' ? 'DNS Server / Target IP' : 'Destination IP'}
+                          {getRealIndicatorType(selectedDetail.data) === 'domain' ? 'DNS Server / Target IP' : 'Destination IP'}
                         </span>
                         <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--mono)' }}>
                           {selectedDetail.data.dst_ip}

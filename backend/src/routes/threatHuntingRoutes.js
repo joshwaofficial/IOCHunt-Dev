@@ -15,6 +15,8 @@ router.post('/retrohunt', threatHuntingController.runRetrohunt);
 router.get('/retrohunt-matches', threatHuntingController.getRetrohuntMatches);
 router.delete('/retrohunt-matches/:id', threatHuntingController.deleteRetrohuntMatch);
 router.get('/blast-radius', threatHuntingController.getBlastRadius);
+router.get('/schedule', threatHuntingController.getSchedule);
+router.post('/schedule', requireAdmin, threatHuntingController.saveSchedule);
 
 // False Positive Suppression & Whitelist Management
 router.get('/whitelist', threatHuntingController.getWhitelist);

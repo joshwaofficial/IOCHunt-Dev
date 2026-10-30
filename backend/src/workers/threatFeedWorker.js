@@ -611,10 +611,14 @@ async function syncAllFeeds() {
 
     // 🚀 Automatic Retroactive Back-Testing across past telemetry
     try {
-      console.log('[ThreatIntel] Triggering automated background retrohunt (7d historical window)...');
-      const threatHuntingController = require('../controllers/threatHuntingController');
-      if (typeof threatHuntingController.executeAutoRetrohunt === 'function') {
-        await threatHuntingController.executeAutoRetrohunt('7d');
+      const schedule = await getSavedRetroSchedule();
+      if (schedule.enabled && (schedule.frequency === 'on_sync' || schedule.frequency === 'daily')) {
+        const lookback = ['7d', '14d', '30d'].includes(schedule.lookbackWindow) ? schedule.lookbackWindow : '7d';
+        console.log(`[ThreatIntel] Triggering automated retrohunt after feed sync (${lookback} historical lookback)...`);
+        const threatHuntingController = require('../controllers/threatHuntingController');
+        if (typeof threatHuntingController.executeAutoRetrohunt === 'function') {
+          await threatHuntingController.executeAutoRetrohunt(lookback);
+        }
       }
     } catch (autoRetroErr) {
       console.warn('[ThreatIntel] Auto-retrohunt warning:', autoRetroErr.message);
@@ -624,7 +628,109 @@ async function syncAllFeeds() {
   }
 }
 
-// ── 6. Scheduler Initialization ────────────────────────────────────
+// ── 6. Client-Configurable Automated Retrohunt Scheduler ──────────────
+let cachedSchedule = null;
+let lastExecutedMinute = null;
+
+async function getSavedRetroSchedule() {
+  if (cachedSchedule) return cachedSchedule;
+  try {
+    const res = await db.query('SELECT threat_intel_config FROM settings LIMIT 1');
+    if (res.rows.length > 0 && res.rows[0].threat_intel_config) {
+      const cfg = typeof res.rows[0].threat_intel_config === 'string'
+        ? JSON.parse(res.rows[0].threat_intel_config)
+        : res.rows[0].threat_intel_config;
+      cachedSchedule = cfg.retrohunt_schedule || null;
+    }
+  } catch (_) {}
+
+  if (!cachedSchedule) {
+    cachedSchedule = {
+      enabled: true,
+      frequency: 'daily',
+      runTime: '08:00',
+      lookbackWindow: '7d',
+      lastRunAt: null
+    };
+  }
+  return cachedSchedule;
+}
+
+function reloadRetrohuntSchedule(newSchedule) {
+  cachedSchedule = newSchedule;
+  console.log(`[ThreatIntel] Active Retrohunt Schedule updated: ${newSchedule.frequency} at ${newSchedule.runTime} (${newSchedule.lookbackWindow} lookback)`);
+}
+
+async function checkScheduleHeartbeat() {
+  try {
+    const schedule = await getSavedRetroSchedule();
+    if (!schedule || !schedule.enabled || schedule.frequency === 'disabled' || schedule.frequency === 'on_sync') {
+      return;
+    }
+
+    const now = new Date();
+    const currentHours = String(now.getHours()).padStart(2, '0');
+    const currentMins = String(now.getMinutes()).padStart(2, '0');
+    const currentTimeStr = `${currentHours}:${currentMins}`;
+    const currentMinuteKey = `${now.toDateString()} ${currentTimeStr}`;
+
+    if (lastExecutedMinute === currentMinuteKey) return;
+
+    let shouldRun = false;
+    const lastRun = schedule.lastRunAt ? new Date(schedule.lastRunAt) : null;
+    const msSinceLast = lastRun ? (now.getTime() - lastRun.getTime()) : Infinity;
+    const hoursSinceLast = msSinceLast / (1000 * 60 * 60);
+
+    const targetTime = schedule.runTime || '08:00';
+
+    if (schedule.frequency === 'daily') {
+      if (currentTimeStr === targetTime && hoursSinceLast >= 12) {
+        shouldRun = true;
+      }
+    } else if (schedule.frequency === '2days') {
+      if (currentTimeStr === targetTime && hoursSinceLast >= 44) {
+        shouldRun = true;
+      }
+    } else if (schedule.frequency === '5days') {
+      if (currentTimeStr === targetTime && hoursSinceLast >= 116) {
+        shouldRun = true;
+      }
+    } else if (schedule.frequency === 'every_6h') {
+      if (hoursSinceLast >= 6) {
+        shouldRun = true;
+      }
+    } else if (schedule.frequency === 'every_12h') {
+      if (hoursSinceLast >= 12) {
+        shouldRun = true;
+      }
+    }
+
+    if (shouldRun) {
+      lastExecutedMinute = currentMinuteKey;
+      const lookback = ['7d', '14d', '30d'].includes(schedule.lookbackWindow) ? schedule.lookbackWindow : '7d';
+      console.log(`[ThreatIntel] Executing scheduled retrohunt (${schedule.frequency} - ${lookback} lookback window)...`);
+      const threatHuntingController = require('../controllers/threatHuntingController');
+      if (typeof threatHuntingController.executeAutoRetrohunt === 'function') {
+        await threatHuntingController.executeAutoRetrohunt(lookback);
+        schedule.lastRunAt = now.toISOString();
+        try {
+          const sRes = await db.query('SELECT threat_intel_config FROM settings LIMIT 1');
+          if (sRes.rows.length > 0) {
+            const cfg = typeof sRes.rows[0].threat_intel_config === 'string'
+              ? JSON.parse(sRes.rows[0].threat_intel_config)
+              : sRes.rows[0].threat_intel_config;
+            cfg.retrohunt_schedule = schedule;
+            await db.query('UPDATE settings SET threat_intel_config = $1', [JSON.stringify(cfg)]);
+          }
+        } catch (_) {}
+      }
+    }
+  } catch (err) {
+    console.error('[ThreatIntel] Schedule heartbeat check error:', err.message);
+  }
+}
+
+// ── 7. Scheduler Initialization ────────────────────────────────────
 function startThreatIntelSync() {
   if (process.env.THREAT_INTEL_SYNC_ENABLED === 'false') {
     console.log('[ThreatIntel] Threat feed sync is disabled via THREAT_INTEL_SYNC_ENABLED=false');
@@ -641,6 +747,9 @@ function startThreatIntelSync() {
     console.log('[ThreatIntel] Executing scheduled threat feed sync...');
     syncAllFeeds().catch(err => console.error('[ThreatIntel] Scheduled sync error:', err.message));
   }, intervalHours * 60 * 60 * 1000);
+
+  // Heartbeat loop every 30 seconds for exact-minute schedule triggers
+  setInterval(checkScheduleHeartbeat, 30000);
 }
 
 module.exports = {
@@ -651,6 +760,8 @@ module.exports = {
   syncURLhaus,
   run60DayPurge,
   getThreatFoxApiKey,
-  getThreatIntelConfig
+  getThreatIntelConfig,
+  reloadRetrohuntSchedule,
+  getSavedRetroSchedule
 };
 

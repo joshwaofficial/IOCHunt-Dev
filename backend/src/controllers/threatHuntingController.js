@@ -144,6 +144,14 @@ exports.getStatus = async (req, res) => {
       }
     } catch (_) {}
 
+    const retrohuntSchedule = config.retrohunt_schedule || {
+      enabled: true,
+      frequency: 'daily',
+      runTime: '08:00',
+      lookbackWindow: '7d',
+      lastRunAt: lastRetrohuntAt
+    };
+
     res.json({
       configured: hasKey,
       feeds,
@@ -156,6 +164,7 @@ exports.getStatus = async (req, res) => {
         retrohunt_matches: retrohuntMatchesCount,
         last_retrohunt_at: lastRetrohuntAt
       },
+      retrohunt_schedule: retrohuntSchedule,
       last_sync: lastSeenMax || config.lastSync || null
     });
   } catch (err) {
@@ -380,10 +389,22 @@ exports.getMatches = async (req, res) => {
             ELSE COALESCE(NULLIF(dst_ip, ''), 'THREAT')
           END AS indicator,
           CASE 
-            WHEN logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' 
-                 AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]'
-              THEN 'domain'
-            WHEN cfgobj IS NOT NULL AND cfgobj != '' AND cfgobj !~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$' THEN 'domain'
+            WHEN (
+              CASE 
+                WHEN logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' 
+                  THEN SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)')
+                WHEN cfgobj IS NOT NULL AND cfgobj != '' AND cfgobj !~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$' THEN cfgobj
+                ELSE COALESCE(NULLIF(dst_ip, ''), 'THREAT')
+              END
+            ) ~ '^([0-9]{1,3}\.){3}[0-9]{1,3}(:[0-9]+)?$' THEN 'ip'
+            WHEN (
+              CASE 
+                WHEN logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' 
+                  THEN SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)')
+                WHEN cfgobj IS NOT NULL AND cfgobj != '' AND cfgobj !~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$' THEN cfgobj
+                ELSE COALESCE(NULLIF(dst_ip, ''), 'THREAT')
+              END
+            ) ~* '[a-zA-Z]' THEN 'domain'
             ELSE 'ip'
           END AS indicator_type,
           severity,
@@ -420,10 +441,22 @@ exports.getMatches = async (req, res) => {
               ELSE COALESCE(NULLIF(dst_ip, ''), 'THREAT')
             END AS indicator,
             CASE 
-              WHEN logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' 
-                   AND SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)') ~* '[a-zA-Z]'
-                THEN 'domain'
-              WHEN cfgobj IS NOT NULL AND cfgobj != '' AND cfgobj !~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$' THEN 'domain'
+              WHEN (
+                CASE 
+                  WHEN logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' 
+                    THEN SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)')
+                  WHEN cfgobj IS NOT NULL AND cfgobj != '' AND cfgobj !~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$' THEN cfgobj
+                  ELSE COALESCE(NULLIF(dst_ip, ''), 'THREAT')
+                END
+              ) ~ '^([0-9]{1,3}\.){3}[0-9]{1,3}(:[0-9]+)?$' THEN 'ip'
+              WHEN (
+                CASE 
+                  WHEN logdesc LIKE '%[THREAT DANGER] Matched Known Threat: %' 
+                    THEN SUBSTRING(logdesc FROM '\\[THREAT DANGER\\] Matched Known Threat: ([^ ]+)')
+                  WHEN cfgobj IS NOT NULL AND cfgobj != '' AND cfgobj !~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$' THEN cfgobj
+                  ELSE COALESCE(NULLIF(dst_ip, ''), 'THREAT')
+                END
+              ) ~* '[a-zA-Z]' THEN 'domain'
               ELSE 'ip'
             END AS indicator_type,
             severity,
@@ -587,10 +620,10 @@ exports.getIndicators = async (req, res) => {
  * Automatically persists discovered hits permanently into threat_retrohunt_matches table.
  */
 async function performRetrohunt({ qControl, qTenant, timeRange = '7d', limit = 100000 }) {
+  // Lookback window: ONLY 7d, 14d, 30d, all (24h is intentionally omitted)
   let intervalClause = "INTERVAL '7 days'";
   if (timeRange === '14d') intervalClause = "INTERVAL '14 days'";
   if (timeRange === '30d') intervalClause = "INTERVAL '30 days'";
-  if (timeRange === '24h') intervalClause = "INTERVAL '24 hours'";
   if (timeRange === 'all') intervalClause = "INTERVAL '90 days'";
 
   // Safely collect whitelisted IOCs in memory
@@ -666,10 +699,16 @@ async function performRetrohunt({ qControl, qTenant, timeRange = '7d', limit = 1
   if (domainList.length > 0) {
     const fwDomainMatches = await qTenant(`
       SELECT id, ts, devname AS endpoint, src_ip, dst_ip,
-             CASE 
-               WHEN cfgobj IS NOT NULL AND cfgobj != '' AND cfgobj !~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$' THEN cfgobj
-               ELSE dst_ip 
-             END AS indicator, 
+             COALESCE(
+               NULLIF(CASE WHEN cfgobj IS NOT NULL AND cfgobj != '' AND cfgobj !~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$' THEN cfgobj ELSE NULL END, ''),
+               (
+                 SELECT d FROM unnest($1::varchar[]) AS d 
+                 WHERE msg ILIKE '%' || d || '%' 
+                 LIMIT 1
+               ),
+               cfgobj,
+               'unknown-domain'
+             ) AS indicator, 
              'domain' AS indicator_type,
              'firewall' AS source_type, aggregator_name,
              COALESCE(NULLIF(logdesc, ''), msg, 'Historical domain query (Unflagged at time of event)') AS details,
@@ -824,6 +863,106 @@ exports.runRetrohunt = async (req, res) => {
 };
 
 /**
+ * GET /api/threat-hunting/schedule
+ * Retrieves the current automated retroactive hunting schedule configuration.
+ */
+exports.getSchedule = async (req, res) => {
+  try {
+    const qControl = req.queryControlPlane || db.query.bind(db);
+    const settingsRes = await qControl('SELECT threat_intel_config FROM settings LIMIT 1');
+    let config = {};
+    if (settingsRes.rows.length > 0 && settingsRes.rows[0].threat_intel_config) {
+      try {
+        config = JSON.parse(settingsRes.rows[0].threat_intel_config);
+      } catch (_) {}
+    }
+
+    const schedule = config.retrohunt_schedule || {
+      enabled: true,
+      frequency: 'daily',
+      runTime: '08:00',
+      lookbackWindow: '7d',
+      lastRunAt: null
+    };
+
+    res.json({ ok: true, schedule });
+  } catch (err) {
+    console.error('[ThreatHunting] getSchedule error:', err);
+    res.status(500).json({ error: 'Failed to retrieve schedule configuration' });
+  }
+};
+
+/**
+ * POST /api/threat-hunting/schedule
+ * Updates and persists the client's custom automated retroactive hunting schedule.
+ */
+exports.saveSchedule = async (req, res) => {
+  try {
+    const qControl = req.queryControlPlane || db.query.bind(db);
+    const {
+      enabled = true,
+      frequency = 'daily',
+      runTime = '08:00',
+      lookbackWindow = '7d'
+    } = req.body || {};
+
+    const validFrequencies = ['daily', '2days', '5days', 'every_6h', 'every_12h', 'on_sync', 'disabled'];
+    if (!validFrequencies.includes(frequency)) {
+      return res.status(400).json({ error: `Invalid frequency. Allowed: ${validFrequencies.join(', ')}` });
+    }
+
+    // Lookback window: ONLY 7d, 14d, 30d (24h is intentionally disallowed)
+    const validLookbacks = ['7d', '14d', '30d'];
+    const chosenLookback = validLookbacks.includes(lookbackWindow) ? lookbackWindow : '7d';
+
+    const cleanTime = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(runTime) ? runTime : '08:00';
+
+    const settingsRes = await qControl('SELECT threat_intel_config FROM settings LIMIT 1');
+    let currentConfig = {};
+    if (settingsRes.rows.length > 0 && settingsRes.rows[0].threat_intel_config) {
+      try {
+        currentConfig = JSON.parse(settingsRes.rows[0].threat_intel_config);
+      } catch (_) {}
+    }
+
+    const updatedSchedule = {
+      enabled: Boolean(enabled) && frequency !== 'disabled',
+      frequency,
+      runTime: cleanTime,
+      lookbackWindow: chosenLookback,
+      lastRunAt: currentConfig.retrohunt_schedule?.lastRunAt || null,
+      updatedAt: new Date().toISOString()
+    };
+
+    const updatedConfig = {
+      ...currentConfig,
+      retrohunt_schedule: updatedSchedule
+    };
+
+    if (settingsRes.rows.length > 0) {
+      await qControl('UPDATE settings SET threat_intel_config = $1', [JSON.stringify(updatedConfig)]);
+    } else {
+      await qControl('INSERT INTO settings (threat_intel_config) VALUES ($1)', [JSON.stringify(updatedConfig)]);
+    }
+
+    // Notify threatFeedWorker to reload schedule in memory immediately
+    const threatFeedWorker = require('../workers/threatFeedWorker');
+    if (typeof threatFeedWorker.reloadRetrohuntSchedule === 'function') {
+      threatFeedWorker.reloadRetrohuntSchedule(updatedSchedule);
+    }
+
+    res.json({
+      ok: true,
+      message: 'Retroactive hunting schedule updated successfully',
+      schedule: updatedSchedule
+    });
+  } catch (err) {
+    console.error('[ThreatHunting] saveSchedule error:', err);
+    res.status(500).json({ error: 'Failed to save schedule configuration', details: err.message });
+  }
+};
+
+/**
  * GET /api/threat-hunting/retrohunt-matches
  * Retrieves persisted retroactive threat detections stored in threat_retrohunt_matches.
  * Follows system Data Retention & Expiration policy.
@@ -853,10 +992,8 @@ exports.getRetrohuntMatches = async (req, res) => {
       params.push(type.toLowerCase());
     }
 
-    // Filter by time range
-    if (timeRange === '24h') {
-      conds.push(`ts >= NOW() - INTERVAL '24 hours'`);
-    } else if (timeRange === '7d') {
+    // Filter by time range (ONLY 7d, 14d, 30d; 24h is intentionally omitted)
+    if (timeRange === '7d') {
       conds.push(`ts >= NOW() - INTERVAL '7 days'`);
     } else if (timeRange === '14d') {
       conds.push(`ts >= NOW() - INTERVAL '14 days'`);
