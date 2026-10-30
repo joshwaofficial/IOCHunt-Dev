@@ -55,6 +55,34 @@ export const getRealIndicatorType = (item) => {
   return 'ip';
 };
 
+// Helper to extract clean, informative threat context (action, protocol, port, policy)
+export const getCleanThreatContext = (item) => {
+  if (!item) return '';
+  const parts = [];
+  if (item.action) parts.push(`Action: ${String(item.action).toUpperCase()}`);
+  if (item.proto || item.dst_port) {
+    const proto = item.proto ? String(item.proto).toUpperCase() : 'TCP';
+    const port = item.dst_port ? `:${item.dst_port}` : '';
+    parts.push(`${proto}${port}`);
+  }
+  if (item.service) parts.push(String(item.service).toUpperCase());
+  if (item.policy) parts.push(`Policy: ${item.policy}`);
+  
+  if (parts.length > 0) {
+    return parts.join(' · ');
+  }
+  
+  let raw = String(item.details || item.msg || item.logdesc || '');
+  raw = raw
+    .replace(/\[THREAT DANGER\]\s*Matched Known Threat:\s*[^\s,;]+/i, '')
+    .replace(/CRITICAL THREAT:\s*Connection to verified malicious indicator\s*\([^)]+\)!/i, '')
+    .trim();
+  if (raw && !raw.startsWith(':') && raw.length > 3) {
+    return raw.replace(/^[:\s\-]+/, '');
+  }
+  return 'Verified Threat Infrastructure Connection';
+};
+
 // Smart VirusTotal direct URL generator: Routes hashes to /gui/file/, IPs to /gui/ip-address/, domains to /gui/domain/
 const getVirusTotalUrl = (detail) => {
   if (!detail || !detail.data) return 'https://www.virustotal.com';
@@ -241,7 +269,9 @@ export default function ThreatHunting() {
   const [matchesType, setMatchesType] = useState('all');
   const [matchesSeverity, setMatchesSeverity] = useState('all');
   const [matchesSourceType, setMatchesSourceType] = useState('all');
-  const [matchesTimeRange, setMatchesTimeRange] = useState('24h');
+  const [matchesTimeRange, setMatchesTimeRange] = useState(() => {
+    return localStorage.getItem('iochunt_threat_timerange') || '7d';
+  });
 
   // Indicators State (Tab 2)
   const [indicators, setIndicators] = useState([]);
@@ -485,10 +515,12 @@ export default function ThreatHunting() {
   };
 
   // 1. Fetch Status
-  const fetchStatus = async () => {
+  const fetchStatus = async (range = matchesTimeRange) => {
     try {
       setLoading(true);
-      const res = await axios.get('/api/threat-hunting/status');
+      const res = await axios.get('/api/threat-hunting/status', {
+        params: { timeRange: range }
+      });
       setStatus(res.data);
       if (res.data.feeds) {
         setSelectedFeeds(res.data.feeds);
@@ -505,7 +537,7 @@ export default function ThreatHunting() {
   };
 
   useEffect(() => {
-    fetchStatus();
+    fetchStatus(matchesTimeRange);
   }, []);
 
   // 2. Fetch Matches
@@ -562,31 +594,65 @@ export default function ThreatHunting() {
     }
   };
 
-  // Triggers when status is configured or active tab switches / filters change
+  // When active tab switches, immediately load data
   useEffect(() => {
     if (status?.configured) {
-      if (activeTab === 'matches') {
-        fetchMatches(1);
-      } else if (activeTab === 'retrohunt') {
-        fetchRetroMatches(1);
-      } else {
-        fetchIndicators(1);
-      }
+      if (activeTab === 'matches') fetchMatches(1);
+      else if (activeTab === 'retrohunt') fetchRetroMatches(1);
+      else if (activeTab === 'indicators') fetchIndicators(1);
     }
-  }, [
-    status?.configured,
-    activeTab,
-    matchesType,
-    matchesSeverity,
-    matchesSourceType,
-    matchesTimeRange,
-    retroType,
-    retroTimeRange,
-    indicatorsType,
-    indicatorsSource,
-    indicatorsStatus,
-    indicatorsConfidence
-  ]);
+  }, [activeTab, status?.configured]);
+
+  // Real-time debounced search & filter watcher for Live Matches (Tab 1)
+  useEffect(() => {
+    if (!status?.configured) return;
+    const timer = setTimeout(() => {
+      fetchMatches(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [matchesSearch, matchesType, matchesSeverity, matchesSourceType, matchesTimeRange]);
+
+  // Real-time debounced search & filter watcher for Retrohunt Matches (Tab 2)
+  useEffect(() => {
+    if (!status?.configured) return;
+    const timer = setTimeout(() => {
+      fetchRetroMatches(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [retroSearch, retroType, retroTimeRange]);
+
+  // Real-time debounced search & filter watcher for Threat Feed Database (Tab 3)
+  useEffect(() => {
+    if (!status?.configured) return;
+    const timer = setTimeout(() => {
+      fetchIndicators(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [indicatorsSearch, indicatorsType, indicatorsSource, indicatorsStatus, indicatorsConfidence]);
+
+  // Reset all filters for the current active tab
+  const handleResetFilters = () => {
+    if (activeTab === 'matches') {
+      setMatchesSearch('');
+      setMatchesType('all');
+      setMatchesSeverity('all');
+      setMatchesSourceType('all');
+      setMatchesTimeRange('7d');
+      localStorage.setItem('iochunt_threat_timerange', '7d');
+      fetchStatus('7d');
+    } else if (activeTab === 'retrohunt') {
+      setRetroSearch('');
+      setRetroType('all');
+      setRetroTimeRange('all');
+      localStorage.setItem('iochunt_retro_timerange', 'all');
+    } else {
+      setIndicatorsSearch('');
+      setIndicatorsType('all');
+      setIndicatorsSource('all');
+      setIndicatorsStatus('all');
+      setIndicatorsConfidence('all');
+    }
+  };
 
   // Handle Save / Setup API Key
   const handleSaveConfig = async (e) => {
@@ -977,26 +1043,295 @@ export default function ThreatHunting() {
         </div>
       </div>
 
-      {/* 4 Premium Metric Cards */}
+      {/* ════════════════════════════════════════════════════════════════
+          TOP UNIFIED SEARCH & FILTER TOOLBAR (ABOVE KPI CARDS)
+          ════════════════════════════════════════════════════════════════ */}
+      <div style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: '8px',
+        padding: '12px 18px',
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: '12px',
+        marginBottom: '20px',
+        justifyContent: 'space-between',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+      }}>
+        {/* Real-time Debounced Search Input */}
+        <div style={{ position: 'relative', flex: '1', minWidth: '220px', maxWidth: '360px' }}>
+          <Search size={14} color="var(--muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+          <input
+            type="text"
+            placeholder={
+              activeTab === 'matches'
+                ? "Search matched IP, domain, hash, device..."
+                : activeTab === 'retrohunt'
+                ? "Search retroactive detections (IP, domain, endpoint)..."
+                : "Search feed indicators (IP, domain, hash, malware)..."
+            }
+            value={activeTab === 'matches' ? matchesSearch : activeTab === 'retrohunt' ? retroSearch : indicatorsSearch}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (activeTab === 'matches') setMatchesSearch(val);
+              else if (activeTab === 'retrohunt') setRetroSearch(val);
+              else setIndicatorsSearch(val);
+            }}
+            style={{
+              width: '100%',
+              padding: '7px 12px 7px 34px',
+              background: 'var(--surface2)',
+              border: '1px solid var(--border)',
+              borderRadius: '6px',
+              color: 'var(--text)',
+              fontSize: '12px',
+              outline: 'none',
+              boxSizing: 'border-box',
+              fontFamily: 'var(--sans)'
+            }}
+          />
+        </div>
+
+        <div style={{ width: '1px', height: '24px', background: 'var(--border)', flexShrink: 0 }} />
+
+        {/* Filter Controls for Current Active Tab */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {/* Universal Indicator Type Filter */}
+          <select
+            value={activeTab === 'matches' ? matchesType : activeTab === 'retrohunt' ? retroType : indicatorsType}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (activeTab === 'matches') setMatchesType(val);
+              else if (activeTab === 'retrohunt') setRetroType(val);
+              else setIndicatorsType(val);
+            }}
+            style={{
+              padding: '7px 10px',
+              background: 'var(--surface2)',
+              border: '1px solid var(--border)',
+              borderRadius: '6px',
+              color: 'var(--text)',
+              fontSize: '12px',
+              outline: 'none',
+              cursor: 'pointer',
+              fontFamily: 'var(--sans)'
+            }}
+          >
+            <option value="all">All Types</option>
+            <option value="ip">IP Address</option>
+            <option value="domain">Domain Name</option>
+            <option value="sha256">SHA256 Hash</option>
+          </select>
+
+          {/* Tab 1 (Live Matches) Filters */}
+          {activeTab === 'matches' && (
+            <>
+              <select
+                value={matchesSourceType}
+                onChange={(e) => setMatchesSourceType(e.target.value)}
+                style={{
+                  padding: '7px 10px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--sans)'
+                }}
+              >
+                <option value="all">All Sources</option>
+                <option value="endpoint">Agent Endpoints</option>
+                <option value="firewall">Firewall Network</option>
+              </select>
+
+              <select
+                value={matchesSeverity}
+                onChange={(e) => setMatchesSeverity(e.target.value)}
+                style={{
+                  padding: '7px 10px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--sans)'
+                }}
+              >
+                <option value="all">All Severities</option>
+                <option value="critical">Critical Only</option>
+              </select>
+
+              <select
+                value={matchesTimeRange}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setMatchesTimeRange(val);
+                  localStorage.setItem('iochunt_threat_timerange', val);
+                  fetchStatus(val);
+                }}
+                style={{
+                  padding: '7px 10px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--sans)'
+                }}
+              >
+                <option value="24h">Last 24 Hours</option>
+                <option value="7d">Last 7 Days</option>
+                <option value="30d">Last 30 Days</option>
+                <option value="60d">Last 60 Days</option>
+              </select>
+            </>
+          )}
+
+          {/* Tab 2 (Retroactive) Time Filter */}
+          {activeTab === 'retrohunt' && (
+            <select
+              value={retroTimeRange}
+              onChange={(e) => {
+                const val = e.target.value;
+                setRetroTimeRange(val);
+                localStorage.setItem('iochunt_retro_timerange', val);
+              }}
+              style={{
+                padding: '7px 10px',
+                background: 'var(--surface2)',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                color: 'var(--text)',
+                fontSize: '12px',
+                outline: 'none',
+                cursor: 'pointer',
+                fontFamily: 'var(--sans)'
+              }}
+            >
+              <option value="all">All Persisted Detections</option>
+              <option value="7d">Events from Past 7 Days</option>
+              <option value="14d">Events from Past 14 Days</option>
+              <option value="30d">Events from Past 30 Days</option>
+            </select>
+          )}
+
+          {/* Tab 3 (Feed Database) Filters */}
+          {activeTab === 'indicators' && (
+            <>
+              <select
+                value={indicatorsSource}
+                onChange={(e) => setIndicatorsSource(e.target.value)}
+                style={{
+                  padding: '7px 10px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--sans)'
+                }}
+              >
+                <option value="all">All Feed Sources</option>
+                <option value="threatfox">ThreatFox C2</option>
+                <option value="malwarebazaar">MalwareBazaar</option>
+                <option value="urlhaus">URLhaus</option>
+              </select>
+
+              <select
+                value={indicatorsStatus}
+                onChange={(e) => setIndicatorsStatus(e.target.value)}
+                style={{
+                  padding: '7px 10px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--sans)'
+                }}
+              >
+                <option value="all">All Statuses</option>
+                <option value="online">Online / Active</option>
+                <option value="offline">Offline / Dormant</option>
+              </select>
+
+              <select
+                value={indicatorsConfidence}
+                onChange={(e) => setIndicatorsConfidence(e.target.value)}
+                style={{
+                  padding: '7px 10px',
+                  background: 'var(--surface2)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '6px',
+                  color: 'var(--text)',
+                  fontSize: '12px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--sans)'
+                }}
+              >
+                <option value="all">All Confidence</option>
+                <option value="100">100% Verified</option>
+                <option value="high">≥ 90% High</option>
+                <option value="medium">70% – 85% Medium</option>
+                <option value="50">≤ 50% Low / Caution</option>
+              </select>
+            </>
+          )}
+
+          {/* Reset Button */}
+          <button
+            onClick={handleResetFilters}
+            title="Reset filters to default"
+            style={{
+              padding: '7px 12px',
+              borderRadius: '6px',
+              background: 'transparent',
+              border: '1px solid var(--border)',
+              color: 'var(--muted)',
+              fontSize: '12px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+          >
+            <RotateCcw size={12} /> Reset
+          </button>
+        </div>
+      </div>
+
+      {/* 4 Premium Metric Cards (Dynamically reflects the Filter Window) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '24px' }}>
         <PremiumCard
           label="Active Threat Indicators"
-          value={status?.stats?.total_iocs?.toLocaleString() || '0'}
+          value={activeTab === 'indicators' && (indicatorsSearch || indicatorsType !== 'all' || indicatorsSource !== 'all') ? indicatorsTotal.toLocaleString() : (status?.stats?.total_iocs?.toLocaleString() || '0')}
           color="#3b82f6"
           icon="memory"
           subtitle="Real-time multi-feed threat intelligence"
         />
         <PremiumCard
-          label="Threat Matches (24h)"
-          value={status?.stats?.matches_today?.toLocaleString() || '0'}
-          color="#ef4444"
+          label={`Threat Matches (${matchesTimeRange.toUpperCase()})`}
+          value={(matchesTotal || status?.stats?.matches_count || 0).toLocaleString()}
+          color={(matchesTotal || status?.stats?.matches_count || 0) > 0 ? '#ef4444' : '#22c55e'}
           icon="crisis_alert"
-          subtitle="Flagged CRITICAL with [THREAT DANGER]"
+          subtitle={`Flagged in ${matchesTimeRange.toUpperCase()} telemetry window`}
         />
         <PremiumCard
           label="Malicious C2 IPs & Domains"
           value={((status?.stats?.ips || 0) + (status?.stats?.domains || 0)).toLocaleString()}
-          color="#a855f7"
+          color="#3b82f6"
           icon="public"
           subtitle={`${status?.stats?.ips?.toLocaleString() || 0} IPs · ${status?.stats?.domains?.toLocaleString() || 0} Domains`}
         />
@@ -1037,7 +1372,7 @@ export default function ThreatHunting() {
         >
           <ShieldAlert size={15} color={activeTab === 'matches' ? '#ef4444' : 'currentColor'} />
           Threat Detections (Live)
-          {status?.stats?.matches_today > 0 && (
+          {(matchesTotal > 0 || status?.stats?.matches_today > 0) && (
             <span style={{
               padding: '1px 6px',
               borderRadius: '10px',
@@ -1047,7 +1382,7 @@ export default function ThreatHunting() {
               fontWeight: 800,
               fontFamily: 'var(--mono)'
             }}>
-              {status.stats.matches_today}
+              {matchesTotal || status.stats.matches_today}
             </span>
           )}
         </button>
@@ -1059,7 +1394,7 @@ export default function ThreatHunting() {
             padding: '10px 16px',
             background: 'none',
             border: 'none',
-            borderBottom: activeTab === 'retrohunt' ? '2px solid #8b5cf6' : '2px solid transparent',
+            borderBottom: activeTab === 'retrohunt' ? '2px solid #2563eb' : '2px solid transparent',
             color: activeTab === 'retrohunt' ? 'var(--text)' : 'var(--muted)',
             fontWeight: activeTab === 'retrohunt' ? 700 : 500,
             fontSize: '13px',
@@ -1071,14 +1406,14 @@ export default function ThreatHunting() {
             fontFamily: 'var(--sans)'
           }}
         >
-          <RotateCcw size={15} color={activeTab === 'retrohunt' ? '#8b5cf6' : 'currentColor'} />
+          <RotateCcw size={15} color={activeTab === 'retrohunt' ? '#2563eb' : 'currentColor'} />
           Retroactive Detections (Back-Testing)
           {(retroTotal > 0 || status?.stats?.retrohunt_matches > 0) && (
             <span style={{
               padding: '1px 6px',
               borderRadius: '10px',
-              background: 'rgba(139,92,246,0.15)',
-              color: '#8b5cf6',
+              background: 'rgba(37,99,235,0.15)',
+              color: '#2563eb',
               fontSize: '11px',
               fontWeight: 800,
               fontFamily: 'var(--mono)'
@@ -1130,177 +1465,6 @@ export default function ThreatHunting() {
           ════════════════════════════════════════════════════════════════ */}
       {activeTab === 'matches' && (
         <div>
-          {/* Filters Bar */}
-          <div style={{
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: '10px',
-            padding: '12px 16px',
-            marginBottom: '16px',
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            gap: '12px',
-            justifyContent: 'space-between'
-          }}>
-            {/* Search Input */}
-            <div style={{ position: 'relative', flex: '1', minWidth: '220px', maxWidth: '320px' }}>
-              <Search size={14} color="var(--muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-              <input
-                type="text"
-                placeholder="Search matched IP, domain, hash, device..."
-                value={matchesSearch}
-                onChange={(e) => setMatchesSearch(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && fetchMatches(1)}
-                style={{
-                  width: '100%',
-                  padding: '7px 12px 7px 34px',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  color: 'var(--text)',
-                  fontSize: '12px',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                  fontFamily: 'var(--sans)'
-                }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              {/* Type Filter */}
-              <select
-                value={matchesType}
-                onChange={(e) => setMatchesType(e.target.value)}
-                style={{
-                  padding: '6px 10px',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  color: 'var(--text)',
-                  fontSize: '12px',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'var(--sans)'
-                }}
-              >
-                <option value="all">All Types</option>
-                <option value="ip">IP Address</option>
-                <option value="domain">Domain Name</option>
-                <option value="sha256">SHA256 Hash</option>
-              </select>
-
-              {/* Source Engine Filter */}
-              <select
-                value={matchesSourceType}
-                onChange={(e) => setMatchesSourceType(e.target.value)}
-                style={{
-                  padding: '6px 10px',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  color: 'var(--text)',
-                  fontSize: '12px',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'var(--sans)'
-                }}
-              >
-                <option value="all">All Sources</option>
-                <option value="endpoint">Agent Endpoints</option>
-                <option value="firewall">Firewall Network</option>
-              </select>
-
-              {/* Severity Filter */}
-              <select
-                value={matchesSeverity}
-                onChange={(e) => setMatchesSeverity(e.target.value)}
-                style={{
-                  padding: '6px 10px',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  color: 'var(--text)',
-                  fontSize: '12px',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'var(--sans)'
-                }}
-              >
-                <option value="all">All Severities</option>
-                <option value="critical">Critical Only</option>
-              </select>
-
-              {/* Time Range Filter */}
-              <select
-                value={matchesTimeRange}
-                onChange={(e) => setMatchesTimeRange(e.target.value)}
-                style={{
-                  padding: '6px 10px',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  color: 'var(--text)',
-                  fontSize: '12px',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'var(--sans)'
-                }}
-              >
-                <option value="24h">Last 24 Hours</option>
-                <option value="7d">Last 7 Days</option>
-                <option value="30d">Last 30 Days</option>
-                <option value="60d">Last 60 Days</option>
-              </select>
-
-              <button
-                onClick={() => fetchMatches(1)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  background: '#2563eb',
-                  border: 'none',
-                  color: '#ffffff',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                <Filter size={12} /> Filter
-              </button>
-
-              {(matchesSearch || matchesType !== 'all' || matchesSeverity !== 'all' || matchesSourceType !== 'all' || matchesTimeRange !== '24h') && (
-                <button
-                  onClick={() => {
-                    setMatchesSearch('');
-                    setMatchesType('all');
-                    setMatchesSeverity('all');
-                    setMatchesSourceType('all');
-                    setMatchesTimeRange('24h');
-                  }}
-                  title="Reset all filters"
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: '6px',
-                    background: 'var(--surface2)',
-                    border: '1px solid var(--border)',
-                    color: 'var(--muted)',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  <RotateCcw size={12} /> Reset
-                </button>
-              )}
-            </div>
-          </div>
 
           {/* Matches Table */}
           <div style={{
@@ -1427,10 +1591,43 @@ export default function ThreatHunting() {
                           </span>
                         </td>
 
-                        {/* Details */}
-                        <td style={{ padding: '12px 16px', color: 'var(--muted2)', maxWidth: '360px' }}>
-                          <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '12px' }}>
-                            {item.details}
+                        {/* Threat Context */}
+                        <td style={{ padding: '12px 16px', color: 'var(--text)', maxWidth: '380px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                padding: '2px 7px',
+                                borderRadius: '4px',
+                                background: 'rgba(239, 68, 68, 0.1)',
+                                color: '#ef4444',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                fontFamily: 'var(--mono)',
+                                border: '1px solid rgba(239, 68, 68, 0.25)'
+                              }}>
+                                {item.malware_family || (item.indicator_type === 'domain' ? 'Malicious Domain' : item.indicator_type === 'sha256' ? 'Malware Binary' : 'Malicious C2')}
+                              </span>
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                background: 'var(--surface2)',
+                                color: 'var(--muted)',
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                fontFamily: 'var(--mono)',
+                                border: '1px solid var(--border)'
+                              }}>
+                                {item.source_feed || (item.indicator_type === 'domain' ? 'URLhaus' : item.indicator_type === 'sha256' ? 'MalwareBazaar' : 'ThreatFox')}
+                                {item.confidence_level ? ` · ${item.confidence_level}%` : ''}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--muted2)', fontFamily: 'var(--mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={getCleanThreatContext(item)}>
+                              {getCleanThreatContext(item)}
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -1496,8 +1693,8 @@ export default function ThreatHunting() {
         <div>
           {/* Top Status & KPI Banner */}
           <div style={{
-            background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.08) 0%, rgba(59, 130, 246, 0.04) 100%)',
-            border: '1px solid rgba(139, 92, 246, 0.25)',
+            background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(59, 130, 246, 0.04) 100%)',
+            border: '1px solid rgba(37, 99, 235, 0.25)',
             borderRadius: '10px',
             padding: '16px 20px',
             marginBottom: '16px',
@@ -1512,12 +1709,12 @@ export default function ThreatHunting() {
                 width: '42px',
                 height: '42px',
                 borderRadius: '10px',
-                background: 'rgba(139, 92, 246, 0.15)',
+                background: 'rgba(37, 99, 235, 0.12)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#8b5cf6',
-                border: '1px solid rgba(139, 92, 246, 0.3)'
+                color: '#2563eb',
+                border: '1px solid rgba(37, 99, 235, 0.25)'
               }}>
                 <RotateCcw size={22} />
               </div>
@@ -1527,8 +1724,8 @@ export default function ThreatHunting() {
                   <span style={{
                     padding: '2px 8px',
                     borderRadius: '12px',
-                    background: 'rgba(139, 92, 246, 0.15)',
-                    color: '#8b5cf6',
+                    background: 'rgba(37, 99, 235, 0.12)',
+                    color: '#2563eb',
                     fontSize: '11px',
                     fontWeight: 800,
                     fontFamily: 'var(--mono)'
@@ -1592,10 +1789,10 @@ export default function ThreatHunting() {
                     cursor: 'pointer',
                     transition: 'all 0.15s'
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.borderColor = '#8b5cf6'}
+                  onMouseEnter={(e) => e.currentTarget.style.borderColor = '#2563eb'}
                   onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--border)'}
                 >
-                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: '#8b5cf6' }}>schedule</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px', color: '#2563eb' }}>schedule</span>
                   Configure Schedule
                 </button>
 
@@ -1609,13 +1806,13 @@ export default function ThreatHunting() {
                     gap: '7px',
                     padding: '7px 16px',
                     borderRadius: '6px',
-                    background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                    background: '#2563eb',
                     border: 'none',
                     color: '#ffffff',
                     fontSize: '12px',
                     fontWeight: 700,
                     cursor: isRetrohunting ? 'not-allowed' : 'pointer',
-                    boxShadow: '0 2px 8px rgba(124, 58, 237, 0.3)',
+                    boxShadow: '0 2px 8px rgba(37, 99, 235, 0.3)',
                     transition: 'all 0.2s',
                     opacity: isRetrohunting ? 0.7 : 1
                   }}
@@ -1624,135 +1821,6 @@ export default function ThreatHunting() {
                   {isRetrohunting ? 'Scanning Indicators...' : `⚡ Run Retrohunt Now (${(retroSchedule?.lookbackWindow || '7d').toUpperCase()})`}
                 </button>
               </div>
-            </div>
-          </div>
-
-          {/* Action & Filter Toolbar */}
-          <div style={{
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: '10px',
-            padding: '12px 16px',
-            marginBottom: '16px',
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            gap: '12px',
-            justifyContent: 'space-between'
-          }}>
-            {/* Search Input */}
-            <div style={{ position: 'relative', flex: '1', minWidth: '240px', maxWidth: '380px' }}>
-              <Search size={14} color="var(--muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-              <input
-                type="text"
-                placeholder="Search retroactive detections (IP, domain, endpoint, malware)..."
-                value={retroSearch}
-                onChange={(e) => setRetroSearch(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && fetchRetroMatches(1)}
-                style={{
-                  width: '100%',
-                  padding: '7px 12px 7px 34px',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  color: 'var(--text)',
-                  fontSize: '12px',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                  fontFamily: 'var(--sans)'
-                }}
-              />
-            </div>
-
-            {/* Filter Controls for Table */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              {/* IOC Type Filter */}
-              <select
-                value={retroType}
-                onChange={(e) => setRetroType(e.target.value)}
-                style={{
-                  padding: '6px 10px',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  color: 'var(--text)',
-                  fontSize: '12px',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'var(--sans)'
-                }}
-              >
-                <option value="all">All Indicator Types</option>
-                <option value="ip">IP Address</option>
-                <option value="domain">Domain Name</option>
-                <option value="sha256">SHA256 Hash</option>
-              </select>
-
-              {/* Table Time Filter (Strictly NO 24h) */}
-              <select
-                value={retroTimeRange}
-                onChange={(e) => setRetroTimeRange(e.target.value)}
-                style={{
-                  padding: '6px 10px',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  color: 'var(--text)',
-                  fontSize: '12px',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'var(--sans)'
-                }}
-              >
-                <option value="all">All Persisted Detections</option>
-                <option value="7d">Events from Past 7 Days</option>
-                <option value="14d">Events from Past 14 Days</option>
-                <option value="30d">Events from Past 30 Days</option>
-              </select>
-
-              <button
-                onClick={() => fetchRetroMatches(1)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text)',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                <Filter size={12} /> Filter
-              </button>
-
-              {(retroSearch || retroType !== 'all' || retroTimeRange !== 'all') && (
-                <button
-                  onClick={() => {
-                    setRetroSearch('');
-                    setRetroType('all');
-                    setRetroTimeRange('all');
-                  }}
-                  title="Reset table filters"
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: '6px',
-                    background: 'transparent',
-                    border: '1px solid var(--border)',
-                    color: 'var(--muted)',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  <RotateCcw size={12} /> Reset
-                </button>
-              )}
             </div>
           </div>
 
@@ -1765,7 +1833,7 @@ export default function ThreatHunting() {
           }}>
             {retroLoading ? (
               <div style={{ padding: '60px 20px', textAlign: 'center' }}>
-                <div style={{ width: '28px', height: '28px', border: '3px solid rgba(139, 92, 246, 0.2)', borderTopColor: '#8b5cf6', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
+                <div style={{ width: '28px', height: '28px', border: '3px solid rgba(37, 99, 235, 0.2)', borderTopColor: '#2563eb', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
                 <p style={{ color: 'var(--muted)', fontSize: '13px' }}>Querying persisted retroactive threat detections...</p>
               </div>
             ) : retroMatches.length === 0 ? (
@@ -1796,7 +1864,7 @@ export default function ThreatHunting() {
                   style={{
                     padding: '8px 18px',
                     borderRadius: '6px',
-                    background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                    background: '#2563eb',
                     border: 'none',
                     color: '#ffffff',
                     fontSize: '12px',
@@ -1805,7 +1873,7 @@ export default function ThreatHunting() {
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '8px',
-                    boxShadow: '0 2px 8px rgba(124, 58, 237, 0.3)'
+                    boxShadow: '0 2px 8px rgba(37, 99, 235, 0.3)'
                   }}
                 >
                   <RotateCcw size={13} style={{ animation: isRetrohunting ? 'spin 1.2s linear infinite' : 'none' }} />
@@ -1850,9 +1918,9 @@ export default function ThreatHunting() {
                           <span style={{
                             padding: '3px 8px',
                             borderRadius: '4px',
-                            background: 'rgba(139, 92, 246, 0.12)',
-                            color: '#8b5cf6',
-                            border: '1px solid rgba(139, 92, 246, 0.25)',
+                            background: 'rgba(37, 99, 235, 0.1)',
+                            color: '#2563eb',
+                            border: '1px solid rgba(37, 99, 235, 0.25)',
                             fontSize: '10px',
                             fontWeight: 800,
                             fontFamily: 'var(--mono)',
@@ -2066,181 +2134,6 @@ export default function ThreatHunting() {
           ════════════════════════════════════════════════════════════════ */}
       {activeTab === 'indicators' && (
         <div>
-          {/* Filters Bar */}
-          <div style={{
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: '10px',
-            padding: '12px 16px',
-            marginBottom: '16px',
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            gap: '12px',
-            justifyContent: 'space-between'
-          }}>
-            {/* Search Input */}
-            <div style={{ position: 'relative', flex: '1', minWidth: '240px', maxWidth: '380px' }}>
-              <Search size={14} color="var(--muted)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
-              <input
-                type="text"
-                placeholder="Search indicator value or malware family..."
-                value={indicatorsSearch}
-                onChange={(e) => setIndicatorsSearch(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && fetchIndicators(1)}
-                style={{
-                  width: '100%',
-                  padding: '7px 12px 7px 34px',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  color: 'var(--text)',
-                  fontSize: '12px',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                  fontFamily: 'var(--sans)'
-                }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              {/* Type Filter */}
-              <select
-                value={indicatorsType}
-                onChange={(e) => setIndicatorsType(e.target.value)}
-                style={{
-                  padding: '6px 10px',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  color: 'var(--text)',
-                  fontSize: '12px',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'var(--sans)'
-                }}
-              >
-                <option value="all">All Types</option>
-                <option value="ip">IP Address</option>
-                <option value="domain">Domain Name</option>
-                <option value="sha256">SHA256 Hash</option>
-              </select>
-
-              {/* Feed Filter */}
-              <select
-                value={indicatorsSource}
-                onChange={(e) => setIndicatorsSource(e.target.value)}
-                style={{
-                  padding: '6px 10px',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  color: 'var(--text)',
-                  fontSize: '12px',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'var(--sans)'
-                }}
-              >
-                <option value="all">All Feed Sources</option>
-                <option value="threatfox">ThreatFox C2</option>
-                <option value="malwarebazaar">MalwareBazaar</option>
-                <option value="urlhaus">URLhaus</option>
-              </select>
-
-              {/* Status Filter */}
-              <select
-                value={indicatorsStatus}
-                onChange={(e) => setIndicatorsStatus(e.target.value)}
-                style={{
-                  padding: '6px 10px',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  color: 'var(--text)',
-                  fontSize: '12px',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'var(--sans)'
-                }}
-              >
-                <option value="all">All Statuses</option>
-                <option value="online">Online / Active</option>
-                <option value="offline">Offline / Dormant</option>
-              </select>
-
-              {/* Confidence Filter */}
-              <select
-                value={indicatorsConfidence}
-                onChange={(e) => setIndicatorsConfidence(e.target.value)}
-                style={{
-                  padding: '6px 10px',
-                  background: 'var(--surface2)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '6px',
-                  color: 'var(--text)',
-                  fontSize: '12px',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'var(--sans)'
-                }}
-              >
-                <option value="all">All Confidence</option>
-                <option value="100">100% Verified</option>
-                <option value="high">≥ 90% High</option>
-                <option value="medium">70% – 85% Medium</option>
-                <option value="50">≤ 50% Low / Caution</option>
-              </select>
-
-              <button
-                onClick={() => fetchIndicators(1)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  background: '#2563eb',
-                  border: 'none',
-                  color: '#ffffff',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                <Filter size={12} /> Filter
-              </button>
-
-              {(indicatorsSearch || indicatorsType !== 'all' || indicatorsSource !== 'all' || indicatorsStatus !== 'all' || indicatorsConfidence !== 'all') && (
-                <button
-                  onClick={() => {
-                    setIndicatorsSearch('');
-                    setIndicatorsType('all');
-                    setIndicatorsSource('all');
-                    setIndicatorsStatus('all');
-                    setIndicatorsConfidence('all');
-                  }}
-                  title="Reset all filters"
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: '6px',
-                    background: 'var(--surface2)',
-                    border: '1px solid var(--border)',
-                    color: 'var(--muted)',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  <RotateCcw size={12} /> Reset
-                </button>
-              )}
-            </div>
-          </div>
-
           {/* Indicators Table */}
           <div style={{
             background: 'var(--surface)',
@@ -2510,12 +2403,12 @@ export default function ThreatHunting() {
                   width: '36px',
                   height: '36px',
                   borderRadius: '8px',
-                  background: 'rgba(139, 92, 246, 0.15)',
+                  background: 'rgba(37, 99, 235, 0.12)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: '#8b5cf6',
-                  border: '1px solid rgba(139, 92, 246, 0.3)'
+                  color: '#2563eb',
+                  border: '1px solid rgba(37, 99, 235, 0.25)'
                 }}>
                   <RotateCcw size={18} />
                 </div>
@@ -2599,21 +2492,21 @@ export default function ThreatHunting() {
                     <button
                       type="button"
                       onClick={() => setScheduleForm(prev => ({ ...prev, runTime: '08:00' }))}
-                      style={{ padding: '3px 8px', borderRadius: '4px', background: scheduleForm.runTime === '08:00' ? '#8b5cf6' : 'var(--surface2)', border: '1px solid var(--border)', color: scheduleForm.runTime === '08:00' ? '#fff' : 'var(--muted)', fontSize: '11px', cursor: 'pointer' }}
+                      style={{ padding: '3px 8px', borderRadius: '4px', background: scheduleForm.runTime === '08:00' ? '#2563eb' : 'var(--surface2)', border: '1px solid var(--border)', color: scheduleForm.runTime === '08:00' ? '#fff' : 'var(--muted)', fontSize: '11px', cursor: 'pointer' }}
                     >
                       08:00 AM (Morning Shift)
                     </button>
                     <button
                       type="button"
                       onClick={() => setScheduleForm(prev => ({ ...prev, runTime: '02:00' }))}
-                      style={{ padding: '3px 8px', borderRadius: '4px', background: scheduleForm.runTime === '02:00' ? '#8b5cf6' : 'var(--surface2)', border: '1px solid var(--border)', color: scheduleForm.runTime === '02:00' ? '#fff' : 'var(--muted)', fontSize: '11px', cursor: 'pointer' }}
+                      style={{ padding: '3px 8px', borderRadius: '4px', background: scheduleForm.runTime === '02:00' ? '#2563eb' : 'var(--surface2)', border: '1px solid var(--border)', color: scheduleForm.runTime === '02:00' ? '#fff' : 'var(--muted)', fontSize: '11px', cursor: 'pointer' }}
                     >
                       02:00 AM (Off-Peak Nightly)
                     </button>
                     <button
                       type="button"
                       onClick={() => setScheduleForm(prev => ({ ...prev, runTime: '18:00' }))}
-                      style={{ padding: '3px 8px', borderRadius: '4px', background: scheduleForm.runTime === '18:00' ? '#8b5cf6' : 'var(--surface2)', border: '1px solid var(--border)', color: scheduleForm.runTime === '18:00' ? '#fff' : 'var(--muted)', fontSize: '11px', cursor: 'pointer' }}
+                      style={{ padding: '3px 8px', borderRadius: '4px', background: scheduleForm.runTime === '18:00' ? '#2563eb' : 'var(--surface2)', border: '1px solid var(--border)', color: scheduleForm.runTime === '18:00' ? '#fff' : 'var(--muted)', fontSize: '11px', cursor: 'pointer' }}
                     >
                       06:00 PM (Evening Handover)
                     </button>
@@ -2652,13 +2545,13 @@ export default function ThreatHunting() {
               <div style={{
                 padding: '12px 14px',
                 borderRadius: '8px',
-                background: 'rgba(139, 92, 246, 0.08)',
-                border: '1px solid rgba(139, 92, 246, 0.25)',
+                background: 'rgba(37, 99, 235, 0.08)',
+                border: '1px solid rgba(37, 99, 235, 0.25)',
                 marginBottom: '24px',
                 display: 'flex',
                 gap: '10px'
               }}>
-                <Info size={16} color="#8b5cf6" style={{ flexShrink: 0, marginTop: '2px' }} />
+                <Info size={16} color="#2563eb" style={{ flexShrink: 0, marginTop: '2px' }} />
                 <p style={{ margin: 0, fontSize: '12px', color: 'var(--text)', lineHeight: 1.5 }}>
                   <strong>Why 7-Day or longer lookback?</strong> Threat intelligence feeds often take 2 to 4 days to research and index new malware C2s. Scanning at least past 7 days ensures stealth connections that occurred before feed publication are caught. All hits are saved permanently in the database with automatic deduplication.
                 </p>
@@ -2688,13 +2581,13 @@ export default function ThreatHunting() {
                   style={{
                     padding: '8px 20px',
                     borderRadius: '8px',
-                    background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+                    background: '#2563eb',
                     border: 'none',
                     color: '#ffffff',
                     fontSize: '12px',
                     fontWeight: 700,
                     cursor: isSavingSchedule ? 'not-allowed' : 'pointer',
-                    boxShadow: '0 2px 8px rgba(124, 58, 237, 0.3)',
+                    boxShadow: '0 2px 8px rgba(37, 99, 235, 0.3)',
                     opacity: isSavingSchedule ? 0.7 : 1,
                     display: 'flex',
                     alignItems: 'center',

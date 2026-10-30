@@ -113,22 +113,29 @@ exports.getStatus = async (req, res) => {
       console.warn('[ThreatHunting] Indicator stats query warning:', err.message);
     }
 
-    // 3. Matched threats in the last 24 hours (fw_events + events)
-    let matchesToday = 0;
+    // 3. Matched threats in specified telemetry window (fw_events + events)
+    const timeRange = req.query.timeRange || '7d';
+    let intervalClause = "INTERVAL '7 days'";
+    if (timeRange === '24h') intervalClause = "INTERVAL '24 hours'";
+    if (timeRange === '14d') intervalClause = "INTERVAL '14 days'";
+    if (timeRange === '30d') intervalClause = "INTERVAL '30 days'";
+    if (timeRange === '60d') intervalClause = "INTERVAL '60 days'";
+
+    let matchesCount = 0;
     try {
       const [fwMatchRes, eventMatchRes] = await Promise.all([
         qTenant(`
           SELECT COUNT(*) as cnt FROM fw_events 
-          WHERE ts >= NOW() - INTERVAL '24 hours' 
+          WHERE ts >= NOW() - ${intervalClause} 
             AND (logdesc LIKE '%[THREAT DANGER]%' OR msg LIKE '%[THREAT DANGER]%')
         `),
         qTenant(`
           SELECT COUNT(*) as cnt FROM events 
-          WHERE ts >= NOW() - INTERVAL '24 hours' 
+          WHERE ts >= NOW() - ${intervalClause} 
             AND (tag = 'MALWARE-EXE-DETECTED' OR message LIKE '%[THREAT DANGER]%')
         `)
       ]);
-      matchesToday = (parseInt(fwMatchRes.rows[0]?.cnt, 10) || 0) + (parseInt(eventMatchRes.rows[0]?.cnt, 10) || 0);
+      matchesCount = (parseInt(fwMatchRes.rows[0]?.cnt, 10) || 0) + (parseInt(eventMatchRes.rows[0]?.cnt, 10) || 0);
     } catch (err) {
       console.warn('[ThreatHunting] Matches count warning:', err.message);
     }
@@ -160,7 +167,9 @@ exports.getStatus = async (req, res) => {
         ips: ipCount,
         domains: domainCount,
         hashes: hashCount,
-        matches_today: matchesToday,
+        matches_today: matchesCount,
+        matches_count: matchesCount,
+        time_range: timeRange,
         retrohunt_matches: retrohuntMatchesCount,
         last_retrohunt_at: lastRetrohuntAt
       },
@@ -356,7 +365,13 @@ exports.getMatches = async (req, res) => {
           COALESCE(SUBSTRING(message FROM '([a-fA-F0-9]{64})'), 'MALWARE-EXE') AS indicator,
           'sha256' AS indicator_type,
           severity,
-          message AS details
+          message AS details,
+          'blocked' AS action,
+          '' AS proto,
+          'Execution' AS service,
+          0 AS dst_port,
+          0 AS src_port,
+          tag AS policy
         FROM events
         WHERE ${evConds.join(' AND ')}
         ORDER BY ts DESC
@@ -408,7 +423,13 @@ exports.getMatches = async (req, res) => {
             ELSE 'ip'
           END AS indicator_type,
           severity,
-          COALESCE(NULLIF(logdesc, ''), msg, 'Threat connection detected') AS details
+          COALESCE(NULLIF(logdesc, ''), msg, 'Threat connection detected') AS details,
+          COALESCE(NULLIF(action, ''), 'blocked') AS action,
+          COALESCE(NULLIF(proto, ''), 'TCP') AS proto,
+          COALESCE(NULLIF(service, ''), '') AS service,
+          COALESCE(dst_port, 0) AS dst_port,
+          COALESCE(src_port, 0) AS src_port,
+          COALESCE(NULLIF(policy, ''), '') AS policy
         FROM fw_events
         WHERE ${fwConds.join(' AND ')}${typeCond}
         ORDER BY ts DESC
@@ -460,7 +481,13 @@ exports.getMatches = async (req, res) => {
               ELSE 'ip'
             END AS indicator_type,
             severity,
-            COALESCE(NULLIF(logdesc, ''), msg, 'Threat connection detected') AS details
+            COALESCE(NULLIF(logdesc, ''), msg, 'Threat connection detected') AS details,
+            COALESCE(NULLIF(action, ''), 'blocked') AS action,
+            COALESCE(NULLIF(proto, ''), 'TCP') AS proto,
+            COALESCE(NULLIF(service, ''), '') AS service,
+            COALESCE(dst_port, 0) AS dst_port,
+            COALESCE(src_port, 0) AS src_port,
+            COALESCE(NULLIF(policy, ''), '') AS policy
           FROM fw_events
           WHERE ${fwConds.join(' AND ')}
           ORDER BY ts DESC
@@ -475,7 +502,13 @@ exports.getMatches = async (req, res) => {
             COALESCE(SUBSTRING(message FROM '([a-fA-F0-9]{64})'), 'MALWARE-EXE') AS indicator,
             'sha256' AS indicator_type,
             severity,
-            message AS details
+            message AS details,
+            'blocked' AS action,
+            '' AS proto,
+            'Execution' AS service,
+            0 AS dst_port,
+            0 AS src_port,
+            tag AS policy
           FROM events
           WHERE ${evConds.join(' AND ')}
           ORDER BY ts DESC
@@ -487,6 +520,32 @@ exports.getMatches = async (req, res) => {
       combined.sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0));
       allMatches = combined.slice(0, limitNum);
     }
+
+    // Enrich all matches with threat intelligence metadata (malware_family, source_feed, confidence)
+    const indicatorsList = Array.from(new Set(allMatches.map(m => (m.indicator || '').trim().toLowerCase()).filter(Boolean)));
+    let intelMap = new Map();
+    if (indicatorsList.length > 0) {
+      try {
+        const intelRes = await qControl(`
+          SELECT LOWER(ioc_value) as ioc_value, threat_type, malware_family, source_feed, confidence_level 
+          FROM threat_intel_iocs 
+          WHERE LOWER(ioc_value) = ANY($1::varchar[])
+        `, [indicatorsList]);
+        for (const row of (intelRes.rows || [])) {
+          intelMap.set(row.ioc_value, row);
+        }
+      } catch (_) {}
+    }
+
+    allMatches = allMatches.map(m => {
+      const intel = intelMap.get((m.indicator || '').trim().toLowerCase()) || {};
+      return {
+        ...m,
+        malware_family: intel.malware_family || (m.indicator_type === 'domain' ? 'Malicious Domain' : m.indicator_type === 'sha256' ? 'Malware Binary' : 'Malicious C2'),
+        source_feed: intel.source_feed || (m.indicator_type === 'domain' ? 'URLhaus' : m.indicator_type === 'sha256' ? 'MalwareBazaar' : 'ThreatFox'),
+        confidence_level: intel.confidence_level || 100
+      };
+    });
 
     res.json({
       matches: allMatches,
