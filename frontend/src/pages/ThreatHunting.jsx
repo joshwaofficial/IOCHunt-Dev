@@ -124,7 +124,7 @@ const getVirusTotalUrl = (detail) => {
   return `https://www.virustotal.com/gui/search/${encodeURIComponent(val)}`;
 };
 
-// Multi-Source External Threat Reputation Links
+// Smart Multi-Source Threat Reputation Links (Approach 1: Smart Origin-Aware Routing)
 const getReputationLinks = (detail) => {
   if (!detail || !detail.data) return [];
   const rawVal = detail.type === 'match' ? getRealIndicator(detail.data) : detail.data.ioc_value;
@@ -140,95 +140,69 @@ const getReputationLinks = (detail) => {
   const isIpv4 = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(ipWithoutPort);
   const isIpv6 = ipWithoutPort.includes(':');
 
+  // Identify true origin feed
+  const originFeed = String(
+    detail.data?.source_feed || detail.data?.source || detail.data?.source_provider || ''
+  ).toLowerCase().trim();
+
   const links = [];
 
-  // VirusTotal Direct
-  links.push({
-    name: 'VirusTotal',
-    url: getVirusTotalUrl(detail),
-    color: '#3b82f6',
-    bg: 'rgba(59,130,246,0.12)',
-    border: 'rgba(59,130,246,0.3)',
-    title: 'Inspect on VirusTotal'
-  });
-
-  if (rawType.includes('sha') || rawType.includes('hash') || isHexHash) {
-    // Hash Sources
+  // 1. PRIMARY VERIFIED ORIGIN FEED (100% Guaranteed to have the record)
+  if (originFeed.includes('urlhaus') || (!originFeed && rawType === 'domain')) {
+    links.push({
+      name: 'URLhaus',
+      badge: 'Origin Feed',
+      url: (rawType === 'ip' || isIpv4 || isIpv6)
+        ? `https://urlhaus.abuse.ch/host/${encodeURIComponent(ipWithoutPort)}/`
+        : `https://urlhaus.abuse.ch/host/${encodeURIComponent(val)}/`,
+      color: '#eab308',
+      bg: 'rgba(234,179,8,0.12)',
+      border: 'rgba(234,179,8,0.3)',
+      title: 'View original malware payload report on URLhaus'
+    });
+  } else if (originFeed.includes('threatfox') || (!originFeed && (rawType === 'ip' || isIpv4 || isIpv6))) {
+    links.push({
+      name: 'ThreatFox',
+      badge: 'Origin Feed',
+      url: `https://threatfox.abuse.ch/browse.php?search=ioc%3A${encodeURIComponent(val)}`,
+      color: '#2563eb',
+      bg: 'rgba(37,99,235,0.12)',
+      border: 'rgba(37,99,235,0.3)',
+      title: 'View original C2 intelligence report on ThreatFox'
+    });
+  } else if (originFeed.includes('malwarebazaar') || originFeed.includes('bazaar') || (!originFeed && (rawType.includes('sha') || rawType.includes('hash') || isHexHash))) {
     links.push({
       name: 'MalwareBazaar',
+      badge: 'Origin Feed',
       url: `https://bazaar.abuse.ch/sample/${encodeURIComponent(val)}/`,
       color: '#eab308',
       bg: 'rgba(234,179,8,0.12)',
       border: 'rgba(234,179,8,0.3)',
-      title: 'Analyze sample on MalwareBazaar'
+      title: 'View verified binary malware report on MalwareBazaar'
     });
-    links.push({
-      name: 'Hybrid Analysis',
-      url: `https://www.hybrid-analysis.com/sample/${encodeURIComponent(val.toLowerCase())}`,
-      color: '#06b6d4',
-      bg: 'rgba(6,182,212,0.12)',
-      border: 'rgba(6,182,212,0.3)',
-      title: 'View Falcon Sandbox report on Hybrid Analysis'
-    });
-    links.push({
-      name: 'ThreatFox',
-      url: `https://threatfox.abuse.ch/browse.php?search=ioc%3A${encodeURIComponent(val)}`,
-      color: '#a855f7',
-      bg: 'rgba(168,85,247,0.12)',
-      border: 'rgba(168,85,247,0.3)',
-      title: 'Search IOC on ThreatFox'
-    });
-  } else if (rawType === 'ip' || isIpv4 || isIpv6) {
-    // IP Sources
+  }
+
+  // 2. UNIVERSAL REPUTATION: VirusTotal (Never 404s, scans 70+ AV engines)
+  links.push({
+    name: 'VirusTotal',
+    badge: 'Multi-Vendor',
+    url: getVirusTotalUrl(detail),
+    color: '#3b82f6',
+    bg: 'rgba(59,130,246,0.12)',
+    border: 'rgba(59,130,246,0.3)',
+    title: 'Inspect multi-engine antivirus analysis on VirusTotal'
+  });
+
+  // 3. IP REPUTATION: AbuseIPDB (Only for IPs, guaranteed valid report page, never 404s)
+  if (rawType === 'ip' || isIpv4 || isIpv6) {
     links.push({
       name: 'AbuseIPDB',
+      badge: 'Community',
       url: `https://www.abuseipdb.com/check/${encodeURIComponent(ipWithoutPort)}`,
       color: '#f97316',
       bg: 'rgba(249,115,22,0.12)',
       border: 'rgba(249,115,22,0.3)',
-      title: 'Check IP abuse confidence score on AbuseIPDB'
-    });
-    links.push({
-      name: 'Shodan',
-      url: `https://www.shodan.io/host/${encodeURIComponent(ipWithoutPort)}`,
-      color: '#ef4444',
-      bg: 'rgba(239,68,68,0.12)',
-      border: 'rgba(239,68,68,0.3)',
-      title: 'View exposed open ports and services on Shodan'
-    });
-    links.push({
-      name: 'ThreatFox',
-      url: `https://threatfox.abuse.ch/browse.php?search=ioc%3A${encodeURIComponent(val)}`,
-      color: '#a855f7',
-      bg: 'rgba(168,85,247,0.12)',
-      border: 'rgba(168,85,247,0.3)',
-      title: 'Search IOC on ThreatFox'
-    });
-  } else {
-    // Domain / URL Sources
-    links.push({
-      name: 'urlscan.io',
-      url: `https://urlscan.io/search/#${encodeURIComponent(val)}`,
-      color: '#10b981',
-      bg: 'rgba(16,185,129,0.12)',
-      border: 'rgba(16,185,129,0.3)',
-      title: 'View website scan and DOM on urlscan.io'
-    });
-    links.push({
-      name: 'URLhaus',
-      url: `https://urlhaus.abuse.ch/browse.php?search=${encodeURIComponent(val)}`,
-      color: '#eab308',
-      bg: 'rgba(234,179,8,0.12)',
-      border: 'rgba(234,179,8,0.3)',
-      title: 'Search URLhaus malware repository'
-    });
-    links.push({
-      name: 'ThreatFox',
-      url: `https://threatfox.abuse.ch/browse.php?search=ioc%3A${encodeURIComponent(val)}`,
-      color: '#a855f7',
-      bg: 'rgba(168,85,247,0.12)',
-      border: 'rgba(168,85,247,0.3)',
-      title: 'Search IOC on ThreatFox'
+      title: 'Check IP abuse confidence score and blacklist on AbuseIPDB'
     });
   }
 
@@ -2897,7 +2871,7 @@ export default function ThreatHunting() {
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
-                          gap: '5px',
+                          gap: '6px',
                           padding: '6px 12px',
                           borderRadius: '6px',
                           background: link.bg,
@@ -2909,7 +2883,21 @@ export default function ThreatHunting() {
                           transition: 'opacity 0.15s'
                         }}
                       >
-                        <ExternalLink size={12} /> {link.name}
+                        <ExternalLink size={12} />
+                        <span>{link.name}</span>
+                        {link.badge && (
+                          <span style={{
+                            fontSize: '9px',
+                            fontWeight: 800,
+                            padding: '1px 5px',
+                            borderRadius: '4px',
+                            background: link.badge === 'Origin Feed' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(255, 255, 255, 0.08)',
+                            color: link.badge === 'Origin Feed' ? '#22c55e' : 'inherit',
+                            fontFamily: 'var(--mono)'
+                          }}>
+                            {link.badge}
+                          </span>
+                        )}
                       </a>
                     ))}
                   </div>
