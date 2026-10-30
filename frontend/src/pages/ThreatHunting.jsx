@@ -83,7 +83,7 @@ export const getCleanThreatContext = (item) => {
   return 'Verified Threat Infrastructure Connection';
 };
 
-// Smart VirusTotal direct URL generator: Routes hashes to /gui/file/, IPs to /gui/ip-address/, domains to /gui/domain/
+// Smart VirusTotal URL generator: Uses search for hashes to gracefully handle zero-day samples not yet submitted, and direct URLs for IPs and domains
 const getVirusTotalUrl = (detail) => {
   if (!detail || !detail.data) return 'https://www.virustotal.com';
 
@@ -96,6 +96,7 @@ const getVirusTotalUrl = (detail) => {
   ).toLowerCase();
 
   // 1. File Hash: SHA-256 (64 hex), SHA-1 (40 hex), MD5 (32 hex)
+  // Use /gui/search/ so if the file has not yet been submitted to VirusTotal, it shows the friendly search page rather than a hard "Item not found" error
   const isHexHash = /^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$/.test(val);
   if (
     rawType.includes('sha') ||
@@ -103,7 +104,7 @@ const getVirusTotalUrl = (detail) => {
     rawType.includes('md5') ||
     isHexHash
   ) {
-    return `https://www.virustotal.com/gui/file/${val.toLowerCase()}`;
+    return `https://www.virustotal.com/gui/search/${encodeURIComponent(val.toLowerCase())}`;
   }
 
   // 2. IP Address (support IPv4 or IPv6, strip trailing port if present e.g. 1.2.3.4:443)
@@ -136,6 +137,7 @@ const getReputationLinks = (detail) => {
   ).toLowerCase();
 
   const isHexHash = /^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$/.test(val);
+  const isHash = rawType.includes('sha') || rawType.includes('hash') || rawType.includes('md5') || isHexHash;
   const ipWithoutPort = val.replace(/:\d+$/, '');
   const isIpv4 = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(ipWithoutPort);
   const isIpv6 = ipWithoutPort.includes(':');
@@ -147,54 +149,96 @@ const getReputationLinks = (detail) => {
 
   const links = [];
 
-  // 1. PRIMARY VERIFIED ORIGIN FEED (100% Guaranteed to have the record)
-  if (originFeed.includes('urlhaus') || (!originFeed && rawType === 'domain')) {
+  // 1. FILE HASHES (SHA-256 / MD5 / SHA-1)
+  if (isHash) {
+    if (originFeed.includes('threatfox')) {
+      links.push({
+        name: 'ThreatFox',
+        badge: 'Origin Feed',
+        url: `https://threatfox.abuse.ch/browse.php?search=ioc%3A${encodeURIComponent(val)}`,
+        color: '#2563eb',
+        bg: 'rgba(37,99,235,0.12)',
+        border: 'rgba(37,99,235,0.3)',
+        title: 'View original malware payload report on ThreatFox'
+      });
+      links.push({
+        name: 'MalwareBazaar',
+        badge: 'Binary Sample',
+        url: `https://bazaar.abuse.ch/sample/${encodeURIComponent(val)}/`,
+        color: '#eab308',
+        bg: 'rgba(234,179,8,0.12)',
+        border: 'rgba(234,179,8,0.3)',
+        title: 'Check binary malware sample, sandbox runs and YARA rules on MalwareBazaar'
+      });
+    } else {
+      links.push({
+        name: 'MalwareBazaar',
+        badge: 'Origin Feed',
+        url: `https://bazaar.abuse.ch/sample/${encodeURIComponent(val)}/`,
+        color: '#eab308',
+        bg: 'rgba(234,179,8,0.12)',
+        border: 'rgba(234,179,8,0.3)',
+        title: 'View verified binary malware report on MalwareBazaar'
+      });
+      links.push({
+        name: 'ThreatFox',
+        badge: 'Threat Intel',
+        url: `https://threatfox.abuse.ch/browse.php?search=ioc%3A${encodeURIComponent(val)}`,
+        color: '#2563eb',
+        bg: 'rgba(37,99,235,0.12)',
+        border: 'rgba(37,99,235,0.3)',
+        title: 'Check correlated threat intelligence on ThreatFox'
+      });
+    }
+
+    // VirusTotal Search (auto-resolves if known, friendly search page if not uploaded yet)
     links.push({
-      name: 'URLhaus',
-      badge: 'Origin Feed',
-      url: (rawType === 'ip' || isIpv4 || isIpv6)
-        ? `https://urlhaus.abuse.ch/host/${encodeURIComponent(ipWithoutPort)}/`
-        : `https://urlhaus.abuse.ch/host/${encodeURIComponent(val)}/`,
-      color: '#eab308',
-      bg: 'rgba(234,179,8,0.12)',
-      border: 'rgba(234,179,8,0.3)',
-      title: 'View original malware payload report on URLhaus'
+      name: 'VirusTotal',
+      badge: 'Multi-Vendor',
+      url: `https://www.virustotal.com/gui/search/${encodeURIComponent(val.toLowerCase())}`,
+      color: '#3b82f6',
+      bg: 'rgba(59,130,246,0.12)',
+      border: 'rgba(59,130,246,0.3)',
+      title: 'Search across 70+ antivirus engines on VirusTotal'
     });
-  } else if (originFeed.includes('threatfox') || (!originFeed && (rawType === 'ip' || isIpv4 || isIpv6))) {
-    links.push({
-      name: 'ThreatFox',
-      badge: 'Origin Feed',
-      url: `https://threatfox.abuse.ch/browse.php?search=ioc%3A${encodeURIComponent(val)}`,
-      color: '#2563eb',
-      bg: 'rgba(37,99,235,0.12)',
-      border: 'rgba(37,99,235,0.3)',
-      title: 'View original C2 intelligence report on ThreatFox'
-    });
-  } else if (originFeed.includes('malwarebazaar') || originFeed.includes('bazaar') || (!originFeed && (rawType.includes('sha') || rawType.includes('hash') || isHexHash))) {
-    links.push({
-      name: 'MalwareBazaar',
-      badge: 'Origin Feed',
-      url: `https://bazaar.abuse.ch/sample/${encodeURIComponent(val)}/`,
-      color: '#eab308',
-      bg: 'rgba(234,179,8,0.12)',
-      border: 'rgba(234,179,8,0.3)',
-      title: 'View verified binary malware report on MalwareBazaar'
-    });
+
+    return links;
   }
 
-  // 2. UNIVERSAL REPUTATION: VirusTotal (Never 404s, scans 70+ AV engines)
-  links.push({
-    name: 'VirusTotal',
-    badge: 'Multi-Vendor',
-    url: getVirusTotalUrl(detail),
-    color: '#3b82f6',
-    bg: 'rgba(59,130,246,0.12)',
-    border: 'rgba(59,130,246,0.3)',
-    title: 'Inspect multi-engine antivirus analysis on VirusTotal'
-  });
-
-  // 3. IP REPUTATION: AbuseIPDB (Only for IPs, guaranteed valid report page, never 404s)
+  // 2. IP ADDRESSES
   if (rawType === 'ip' || isIpv4 || isIpv6) {
+    if (originFeed.includes('urlhaus')) {
+      links.push({
+        name: 'URLhaus',
+        badge: 'Origin Feed',
+        url: `https://urlhaus.abuse.ch/host/${encodeURIComponent(ipWithoutPort)}/`,
+        color: '#eab308',
+        bg: 'rgba(234,179,8,0.12)',
+        border: 'rgba(234,179,8,0.3)',
+        title: 'View original malware payload report on URLhaus'
+      });
+    } else {
+      links.push({
+        name: 'ThreatFox',
+        badge: 'Origin Feed',
+        url: `https://threatfox.abuse.ch/browse.php?search=ioc%3A${encodeURIComponent(val)}`,
+        color: '#2563eb',
+        bg: 'rgba(37,99,235,0.12)',
+        border: 'rgba(37,99,235,0.3)',
+        title: 'View original C2 intelligence report on ThreatFox'
+      });
+    }
+
+    links.push({
+      name: 'VirusTotal',
+      badge: 'Multi-Vendor',
+      url: `https://www.virustotal.com/gui/ip-address/${encodeURIComponent(ipWithoutPort)}`,
+      color: '#3b82f6',
+      bg: 'rgba(59,130,246,0.12)',
+      border: 'rgba(59,130,246,0.3)',
+      title: 'Inspect multi-engine antivirus analysis on VirusTotal'
+    });
+
     links.push({
       name: 'AbuseIPDB',
       badge: 'Community',
@@ -204,7 +248,42 @@ const getReputationLinks = (detail) => {
       border: 'rgba(249,115,22,0.3)',
       title: 'Check IP abuse confidence score and blacklist on AbuseIPDB'
     });
+
+    return links;
   }
+
+  // 3. DOMAINS
+  if (originFeed.includes('urlhaus') || (!originFeed && rawType === 'domain')) {
+    links.push({
+      name: 'URLhaus',
+      badge: 'Origin Feed',
+      url: `https://urlhaus.abuse.ch/host/${encodeURIComponent(val)}/`,
+      color: '#eab308',
+      bg: 'rgba(234,179,8,0.12)',
+      border: 'rgba(234,179,8,0.3)',
+      title: 'View original malware payload report on URLhaus'
+    });
+  } else {
+    links.push({
+      name: 'ThreatFox',
+      badge: 'Origin Feed',
+      url: `https://threatfox.abuse.ch/browse.php?search=ioc%3A${encodeURIComponent(val)}`,
+      color: '#2563eb',
+      bg: 'rgba(37,99,235,0.12)',
+      border: 'rgba(37,99,235,0.3)',
+      title: 'View original C2 intelligence report on ThreatFox'
+    });
+  }
+
+  links.push({
+    name: 'VirusTotal',
+    badge: 'Multi-Vendor',
+    url: `https://www.virustotal.com/gui/domain/${encodeURIComponent(val)}`,
+    color: '#3b82f6',
+    bg: 'rgba(59,130,246,0.12)',
+    border: 'rgba(59,130,246,0.3)',
+    title: 'Inspect multi-engine antivirus analysis on VirusTotal'
+  });
 
   return links;
 };
@@ -2958,6 +3037,30 @@ export default function ThreatHunting() {
                   </div>
                 </div>
               </div>
+
+              {/* Zero-day hash info banner for SHA256 hashes */}
+              {Boolean(
+                String(selectedDetail.type === 'match' ? getRealIndicatorType(selectedDetail.data) : selectedDetail.data.ioc_type || '').toLowerCase().includes('sha') ||
+                /^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$/.test(String(selectedDetail.type === 'match' ? getRealIndicator(selectedDetail.data) : selectedDetail.data.ioc_value || '').trim())
+              ) && (
+                <div style={{
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  background: 'rgba(37, 99, 235, 0.06)',
+                  border: '1px solid rgba(37, 99, 235, 0.2)',
+                  fontSize: '11px',
+                  color: 'var(--muted2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  lineHeight: '1.5'
+                }}>
+                  <Info size={15} color="#2563eb" style={{ flexShrink: 0 }} />
+                  <span>
+                    <strong style={{ color: 'var(--text)' }}>Zero-Day Hash Intelligence:</strong> Newly observed malware hashes from ThreatFox / MalwareBazaar are active in the wild but may not have been submitted to VirusTotal yet ("Item not found"). Use the <strong>ThreatFox</strong> or <strong>MalwareBazaar</strong> buttons above to view verified payload analysis.
+                  </span>
+                </div>
+              )}
 
               {/* Specific Content Based on Detail Type */}
               {selectedDetail.type === 'match' ? (
