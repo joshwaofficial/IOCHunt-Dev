@@ -125,7 +125,7 @@ const getVirusTotalUrl = (detail) => {
   return `https://www.virustotal.com/gui/search/${encodeURIComponent(val)}`;
 };
 
-// Smart Multi-Source Threat Reputation Links (Strict Origin Feed + Universal Verification)
+// Smart Multi-Source Threat Reputation Links (Method 2: Strict Origin Feed + Intelligent Routing)
 const getReputationLinks = (detail) => {
   if (!detail || !detail.data) return [];
   const rawVal = detail.type === 'match' ? getRealIndicator(detail.data) : detail.data.ioc_value;
@@ -144,13 +144,19 @@ const getReputationLinks = (detail) => {
 
   // Identify true origin feed
   const originFeed = String(
-    detail.data?.source_feed || detail.data?.source || detail.data?.source_provider || ''
+    detail.data?.source_feed ||
+    detail.data?.source ||
+    detail.data?.source_provider ||
+    detail.data?.feed ||
+    ''
   ).toLowerCase().trim();
 
   const links = [];
 
   // 1. FILE HASHES (SHA-256 / MD5 / SHA-1)
-  // Strict origin feed routing: Never cross-link ThreatFox to MalwareBazaar or vice versa
+  // Strict origin feed routing & zero-day handling (Method 2):
+  // - ThreatFox hashes: Ingested from telemetry/IR (often not yet uploaded to VT). Route to ThreatFox + Google Intel OSINT Search.
+  // - MalwareBazaar hashes: Ingested binary samples (uploaded to VT). Route to MalwareBazaar + VirusTotal (/gui/file/<hash>).
   if (isHash) {
     if (originFeed.includes('threatfox')) {
       links.push({
@@ -162,6 +168,15 @@ const getReputationLinks = (detail) => {
         border: 'rgba(37,99,235,0.3)',
         title: 'View verified malware payload record on ThreatFox'
       });
+      links.push({
+        name: 'Google Intel',
+        badge: 'OSINT Search',
+        url: `https://www.google.com/search?q=${encodeURIComponent('"' + val + '"')}`,
+        color: '#10b981',
+        bg: 'rgba(16,185,129,0.12)',
+        border: 'rgba(16,185,129,0.3)',
+        title: 'Search OSINT research blogs, GitHub analysis, and advisories for this hash'
+      });
     } else {
       links.push({
         name: 'MalwareBazaar',
@@ -172,17 +187,16 @@ const getReputationLinks = (detail) => {
         border: 'rgba(234,179,8,0.3)',
         title: 'View verified binary malware sample report on MalwareBazaar'
       });
+      links.push({
+        name: 'VirusTotal',
+        badge: 'Multi-Vendor',
+        url: `https://www.virustotal.com/gui/file/${val.toLowerCase()}`,
+        color: '#3b82f6',
+        bg: 'rgba(59,130,246,0.12)',
+        border: 'rgba(59,130,246,0.3)',
+        title: 'View antivirus vendor detection report on VirusTotal'
+      });
     }
-
-    links.push({
-      name: 'VirusTotal',
-      badge: 'Multi-Vendor',
-      url: `https://www.virustotal.com/gui/file/${val.toLowerCase()}`,
-      color: '#3b82f6',
-      bg: 'rgba(59,130,246,0.12)',
-      border: 'rgba(59,130,246,0.3)',
-      title: 'View antivirus vendor detection report on VirusTotal'
-    });
 
     return links;
   }
@@ -3039,7 +3053,15 @@ export default function ThreatHunting() {
                 }}>
                   <Info size={15} color="#2563eb" style={{ flexShrink: 0 }} />
                   <span>
-                    <strong style={{ color: 'var(--text)' }}>Threat Intelligence Verification:</strong> Click the <strong>Origin Feed</strong> button above to view verified payload details on {String(selectedDetail.data?.source_feed || selectedDetail.data?.source || '').toLowerCase().includes('threatfox') ? 'ThreatFox' : 'MalwareBazaar'}. VirusTotal only indexes files that users have physically uploaded; zero-day samples not yet submitted will display "Item not found" on VirusTotal.
+                    {String(selectedDetail.data?.source_feed || selectedDetail.data?.source || selectedDetail.data?.source_provider || '').toLowerCase().includes('threatfox') ? (
+                      <>
+                        <strong style={{ color: 'var(--text)' }}>ThreatFox Telemetry Intelligence:</strong> This indicator was captured directly from active field telemetry and honeypots. Click <strong>ThreatFox</strong> to view the verified IOC attribution record, or click <strong>Google Intel</strong> to search OSINT research blogs, GitHub writeups, and security advisories.
+                      </>
+                    ) : (
+                      <>
+                        <strong style={{ color: 'var(--text)' }}>MalwareBazaar Binary Intelligence:</strong> This is a verified malware executable sample. Click <strong>MalwareBazaar</strong> to inspect sandbox behavior, or click <strong>VirusTotal</strong> to view multi-vendor antivirus engine detections.
+                      </>
+                    )}
                   </span>
                 </div>
               )}
