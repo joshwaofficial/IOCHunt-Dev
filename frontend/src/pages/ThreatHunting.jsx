@@ -83,7 +83,7 @@ export const getCleanThreatContext = (item) => {
   return 'Verified Threat Infrastructure Connection';
 };
 
-// Smart VirusTotal URL generator: Uses search for hashes to gracefully handle zero-day samples not yet submitted, and direct URLs for IPs and domains
+// Smart VirusTotal direct URL generator: Routes hashes to /gui/file/, IPs to /gui/ip-address/, domains to /gui/domain/
 const getVirusTotalUrl = (detail) => {
   if (!detail || !detail.data) return 'https://www.virustotal.com';
 
@@ -96,7 +96,7 @@ const getVirusTotalUrl = (detail) => {
   ).toLowerCase();
 
   // 1. File Hash: SHA-256 (64 hex), SHA-1 (40 hex), MD5 (32 hex)
-  // Use /gui/search/ so if the file has not yet been submitted to VirusTotal, it shows the friendly search page rather than a hard "Item not found" error
+  // Direct file URL loads the vendor detection report
   const isHexHash = /^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$/.test(val);
   if (
     rawType.includes('sha') ||
@@ -104,7 +104,7 @@ const getVirusTotalUrl = (detail) => {
     rawType.includes('md5') ||
     isHexHash
   ) {
-    return `https://www.virustotal.com/gui/search/${encodeURIComponent(val.toLowerCase())}`;
+    return `https://www.virustotal.com/gui/file/${val.toLowerCase()}`;
   }
 
   // 2. IP Address (support IPv4 or IPv6, strip trailing port if present e.g. 1.2.3.4:443)
@@ -125,7 +125,7 @@ const getVirusTotalUrl = (detail) => {
   return `https://www.virustotal.com/gui/search/${encodeURIComponent(val)}`;
 };
 
-// Smart Multi-Source Threat Reputation Links (Approach 1: Smart Origin-Aware Routing)
+// Smart Multi-Source Threat Reputation Links (Strict Origin Feed + Universal Verification)
 const getReputationLinks = (detail) => {
   if (!detail || !detail.data) return [];
   const rawVal = detail.type === 'match' ? getRealIndicator(detail.data) : detail.data.ioc_value;
@@ -150,6 +150,7 @@ const getReputationLinks = (detail) => {
   const links = [];
 
   // 1. FILE HASHES (SHA-256 / MD5 / SHA-1)
+  // Strict origin feed routing: Never cross-link ThreatFox to MalwareBazaar or vice versa
   if (isHash) {
     if (originFeed.includes('threatfox')) {
       links.push({
@@ -159,16 +160,7 @@ const getReputationLinks = (detail) => {
         color: '#2563eb',
         bg: 'rgba(37,99,235,0.12)',
         border: 'rgba(37,99,235,0.3)',
-        title: 'View original malware payload report on ThreatFox'
-      });
-      links.push({
-        name: 'MalwareBazaar',
-        badge: 'Binary Sample',
-        url: `https://bazaar.abuse.ch/sample/${encodeURIComponent(val)}/`,
-        color: '#eab308',
-        bg: 'rgba(234,179,8,0.12)',
-        border: 'rgba(234,179,8,0.3)',
-        title: 'Check binary malware sample, sandbox runs and YARA rules on MalwareBazaar'
+        title: 'View verified malware payload record on ThreatFox'
       });
     } else {
       links.push({
@@ -178,28 +170,18 @@ const getReputationLinks = (detail) => {
         color: '#eab308',
         bg: 'rgba(234,179,8,0.12)',
         border: 'rgba(234,179,8,0.3)',
-        title: 'View verified binary malware report on MalwareBazaar'
-      });
-      links.push({
-        name: 'ThreatFox',
-        badge: 'Threat Intel',
-        url: `https://threatfox.abuse.ch/browse.php?search=ioc%3A${encodeURIComponent(val)}`,
-        color: '#2563eb',
-        bg: 'rgba(37,99,235,0.12)',
-        border: 'rgba(37,99,235,0.3)',
-        title: 'Check correlated threat intelligence on ThreatFox'
+        title: 'View verified binary malware sample report on MalwareBazaar'
       });
     }
 
-    // VirusTotal Search (auto-resolves if known, friendly search page if not uploaded yet)
     links.push({
       name: 'VirusTotal',
       badge: 'Multi-Vendor',
-      url: `https://www.virustotal.com/gui/search/${encodeURIComponent(val.toLowerCase())}`,
+      url: `https://www.virustotal.com/gui/file/${val.toLowerCase()}`,
       color: '#3b82f6',
       bg: 'rgba(59,130,246,0.12)',
       border: 'rgba(59,130,246,0.3)',
-      title: 'Search across 70+ antivirus engines on VirusTotal'
+      title: 'View antivirus vendor detection report on VirusTotal'
     });
 
     return links;
@@ -3057,7 +3039,7 @@ export default function ThreatHunting() {
                 }}>
                   <Info size={15} color="#2563eb" style={{ flexShrink: 0 }} />
                   <span>
-                    <strong style={{ color: 'var(--text)' }}>Zero-Day Hash Intelligence:</strong> Newly observed malware hashes from ThreatFox / MalwareBazaar are active in the wild but may not have been submitted to VirusTotal yet ("Item not found"). Use the <strong>ThreatFox</strong> or <strong>MalwareBazaar</strong> buttons above to view verified payload analysis.
+                    <strong style={{ color: 'var(--text)' }}>Threat Intelligence Verification:</strong> Click the <strong>Origin Feed</strong> button above to view verified payload details on {String(selectedDetail.data?.source_feed || selectedDetail.data?.source || '').toLowerCase().includes('threatfox') ? 'ThreatFox' : 'MalwareBazaar'}. VirusTotal only indexes files that users have physically uploaded; zero-day samples not yet submitted will display "Item not found" on VirusTotal.
                   </span>
                 </div>
               )}
