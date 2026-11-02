@@ -15,6 +15,7 @@ router.post('/retrohunt', threatHuntingController.runRetrohunt);
 router.get('/retrohunt-matches', threatHuntingController.getRetrohuntMatches);
 router.delete('/retrohunt-matches/:id', threatHuntingController.deleteRetrohuntMatch);
 router.get('/blast-radius', threatHuntingController.getBlastRadius);
+router.get('/topology-graph', threatHuntingController.getTopologyGraph);
 router.get('/schedule', threatHuntingController.getSchedule);
 router.post('/schedule', requireAdmin, threatHuntingController.saveSchedule);
 

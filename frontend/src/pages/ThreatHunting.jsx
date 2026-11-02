@@ -9,6 +9,7 @@ import {
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import PremiumCard from '../components/PremiumCard';
+import ThreatTopology from '../components/ThreatTopology';
 
 // Helper to extract the genuine malicious indicator if an event recorded a DNS resolver (e.g. 8.8.8.8) as dst_ip
 export const getRealIndicator = (item) => {
@@ -405,6 +406,12 @@ export default function ThreatHunting() {
     lookbackWindow: '7d'
   });
   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+  const [graphFocusIndicator, setGraphFocusIndicator] = useState(null);
+
+  const handlePivotToGraph = (indicatorVal) => {
+    setGraphFocusIndicator(indicatorVal);
+    setActiveTab('graph');
+  };
 
   // Fetch Persisted Retroactive Matches from Database Table
   const fetchRetroMatches = async (page = 1) => {
@@ -1537,6 +1544,45 @@ export default function ThreatHunting() {
             </span>
           )}
         </button>
+
+        {/* Tab 4: Threat Graph (Link Analysis & Attack Replay) */}
+        <button
+          onClick={() => {
+            setGraphFocusIndicator(null);
+            setActiveTab('graph');
+          }}
+          style={{
+            padding: '10px 16px',
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === 'graph' ? '2px solid #2563eb' : '2px solid transparent',
+            color: activeTab === 'graph' ? 'var(--text)' : 'var(--muted)',
+            fontWeight: activeTab === 'graph' ? 700 : 500,
+            fontSize: '13px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            fontFamily: 'var(--sans)'
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '17px', color: activeTab === 'graph' ? '#2563eb' : 'currentColor' }}>
+            hub
+          </span>
+          Threat Link Graph & Replay
+          <span style={{
+            padding: '1px 6px',
+            borderRadius: '10px',
+            background: 'rgba(168,85,247,0.15)',
+            color: '#a855f7',
+            fontSize: '10px',
+            fontWeight: 800,
+            fontFamily: 'var(--mono)'
+          }}>
+            BFS / A*
+          </span>
+        </button>
       </div>
 
       {/* ════════════════════════════════════════════════════════════════
@@ -2186,6 +2232,31 @@ export default function ThreatHunting() {
                             </button>
 
                             <button
+                              onClick={() => handlePivotToGraph(getRealIndicator(item))}
+                              title="Pivot to Threat Link Graph & Attack Replay"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                background: 'rgba(168, 85, 247, 0.08)',
+                                border: '1px solid rgba(168, 85, 247, 0.3)',
+                                color: '#a855f7',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                                transition: 'all 0.15s'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(168, 85, 247, 0.18)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(168, 85, 247, 0.08)'}
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>hub</span>
+                              Graph
+                            </button>
+
+                            <button
                               onClick={() => {
                                 const indVal = getRealIndicator(item);
                                 const indType = getRealIndicatorType(item);
@@ -2532,6 +2603,16 @@ export default function ThreatHunting() {
             )}
           </div>
         </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════
+          TAB 4: THREAT LINK ANALYSIS & ATTACK REPLAY GRAPH
+          ════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'graph' && (
+        <ThreatTopology
+          initialFocusIndicator={graphFocusIndicator}
+          onOpenSuppressModal={(indVal, indType) => handleOpenSuppressModal(indVal, indType)}
+        />
       )}
 
       {/* ════════════════════════════════════════════════════════════════
@@ -3197,6 +3278,33 @@ export default function ThreatHunting() {
                       onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(37,99,235,0.1)'}
                     >
                       <Network size={13} /> Blast Radius & Network Pivot
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        const indVal = selectedDetail.type === 'match' ? getRealIndicator(selectedDetail.data) : selectedDetail.data.ioc_value;
+                        setSelectedDetail(null);
+                        handlePivotToGraph(indVal);
+                      }}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 14px',
+                        borderRadius: '6px',
+                        background: 'rgba(168,85,247,0.1)',
+                        border: '1px solid rgba(168,85,247,0.3)',
+                        color: '#a855f7',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(168,85,247,0.2)'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(168,85,247,0.1)'}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>hub</span>
+                      Pivot to Link Graph
                     </button>
 
                     <button

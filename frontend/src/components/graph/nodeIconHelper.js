@@ -10,7 +10,11 @@ import {
   faKey,
   faServer,
   faSitemap,
-  faFolder
+  faFolder,
+  faBiohazard,
+  faFileCode,
+  faFingerprint,
+  faBug
 } from '@fortawesome/free-solid-svg-icons';
 
 // Pre-parse and cache Path2D objects for 60fps canvas rendering
@@ -44,7 +48,12 @@ export const NODE_ICONS = {
   ad_attack: faBolt,
   critical: faSkull,
   ip_external: faGlobe,
-  ip_private: faNetworkWired
+  ip_private: faNetworkWired,
+  malware_family: faBiohazard,
+  threat_ioc: faSkull,
+  malware_hash: faFileCode,
+  patient_zero: faDesktop,
+  c2: faGlobe
 };
 
 export const KIND_COLORS = {
@@ -61,6 +70,11 @@ export const KIND_COLORS = {
   ad_attack: '#dc2626',    // AD Attack: crimson ring
   ip_external: '#64748b',  // External WAN: cool slate ring
   ip_private: '#3b82f6',   // Private Subnet / LAN: blue ring
+  malware_family: '#a855f7', // Adversary campaign root: royal purple ring
+  threat_ioc: '#ef4444',   // Malicious C2 IP / Domain: red ring
+  malware_hash: '#eab308', // Malicious SHA256 executable: yellow amber ring
+  patient_zero: '#f97316', // Initial infected computer: bright orange ring
+  c2: '#dc2626',           // Active C2 Server: crimson red ring
   default: '#0ea5e9'
 };
 
