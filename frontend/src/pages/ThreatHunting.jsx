@@ -15,7 +15,7 @@ export const getRealIndicator = (item) => {
   if (!item) return '';
   const val = String(item.indicator || item.ioc_value || '').trim();
   const raw = String(item.details || item.msg || item.logdesc || '');
-  
+
   // 1. If raw log details explicitly contain the matched threat indicator, extract it
   const match = raw.match(/\[THREAT DANGER\] Matched Known Threat:\s*([^\s,;]+)/i);
   if (match && match[1]) {
@@ -67,11 +67,11 @@ export const getCleanThreatContext = (item) => {
   }
   if (item.service) parts.push(String(item.service).toUpperCase());
   if (item.policy) parts.push(`Policy: ${item.policy}`);
-  
+
   if (parts.length > 0) {
     return parts.join(' · ');
   }
-  
+
   let raw = String(item.details || item.msg || item.logdesc || '');
   raw = raw
     .replace(/\[THREAT DANGER\]\s*Matched Known Threat:\s*[^\s,;]+/i, '')
@@ -81,6 +81,34 @@ export const getCleanThreatContext = (item) => {
     return raw.replace(/^[:\s\-]+/, '');
   }
   return 'Verified Threat Infrastructure Connection';
+};
+
+// Helper to clean up raw honeypot / multi-tag threat names into clean, professional labels
+export const formatMalwareFamily = (raw, item) => {
+  if (!raw) {
+    if (item?.indicator_type === 'domain') return 'Malicious Domain';
+    if (item?.indicator_type === 'sha256') return 'Malware Executable';
+    return 'Malicious C2';
+  }
+  const str = String(raw).trim();
+  const lower = str.toLowerCase();
+  if (lower.includes('mirai')) return 'Mirai Botnet';
+  if (lower.includes('asyncrat')) return 'AsyncRAT C2';
+  if (lower.includes('redline')) return 'RedLine Stealer';
+  if (lower.includes('amos')) return 'AMOS Stealer';
+  if (lower.includes('cobalt')) return 'Cobalt Strike';
+  if (lower.includes('agenttesla')) return 'Agent Tesla';
+  if (lower.includes('remcos')) return 'Remcos RAT';
+  if (lower.includes('mozi')) return 'Mozi Botnet';
+  if (lower.includes('quakbot') || lower.includes('qakbot')) return 'QakBot Trojan';
+  if (lower.includes('stealer')) return 'InfoStealer';
+  if (lower.startsWith('unknown malware')) return 'ThreatFox Zero-Day';
+  if (str.includes(',')) {
+    const parts = str.split(',').map(s => s.trim()).filter(s => !['cowrie', 'elf', 'arm', 'automated', 'honeypot', 'unknown'].includes(s.toLowerCase()));
+    if (parts.length > 0) return parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+    return 'Mirai Botnet';
+  }
+  return str;
 };
 
 // Smart VirusTotal direct URL generator: Routes hashes to /gui/file/, IPs to /gui/ip-address/, domains to /gui/domain/
@@ -405,9 +433,10 @@ export default function ThreatHunting() {
 
   // Open Schedule Configuration Modal
   const handleOpenScheduleModal = () => {
+    const isCurrentlyEnabled = retroSchedule.enabled !== false && retroSchedule.frequency !== 'disabled';
     setScheduleForm({
-      enabled: retroSchedule.enabled !== false,
-      frequency: retroSchedule.frequency || 'daily',
+      enabled: isCurrentlyEnabled,
+      frequency: isCurrentlyEnabled && retroSchedule.frequency ? retroSchedule.frequency : 'daily',
       runTime: retroSchedule.runTime || '08:00',
       lookbackWindow: ['7d', '14d', '30d'].includes(retroSchedule.lookbackWindow) ? retroSchedule.lookbackWindow : '7d'
     });
@@ -419,10 +448,18 @@ export default function ThreatHunting() {
     if (e) e.preventDefault();
     try {
       setIsSavingSchedule(true);
-      const res = await axios.post('/api/threat-hunting/schedule', scheduleForm);
+      const payload = {
+        enabled: Boolean(scheduleForm.enabled),
+        frequency: scheduleForm.enabled ? (scheduleForm.frequency === 'disabled' ? 'daily' : scheduleForm.frequency) : 'disabled',
+        runTime: scheduleForm.runTime || '08:00',
+        lookbackWindow: scheduleForm.lookbackWindow || '7d'
+      };
+      const res = await axios.post('/api/threat-hunting/schedule', payload);
       setRetroSchedule(res.data.schedule);
       setShowScheduleModal(false);
-      toast.success('Retroactive hunting schedule saved!');
+      toast.success(res.data.schedule?.enabled && res.data.schedule?.frequency !== 'disabled'
+        ? `Automated scheduler enabled (${res.data.schedule.frequency})!`
+        : 'Automated scheduler set to Manual Only.');
       fetchStatus();
     } catch (err) {
       console.error(err);
@@ -1110,8 +1147,8 @@ export default function ThreatHunting() {
               activeTab === 'matches'
                 ? "Search matched IP, domain, hash, device..."
                 : activeTab === 'retrohunt'
-                ? "Search retroactive detections (IP, domain, endpoint)..."
-                : "Search feed indicators (IP, domain, hash, malware)..."
+                  ? "Search retroactive detections (IP, domain, endpoint)..."
+                  : "Search feed indicators (IP, domain, hash, malware)..."
             }
             value={activeTab === 'matches' ? matchesSearch : activeTab === 'retrohunt' ? retroSearch : indicatorsSearch}
             onChange={(e) => {
@@ -1793,21 +1830,51 @@ export default function ThreatHunting() {
               <div style={{ width: '1px', height: '28px', background: 'var(--border)' }} />
 
               <div style={{ textAlign: 'right' }}>
-                <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)', display: 'block' }}>AUTO-SCHEDULER</span>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: retroSchedule?.enabled && retroSchedule?.frequency !== 'disabled' ? '#22c55e' : 'var(--muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: retroSchedule?.enabled && retroSchedule?.frequency !== 'disabled' ? '#22c55e' : 'var(--muted)', display: 'inline-block' }} />
-                  {(() => {
-                    if (!retroSchedule?.enabled || retroSchedule?.frequency === 'disabled') return 'Manual Only';
-                    const lookback = (retroSchedule?.lookbackWindow || '7d').toUpperCase();
-                    if (retroSchedule?.frequency === 'daily') return `Daily at ${retroSchedule?.runTime || '08:00'} (${lookback})`;
-                    if (retroSchedule?.frequency === '2days') return `Every 2 Days at ${retroSchedule?.runTime || '08:00'} (${lookback})`;
-                    if (retroSchedule?.frequency === '5days') return `Every 5 Days at ${retroSchedule?.runTime || '08:00'} (${lookback})`;
-                    if (retroSchedule?.frequency === 'every_6h') return `Every 6 Hours (${lookback})`;
-                    if (retroSchedule?.frequency === 'every_12h') return `Every 12 Hours (${lookback})`;
-                    if (retroSchedule?.frequency === 'on_sync') return `On Feed Sync (${lookback})`;
-                    return `Active (${lookback})`;
-                  })()}
-                </span>
+                <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)', display: 'block', marginBottom: '2px' }}>AUTO-SCHEDULER</span>
+                {retroSchedule?.enabled && retroSchedule?.frequency !== 'disabled' ? (
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    color: '#16a34a',
+                    background: 'rgba(34, 197, 94, 0.12)',
+                    border: '1px solid rgba(34, 197, 94, 0.3)',
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    fontFamily: 'var(--mono)'
+                  }}>
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e', display: 'inline-block', boxShadow: '0 0 6px #22c55e' }} />
+                    {(() => {
+                      const lookback = (retroSchedule?.lookbackWindow || '7d').toUpperCase();
+                      if (retroSchedule?.frequency === 'daily') return `Active (Daily @ ${retroSchedule?.runTime || '08:00'})`;
+                      if (retroSchedule?.frequency === '2days') return `Active (2 Days @ ${retroSchedule?.runTime || '08:00'})`;
+                      if (retroSchedule?.frequency === '5days') return `Active (5 Days @ ${retroSchedule?.runTime || '08:00'})`;
+                      if (retroSchedule?.frequency === 'every_6h') return `Active (Every 6h)`;
+                      if (retroSchedule?.frequency === 'every_12h') return `Active (Every 12h)`;
+                      if (retroSchedule?.frequency === 'on_sync') return `Active (On Feed Sync)`;
+                      return `Active (${lookback})`;
+                    })()}
+                  </span>
+                ) : (
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: 'var(--muted)',
+                    background: 'var(--surface2)',
+                    border: '1px solid var(--border)',
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    fontFamily: 'var(--mono)'
+                  }}>
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--muted)', display: 'inline-block' }} />
+                    Manual Only
+                  </span>
+                )}
               </div>
 
               <div style={{ width: '1px', height: '28px', background: 'var(--border)' }} />
@@ -1860,7 +1927,7 @@ export default function ThreatHunting() {
                   }}
                 >
                   <RotateCcw size={13} style={{ animation: isRetrohunting ? 'spin 1.2s linear infinite' : 'none' }} />
-                  {isRetrohunting ? 'Scanning Indicators...' : `⚡ Run Retrohunt Now (${(retroSchedule?.lookbackWindow || '7d').toUpperCase()})`}
+                  {isRetrohunting ? 'Scanning Indicators...' : ` Run Retrohunt Now (${(retroSchedule?.lookbackWindow || '7d').toUpperCase()})`}
                 </button>
               </div>
             </div>
@@ -1919,7 +1986,7 @@ export default function ThreatHunting() {
                   }}
                 >
                   <RotateCcw size={13} style={{ animation: isRetrohunting ? 'spin 1.2s linear infinite' : 'none' }} />
-                  {isRetrohunting ? 'Scanning Indicators...' : `⚡ Run Retrohunt Now (${(retroSchedule?.lookbackWindow || '7d').toUpperCase()})`}
+                  {isRetrohunting ? 'Scanning Indicators...' : ` Run Retrohunt Now (${(retroSchedule?.lookbackWindow || '7d').toUpperCase()})`}
                 </button>
               </div>
             ) : (
@@ -1927,13 +1994,13 @@ export default function ThreatHunting() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
                   <thead>
                     <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)', color: 'var(--muted)' }}>
-                      <th style={{ width: '15%', minWidth: '130px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Historical Timestamp</th>
-                      <th style={{ width: '12%', minWidth: '100px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Detection Type</th>
-                      <th style={{ width: '18%', minWidth: '150px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Endpoint / Device</th>
-                      <th style={{ width: '12%', minWidth: '110px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Branch / Source</th>
-                      <th style={{ width: '20%', minWidth: '170px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Matched Threat Indicator</th>
-                      <th style={{ width: '13%', minWidth: '120px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Threat Context</th>
-                      <th style={{ width: '10%', minWidth: '100px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px', textAlign: 'right' }}>Actions</th>
+                      <th style={{ width: '14%', minWidth: '135px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Historical Timestamp</th>
+                      <th style={{ width: '10%', minWidth: '95px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Severity</th>
+                      <th style={{ width: '16%', minWidth: '145px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Endpoint / Device</th>
+                      <th style={{ width: '10%', minWidth: '95px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Branch / Source</th>
+                      <th style={{ width: '18%', minWidth: '160px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Matched Threat Indicator</th>
+                      <th style={{ width: '18%', minWidth: '160px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Threat Context</th>
+                      <th style={{ width: '14%', minWidth: '180px', padding: '10px 16px', fontWeight: 800, fontSize: '11px', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px', textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1955,23 +2022,36 @@ export default function ThreatHunting() {
                           {item.ts ? new Date(item.ts).toLocaleString() : 'Past Event'}
                         </td>
 
-                        {/* Severity / Detection Type */}
+                        {/* Severity */}
                         <td style={{ padding: '12px 16px' }}>
-                          <span style={{
-                            padding: '3px 8px',
-                            borderRadius: '4px',
-                            background: 'rgba(37, 99, 235, 0.1)',
-                            color: '#2563eb',
-                            border: '1px solid rgba(37, 99, 235, 0.25)',
-                            fontSize: '10px',
-                            fontWeight: 800,
-                            fontFamily: 'var(--mono)',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                          }}>
-                            <RotateCcw size={10} /> RETROACTIVE
-                          </span>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              width: 'fit-content',
+                              padding: '2px 7px',
+                              borderRadius: '4px',
+                              background: 'rgba(239, 68, 68, 0.12)',
+                              color: '#ef4444',
+                              border: '1px solid rgba(239, 68, 68, 0.25)',
+                              fontSize: '10px',
+                              fontWeight: 800,
+                              fontFamily: 'var(--mono)'
+                            }}>
+                              {item.severity ? item.severity.toUpperCase() : 'CRITICAL'}
+                            </span>
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                              fontSize: '9px',
+                              fontWeight: 700,
+                              color: '#2563eb',
+                              fontFamily: 'var(--mono)'
+                            }}>
+                              <RotateCcw size={9} /> RETROHUNT
+                            </span>
+                          </div>
                         </td>
 
                         {/* Endpoint */}
@@ -1980,10 +2060,12 @@ export default function ThreatHunting() {
                             <span className="material-symbols-outlined" style={{ fontSize: '16px', color: item.source_type === 'firewall' ? '#f97316' : '#3b82f6' }}>
                               {item.source_type === 'firewall' ? 'local_fire_department' : 'computer'}
                             </span>
-                            {item.endpoint}
+                            <span style={{ fontSize: '13px', fontWeight: 600 }}>{item.endpoint}</span>
                           </div>
                           {item.src_ip && item.src_ip !== 'local' && (
-                            <span style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)' }}>Src: {item.src_ip}</span>
+                            <div style={{ fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)', marginTop: '2px' }}>
+                              Src: {item.src_ip}
+                            </div>
                           )}
                         </td>
 
@@ -1996,7 +2078,7 @@ export default function ThreatHunting() {
 
                         {/* Indicator */}
                         <td style={{ padding: '12px 16px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <span style={{
                               fontFamily: 'var(--mono)',
                               color: '#ef4444',
@@ -2004,11 +2086,15 @@ export default function ThreatHunting() {
                               background: 'rgba(239,68,68,0.08)',
                               padding: '2px 6px',
                               borderRadius: '4px',
-                              fontSize: '12px'
-                            }}>
+                              fontSize: '12px',
+                              maxWidth: '180px',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap'
+                            }} title={getRealIndicator(item)}>
                               {(() => {
                                 const ind = getRealIndicator(item);
-                                return ind && ind.length > 28 ? `${ind.slice(0, 24)}...` : ind;
+                                return ind && ind.length > 24 ? `${ind.slice(0, 20)}...` : ind;
                               })()}
                             </span>
                             <button
@@ -2017,45 +2103,58 @@ export default function ThreatHunting() {
                                 copyIndicator(getRealIndicator(item));
                               }}
                               title="Copy Indicator"
-                              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '2px' }}
+                              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
                             >
-                              {copiedItem === getRealIndicator(item) ? <Check size={14} color="#22c55e" /> : <Copy size={14} />}
+                              {copiedItem === getRealIndicator(item) ? <Check size={13} color="#22c55e" /> : <Copy size={13} />}
                             </button>
                           </div>
-                          <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)', display: 'block', marginTop: '2px' }}>
                             Type: {getRealIndicatorType(item)}
                           </span>
                         </td>
 
                         {/* Threat Context */}
-                        <td style={{ padding: '12px 16px', color: 'var(--muted2)' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                            <span style={{
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              background: 'rgba(239, 68, 68, 0.1)',
-                              color: '#ef4444',
-                              fontSize: '10px',
-                              fontWeight: 700,
-                              fontFamily: 'var(--mono)'
-                            }}>
-                              {item.malware_family || 'Malicious C2'}
-                            </span>
-                            <span style={{
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              background: 'var(--surface2)',
-                              color: 'var(--muted)',
-                              fontSize: '10px',
-                              fontFamily: 'var(--mono)'
-                            }}>
-                              {item.source_feed || 'ThreatFox'}
-                            </span>
+                        <td style={{ padding: '12px 16px', color: 'var(--text)' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                padding: '2px 7px',
+                                borderRadius: '4px',
+                                background: 'rgba(239, 68, 68, 0.1)',
+                                color: '#ef4444',
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                fontFamily: 'var(--mono)',
+                                border: '1px solid rgba(239, 68, 68, 0.25)'
+                              }}>
+                                {formatMalwareFamily(item.malware_family, item)}
+                              </span>
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                background: 'var(--surface2)',
+                                color: 'var(--muted)',
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                fontFamily: 'var(--mono)',
+                                border: '1px solid var(--border)'
+                              }}>
+                                {item.source_feed || 'ThreatFox'}
+                                {item.confidence_level ? ` · ${item.confidence_level}%` : ' · 100%'}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--muted2)', fontFamily: 'var(--mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '220px' }} title={getCleanThreatContext(item)}>
+                              {getCleanThreatContext(item)}
+                            </div>
                           </div>
                         </td>
 
                         {/* Action Buttons */}
-                        <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                        <td style={{ padding: '12px 16px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
                             <button
                               onClick={() => {
@@ -2065,16 +2164,24 @@ export default function ThreatHunting() {
                               }}
                               title="Investigate Blast Radius & Patient Zero"
                               style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
                                 padding: '4px 8px',
                                 borderRadius: '4px',
-                                background: 'rgba(37,99,235,0.1)',
+                                background: 'rgba(37,99,235,0.08)',
                                 border: '1px solid rgba(37,99,235,0.3)',
-                                color: '#3b82f6',
+                                color: '#2563eb',
                                 fontSize: '11px',
                                 fontWeight: 700,
-                                cursor: 'pointer'
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                                transition: 'all 0.15s'
                               }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(37,99,235,0.18)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(37,99,235,0.08)'}
                             >
+                              <Network size={11} />
                               Blast Radius
                             </button>
 
@@ -2084,32 +2191,47 @@ export default function ThreatHunting() {
                                 const indType = getRealIndicatorType(item);
                                 handleOpenSuppressModal(indVal, indType);
                               }}
-                              title="Add to Whitelist"
+                              title="Add Indicator to Whitelist"
                               style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
                                 padding: '4px 8px',
                                 borderRadius: '4px',
-                                background: 'rgba(234,179,8,0.1)',
+                                background: 'rgba(234,179,8,0.08)',
                                 border: '1px solid rgba(234,179,8,0.3)',
-                                color: '#eab308',
+                                color: '#ca8a04',
                                 fontSize: '11px',
                                 fontWeight: 700,
-                                cursor: 'pointer'
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap',
+                                transition: 'all 0.15s'
                               }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(234,179,8,0.18)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(234,179,8,0.08)'}
                             >
+                              <ShieldCheck size={11} />
                               Whitelist
                             </button>
 
                             <button
                               onClick={() => handleDeleteRetroMatch(item.id)}
-                              title="Dismiss match"
+                              title="Dismiss this retroactive detection"
                               style={{
-                                padding: '4px 6px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: '26px',
+                                height: '24px',
                                 borderRadius: '4px',
                                 background: 'transparent',
                                 border: '1px solid var(--border)',
                                 color: 'var(--muted)',
-                                cursor: 'pointer'
+                                cursor: 'pointer',
+                                transition: 'all 0.15s'
                               }}
+                              onMouseEnter={(e) => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.borderColor = '#ef4444'; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
                             >
                               <Trash2 size={12} />
                             </button>
@@ -2476,14 +2598,88 @@ export default function ThreatHunting() {
             </p>
 
             <form onSubmit={handleSaveSchedule}>
+              {/* Master Enable/Disable Toggle Card */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '14px 16px',
+                borderRadius: '8px',
+                background: scheduleForm.enabled ? 'rgba(37, 99, 235, 0.08)' : 'var(--surface2)',
+                border: `1px solid ${scheduleForm.enabled ? 'rgba(37, 99, 235, 0.3)' : 'var(--border)'}`,
+                marginBottom: '20px',
+                transition: 'all 0.2s'
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text)' }}>
+                      Automated Retrohunt Scheduler
+                    </span>
+                    <span style={{
+                      fontSize: '10px',
+                      fontWeight: 800,
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      background: scheduleForm.enabled ? 'rgba(34, 197, 94, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+                      color: scheduleForm.enabled ? '#22c55e' : 'var(--muted)',
+                      fontFamily: 'var(--mono)',
+                      border: `1px solid ${scheduleForm.enabled ? 'rgba(34, 197, 94, 0.3)' : 'transparent'}`
+                    }}>
+                      {scheduleForm.enabled ? '● ACTIVE / ENABLED' : '○ DISABLED (MANUAL ONLY)'}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '11px', color: 'var(--muted)', display: 'block', marginTop: '3px' }}>
+                    {scheduleForm.enabled
+                      ? 'Engine runs automatic background back-tests and commits new detections'
+                      : 'Background automation is turned off. Scans only execute when clicking the manual run button'}
+                  </span>
+                </div>
+
+                {/* Switch Input */}
+                <label style={{ position: 'relative', display: 'inline-block', width: '46px', height: '24px', cursor: 'pointer', flexShrink: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={scheduleForm.enabled}
+                    onChange={(e) => {
+                      const willEnable = e.target.checked;
+                      setScheduleForm(prev => ({
+                        ...prev,
+                        enabled: willEnable,
+                        frequency: willEnable && (prev.frequency === 'disabled' || !prev.frequency) ? 'daily' : prev.frequency
+                      }));
+                    }}
+                    style={{ opacity: 0, width: 0, height: 0 }}
+                  />
+                  <span style={{
+                    position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: scheduleForm.enabled ? '#2563eb' : 'var(--border)',
+                    transition: '0.2s', borderRadius: '24px'
+                  }}>
+                    <span style={{
+                      position: 'absolute', content: '""', height: '18px', width: '18px', left: '3px', bottom: '3px',
+                      backgroundColor: '#ffffff', transition: '0.2s', borderRadius: '50%',
+                      transform: scheduleForm.enabled ? 'translateX(22px)' : 'translateX(0)',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
+                    }} />
+                  </span>
+                </label>
+              </div>
+
               {/* Frequency Selection */}
-              <div style={{ marginBottom: '18px' }}>
+              <div style={{ marginBottom: '18px', opacity: scheduleForm.enabled ? 1 : 0.85, transition: 'opacity 0.2s' }}>
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', display: 'block', marginBottom: '6px', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>
                   Background Hunt Frequency
                 </label>
                 <select
-                  value={scheduleForm.frequency}
-                  onChange={(e) => setScheduleForm(prev => ({ ...prev, frequency: e.target.value }))}
+                  value={scheduleForm.enabled ? (scheduleForm.frequency === 'disabled' ? 'daily' : scheduleForm.frequency) : 'disabled'}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === 'disabled') {
+                      setScheduleForm(prev => ({ ...prev, enabled: false, frequency: 'disabled' }));
+                    } else {
+                      setScheduleForm(prev => ({ ...prev, enabled: true, frequency: val }));
+                    }
+                  }}
                   style={{
                     width: '100%',
                     padding: '9px 12px',
@@ -2503,18 +2699,19 @@ export default function ThreatHunting() {
                   <option value="every_6h">Every 6 Hours (Continuous Monitoring)</option>
                   <option value="every_12h">Every 12 Hours (Twice Daily)</option>
                   <option value="on_sync">On Every Threat Feed Sync (Triggered upon feed updates)</option>
-                  <option value="disabled">Disabled (Manual On-Demand Scans Only)</option>
+                  <option value="disabled">Disabled (Manual Retrohunt Only)</option>
                 </select>
               </div>
 
               {/* Specific Run Time (for Daily / 2-Day / 5-Day) */}
               {['daily', '2days', '5days'].includes(scheduleForm.frequency) && (
-                <div style={{ marginBottom: '18px' }}>
+                <div style={{ marginBottom: '18px', opacity: scheduleForm.enabled ? 1 : 0.45, pointerEvents: scheduleForm.enabled ? 'auto' : 'none', transition: 'opacity 0.2s' }}>
                   <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', display: 'block', marginBottom: '6px', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>
                     Execution Time of Day (Server Time)
                   </label>
                   <input
                     type="time"
+                    disabled={!scheduleForm.enabled}
                     value={scheduleForm.runTime || '08:00'}
                     onChange={(e) => setScheduleForm(prev => ({ ...prev, runTime: e.target.value }))}
                     style={{
@@ -2533,6 +2730,7 @@ export default function ThreatHunting() {
                   <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
                     <button
                       type="button"
+                      disabled={!scheduleForm.enabled}
                       onClick={() => setScheduleForm(prev => ({ ...prev, runTime: '08:00' }))}
                       style={{ padding: '3px 8px', borderRadius: '4px', background: scheduleForm.runTime === '08:00' ? '#2563eb' : 'var(--surface2)', border: '1px solid var(--border)', color: scheduleForm.runTime === '08:00' ? '#fff' : 'var(--muted)', fontSize: '11px', cursor: 'pointer' }}
                     >
@@ -2540,6 +2738,7 @@ export default function ThreatHunting() {
                     </button>
                     <button
                       type="button"
+                      disabled={!scheduleForm.enabled}
                       onClick={() => setScheduleForm(prev => ({ ...prev, runTime: '02:00' }))}
                       style={{ padding: '3px 8px', borderRadius: '4px', background: scheduleForm.runTime === '02:00' ? '#2563eb' : 'var(--surface2)', border: '1px solid var(--border)', color: scheduleForm.runTime === '02:00' ? '#fff' : 'var(--muted)', fontSize: '11px', cursor: 'pointer' }}
                     >
@@ -2547,6 +2746,7 @@ export default function ThreatHunting() {
                     </button>
                     <button
                       type="button"
+                      disabled={!scheduleForm.enabled}
                       onClick={() => setScheduleForm(prev => ({ ...prev, runTime: '18:00' }))}
                       style={{ padding: '3px 8px', borderRadius: '4px', background: scheduleForm.runTime === '18:00' ? '#2563eb' : 'var(--surface2)', border: '1px solid var(--border)', color: scheduleForm.runTime === '18:00' ? '#fff' : 'var(--muted)', fontSize: '11px', cursor: 'pointer' }}
                     >
@@ -2557,11 +2757,12 @@ export default function ThreatHunting() {
               )}
 
               {/* Lookback Telemetry Window (Strictly NO 24 Hours) */}
-              <div style={{ marginBottom: '20px' }}>
+              <div style={{ marginBottom: '20px', opacity: scheduleForm.enabled ? 1 : 0.45, pointerEvents: scheduleForm.enabled ? 'auto' : 'none', transition: 'opacity 0.2s' }}>
                 <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)', display: 'block', marginBottom: '6px', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>
                   Lookback Telemetry Window
                 </label>
                 <select
+                  disabled={!scheduleForm.enabled}
                   value={['7d', '14d', '30d'].includes(scheduleForm.lookbackWindow) ? scheduleForm.lookbackWindow : '7d'}
                   onChange={(e) => setScheduleForm(prev => ({ ...prev, lookbackWindow: e.target.value }))}
                   style={{
@@ -3032,24 +3233,24 @@ export default function ThreatHunting() {
                 String(selectedDetail.type === 'match' ? getRealIndicatorType(selectedDetail.data) : selectedDetail.data.ioc_type || '').toLowerCase().includes('sha') ||
                 /^[a-fA-F0-9]{32}$|^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$/.test(String(selectedDetail.type === 'match' ? getRealIndicator(selectedDetail.data) : selectedDetail.data.ioc_value || '').trim())
               ) && (
-                <div style={{
-                  padding: '10px 14px',
-                  borderRadius: '8px',
-                  background: 'rgba(37, 99, 235, 0.06)',
-                  border: '1px solid rgba(37, 99, 235, 0.2)',
-                  fontSize: '11px',
-                  color: 'var(--muted2)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  lineHeight: '1.5'
-                }}>
-                  <Info size={15} color="#2563eb" style={{ flexShrink: 0 }} />
-                  <span>
-                    <strong style={{ color: 'var(--text)' }}>Multi-Source Intelligence Verification:</strong> Click the <strong>Origin Feed ({String(selectedDetail.data?.source_feed || selectedDetail.data?.source || selectedDetail.data?.source_provider || '').toLowerCase().includes('threatfox') ? 'ThreatFox' : 'MalwareBazaar'})</strong> button to inspect verified Abuse.ch threat telemetry, or click <strong>VirusTotal</strong> to view multi-engine antivirus detection analysis.
-                  </span>
-                </div>
-              )}
+                  <div style={{
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    background: 'rgba(37, 99, 235, 0.06)',
+                    border: '1px solid rgba(37, 99, 235, 0.2)',
+                    fontSize: '11px',
+                    color: 'var(--muted2)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    lineHeight: '1.5'
+                  }}>
+                    <Info size={15} color="#2563eb" style={{ flexShrink: 0 }} />
+                    <span>
+                      <strong style={{ color: 'var(--text)' }}>Multi-Source Intelligence Verification:</strong> Click the <strong>Origin Feed ({String(selectedDetail.data?.source_feed || selectedDetail.data?.source || selectedDetail.data?.source_provider || '').toLowerCase().includes('threatfox') ? 'ThreatFox' : 'MalwareBazaar'})</strong> button to inspect verified Abuse.ch threat telemetry, or click <strong>VirusTotal</strong> to view multi-engine antivirus detection analysis.
+                    </span>
+                  </div>
+                )}
 
               {/* Specific Content Based on Detail Type */}
               {selectedDetail.type === 'match' ? (

@@ -7,26 +7,26 @@ import { useInstance } from "../context/InstanceContext";
 import { toast } from "react-hot-toast";
 
 const INC_STATUS_META = {
-  new:           { label:'New',           col:'#6b7280', bg:'rgba(107,114,128,.15)' },
-  investigating: { label:'Investigating', col:'#f97316', bg:'rgba(249,115,22,.15)'  },
-  contained:     { label:'Contained',     col:'#eab308', bg:'rgba(234,179,8,.15)'   },
-  resolved:      { label:'Resolved',      col:'#22c55e', bg:'rgba(34,197,94,.15)'   },
-  closed:        { label:'Closed',        col:'#4a5578', bg:'rgba(74,85,120,.15)'   },
+  new: { label: 'New', col: '#6b7280', bg: 'rgba(107,114,128,.15)' },
+  investigating: { label: 'Investigating', col: '#f97316', bg: 'rgba(249,115,22,.15)' },
+  contained: { label: 'Contained', col: '#eab308', bg: 'rgba(234,179,8,.15)' },
+  resolved: { label: 'Resolved', col: '#22c55e', bg: 'rgba(34,197,94,.15)' },
+  closed: { label: 'Closed', col: '#4a5578', bg: 'rgba(74,85,120,.15)' },
 };
 
 const INC_PRIORITY_META = {
-  P1: { label:'P1 Critical', col:'#ef4444', bg:'rgba(239,68,68,.15)'    },
-  P2: { label:'P2 High',     col:'#f97316', bg:'rgba(249,115,22,.15)'   },
-  P3: { label:'P3 Medium',   col:'#eab308', bg:'rgba(234,179,8,.15)'    },
-  P4: { label:'P4 Low',      col:'#22c55e', bg:'rgba(34,197,94,.15)'    },
+  P1: { label: 'P1 Critical', col: '#ef4444', bg: 'rgba(239,68,68,.15)' },
+  P2: { label: 'P2 High', col: '#f97316', bg: 'rgba(249,115,22,.15)' },
+  P3: { label: 'P3 Medium', col: '#eab308', bg: 'rgba(234,179,8,.15)' },
+  P4: { label: 'P4 Low', col: '#22c55e', bg: 'rgba(34,197,94,.15)' },
 };
 
 const INC_TRANSITIONS = {
-  new:           ['investigating'],
+  new: ['investigating'],
   investigating: ['contained', 'resolved'],
-  contained:     ['investigating', 'resolved'],
-  resolved:      ['closed', 'investigating'],
-  closed:        ['investigating'],
+  contained: ['investigating', 'resolved'],
+  resolved: ['closed', 'investigating'],
+  closed: ['investigating'],
 };
 
 const sevColor = {
@@ -50,19 +50,19 @@ export default function IncidentDetail() {
 
   const role = user?.role;
   const queryClient = useQueryClient();
-  
+
   const [newNote, setNewNote] = useState("");
   const [closingTargetStatus, setClosingTargetStatus] = useState(null);
   const [resReason, setResReason] = useState("");
   const [resNote, setResNote] = useState("");
-  
+
   // Containment Playbook State
   const [showContainModal, setShowContainModal] = useState(false);
   const [containIsolateHost, setContainIsolateHost] = useState(true);
   const [containKilledProcesses, setContainKilledProcesses] = useState({});
   const [containLockedUsers, setContainLockedUsers] = useState({});
   const [containNote, setContainNote] = useState("");
-  
+
   const notesContainerRef = useRef(null);
 
   const { data: incident, isLoading, error } = useQuery({
@@ -93,10 +93,10 @@ export default function IncidentDetail() {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: ({newStatus, reason, note, containment_actions, containment_note}) => 
-      axios.patch(`/api/incidents/${id}`, { 
-        status: newStatus, 
-        resolution_reason: reason, 
+    mutationFn: ({ newStatus, reason, note, containment_actions, containment_note }) =>
+      axios.patch(`/api/incidents/${id}`, {
+        status: newStatus,
+        resolution_reason: reason,
         resolution_note: note,
         containment_actions,
         containment_note
@@ -122,19 +122,19 @@ export default function IncidentDetail() {
     const users = new Set();
     const machines = new Set();
     const processes = new Set();
-    
+
     incident.events.forEach(e => {
       if (e.machine) machines.add(e.machine);
-      
+
       const msg = e.message || '';
       // Very basic extraction for Windows Event logs typically found in IOC Hunt
       const userMatch = msg.match(/User:([^\s|]+)/i);
       if (userMatch && userMatch[1] !== 'N/A') users.add(userMatch[1]);
-      
+
       const parentMatch = msg.match(/Parent:([^\s|]+)/i);
       if (parentMatch) processes.add(parentMatch[1]);
     });
-    
+
     return {
       users: Array.from(users),
       machines: Array.from(machines),
@@ -186,23 +186,23 @@ export default function IncidentDetail() {
 
   const sm = INC_STATUS_META[incident.status?.toLowerCase()] || INC_STATUS_META.new;
   const pm = INC_PRIORITY_META[incident.priority] || INC_PRIORITY_META.P2;
-  const isOpen = !['resolved','closed'].includes(incident.status?.toLowerCase());
+  const isOpen = !['resolved', 'closed'].includes(incident.status?.toLowerCase());
   const isContained = ['contained', 'resolved', 'closed'].includes(incident.status?.toLowerCase());
-  
+
   // Incident Action buttons logic (Restored to previous)
   const canTransition = (isOpen && (role === 'ADMIN' || incident.assigned_to === user?.username)) || (!isOpen && (role === 'ADMIN' || role === 'L3_ANALYST'));
-  
+
   // Assignee Dropdown logic (Global for Admin and L3)
   const canReassign = role === 'ADMIN' || role === 'L3_ANALYST' || (isOpen && incident.assigned_to === user?.username);
 
-  const age = Math.floor((Date.now()/1000) - incident.created_at);
-  const ageStr = age < 3600 ? Math.floor(age/60)+'m'
-             : age < 86400 ? Math.floor(age/3600)+'h'
-             : Math.floor(age/86400)+'d';
+  const age = Math.floor((Date.now() / 1000) - incident.created_at);
+  const ageStr = age < 3600 ? Math.floor(age / 60) + 'm'
+    : age < 86400 ? Math.floor(age / 3600) + 'h'
+      : Math.floor(age / 86400) + 'd';
 
   return (
     <div style={{ width: '100%', paddingBottom: '40px', position: 'relative' }}>
-      <button 
+      <button
         onClick={() => navigate('/incidents')}
         style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'transparent', border: 'none', color: 'var(--muted)', fontSize: '13px', cursor: 'pointer', marginBottom: '24px', fontWeight: 600, transition: 'color 0.2s' }}
         onMouseOver={e => e.currentTarget.style.color = 'var(--text)'}
@@ -214,12 +214,12 @@ export default function IncidentDetail() {
 
       {/* Two Column Layout Container */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '24px', alignItems: 'start' }}>
-        
+
         {/* ==============================================================
             LEFT COLUMN: INVESTIGATION HUB
         ============================================================== */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          
+
           {/* Active Containment Alert Banner */}
           {incident.status?.toLowerCase() === 'contained' && (
             <div style={{
@@ -278,7 +278,7 @@ export default function IncidentDetail() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: '18px', color: isContained ? '#eab308' : '#8b5cf6' }}>
                   {isContained ? 'shield' : 'radar'}
-                </span> 
+                </span>
                 Entities Involved (Blast Radius)
               </div>
               {isContained && (
@@ -287,25 +287,25 @@ export default function IncidentDetail() {
                 </span>
               )}
             </div>
-            
+
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
               {/* Users */}
               <div style={{ background: 'var(--surface2)', padding: '16px', borderRadius: '8px', border: isContained ? '1px solid rgba(234,179,8,0.25)' : '1px solid var(--border)' }}>
                 <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700, marginBottom: '12px', letterSpacing: '1px' }}>Compromised Users</div>
                 {entities.users.length > 0 ? entities.users.map(u => (
-                  <div key={u} style={{ 
-                    display: 'inline-flex', 
-                    alignItems: 'center', 
+                  <div key={u} style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
                     gap: '6px',
-                    background: isContained ? 'rgba(234,179,8,0.1)' : 'rgba(59,130,246,0.1)', 
-                    border: `1px solid ${isContained ? 'rgba(234,179,8,0.35)' : 'rgba(59,130,246,0.3)'}`, 
-                    color: isContained ? '#facc15' : '#60a5fa', 
-                    padding: '5px 10px', 
-                    borderRadius: '6px', 
-                    fontSize: '11px', 
-                    fontFamily: 'var(--mono)', 
-                    marginRight: '6px', 
-                    marginBottom: '6px' 
+                    background: isContained ? 'rgba(234,179,8,0.1)' : 'rgba(59,130,246,0.1)',
+                    border: `1px solid ${isContained ? 'rgba(234,179,8,0.35)' : 'rgba(59,130,246,0.3)'}`,
+                    color: isContained ? '#facc15' : '#60a5fa',
+                    padding: '5px 10px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontFamily: 'var(--mono)',
+                    marginRight: '6px',
+                    marginBottom: '6px'
                   }}>
                     <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>{isContained ? 'lock' : 'person'}</span>
                     {u}
@@ -318,19 +318,19 @@ export default function IncidentDetail() {
               <div style={{ background: 'var(--surface2)', padding: '16px', borderRadius: '8px', border: isContained ? '1px solid rgba(234,179,8,0.25)' : '1px solid var(--border)' }}>
                 <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700, marginBottom: '12px', letterSpacing: '1px' }}>Affected Machines</div>
                 {entities.machines.length > 0 ? entities.machines.map(m => (
-                  <div key={m} style={{ 
-                    display: 'inline-flex', 
-                    alignItems: 'center', 
+                  <div key={m} style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
                     gap: '6px',
-                    background: isContained ? 'rgba(234,179,8,0.12)' : 'rgba(34,197,94,0.1)', 
-                    border: `1px solid ${isContained ? 'rgba(234,179,8,0.4)' : 'rgba(34,197,94,0.3)'}`, 
-                    color: isContained ? '#facc15' : '#4ade80', 
-                    padding: '5px 10px', 
-                    borderRadius: '6px', 
-                    fontSize: '11px', 
-                    fontFamily: 'var(--mono)', 
-                    marginRight: '6px', 
-                    marginBottom: '6px' 
+                    background: isContained ? 'rgba(234,179,8,0.12)' : 'rgba(34,197,94,0.1)',
+                    border: `1px solid ${isContained ? 'rgba(234,179,8,0.4)' : 'rgba(34,197,94,0.3)'}`,
+                    color: isContained ? '#facc15' : '#4ade80',
+                    padding: '5px 10px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontFamily: 'var(--mono)',
+                    marginRight: '6px',
+                    marginBottom: '6px'
                   }}>
                     <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>{isContained ? 'shield' : 'computer'}</span>
                     {m}
@@ -343,19 +343,19 @@ export default function IncidentDetail() {
               <div style={{ background: 'var(--surface2)', padding: '16px', borderRadius: '8px', border: isContained ? '1px solid rgba(234,179,8,0.25)' : '1px solid var(--border)' }}>
                 <div style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--muted)', fontWeight: 700, marginBottom: '12px', letterSpacing: '1px' }}>Suspicious Processes</div>
                 {entities.processes.length > 0 ? entities.processes.map(p => (
-                  <div key={p} style={{ 
-                    display: 'inline-flex', 
-                    alignItems: 'center', 
+                  <div key={p} style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
                     gap: '6px',
-                    background: isContained ? 'rgba(239,68,68,0.1)' : 'rgba(249,115,22,0.1)', 
-                    border: `1px solid ${isContained ? 'rgba(239,68,68,0.35)' : 'rgba(249,115,22,0.3)'}`, 
-                    color: isContained ? '#f87171' : '#fb923c', 
-                    padding: '5px 10px', 
-                    borderRadius: '6px', 
-                    fontSize: '11px', 
-                    fontFamily: 'var(--mono)', 
-                    marginRight: '6px', 
-                    marginBottom: '6px' 
+                    background: isContained ? 'rgba(239,68,68,0.1)' : 'rgba(249,115,22,0.1)',
+                    border: `1px solid ${isContained ? 'rgba(239,68,68,0.35)' : 'rgba(249,115,22,0.3)'}`,
+                    color: isContained ? '#f87171' : '#fb923c',
+                    padding: '5px 10px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontFamily: 'var(--mono)',
+                    marginRight: '6px',
+                    marginBottom: '6px'
                   }}>
                     <span className="material-symbols-outlined" style={{ fontSize: '13px' }}>{isContained ? 'cancel' : 'memory'}</span>
                     {p}
@@ -384,7 +384,7 @@ export default function IncidentDetail() {
                   </thead>
                   <tbody>
                     {incident.events.map(e => {
-                      const sev = (e.severity||'info').toLowerCase();
+                      const sev = (e.severity || 'info').toLowerCase();
                       const col = sevColor[sev] || sevColor.info;
                       return (
                         <tr key={e.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.15s' }} onMouseOver={e => e.currentTarget.style.background = 'var(--surface2)'} onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
@@ -412,7 +412,7 @@ export default function IncidentDetail() {
             RIGHT COLUMN: CASE MANAGEMENT (ACTIONS, METADATA, NOTES)
         ============================================================== */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', position: 'sticky', top: '24px' }}>
-          
+
           {/* Action Hub - Moved to very top of right column as requested */}
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', boxShadow: '0 8px 30px rgba(0,0,0,0.05)' }}>
             <div style={{ fontFamily: 'var(--mono)', fontSize: '12px', fontWeight: 700, color: 'var(--text)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -426,9 +426,9 @@ export default function IncidentDetail() {
                   const tm = INC_STATUS_META[ns];
                   const isReopen = ['resolved', 'closed'].includes(incident.status?.toLowerCase()) && ns === 'investigating';
                   const label = isReopen ? 'Reopen Incident' : `Mark as ${tm.label}`;
-                  
+
                   return (
-                    <button 
+                    <button
                       key={ns}
                       onClick={() => {
                         if (ns === 'contained') {
@@ -436,7 +436,7 @@ export default function IncidentDetail() {
                         } else if (ns === 'closed' || ns === 'resolved') {
                           setClosingTargetStatus(ns);
                         } else {
-                          updateStatusMutation.mutate({newStatus: ns});
+                          updateStatusMutation.mutate({ newStatus: ns });
                         }
                       }}
                       disabled={updateStatusMutation.isPending}
@@ -459,12 +459,12 @@ export default function IncidentDetail() {
 
           {/* Containment Playbook Action Modal */}
           {showContainModal && (
-            <div style={{ 
-              background: 'var(--surface)', 
+            <div style={{
+              background: 'var(--surface)',
               border: '1px solid rgba(234, 179, 8, 0.4)',
-              borderLeft: '4px solid #eab308', 
-              borderRadius: '12px', 
-              padding: '20px', 
+              borderLeft: '4px solid #eab308',
+              borderRadius: '12px',
+              padding: '20px',
               boxShadow: '0 12px 36px rgba(0,0,0,0.15)'
             }}>
               <div style={{ fontSize: '14px', fontWeight: 800, color: '#eab308', marginBottom: '14px', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--sans)' }}>
@@ -478,14 +478,14 @@ export default function IncidentDetail() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
                 {/* Host Isolation Checkbox */}
                 <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', cursor: 'pointer', background: 'var(--surface2)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                  <input 
-                    type="checkbox" 
-                    checked={containIsolateHost} 
-                    onChange={e => setContainIsolateHost(e.target.checked)} 
+                  <input
+                    type="checkbox"
+                    checked={containIsolateHost}
+                    onChange={e => setContainIsolateHost(e.target.checked)}
                     style={{ marginTop: '2px', accentColor: '#eab308', cursor: 'pointer' }}
                   />
                   <div>
-                    <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>🛡️ Isolate Endpoint Network</div>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}> Isolate Endpoint Network</div>
                     <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Quarantine host <strong>{incident.machine || 'affected machine'}</strong> from corporate network.</div>
                   </div>
                 </label>
@@ -493,13 +493,13 @@ export default function IncidentDetail() {
                 {/* Kill Processes Checkboxes */}
                 {entities.processes.length > 0 && (
                   <div style={{ background: 'var(--surface2)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#fb923c', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>⚡ Terminate Suspicious Processes</div>
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#fb923c', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}> Terminate Suspicious Processes</div>
                     {entities.processes.map(proc => (
                       <label key={proc} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '6px', fontSize: '12px', color: 'var(--text)', fontFamily: 'var(--mono)' }}>
-                        <input 
-                          type="checkbox" 
-                          checked={!!containKilledProcesses[proc]} 
-                          onChange={e => setContainKilledProcesses({ ...containKilledProcesses, [proc]: e.target.checked })} 
+                        <input
+                          type="checkbox"
+                          checked={!!containKilledProcesses[proc]}
+                          onChange={e => setContainKilledProcesses({ ...containKilledProcesses, [proc]: e.target.checked })}
                           style={{ accentColor: '#f97316', cursor: 'pointer' }}
                         />
                         <span>Kill <strong>{proc}</strong></span>
@@ -514,10 +514,10 @@ export default function IncidentDetail() {
                     <div style={{ fontSize: '11px', fontWeight: 700, color: '#60a5fa', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>🔒 Lock Compromised Accounts</div>
                     {entities.users.map(usr => (
                       <label key={usr} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '6px', fontSize: '12px', color: 'var(--text)', fontFamily: 'var(--mono)' }}>
-                        <input 
-                          type="checkbox" 
-                          checked={!!containLockedUsers[usr]} 
-                          onChange={e => setContainLockedUsers({ ...containLockedUsers, [usr]: e.target.checked })} 
+                        <input
+                          type="checkbox"
+                          checked={!!containLockedUsers[usr]}
+                          onChange={e => setContainLockedUsers({ ...containLockedUsers, [usr]: e.target.checked })}
                           style={{ accentColor: '#3b82f6', cursor: 'pointer' }}
                         />
                         <span>Disable User <strong>{usr}</strong></span>
@@ -529,12 +529,12 @@ export default function IncidentDetail() {
                 {/* Containment Note */}
                 <div>
                   <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 700 }}>Containment Action Note</label>
-                  <textarea 
-                    className="input-field" 
-                    value={containNote} 
-                    onChange={e => setContainNote(e.target.value)} 
-                    rows="2" 
-                    style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px 14px', borderRadius: '6px', resize: 'vertical', outline: 'none', fontSize: '12px', fontFamily: 'var(--sans)' }} 
+                  <textarea
+                    className="input-field"
+                    value={containNote}
+                    onChange={e => setContainNote(e.target.value)}
+                    rows="2"
+                    style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px 14px', borderRadius: '6px', resize: 'vertical', outline: 'none', fontSize: '12px', fontFamily: 'var(--sans)' }}
                     placeholder="e.g., Host isolated from LAN, process terminated."
                   />
                 </div>
@@ -542,7 +542,7 @@ export default function IncidentDetail() {
 
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
                 <button onClick={() => setShowContainModal(false)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, transition: 'all 0.2s' }}>Cancel</button>
-                <button 
+                <button
                   onClick={handleConfirmContainment}
                   disabled={updateStatusMutation.isPending}
                   style={{ background: '#eab308', border: 'none', color: '#000', padding: '8px 20px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, transition: 'all 0.2s', boxShadow: '0 2px 10px rgba(234,179,8,0.3)', display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -556,40 +556,40 @@ export default function IncidentDetail() {
 
           {/* Confirmation panel for resolving/closing */}
           {closingTargetStatus && (
-            <div style={{ 
-              background: 'var(--surface)', 
+            <div style={{
+              background: 'var(--surface)',
               border: '1px solid var(--border)',
-              borderLeft: closingTargetStatus === 'resolved' ? '4px solid #22c55e' : '4px solid #4a5578', 
-              borderRadius: '12px', 
-              padding: '20px', 
+              borderLeft: closingTargetStatus === 'resolved' ? '4px solid #22c55e' : '4px solid #4a5578',
+              borderRadius: '12px',
+              padding: '20px',
               boxShadow: '0 8px 30px rgba(0,0,0,0.05)'
             }}>
               <div style={{ fontSize: '14px', fontWeight: 700, color: closingTargetStatus === 'resolved' ? '#22c55e' : 'var(--text)', marginBottom: '16px', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>
-                    {closingTargetStatus === 'resolved' ? 'check_circle' : 'lock'}
+                  {closingTargetStatus === 'resolved' ? 'check_circle' : 'lock'}
                 </span>
                 Confirm {closingTargetStatus}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '20px' }}>
                 <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 700 }}>Resolution Reason</label>
-                    <select className="input-field" value={resReason} onChange={e => setResReason(e.target.value)} style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px 14px', borderRadius: '6px', outline: 'none', fontSize: '14px' }}>
-                      <option value="">Select a reason...</option>
-                      <option value="False Positive">False Positive</option>
-                      <option value="True Positive - Remediated">True Positive - Remediated</option>
-                      <option value="Duplicate">Duplicate</option>
-                      <option value="Other">Other (Specify in note)</option>
-                    </select>
+                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 700 }}>Resolution Reason</label>
+                  <select className="input-field" value={resReason} onChange={e => setResReason(e.target.value)} style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px 14px', borderRadius: '6px', outline: 'none', fontSize: '14px' }}>
+                    <option value="">Select a reason...</option>
+                    <option value="False Positive">False Positive</option>
+                    <option value="True Positive - Remediated">True Positive - Remediated</option>
+                    <option value="Duplicate">Duplicate</option>
+                    <option value="Other">Other (Specify in note)</option>
+                  </select>
                 </div>
                 <div>
-                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 700 }}>Resolution Note (Optional)</label>
-                    <textarea className="input-field" value={resNote} onChange={e => setResNote(e.target.value)} rows="2" style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px 14px', borderRadius: '6px', resize: 'vertical', outline: 'none', fontSize: '14px' }} placeholder="Add context..."></textarea>
+                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--muted)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 700 }}>Resolution Note (Optional)</label>
+                  <textarea className="input-field" value={resNote} onChange={e => setResNote(e.target.value)} rows="2" style={{ width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', padding: '10px 14px', borderRadius: '6px', resize: 'vertical', outline: 'none', fontSize: '14px' }} placeholder="Add context..."></textarea>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
                 <button onClick={() => setClosingTargetStatus(null)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, transition: 'all 0.2s' }}>Cancel</button>
-                <button 
-                  onClick={() => { updateStatusMutation.mutate({newStatus: closingTargetStatus, reason: resReason, note: resNote}); setClosingTargetStatus(null); }}
+                <button
+                  onClick={() => { updateStatusMutation.mutate({ newStatus: closingTargetStatus, reason: resReason, note: resNote }); setClosingTargetStatus(null); }}
                   disabled={!resReason || updateStatusMutation.isPending}
                   style={{ background: closingTargetStatus === 'resolved' ? '#22c55e' : '#4a5578', border: 'none', color: '#fff', padding: '8px 20px', borderRadius: '6px', cursor: !resReason ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 600, opacity: !resReason ? 0.5 : 1, transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
                 >
@@ -604,10 +604,10 @@ export default function IncidentDetail() {
             <div style={{ fontFamily: 'var(--mono)', fontSize: '12px', fontWeight: 700, color: 'var(--text)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--accent)' }}>info</span> Properties
             </div>
-            
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '12px', fontFamily: 'var(--mono)' }}>
               <div><span style={{ color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Machine</span> <span style={{ color: 'var(--text)', fontWeight: 600 }}>{incident.machine || '—'}</span></div>
-              
+
               <div>
                 <span style={{ color: 'var(--muted2)', textTransform: 'uppercase', letterSpacing: '1px', fontSize: '10px', display: 'block', marginBottom: '4px' }}>Assigned</span>
                 {canReassign ? (
@@ -642,7 +642,7 @@ export default function IncidentDetail() {
             <div style={{ fontFamily: 'var(--mono)', fontSize: '12px', fontWeight: 700, color: 'var(--text)', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span className="material-symbols-outlined" style={{ fontSize: '18px', color: 'var(--accent)' }}>forum</span> Notes & Activity <span style={{ background: 'var(--surface2)', border: '1px solid var(--border)', padding: '2px 8px', borderRadius: '4px', fontSize: '10px' }}>{incident.notes?.length || 0}</span>
             </div>
-            
+
             <div ref={notesContainerRef} style={{ maxHeight: '400px', overflowY: 'auto', paddingRight: '8px', marginBottom: '20px' }}>
               {incident.notes?.length > 0 ? (
                 <div style={{ borderLeft: '2px solid var(--border)', marginLeft: '12px', paddingLeft: '24px' }}>
@@ -668,8 +668,8 @@ export default function IncidentDetail() {
 
             {/* Add note */}
             <div style={{ paddingTop: '20px', borderTop: '1px dashed var(--border)' }}>
-              <textarea 
-                rows="3" 
+              <textarea
+                rows="3"
                 className="input-field"
                 placeholder="Add a new note..."
                 value={newNote}
@@ -679,7 +679,7 @@ export default function IncidentDetail() {
                 onBlur={e => e.target.style.borderColor = 'var(--border)'}
               />
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button 
+                <button
                   onClick={() => addNoteMutation.mutate(newNote)}
                   disabled={addNoteMutation.isPending || !newNote.trim()}
                   style={{ background: 'var(--accent)', color: '#fff', border: '1px solid var(--accent)', padding: '8px 20px', borderRadius: '6px', fontSize: '12px', fontWeight: 700, fontFamily: 'var(--mono)', cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '1px', boxShadow: '0 4px 12px rgba(37,99,235,0.2)', transition: 'background 0.2s', opacity: (addNoteMutation.isPending || !newNote.trim()) ? 0.5 : 1 }}

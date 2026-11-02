@@ -842,6 +842,32 @@ async function performRetrohunt({ qControl, qTenant, timeRange = '7d', limit = 1
   // 5. Persist all discovered hits into threat_retrohunt_matches table permanently
   let newHitsCount = 0;
   if (retroHits.length > 0) {
+    // Ensure the table exists on tenant database (self-healing migration)
+    await qTenant(`
+      CREATE TABLE IF NOT EXISTS threat_retrohunt_matches (
+        id BIGSERIAL PRIMARY KEY,
+        ts TIMESTAMP NOT NULL,
+        source_type VARCHAR(50) DEFAULT 'firewall',
+        aggregator_name VARCHAR(255) DEFAULT 'syslog',
+        endpoint VARCHAR(255) NOT NULL,
+        src_ip VARCHAR(100),
+        dst_ip VARCHAR(100),
+        indicator VARCHAR(255) NOT NULL,
+        indicator_type VARCHAR(20) NOT NULL,
+        malware_family VARCHAR(255) DEFAULT 'Malicious C2',
+        source_feed VARCHAR(100) DEFAULT 'ThreatFox',
+        confidence_level INTEGER DEFAULT 100,
+        severity VARCHAR(50) DEFAULT 'critical',
+        details TEXT,
+        discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT unique_retrohunt_match UNIQUE (ts, endpoint, indicator)
+      );
+      CREATE INDEX IF NOT EXISTS idx_retrohunt_ts ON threat_retrohunt_matches (ts DESC);
+      CREATE INDEX IF NOT EXISTS idx_retrohunt_indicator ON threat_retrohunt_matches (indicator);
+      CREATE INDEX IF NOT EXISTS idx_retrohunt_endpoint ON threat_retrohunt_matches (endpoint);
+    `).catch(e => console.warn('[ThreatHunting] Auto-create retrohunt table warning:', e.message));
+
     for (const hit of retroHits) {
       try {
         const insRes = await qTenant(`
@@ -1045,6 +1071,32 @@ exports.getRetrohuntMatches = async (req, res) => {
       type = 'all',
       timeRange = 'all'
     } = req.query;
+
+    // Self-healing table check
+    await qTenant(`
+      CREATE TABLE IF NOT EXISTS threat_retrohunt_matches (
+        id BIGSERIAL PRIMARY KEY,
+        ts TIMESTAMP NOT NULL,
+        source_type VARCHAR(50) DEFAULT 'firewall',
+        aggregator_name VARCHAR(255) DEFAULT 'syslog',
+        endpoint VARCHAR(255) NOT NULL,
+        src_ip VARCHAR(100),
+        dst_ip VARCHAR(100),
+        indicator VARCHAR(255) NOT NULL,
+        indicator_type VARCHAR(20) NOT NULL,
+        malware_family VARCHAR(255) DEFAULT 'Malicious C2',
+        source_feed VARCHAR(100) DEFAULT 'ThreatFox',
+        confidence_level INTEGER DEFAULT 100,
+        severity VARCHAR(50) DEFAULT 'critical',
+        details TEXT,
+        discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT unique_retrohunt_match UNIQUE (ts, endpoint, indicator)
+      );
+      CREATE INDEX IF NOT EXISTS idx_retrohunt_ts ON threat_retrohunt_matches (ts DESC);
+      CREATE INDEX IF NOT EXISTS idx_retrohunt_indicator ON threat_retrohunt_matches (indicator);
+      CREATE INDEX IF NOT EXISTS idx_retrohunt_endpoint ON threat_retrohunt_matches (endpoint);
+    `).catch(() => {});
 
     const pageNum = Math.max(1, parseSafeInt(page, 1));
     const limitNum = Math.min(100, Math.max(1, parseSafeInt(limit, 20)));
