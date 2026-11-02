@@ -414,3 +414,4 @@ export default function ThreatTopology({
 
   return isFullscreen ? createPortal(content, document.body) : content;
 }
+
