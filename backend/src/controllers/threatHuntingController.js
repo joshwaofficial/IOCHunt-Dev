@@ -737,10 +737,13 @@ async function performRetrohunt({ qControl, qTenant, timeRange = '7d', limit = 1
       FROM fw_events
       WHERE ts >= NOW() - ${intervalClause}
         AND dst_ip = ANY($1::varchar[])
-        AND (logdesc NOT LIKE '%[THREAT DANGER]%' AND msg NOT LIKE '%[THREAT DANGER]%')
+        AND (COALESCE(logdesc, '') NOT LIKE '%[THREAT DANGER]%' AND COALESCE(msg, '') NOT LIKE '%[THREAT DANGER]%')
       ORDER BY ts DESC
       LIMIT 250
-    `, [ipList]).catch(() => ({ rows: [] }));
+    `, [ipList]).catch(err => {
+      console.error('[ThreatHunting] fwIpMatches error:', err.message);
+      return { rows: [] };
+    });
 
     for (const row of fwIpMatches.rows || []) {
       const intel = iocLookup.get(`ip:${row.indicator.toLowerCase()}`) || {};
@@ -783,10 +786,13 @@ async function performRetrohunt({ qControl, qTenant, timeRange = '7d', limit = 1
             )
           )
         )
-        AND (logdesc NOT LIKE '%[THREAT DANGER]%' AND msg NOT LIKE '%[THREAT DANGER]%')
+        AND (COALESCE(logdesc, '') NOT LIKE '%[THREAT DANGER]%' AND COALESCE(msg, '') NOT LIKE '%[THREAT DANGER]%')
       ORDER BY ts DESC
       LIMIT 250
-    `, [domainList]).catch(() => ({ rows: [] }));
+    `, [domainList]).catch(err => {
+      console.error('[ThreatHunting] fwDomainMatches error:', err.message);
+      return { rows: [] };
+    });
 
     for (const row of fwDomainMatches.rows || []) {
       const intel = iocLookup.get(`domain:${row.indicator.toLowerCase()}`) || {};
@@ -809,11 +815,14 @@ async function performRetrohunt({ qControl, qTenant, timeRange = '7d', limit = 1
              message AS details, severity
       FROM events
       WHERE ts >= NOW() - ${intervalClause}
-        AND (tag != 'MALWARE-EXE-DETECTED' AND message NOT LIKE '%[THREAT DANGER]%')
+        AND (COALESCE(tag, '') != 'MALWARE-EXE-DETECTED' AND COALESCE(message, '') NOT LIKE '%[THREAT DANGER]%')
         AND SUBSTRING(LOWER(message) FROM '([a-fA-F0-9]{64})') = ANY($1::varchar[])
       ORDER BY ts DESC
       LIMIT 250
-    `, [hashList]).catch(() => ({ rows: [] }));
+    `, [hashList]).catch(err => {
+      console.error('[ThreatHunting] evMatches error:', err.message);
+      return { rows: [] };
+    });
 
     for (const row of evMatches.rows || []) {
       const intel = iocLookup.get(`sha256:${row.indicator.toLowerCase()}`) || {};
@@ -861,7 +870,7 @@ async function performRetrohunt({ qControl, qTenant, timeRange = '7d', limit = 1
           newHitsCount++;
         }
       } catch (insErr) {
-        // Safe skip on constraint warning
+        console.error('[ThreatHunting] retrohunt match insert error:', insErr.message);
       }
     }
   }
